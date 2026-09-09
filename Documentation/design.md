@@ -43,12 +43,13 @@ try writer.add(contentsOf: sourceURL, as: "docs/readme.txt")
 try writer.addDirectory("docs/")
 try writer.finish()
 
-// 既存書庫の更新(追加・削除・改名)
+// 既存 ZIP への追加(段階 1 後半)
 let updater = try ArchiveUpdater.open(url: archive)   // 内部で KaitoKit の reader を使う
 try updater.add(contentsOf: fileURL, as: "new.txt")
-try updater.remove(entryAt: 3)
-try updater.rename(entryAt: 5, to: "renamed.txt")
-try updater.commit()        // 一時ファイルへ書いて atomic replace
+try updater.add(data: Data("追加".utf8), as: "memo.txt", modificationDate: nil, permissions: nil)
+try updater.addDirectory("empty/")
+try updater.commit()        // clone を完成させて atomic replace
+// remove / rename は段階 3。KaitoKit の rawRecord accessor 追加後に実装する。
 ```
 
 `ArchiveWriter` / `ArchiveUpdater` は thread-safe にしない。KaitoKit と同じく、
@@ -62,7 +63,7 @@ try updater.commit()        // 一時ファイルへ書いて atomic replace
 
 | 段階 | 形式 | 作成 | 追加 | 削除・改名 |
 |---|---|---|---|---|
-| 1 | ZIP / ZIP64 | ○ | ○(central directory を書き換えるだけ) | ○(生 record を運んで作り直す) |
+| 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | 段階 3(新しい KaitoKit accessor が必要) |
 | 2 | tar | ○ | ○(末尾の zero block の手前へ) | ○(作り直す) |
 | 2 | tar.gz / .bz2 / .xz | ○ | × | × |
 | 3 | 7z | ○(non-solid・非暗号) | 作り直し | 作り直し |
@@ -90,16 +91,32 @@ UI 側は進捗と取り消しを必ず出す。
 
 ## 6. 更新の安全性
 
+### 段階 1 の追加
+
 1. 同一ボリュームの `.itemReplacementDirectory` へ **APFS clone** する
-   (実測 300 MB で 0.002 s、サイズ非依存)。
-2. clone を書き換える。生き残る entry は **local record 全体をバイト列で**運ぶ。
-   local と central の extra field 長は正当に異なるため、central から local
-   header を再構成してはならない。
-3. central directory は**全部作り直す**。offset が 0xFFFFFFFF を跨ぐと ZIP64 の
-   extra field が増えて CD が伸びるので、offset の部分修正では閉じない。
+   (`FileManager.copyItem`。実測 300 MB で 0.002 s)。最初の add まで遅延する。
+2. clone の旧 CD offset から新しい local record を書く。既存の local record は
+   元の位置のままであり、再圧縮も descriptor の探索も行わない。
+3. 原本の開いた descriptor から **旧 CD の byte をそのまま**コピーし、新しい CD を
+   続ける。旧 local offset が動かないので、旧 CD の再符号化や部分修正は不要。
+   旧 entry 数・CD size・CD offset を合算した EOCD を作り、必要なら ZIP64 EOCD と
+   locator を新たに書く。旧 ZIP コメントも保持し、末尾を truncate・同期する。
 4. `FileManager.replaceItemAt` で差し替え、**直後に POSIX permission を復元**する
    (実測:replacement 側の mode が勝つ)。`replaceItemAt` は Finder tag と
-   xattr と作成日は保つが `com.apple.quarantine` は落とすので、必要なら付け直す。
+   xattr と作成日は保つが `com.apple.quarantine` は落とすので、付いていれば戻す。
+
+原本は一度も in-place 編集しない。commit 前の失敗・破棄では clone を削除する。
+成功後の commit は no-op。失敗後の instance は再利用できない。原本の inode・size・
+mtime・ctime・mode が open 時と変わった場合は置換を拒否する。ただし排他 lock は取らず、
+同一書庫への他プロセスの操作も呼出側で直列化する。
+置換後の metadata 復元が失敗した場合はエラーを返すが、内容の置換は既に完了している。
+
+### 段階 3 の削除・改名(未実装)
+
+生き残る local record 全体を新しい位置へ運ぶには、KaitoKit の rawRecord accessor が
+必要になる。local と central の extra field 長は異なるので local を CD から再構成しない。
+この場合は offset が動き、ZIP64 extra も増減するため CD を再構成する。
+追加だけにこの再構成や descriptor 探索を持ち込まない。
 
 ### 編集を断る三つの門番
 
@@ -174,9 +191,13 @@ signature の有無と ZIP64 かどうかで 0 / 12 / 16 / 20 / 24 byte と変�
 > survive, no data descriptors written but always parsed because `ditto` emits
 > them, no macOS metadata in tar by default, and no owner names leaked.
 >
-> Updating clones the archive with APFS, carries surviving local records over
-> verbatim, rebuilds the central directory wholesale, commits with `replaceItemAt`
-> and then restores POSIX permissions, because the replacement's mode wins.
+> Stage-one append clones the archive with APFS, leaves old local records at
+> their original offsets, writes new local records at the old CD offset, then
+> copies the old CD bytes verbatim and emits the new CD and combined end records.
+> ZIP64 appears whenever the combined values require it. No descriptor scanning
+> or existing-name re-encoding is needed. Commit uses `replaceItemAt`, immediately
+> restores POSIX permissions and restores quarantine when originally present.
+> Remove/rename and their CD reconstruction are deferred to stage three.
 > Editing is refused — while reading still works — for SFX-prefixed ZIPs, ZIPs
 > with trailing data after the EOCD, and ZIPs whose declared central-directory
 > offset does not point at a `PK\x01\x02` signature, the last being a measured

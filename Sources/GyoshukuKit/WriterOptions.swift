@@ -1,6 +1,6 @@
 import Foundation
 
-/// 作成できる書庫形式。更新 API は別の段階で追加する。
+/// 作成できる書庫形式。ZIP / ZIP64 の追加更新は ArchiveUpdater が扱う。
 public enum ArchiveFormat: Sendable {
     case zip
 }

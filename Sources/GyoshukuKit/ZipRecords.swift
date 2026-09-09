@@ -134,7 +134,8 @@ enum ZipRecords {
         }
     }
 
-    static func end(count: UInt64, centralSize: UInt64, centralOffset: UInt64) throws -> Data {
+    static func end(count: UInt64, centralSize: UInt64, centralOffset: UInt64, comment: Data = Data()) throws -> Data {
+        guard comment.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
         var result = Data()
         if count >= UInt16.max || centralSize >= limit || centralOffset >= limit {
             result.le(UInt32(0x06064B50))
@@ -159,7 +160,8 @@ enum ZipRecords {
         result.le(UInt16(min(count, UInt64(UInt16.max))))
         result.le(UInt32(min(centralSize, limit)))
         result.le(UInt32(min(centralOffset, limit)))
-        result.le(UInt16(0))
+        result.le(UInt16(comment.count))
+        result.append(comment)
         return result
     }
 }

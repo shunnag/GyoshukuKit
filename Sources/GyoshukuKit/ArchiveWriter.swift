@@ -20,7 +20,7 @@ public final class ArchiveWriter {
     private var state = State.writing
     private static let chunkSize = 256 * 1024
 
-    private init(output: FileHandle, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions) {
+    init(output: FileHandle, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions) {
         self.output = output
         self.outputIdentity = identity
         self.format = format
@@ -76,13 +76,38 @@ public final class ArchiveWriter {
         }
     }
 
+    // updater も同じ追加処理を使う。既存名は衝突検査にだけ使い、保存 byte は変更しない。
+    func prepareAppend(at offset: UInt64, existingPaths: [(String, Bool)]) throws {
+        try output.seek(toOffset: offset)
+        position = offset
+        for (name, directory) in existingPaths {
+            let key = name.hasSuffix("/") ? String(name.dropLast()) : name
+            names.insert(key)
+            if !directory { files.insert(key) }
+            var prefix = ""
+            for component in key.split(separator: "/").dropLast() {
+                prefix += prefix.isEmpty ? String(component) : "/" + component
+                requiredDirectories.insert(prefix)
+            }
+        }
+    }
+
     /// central directory と終端 record を書き、出力を閉じる。成功後の再呼出しは何もしない。
     public func finish() throws {
+        try finish(existingCount: 0, comment: Data()) { _ in }
+    }
+
+    // 旧 CD は一定量ずつ原本から運ぶ。local/central/EOCD の生成は writer と完全に共有する。
+    func finish(existingCount: UInt64, comment: Data,
+                copyCentral: (_ emit: (Data) throws -> Void) throws -> Void) throws {
         if state == .finished { return }
         try perform {
             let start = position
+            try copyCentral(write)
             for entry in entries { try write(entry.central()) }
-            try write(ZipRecords.end(count: UInt64(entries.count), centralSize: position - start, centralOffset: start))
+            try write(ZipRecords.end(count: checkedAdd(existingCount, UInt64(entries.count)),
+                                     centralSize: position - start, centralOffset: start, comment: comment))
+            try output.truncate(atOffset: position)
             try output.synchronize()
             try output.close()
             state = .finished

@@ -59,7 +59,7 @@ enum ZipTestSupport {
     }
 
     /// 全書庫を実ツールで検査し、展開結果と KaitoKit の全 entry を照合する。
-    static func verify(_ archive: URL, expected: [Expected]) throws {
+    static func verify(_ archive: URL, expected: [Expected], legacyCP932: Bool = false) throws {
         let directory = archive.deletingLastPathComponent()
         let empty = expected.isEmpty
         let test = try run("/usr/bin/unzip", ["-t", archive.path], in: directory, log: "unzip-t", allowed: empty ? [1] : [0])
@@ -71,7 +71,10 @@ enum ZipTestSupport {
             guard fields.count == 4, UInt64(fields[0]) != nil, fields[1].contains("-") else { return nil }
             return String(fields[3]).trimmingCharacters(in: .whitespaces)
         } }
-        if expected.contains(where: { !$0.name.utf8.allSatisfy({ $0 < 128 }) }) {
+        if legacyCP932 {
+            // Apple unzip の非 Unicode 表示は byte 保存の検査と分ける。
+            XCTAssertEqual(names(in: listing).count, expected.count)
+        } else if expected.contains(where: { !$0.name.utf8.allSatisfy({ $0 < 128 }) }) {
             // Apple 版 unzip は Unicode 非対応 build。独立した標準 ZIP と表示を比較する。
             let oracle = directory.appendingPathComponent("python-oracle.zip")
             try run("/usr/bin/python3", ["-c", "import sys,zipfile,unicodedata; z=zipfile.ZipFile(sys.argv[1],'w'); [z.writestr(unicodedata.normalize('NFC',n),b'') for n in sys.argv[2:]]; z.close()", oracle.path] + expected.map(\.name), in: directory, log: "python-create")
@@ -80,12 +83,22 @@ enum ZipTestSupport {
         } else {
             XCTAssertEqual(names(in: listing), expected.map(\.name))
         }
-        let seven = try run("/opt/homebrew/bin/7zz", ["t", archive.path], in: directory, log: "7zz-t")
+        let seven = try run("/opt/homebrew/bin/7zz", ["t"] + (legacyCP932 ? ["-mcp=932"] : []) + [archive.path], in: directory, log: "7zz-t")
         XCTAssertTrue(seven.contains("Everything is Ok"))
-        let sevenListing = try run("/opt/homebrew/bin/7zz", ["l", "-slt", archive.path], in: directory, log: "7zz-l")
+        let sevenListing = try run("/opt/homebrew/bin/7zz", ["l", "-slt"] + (legacyCP932 ? ["-mcp=932"] : []) + [archive.path], in: directory, log: "7zz-l")
         let sevenNames = sevenListing.components(separatedBy: "----------\n").last!
             .split(separator: "\n").filter { $0.hasPrefix("Path = ") }.map { String($0.dropFirst(7)) }
-        XCTAssertEqual(sevenNames, expected.map { $0.name.hasSuffix("/") ? String($0.name.dropLast()) : $0.name })
+        if legacyCP932 {
+            // macOS 版 7zz の CP932 表示は独立 fixture の更新前と比較する。
+            // 正しい日本語名そのものは下の KaitoKit と ditto で必ず照合する。
+            let baseline = try String(contentsOf: directory.appendingPathComponent("original-7zz-l.log"), encoding: .utf8)
+            let originalNames = baseline.components(separatedBy: "----------\n").last!
+                .split(separator: "\n").filter { $0.hasPrefix("Path = ") }.map { String($0.dropFirst(7)) }
+            XCTAssertEqual(originalNames.count, 1)
+            XCTAssertEqual(sevenNames, originalNames + expected.dropFirst().map(\.name))
+        } else {
+            XCTAssertEqual(sevenNames, expected.map { $0.name.hasSuffix("/") ? String($0.name.dropLast()) : $0.name })
+        }
         let extracted = directory.appendingPathComponent("ditto")
         let ditto = try run("/usr/bin/ditto", ["-x", "-k", archive.path, extracted.path], in: directory, log: "ditto-x", allowed: empty ? [1] : [0])
         if empty {
