@@ -1,0 +1,14 @@
+.build/
+.build-asan/
+.build-native/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+DerivedData/
+Frameworks/
+build/
+/inbox/
+*.profraw
+**/__pycache__/
+*.pyc
+.DS_Store
