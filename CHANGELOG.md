@@ -2,6 +2,47 @@
 
 注目すべき変更を記録する。バージョニングは Semantic Versioning に従う。
 
+## [0.3.0] - 2026-09-10
+
+### 追加
+
+- `ArchiveUpdater.remove(entriesAt:)` と `rename(entryAt:to:)`。open 時の index で予約し、
+  追加と同じ commit で atomic replace する。子孫の削除・改名は呼出側が明示する。
+- KaitoKit 0.4.0 の `rawRecord(of:)` による ZIP / ZIP64 の再構築。生き残る local record と
+  descriptor を再圧縮せず運び、改名時だけ local / central の名前を UTF-8 / NFC / bit 11 で更新。
+  同長の local 名は同じ位置で patch し、異長なら header を再出力して payload をコピーする。
+- 全 CD の再出力と、size / compressed size / offset / count ごとの ZIP64 増減。
+  未変更 entry の名前 byte・flag・extra・comment・属性を保持し、旧 Unicode Path override は
+  改名時に無効化する。削除で空になった ZIP は通常の EOCD だけになる（ZIP コメントは保持）。
+- 範囲外 index、予約済み名との衝突、危険な改名を拒否する。移動できない entry は
+  `nonRelocatableEntry` で理由を返し、途中失敗・Task cancellation・未 commit の破棄で原本を保つ。
+- 既存の三門番、APFS clone、mode / quarantine 復元、原本変更検知を維持。
+  追加と再構築の混在時は完成した clone の snapshot から読み、読取元の上書きを避ける。
+- 実ツールによる削除・改名、CP932、ditto descriptor、symlink、metadata、空 ZIP の往復。
+  65,536 → 65,533 → 65,536 件と、実際の local offset 4 GiB 境界越え・削除による縮小も検証。
+
+### 範囲と制限
+
+- KaitoKit / KaitoFinder は変更しない。依存は引き続きローカル `../KaitoKit`（0.4.0）。
+- ZIP32 descriptor の entry に移動先の ZIP64 offset が新たに必要になる場合は拒否する。
+  KaitoKit 0.4.0 が offset 用 extra でも descriptor を wide と解釈するため、原本を保って理由を返す。
+- 空 ZIP・旧文字コード表示・特殊な descriptor に対する Apple ツールの制限と、
+  実行環境の制約は[検証記録](Documentation/verification/2026-09-10-zip-delete-rename.md)に記載。
+
+> **Added — 0.3.0 (2026-09-10)**
+>
+> ArchiveUpdater queues deletion and renaming by stable indices from open, and commits them
+> together with additions. KaitoKit 0.4.0 raw records carry surviving payloads and descriptors
+> without recompression. Renames update both headers to UTF-8/NFC with bit 11; unchanged names
+> and flags retain their original bytes. The entire CD is rebuilt with independent ZIP64 fields.
+> Invalid indices, unsafe names, conflicts and non-relocatable records are rejected. Existing
+> gatekeepers, atomic replacement, metadata restoration and source-change detection remain.
+> Cancellation and failures preserve the original. Real-tool tests cover CP932, ditto descriptors,
+> symlinks, metadata, empty archives, count transitions in both directions and actual local offsets
+> crossing 4 GiB. Neither reference repository is modified. Tool and environment limits are
+> documented in the linked verification record. A ZIP32 descriptor gaining a ZIP64 offset is
+> refused because KaitoKit 0.4.0 would reinterpret its descriptor width.
+
 ## [0.2.0] - 2026-09-10
 
 ### 追加

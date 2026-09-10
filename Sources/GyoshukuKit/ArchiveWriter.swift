@@ -80,7 +80,19 @@ public final class ArchiveWriter {
     func prepareAppend(at offset: UInt64, existingPaths: [(String, Bool)]) throws {
         try output.seek(toOffset: offset)
         position = offset
-        for (name, directory) in existingPaths {
+        replaceExistingPaths(existingPaths)
+    }
+
+    var appendedPaths: [(String, Bool)] {
+        entries.map { (String(decoding: $0.name, as: UTF8.self), $0.mode & 0xF000 == 0x4000) }
+    }
+
+    // 削除・改名を予約した後の add も、予約済みの名前集合で衝突を検査する。
+    func replaceExistingPaths(_ paths: [(String, Bool)]) {
+        names.removeAll(keepingCapacity: true)
+        files.removeAll(keepingCapacity: true)
+        requiredDirectories.removeAll(keepingCapacity: true)
+        for (name, directory) in paths + appendedPaths {
             let key = name.hasSuffix("/") ? String(name.dropLast()) : name
             names.insert(key)
             if !directory { files.insert(key) }
@@ -193,7 +205,7 @@ public final class ArchiveWriter {
         read: (Int) throws -> Data
     ) throws {
         let directory = mode & 0xF000 == 0x4000
-        let name = try normalizedPath(path, directory: directory)
+        let name = try Self.normalizedPath(path, directory: directory)
         let key = directory ? String(name.dropLast()) : name
         guard names.insert(key).inserted else {
             throw WriterError.duplicatePath(name)
@@ -261,7 +273,7 @@ public final class ArchiveWriter {
         return options.compressionMethod
     }
 
-    private func normalizedPath(_ path: String, directory: Bool) throws -> String {
+    static func normalizedPath(_ path: String, directory: Bool) throws -> String {
         var name = path.precomposedStringWithCanonicalMapping
         if directory && !name.hasSuffix("/") { name += "/" }
         let body = directory ? String(name.dropLast()) : name

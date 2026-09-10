@@ -52,14 +52,15 @@ enum ZipTestSupport {
         XCTAssertTrue(allowed.contains(process.terminationStatus), "\(tool) \(arguments) exit \(process.terminationStatus): \(text.prefix(4000))")
         if tool.hasSuffix("/7zz") {
             // 7-Zip は Headers Error があっても exit 0 / Everything is Ok を返す場合がある。
-            XCTAssertFalse(text.contains("Headers Error") || text.lowercased().contains("warnings:") || text.lowercased().contains("errors:"), text)
+            XCTAssertFalse(text.lowercased().contains("headers error") || text.lowercased().contains("warning") || text.lowercased().contains("errors:"), text)
         }
         report("REFERENCE \(directory.lastPathComponent)/\(log): exit \(process.terminationStatus); \(text.split(separator: "\n").suffix(2).joined(separator: " | "))")
         return text
     }
 
     /// 全書庫を実ツールで検査し、展開結果と KaitoKit の全 entry を照合する。
-    static func verify(_ archive: URL, expected: [Expected], legacyCP932: Bool = false) throws {
+    static func verify(_ archive: URL, expected: [Expected], legacyCP932: Bool = false,
+                       legacyOriginalIndices: [Int] = [0]) throws {
         let directory = archive.deletingLastPathComponent()
         let empty = expected.isEmpty
         let test = try run("/usr/bin/unzip", ["-t", archive.path], in: directory, log: "unzip-t", allowed: empty ? [1] : [0])
@@ -94,8 +95,9 @@ enum ZipTestSupport {
             let baseline = try String(contentsOf: directory.appendingPathComponent("original-7zz-l.log"), encoding: .utf8)
             let originalNames = baseline.components(separatedBy: "----------\n").last!
                 .split(separator: "\n").filter { $0.hasPrefix("Path = ") }.map { String($0.dropFirst(7)) }
-            XCTAssertEqual(originalNames.count, 1)
-            XCTAssertEqual(sevenNames, originalNames + expected.dropFirst().map(\.name))
+            XCTAssertTrue(legacyOriginalIndices.allSatisfy { originalNames.indices.contains($0) })
+            XCTAssertEqual(sevenNames, legacyOriginalIndices.map { originalNames[$0] }
+                           + expected.dropFirst(legacyOriginalIndices.count).map(\.name))
         } else {
             XCTAssertEqual(sevenNames, expected.map { $0.name.hasSuffix("/") ? String($0.name.dropLast()) : $0.name })
         }

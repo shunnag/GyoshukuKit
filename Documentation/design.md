@@ -49,7 +49,12 @@ try updater.add(contentsOf: fileURL, as: "new.txt")
 try updater.add(data: Data("追加".utf8), as: "memo.txt", modificationDate: nil, permissions: nil)
 try updater.addDirectory("empty/")
 try updater.commit()        // clone を完成させて atomic replace
-// remove / rename は段階 3。KaitoKit の rawRecord accessor 追加後に実装する。
+
+// 既存 ZIP の削除・改名(段階 3、0.3.0)
+let editing = try ArchiveUpdater.open(url: archive)
+try editing.remove(entriesAt: [0, 2])
+try editing.rename(entryAt: 1, to: "docs/新しい名前.txt")
+try editing.commit()        // index は open 時の値。削除予約で詰め直さない
 ```
 
 `ArchiveWriter` / `ArchiveUpdater` は thread-safe にしない。KaitoKit と同じく、
@@ -63,7 +68,7 @@ try updater.commit()        // clone を完成させて atomic replace
 
 | 段階 | 形式 | 作成 | 追加 | 削除・改名 |
 |---|---|---|---|---|
-| 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | 段階 3(新しい KaitoKit accessor が必要) |
+| 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(末尾の zero block の手前へ) | ○(作り直す) |
 | 2 | tar.gz / .bz2 / .xz | ○ | × | × |
 | 3 | 7z | ○(non-solid・非暗号) | 作り直し | 作り直し |
@@ -111,12 +116,31 @@ mtime・ctime・mode が open 時と変わった場合は置換を拒否する�
 同一書庫への他プロセスの操作も呼出側で直列化する。
 置換後の metadata 復元が失敗した場合はエラーを返すが、内容の置換は既に完了している。
 
-### 段階 3 の削除・改名(未実装)
+### 段階 3 の削除・改名(0.3.0)
 
 生き残る local record 全体を新しい位置へ運ぶには、KaitoKit の rawRecord accessor が
-必要になる。local と central の extra field 長は異なるので local を CD から再構成しない。
-この場合は offset が動き、ZIP64 extra も増減するため CD を再構成する。
+必要になる。KaitoKit 0.4.0 の `rawRecord(of:)` を使用し、nil の生存 entry は理由付きで拒否する。
+local と central の extra field 長は異なるので local を CD から再構成しない。
+この場合は offset が動き、ZIP64 extra も増減するため CD 全体を再出力する。
 追加だけにこの再構成や descriptor 探索を持ち込まない。
+
+削除・改名は open 時の index で予約する。削除の重複は無害、同じ index の再改名は最後の
+予約名を使う。削除済み entry の改名は拒否し、削除予約した名前は後の追加・改名で再利用できる。
+子孫の削除・改名、symlink target の変更は暗黙に行わない。
+
+生存 record は archive order に 256 KiB ずつ運ぶ。同長改名は local header の同じ位置へ
+名前・flag を patch、異長改名は元の local header と extra を元に再出力し、payload から
+`recordRange.upperBound` までコピーする。descriptor の長さは算出しない。
+改名時だけ UTF-8 / NFC / bit 11 を使い、旧 Unicode Path extra は長さを保った padding にする。
+CD の各 ZIP64 size / offset は独立判定する。central だけで wide descriptor を宣言していた
+entry は、値が小さくなっても空の ZIP64 marker を残して KaitoKit の幅の解釈を維持する。
+逆に ZIP32 descriptor に offset 用 ZIP64 extra が初めて必要になる移動は拒否する。
+KaitoKit 0.4.0 がこの extra も wide 判定に使うためで、descriptor の独自変換はしない。
+
+追加が混在するときは従来の append を clone 上で完成させ、その APFS snapshot から
+生存 record（追加分を含む）を元の clone へ再構築する。全ての作業ファイルは同じ replacement
+directory に置き、失敗・破棄で削除する。Task cancellation は record / コピー chunk ごとと
+置換直前に確認する。commit 後の metadata 復元と競合についての契約は追加と同じ。
 
 ### 編集を断る三つの門番
 
@@ -131,11 +155,11 @@ mtime・ctime・mode が open 時と変わった場合は置換を拒否する�
   編集が静かに壊す。詳細は KaitoFinder の
   `Documentation/verification/2026-09-10-ditto-zip64.md`。
 
-## 7. KaitoKit へ必要な追加
+## 7. KaitoKit の rawRecord API (0.4.0 で実装済み)
 
 削除・改名で生き残る entry を再圧縮せずに運ぶには、生 record の範囲が要る。
 `ZipReader` は `localHeaderOffset` / `dataOffset` / `compressedSize` を private に
-持っているため、追加の公開 API が必要になる。
+持っているため、追加の公開 API を KaitoKit 0.4.0 で提供する。
 
 ```swift
 public struct RawEntryRecord: Sendable {
@@ -151,7 +175,7 @@ signature の有無と ZIP64 かどうかで 0 / 12 / 16 / 20 / 24 byte と変�
 呼ぶ側にこの算術をやらせると writer と reader で解釈がずれる。
 
 これは段階 1 の**追加**では不要で、**削除・改名**に入るときに必要になる。
-それまで KaitoKit には触れない。
+GyoshukuKit 側でこの accessor を利用し、KaitoKit の source は変更しない。
 
 ## 8. やらないこと
 
@@ -197,17 +221,25 @@ signature の有無と ZIP64 かどうかで 0 / 12 / 16 / 20 / 24 byte と変�
 > ZIP64 appears whenever the combined values require it. No descriptor scanning
 > or existing-name re-encoding is needed. Commit uses `replaceItemAt`, immediately
 > restores POSIX permissions and restores quarantine when originally present.
-> Remove/rename and their CD reconstruction are deferred to stage three.
+> Stage three (0.3.0) uses KaitoKit 0.4.0 raw records for deletion and renaming,
+> rebuilding the complete CD with new offsets and independent ZIP64 fields.
+> Indices remain stable from open, and subtree policy belongs to the caller.
+> Equal-length local renames patch headers; different lengths re-emit headers
+> while copying stored payloads and descriptors. Only authored names gain UTF-8/NFC.
+> Mixed additions are completed in the clone and read from a separate snapshot
+> during rebuilding. Cancellation and failure discard the working copies.
+> A ZIP32 descriptor gaining an offset-only ZIP64 extra is refused because
+> KaitoKit 0.4.0 would reinterpret the descriptor width; the original remains intact.
 > Editing is refused — while reading still works — for SFX-prefixed ZIPs, ZIPs
 > with trailing data after the EOCD, and ZIPs whose declared central-directory
 > offset does not point at a `PK\x01\x02` signature, the last being a measured
 > trap: `ditto` writes entries above 4 GiB with no ZIP64 at all and truncates
 > three separate values mod 2^32.
 >
-> Remove and rename will need one additive KaitoKit accessor, `rawRecord(of:)`,
+> Remove and rename use the KaitoKit 0.4.0 accessor, `rawRecord(of:)`,
 > exposing the byte range of an entry's stored record with the data-descriptor
 > arithmetic done on KaitoKit's side so writer and reader cannot disagree. Stage
-> one does not need it, so KaitoKit stays untouched until then.
+> one does not need it. GyoshukuKit does not change KaitoKit's source.
 >
 > Three things are deliberately never done: writing RAR, whose licence forbids it;
 > creating self-extracting archives, which cannot be validly signed on macOS and

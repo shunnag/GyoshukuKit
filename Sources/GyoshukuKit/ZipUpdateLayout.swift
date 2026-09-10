@@ -20,6 +20,8 @@ public enum UpdateGatekeeper: String, Sendable {
 public enum UpdaterError: Error, Sendable, Equatable {
     case editingRefused(gatekeeper: UpdateGatekeeper, reason: String)
     case invalidArchive(String)
+    case invalidEntryIndex(Int)
+    case nonRelocatableEntry(index: Int, name: String, reason: String)
     case sourceChanged
     case invalidState
 }
@@ -88,7 +90,7 @@ final class ZipUpdateSource: ByteSource {
     }
 }
 
-// entry の parser は KaitoKit に任せる。ここでは追記に必要な終端の範囲と三門番だけを検査する。
+// entry の parser は KaitoKit に任せる。ここでは更新に必要な終端の範囲と三門番だけを検査する。
 struct ZipUpdateLayout {
     let centralOffset: UInt64
     let centralSize: UInt64
@@ -172,9 +174,14 @@ struct ZipUpdateLayout {
     }
 }
 
-// 呼出箇所で固定長を検証した終端 record 専用の little-endian 読み取り。
-private extension Data {
+// 呼出箇所で固定長を検証した ZIP record 専用の little-endian 読み取り。
+extension Data {
     func zip16(_ at: Int) -> UInt16 { UInt16(self[at]) | UInt16(self[at + 1]) << 8 }
     func zip32(_ at: Int) -> UInt32 { UInt32(zip16(at)) | UInt32(zip16(at + 2)) << 16 }
     func zip64(_ at: Int) -> UInt64 { UInt64(zip32(at)) | UInt64(zip32(at + 4)) << 32 }
+    mutating func zipSet<T: FixedWidthInteger>(_ value: T, at: Int) {
+        var encoded = Data()
+        encoded.le(value)
+        replaceSubrange(at..<(at + encoded.count), with: encoded)
+    }
 }
