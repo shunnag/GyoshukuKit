@@ -1,16 +1,18 @@
 import Foundation
 private import Darwin
 
-/// ZIP / ZIP64 を新規作成する。既存の出力先は上書きしない。
+/// ZIP / ZIP64、tar、tar.gz を新規作成する。既存の出力先は上書きしない。
 ///
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
-/// add / finish が失敗した instance は再利用できず、部分出力は呼出側で削除する。
+/// add / finish が失敗した instance は再利用できない。
+/// ZIP の部分出力は呼出側で削除する。tar / tar.gz は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
     public let format: ArchiveFormat
     private let options: WriterOptions
     private let output: FileHandle
     private let outputIdentity: (dev_t, ino_t)
+    private let tarWriter: TarWriter?
     private var position: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
     private var names: Set<String> = []
@@ -20,15 +22,21 @@ public final class ArchiveWriter {
     private var state = State.writing
     private static let chunkSize = 256 * 1024
 
-    init(output: FileHandle, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions) {
+    init(output: FileHandle, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
+         tarWriter: TarWriter? = nil) {
         self.output = output
         self.outputIdentity = identity
         self.format = format
         self.options = options
+        self.tarWriter = tarWriter
     }
 
-    deinit { try? output.close() }
+    deinit {
+        tarWriter?.abort()
+        try? output.close()
+    }
 
+    /// create と同じ新規作成 API。既存書庫を更新する操作ではない。
     /// options を検証してから O_EXCL で出力を新規作成する。
     public static func create(
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
@@ -36,6 +44,8 @@ public final class ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         guard (0...9).contains(options.deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard !options.preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
+        if format != .zip { try Task.checkCancellation() }
+        let gzip = format == .tarGzip ? try GzipCompressor(level: options.deflateLevel) : nil
         let fd = url.withUnsafeFileSystemRepresentation { path in
             path.map { Darwin.open($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666) } ?? -1
         }
@@ -43,7 +53,9 @@ public final class ArchiveWriter {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var info = stat()
         guard fstat(fd, &info) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
-        return ArchiveWriter(output: handle, identity: (info.st_dev, info.st_ino), format: format, options: options)
+        let identity = (info.st_dev, info.st_ino)
+        let tar = format == .zip ? nil : TarWriter(output: handle, url: url, identity: identity, gzip: gzip)
+        return ArchiveWriter(output: handle, identity: identity, format: format, options: options, tarWriter: tar)
     }
 
     /// ディレクトリは名前順で再帰追加する。symlink は辿らず target path を保存する。
@@ -59,7 +71,7 @@ public final class ArchiveWriter {
     }
 
     /// メモリ上の内容を追加する。mode の既定は 0644。日付は秒単位に切り捨てる。
-    /// extended timestamp の符号付き 32 bit 秒に収まらない日付は拒否する。
+    /// ZIP は符号付き 32 bit 秒、tar は符号付き 64 bit 秒に収まらない日付を拒否する。
     public func add(
         data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil
     ) throws {
@@ -104,8 +116,16 @@ public final class ArchiveWriter {
         }
     }
 
-    /// central directory と終端 record を書き、出力を閉じる。成功後の再呼出しは何もしない。
+    /// 形式ごとの終端 record を書き、出力を閉じる。成功後の再呼出しは何もしない。
     public func finish() throws {
+        if let tarWriter {
+            if state == .finished { return }
+            try perform {
+                try tarWriter.finish()
+                state = .finished
+            }
+            return
+        }
         try finish(existingCount: 0, comment: Data()) { _ in }
     }
 
@@ -128,14 +148,19 @@ public final class ArchiveWriter {
 
     private func perform(_ body: () throws -> Void) throws {
         guard state == .writing else { throw WriterError.invalidState }
-        do { try body() } catch {
+        do {
+            if tarWriter != nil { try Task.checkCancellation() }
+            try body()
+        } catch {
             state = .failed
+            tarWriter?.abort()
             try? output.close()
             throw error
         }
     }
 
     private func addDisk(_ url: URL, as path: String) throws {
+        if tarWriter != nil { try Task.checkCancellation() }
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         var info = stat()
         let status = url.withUnsafeFileSystemRepresentation { pointer in
@@ -183,7 +208,10 @@ public final class ArchiveWriter {
                   opened.st_mode & S_IFMT == S_IFREG, opened.st_size == info.st_size, info.st_size >= 0 else {
                 throw WriterError.sourceChanged(url.path)
             }
-            try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime, owners: owners) {
+            let hardLink = try tarWriter?.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
+                                                        signature: Self.linkSignature(info))
+            try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
+                         owners: owners, hardLink: hardLink) {
                 try input.read(upToCount: $0) ?? Data()
             }
             var after = stat()
@@ -195,6 +223,11 @@ public final class ArchiveWriter {
                   after.st_ctimespec.tv_nsec == info.st_ctimespec.tv_nsec else {
                 throw WriterError.sourceChanged(url.path)
             }
+            if info.st_nlink > 1, hardLink == nil, let tarWriter {
+                tarWriter.rememberHardLink(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
+                                          signature: Self.linkSignature(info),
+                                          path: try Self.normalizedPath(path, directory: false))
+            }
         default:
             throw WriterError.unsupportedFileType(url.path)
         }
@@ -202,6 +235,7 @@ public final class ArchiveWriter {
 
     private func addEntry(
         path: String, mode: UInt16, size: UInt64, date: Date, atime: Date?, owners: (UInt32, UInt32)?,
+        hardLink: String? = nil,
         read: (Int) throws -> Data
     ) throws {
         let directory = mode & 0xF000 == 0x4000
@@ -219,6 +253,10 @@ public final class ArchiveWriter {
             requiredDirectories.insert(prefix)
         }
         if !directory { files.insert(key) }
+        if let tarWriter {
+            try tarWriter.add(name: name, mode: mode, size: size, date: date, owners: owners, hardLink: hardLink, read: read)
+            return
+        }
         let method = compression(name: name, mode: mode, size: size)
         let mtime = try ZipRecords.timestamp(date)
         let accessTime = try ZipRecords.timestamp(atime ?? date)
@@ -262,6 +300,12 @@ public final class ArchiveWriter {
         let next = try checkedAdd(position, UInt64(data.count))
         try output.write(contentsOf: data)
         position = next
+    }
+
+    private static func linkSignature(_ info: stat) -> [Int64] {
+        // 同じ inode が後から変更されていれば、古い payload への hard link に置き換えない。
+        [info.st_size, Int64(info.st_mtimespec.tv_sec), Int64(info.st_mtimespec.tv_nsec),
+         Int64(info.st_ctimespec.tv_sec), Int64(info.st_ctimespec.tv_nsec)]
     }
 
     private func compression(name: String, mode: UInt16, size: UInt64) -> CompressionMethod {
