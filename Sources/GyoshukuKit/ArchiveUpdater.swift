@@ -30,6 +30,11 @@ public final class ArchiveUpdater {
 
     deinit { cleanup() }
 
+    /// open 時のゼロ始まり index に対応する名前。remove / rename に渡す index が
+    /// 何を指すかを、呼出側が破壊的操作の前に照合するためのもの。
+    /// 予約済みの削除・改名を反映せず、常に open 時の名前を返す。
+    public var entryNames: [String] { reader?.entries.map(\.name) ?? [] }
+
     public static func open(url: URL) throws -> ArchiveUpdater {
         let source = try ZipUpdateSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
