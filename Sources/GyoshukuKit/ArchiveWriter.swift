@@ -11,12 +11,14 @@ public final class ArchiveWriter {
     public let format: ArchiveFormat
     private let options: WriterOptions
     private let output: FileHandle
-    private let outputIdentity: (dev_t, ino_t)
+    // rewriter の失敗時も、出力先が別 inode に置換されていれば削除しない。
+    let outputIdentity: (dev_t, ino_t)
     private let tarWriter: TarWriter?
     private let sevenZipWriter: SevenZipWriter?
     private let lhaWriter: LHAWriter?
     private var position: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
+    private(set) var appendedPaths: [(String, Bool)] = []
     private var names: Set<String> = []
     private var files: Set<String> = []
     private var requiredDirectories: Set<String> = []
@@ -109,10 +111,6 @@ public final class ArchiveWriter {
         try output.seek(toOffset: offset)
         position = offset
         replaceExistingPaths(existingPaths)
-    }
-
-    var appendedPaths: [(String, Bool)] {
-        entries.map { (String(decoding: $0.name, as: UTF8.self), $0.mode & 0xF000 == 0x4000) }
     }
 
     // 削除・改名を予約した後の add も、予約済みの名前集合で衝突を検査する。
@@ -267,7 +265,8 @@ public final class ArchiveWriter {
         }
     }
 
-    private func addEntry(
+    // rewriter は展開 stream を同じ serializer に渡す。失敗時の破棄は呼出側が行う。
+    func addEntry(
         path: String, mode: UInt16, size: UInt64, date: Date, atime: Date?, owners: (UInt32, UInt32)?,
         hardLink: String? = nil,
         read: (Int) throws -> Data
@@ -289,14 +288,17 @@ public final class ArchiveWriter {
         if !directory { files.insert(key) }
         if let tarWriter {
             try tarWriter.add(name: name, mode: mode, size: size, date: date, owners: owners, hardLink: hardLink, read: read)
+            appendedPaths.append((name, directory))
             return
         }
         if let sevenZipWriter {
             try sevenZipWriter.add(name: name, mode: mode, size: size, date: date, read: read)
+            appendedPaths.append((name, directory))
             return
         }
         if let lhaWriter {
             try lhaWriter.add(name: name, mode: mode, size: size, date: date, read: read)
+            appendedPaths.append((name, directory))
             return
         }
         let method = compression(name: name, mode: mode, size: size)
@@ -336,6 +338,7 @@ public final class ArchiveWriter {
         try output.write(contentsOf: patched)
         try output.seek(toOffset: position)
         entries.append(entry)
+        appendedPaths.append((name, directory))
     }
 
     private func write(_ data: Data) throws {

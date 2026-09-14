@@ -6,7 +6,7 @@ internal import KaitoKit
 /// thread-safe ではない。呼出側は同じ書庫への操作も直列化する。
 /// add は clone に書き、削除・改名は予約する。commit 成功で原本を置換する。
 /// 失敗後は再利用できない。deinit は未 commit の clone を削除する。
-public final class ArchiveUpdater {
+public final class ArchiveUpdater: ArchiveEditing {
     private let url: URL
     private let source: ZipUpdateSource
     private let layout: ZipUpdateLayout
