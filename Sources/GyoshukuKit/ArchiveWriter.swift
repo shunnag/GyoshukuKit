@@ -1,18 +1,19 @@
 import Foundation
 private import Darwin
 
-/// ZIP / ZIP64、tar、tar.gz を新規作成する。既存の出力先は上書きしない。
+/// ZIP / ZIP64、tar、tar.gz、7z を新規作成する。既存の出力先は上書きしない。
 ///
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
 /// add / finish が失敗した instance は再利用できない。
-/// ZIP の部分出力は呼出側で削除する。tar / tar.gz は失敗・未完了の破棄時に削除する。
+/// ZIP の部分出力は呼出側で削除する。tar / tar.gz / 7z は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
     public let format: ArchiveFormat
     private let options: WriterOptions
     private let output: FileHandle
     private let outputIdentity: (dev_t, ino_t)
     private let tarWriter: TarWriter?
+    private let sevenZipWriter: SevenZipWriter?
     private var position: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
     private var names: Set<String> = []
@@ -23,16 +24,18 @@ public final class ArchiveWriter {
     private static let chunkSize = 256 * 1024
 
     init(output: FileHandle, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
-         tarWriter: TarWriter? = nil) {
+         tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil) {
         self.output = output
         self.outputIdentity = identity
         self.format = format
         self.options = options
         self.tarWriter = tarWriter
+        self.sevenZipWriter = sevenZipWriter
     }
 
     deinit {
         tarWriter?.abort()
+        sevenZipWriter?.abort()
         try? output.close()
     }
 
@@ -44,6 +47,7 @@ public final class ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         guard (0...9).contains(options.deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard !options.preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
+        if format == .sevenZip, options.preserveOwnerIDs { throw WriterError.unsupportedOption("preserveOwnerIDs") }
         if format != .zip { try Task.checkCancellation() }
         let gzip = format == .tarGzip ? try GzipCompressor(level: options.deflateLevel) : nil
         let fd = url.withUnsafeFileSystemRepresentation { path in
@@ -54,8 +58,11 @@ public final class ArchiveWriter {
         var info = stat()
         guard fstat(fd, &info) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
         let identity = (info.st_dev, info.st_ino)
-        let tar = format == .zip ? nil : TarWriter(output: handle, url: url, identity: identity, gzip: gzip)
-        return ArchiveWriter(output: handle, identity: identity, format: format, options: options, tarWriter: tar)
+        let tar = format == .tar || format == .tarGzip
+            ? TarWriter(output: handle, url: url, identity: identity, gzip: gzip) : nil
+        let sevenZip = format == .sevenZip ? SevenZipWriter(output: handle, url: url, identity: identity) : nil
+        return ArchiveWriter(output: handle, identity: identity, format: format, options: options,
+                             tarWriter: tar, sevenZipWriter: sevenZip)
     }
 
     /// ディレクトリは名前順で再帰追加する。symlink は辿らず target path を保存する。
@@ -72,6 +79,7 @@ public final class ArchiveWriter {
 
     /// メモリ上の内容を追加する。mode の既定は 0644。日付は秒単位に切り捨てる。
     /// ZIP は符号付き 32 bit 秒、tar は符号付き 64 bit 秒に収まらない日付を拒否する。
+    /// 7z は Windows FILETIME に収まらない日付を拒否する。
     public func add(
         data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil
     ) throws {
@@ -118,6 +126,14 @@ public final class ArchiveWriter {
 
     /// 形式ごとの終端 record を書き、出力を閉じる。成功後の再呼出しは何もしない。
     public func finish() throws {
+        if let sevenZipWriter {
+            if state == .finished { return }
+            try perform {
+                try sevenZipWriter.finish()
+                state = .finished
+            }
+            return
+        }
         if let tarWriter {
             if state == .finished { return }
             try perform {
@@ -149,18 +165,19 @@ public final class ArchiveWriter {
     private func perform(_ body: () throws -> Void) throws {
         guard state == .writing else { throw WriterError.invalidState }
         do {
-            if tarWriter != nil { try Task.checkCancellation() }
+            if tarWriter != nil || sevenZipWriter != nil { try Task.checkCancellation() }
             try body()
         } catch {
             state = .failed
             tarWriter?.abort()
+            sevenZipWriter?.abort()
             try? output.close()
             throw error
         }
     }
 
     private func addDisk(_ url: URL, as path: String) throws {
-        if tarWriter != nil { try Task.checkCancellation() }
+        if tarWriter != nil || sevenZipWriter != nil { try Task.checkCancellation() }
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         var info = stat()
         let status = url.withUnsafeFileSystemRepresentation { pointer in
@@ -255,6 +272,10 @@ public final class ArchiveWriter {
         if !directory { files.insert(key) }
         if let tarWriter {
             try tarWriter.add(name: name, mode: mode, size: size, date: date, owners: owners, hardLink: hardLink, read: read)
+            return
+        }
+        if let sevenZipWriter {
+            try sevenZipWriter.add(name: name, mode: mode, size: size, date: date, read: read)
             return
         }
         let method = compression(name: name, mode: mode, size: size)
