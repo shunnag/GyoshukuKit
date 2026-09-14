@@ -8,6 +8,7 @@ internal import KaitoKit
 /// 失敗後は再利用できない。deinit は未 commit の clone を削除する。
 public final class ArchiveUpdater: ArchiveEditing {
     private let url: URL
+    private let options: WriterOptions
     private let source: ZipUpdateSource
     private let layout: ZipUpdateLayout
     private let reader: ArchiveReader?
@@ -21,8 +22,9 @@ public final class ArchiveUpdater: ArchiveEditing {
     private enum State { case adding, committed, failed }
     private var state = State.adding
 
-    private init(url: URL, source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader?) {
+    private init(url: URL, options: WriterOptions, source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader?) {
         self.url = url
+        self.options = options
         self.source = source
         self.layout = layout
         self.reader = reader
@@ -35,14 +37,17 @@ public final class ArchiveUpdater: ArchiveEditing {
     /// 予約済みの削除・改名を反映せず、常に open 時の名前を返す。
     public var entryNames: [String] { reader?.entries.map(\.name) ?? [] }
 
-    public static func open(url: URL) throws -> ArchiveUpdater {
+    /// 追加 entry の書き込み設定を、書庫にアクセスする前に検証する。
+    public static func open(url: URL, options: WriterOptions = WriterOptions()) throws -> ArchiveUpdater {
+        guard (0...9).contains(options.deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
+        guard !options.preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
         let source = try ZipUpdateSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         // 正規の空 ZIP / ZIP64 は検証済み終端だけで完結し、解釈する entry がない。
         // KaitoKit の形式判定が空 ZIP64 を認識しない場合も、新しい API は必要ない。
         if layout.count == 0 {
             try source.checkUnchanged(at: url)
-            return ArchiveUpdater(url: url, source: source, layout: layout, reader: nil)
+            return ArchiveUpdater(url: url, options: options, source: source, layout: layout, reader: nil)
         }
         // 再圧縮しないので展開量の制限は不要。entry 数と metadata の既定上限は維持する。
         let reader = try ArchiveReader.open(source: source, options: ReaderOptions(
@@ -51,7 +56,7 @@ public final class ArchiveUpdater: ArchiveEditing {
             throw UpdaterError.invalidArchive("KaitoKit の entry 数と EOCD が一致しません")
         }
         try source.checkUnchanged(at: url)
-        return ArchiveUpdater(url: url, source: source, layout: layout, reader: reader)
+        return ArchiveUpdater(url: url, options: options, source: source, layout: layout, reader: reader)
     }
 
     public func add(contentsOf url: URL, as path: String) throws {
@@ -179,7 +184,7 @@ public final class ArchiveUpdater: ArchiveEditing {
         guard fstat(output.fileDescriptor, &info) == 0 else {
             throw WriterError.io(operation: "fstat clone", code: errno)
         }
-        let writer = ArchiveWriter(output: output, identity: (info.st_dev, info.st_ino), format: .zip, options: WriterOptions())
+        let writer = ArchiveWriter(output: output, identity: (info.st_dev, info.st_ino), format: .zip, options: options)
         self.writer = writer
         try writer.prepareAppend(at: layout.centralOffset, existingPaths: existingPaths)
         return writer
