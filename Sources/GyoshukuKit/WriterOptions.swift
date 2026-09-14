@@ -10,6 +10,8 @@ public enum ArchiveFormat: Sendable {
     case tarGzip
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。非暗号・非圧縮 header。
     case sevenZip
+    /// CP932 名の level-2 LHA。各ファイルは -lh5-、縮まなければ -lh0-。
+    case lha
 }
 
 /// ZIP の圧縮方式。
@@ -20,7 +22,7 @@ public enum CompressionMethod: UInt16, Sendable {
 
 /// instance 間で共有できる書き込み設定。
 public struct WriterOptions: Sendable {
-    /// ZIP の member に使う圧縮方式。tar.gz は全体を deflate、7z は各ファイルを LZMA2 にする。
+    /// ZIP の member に使う圧縮方式。tar.gz は全体を deflate、7z は LZMA2、LHA は LH5 にする。
     public var compressionMethod: CompressionMethod
     /// zlib の level (0...9)。既定は Info-ZIP と同じ 6。
     public var deflateLevel: Int
@@ -28,7 +30,7 @@ public struct WriterOptions: Sendable {
     /// 空ファイル、ディレクトリ、symlink は常に stored。
     public var useCompressionHeuristic: Bool
     /// ディスク由来の uid/gid を保存する。ZIP は Info-ZIP 0x7875、tar は数値欄を使う。
-    /// 既定の ZIP は省略、tar は 0。tar の uname / gname は常に空。7z は true を拒否する。
+    /// 既定の ZIP は省略、tar は 0。tar の uname / gname は常に空。7z / LHA は true を拒否する。
     public var preserveOwnerIDs: Bool
     /// この段階では true を指定すると unsupportedOption を返す。
     public var preserveMacOSMetadata: Bool
