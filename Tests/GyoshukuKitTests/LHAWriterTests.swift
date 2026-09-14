@@ -44,7 +44,7 @@ final class LHAWriterTests: XCTestCase {
         for (index, name) in ["emoji-🗂.txt", "한글.txt", "bad-🗂/file.txt"].enumerated() {
             let url = directory.appendingPathComponent("\(index).lzh")
             let writer = try ArchiveWriter.create(url: url, format: .lha)
-            // alias も 0 byte のままなら、失敗した header を一瞬書いてから消した結果ではない。
+            // 拒否した writer の出力先だけでなく、同じ inode の別名にも有効な書庫を残さない。
             let alias = directory.appendingPathComponent("\(index)-alias.lzh")
             try FileManager.default.linkItem(at: url, to: alias)
             XCTAssertThrowsError(try LHARecords.Entry(name: name, mode: 0o100644, size: 0, date: ZipTestSupport.date))
