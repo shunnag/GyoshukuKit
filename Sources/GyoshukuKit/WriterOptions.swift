@@ -8,7 +8,7 @@ public enum ArchiveFormat: Sendable {
     /// restricted pax tar 全体を gzip で包む。
     /// gzip header は時刻 0、OS=Unix、ファイル名・comment なし。
     case tarGzip
-    /// ファイルごとに Apple LZMA2 を使う non-solid 7z。非暗号・非圧縮 header。
+    /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
     /// CP932 名の level-2 LHA。各ファイルは -lh5-、縮まなければ -lh0-。
     case lha
@@ -18,6 +18,12 @@ public enum ArchiveFormat: Sendable {
 public enum CompressionMethod: UInt16, Sendable {
     case stored = 0
     case deflate = 8
+}
+
+/// ZIP のパスワード暗号化方式。
+public enum ZipEncryption: Sendable {
+    case aes256
+    case zipCrypto
 }
 
 /// instance 間で共有できる書き込み設定。
@@ -34,19 +40,47 @@ public struct WriterOptions: Sendable {
     public var preserveOwnerIDs: Bool
     /// この段階では true を指定すると unsupportedOption を返す。
     public var preserveMacOSMetadata: Bool
+    /// nil は非暗号。ZIP は UTF-8、7z は UTF-16LE のパスワードを使う。空文字列は拒否する。
+    public var password: String?
+    /// パスワード指定時の ZIP 暗号化方式。通常ファイルだけに適用する。
+    public var zipEncryption: ZipEncryption
+    /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
+    public var encryptsSevenZipHeaders: Bool
 
     public init(
         compressionMethod: CompressionMethod = .deflate,
         deflateLevel: Int = 6,
         useCompressionHeuristic: Bool = true,
         preserveOwnerIDs: Bool = false,
-        preserveMacOSMetadata: Bool = false
+        preserveMacOSMetadata: Bool = false,
+        password: String? = nil,
+        zipEncryption: ZipEncryption = .aes256,
+        encryptsSevenZipHeaders: Bool = false
     ) {
         self.compressionMethod = compressionMethod
         self.deflateLevel = deflateLevel
         self.useCompressionHeuristic = useCompressionHeuristic
         self.preserveOwnerIDs = preserveOwnerIDs
         self.preserveMacOSMetadata = preserveMacOSMetadata
+        self.password = password
+        self.zipEncryption = zipEncryption
+        self.encryptsSevenZipHeaders = encryptsSevenZipHeaders
+    }
+
+    // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
+    func validate(for format: ArchiveFormat) throws {
+        guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
+        guard !preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
+        if format == .sevenZip || format == .lha, preserveOwnerIDs {
+            throw WriterError.unsupportedOption("preserveOwnerIDs")
+        }
+        if let password {
+            guard !password.isEmpty else { throw WriterError.invalidOption("password") }
+            guard format == .zip || format == .sevenZip else { throw WriterError.unsupportedOption("password") }
+        }
+        if encryptsSevenZipHeaders, password == nil {
+            throw WriterError.invalidOption("encryptsSevenZipHeaders")
+        }
     }
 }
 

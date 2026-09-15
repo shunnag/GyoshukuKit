@@ -11,6 +11,7 @@ public final class ArchiveWriter {
     public let format: ArchiveFormat
     private let options: WriterOptions
     private let output: FileHandle
+    private let outputURL: URL
     // rewriter の失敗時も、出力先が別 inode に置換されていれば削除しない。
     let outputIdentity: (dev_t, ino_t)
     private let tarWriter: TarWriter?
@@ -26,9 +27,10 @@ public final class ArchiveWriter {
     private var state = State.writing
     private static let chunkSize = 256 * 1024
 
-    init(output: FileHandle, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
+    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
          tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil, lhaWriter: LHAWriter? = nil) {
         self.output = output
+        self.outputURL = url
         self.outputIdentity = identity
         self.format = format
         self.options = options
@@ -50,11 +52,7 @@ public final class ArchiveWriter {
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
     ) throws -> ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
-        guard (0...9).contains(options.deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
-        guard !options.preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
-        if format == .sevenZip || format == .lha, options.preserveOwnerIDs {
-            throw WriterError.unsupportedOption("preserveOwnerIDs")
-        }
+        try options.validate(for: format)
         if format != .zip { try Task.checkCancellation() }
         let gzip = format == .tarGzip ? try GzipCompressor(level: options.deflateLevel) : nil
         let fd = url.withUnsafeFileSystemRepresentation { path in
@@ -67,16 +65,22 @@ public final class ArchiveWriter {
         let identity = (info.st_dev, info.st_ino)
         let tar = format == .tar || format == .tarGzip
             ? TarWriter(output: handle, url: url, identity: identity, gzip: gzip) : nil
-        let sevenZip = format == .sevenZip ? SevenZipWriter(output: handle, url: url, identity: identity) : nil
+        let sevenZip = format == .sevenZip
+            ? SevenZipWriter(output: handle, url: url, identity: identity, options: options) : nil
         let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity) : nil
-        return ArchiveWriter(output: handle, identity: identity, format: format, options: options,
+        return ArchiveWriter(output: handle, url: url, identity: identity, format: format, options: options,
                              tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha)
     }
 
     /// ディレクトリは名前順で再帰追加する。symlink は辿らず target path を保存する。
     /// LHA は通常ファイルとディレクトリのみ対応し、symlink は拒否する。
     public func add(contentsOf url: URL, as path: String) throws {
-        try perform { try addDisk(url, as: path) }
+        try add(contentsOf: url, as: path) { try $0.read(upToCount: $1) ?? Data() }
+    }
+
+    // 通常の source 読取と stat 検査を共有し、読取中の変更も決定的に検証できる。
+    func add(contentsOf url: URL, as path: String, read: (FileHandle, Int) throws -> Data) throws {
+        try perform { try addDisk(url, as: path, read: read) }
     }
 
     /// 明示的な空ディレクトリ。mode は 0755、mtime は現在時刻。
@@ -191,7 +195,7 @@ public final class ArchiveWriter {
         }
     }
 
-    private func addDisk(_ url: URL, as path: String) throws {
+    private func addDisk(_ url: URL, as path: String, read: (FileHandle, Int) throws -> Data) throws {
         if tarWriter != nil || sevenZipWriter != nil || lhaWriter != nil { try Task.checkCancellation() }
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         var info = stat()
@@ -211,7 +215,7 @@ public final class ArchiveWriter {
             let base = path.hasSuffix("/") ? String(path.dropLast()) : path
             for child in try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
                 .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                try addDisk(child, as: base + "/" + child.lastPathComponent)
+                try addDisk(child, as: base + "/" + child.lastPathComponent, read: read)
             }
         case S_IFLNK:
             // readlink は NUL を付けない。target を UTF-8 へ再符号化せず byte のまま保存する。
@@ -237,22 +241,24 @@ public final class ArchiveWriter {
             var opened = stat()
             guard fstat(fd, &opened) == 0 else { throw WriterError.io(operation: "fstat source", code: errno) }
             guard opened.st_dev == info.st_dev, opened.st_ino == info.st_ino,
-                  opened.st_mode & S_IFMT == S_IFREG, opened.st_size == info.st_size, info.st_size >= 0 else {
+                  opened.st_mode == info.st_mode, opened.st_size == info.st_size, info.st_size >= 0,
+                  opened.st_mtimespec.tv_sec == info.st_mtimespec.tv_sec,
+                  opened.st_mtimespec.tv_nsec == info.st_mtimespec.tv_nsec else {
                 throw WriterError.sourceChanged(url.path)
             }
             let hardLink = try tarWriter?.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
                                                         signature: Self.linkSignature(info))
             try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
                          owners: owners, hardLink: hardLink) {
-                try input.read(upToCount: $0) ?? Data()
+                try read(input, $0)
             }
             var after = stat()
             guard fstat(fd, &after) == 0 else { throw WriterError.io(operation: "fstat after read", code: errno) }
-            guard after.st_size == info.st_size,
+            // Finder tag や LaunchServices の xattr 更新でも変わるため ctime は比較しない。
+            guard after.st_dev == info.st_dev, after.st_ino == info.st_ino,
+                  after.st_mode == info.st_mode, after.st_size == info.st_size,
                   after.st_mtimespec.tv_sec == info.st_mtimespec.tv_sec,
-                  after.st_mtimespec.tv_nsec == info.st_mtimespec.tv_nsec,
-                  after.st_ctimespec.tv_sec == info.st_ctimespec.tv_sec,
-                  after.st_ctimespec.tv_nsec == info.st_ctimespec.tv_nsec else {
+                  after.st_mtimespec.tv_nsec == info.st_mtimespec.tv_nsec else {
                 throw WriterError.sourceChanged(url.path)
             }
             if info.st_nlink > 1, hardLink == nil, let tarWriter {
@@ -310,27 +316,30 @@ public final class ArchiveWriter {
             atime: accessTime, dosTime: dos.time, dosDate: dos.date,
             mode: mode, owners: owners, offset: position, size: size
         )
+        let password = mode & 0xF000 == 0x8000 ? options.password : nil
+        entry.encryption = password == nil ? nil : options.zipEncryption
+        if let password, entry.encryption == .zipCrypto {
+            try writeZipCryptoEntry(&entry, name: name, password: password, read: read)
+            entries.append(entry)
+            appendedPaths.append((name, directory))
+            return
+        }
         // zlib compressBound の保守的上限。境界付近でも header の領域を後から増やさない。
         var bound = size
         if method == .deflate {
             for extra in [size >> 12, size >> 14, size >> 25, 13] { bound = try checkedAdd(bound, extra) }
         }
+        if entry.encryption == .aes256 { bound = try checkedAdd(bound, 28) }
         entry.reservedZIP64 = bound >= ZipRecords.limit
         let header = entry.local()
         try write(header)
         let start = position
-        let compressor = method == .deflate ? try DeflateCompressor(level: options.deflateLevel) : nil
-        var remaining = size
-        while remaining > 0 {
-            let requested = Int(min(UInt64(Self.chunkSize), remaining))
-            let chunk = try read(requested)
-            guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
-            entry.crc = updateCRC(entry.crc, chunk)
-            remaining -= UInt64(chunk.count)
-            if let compressor { try compressor.write(chunk, emit: write) } else { try write(chunk) }
+        let aes = try password.map { try ZipAESEncryptor(password: $0) }
+        if let aes { try write(aes.prefix) }
+        entry.crc = try compressEntry(name: name, size: size, method: method, read: read) { chunk in
+            try write(aes.map { try $0.encrypt(chunk) } ?? chunk)
         }
-        guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
-        if let compressor { try compressor.write(Data(), finish: true, emit: write) }
+        if let aes { try write(aes.finish()) }
         entry.compressedSize = position - start
         let patched = entry.local()
         guard patched.count == header.count else { throw WriterError.sizeOverflow }
@@ -341,6 +350,40 @@ public final class ArchiveWriter {
         appendedPaths.append((name, directory))
     }
 
+    private func writeZipCryptoEntry(_ entry: inout ZipRecords.Entry, name: String, password: String,
+                                     read: (Int) throws -> Data) throws {
+        let spool = try ZipCryptoSpool(nextTo: outputURL)
+        // spool の deinit は read / 圧縮 / 出力のどの失敗でも一時ファイルを削除する。
+        entry.crc = try compressEntry(name: name, size: entry.size, method: entry.method, read: read, emit: spool.write)
+        entry.compressedSize = try checkedAdd(spool.size, 12)
+        var encryptor = ZipCryptoEncryptor(password: password)
+        var header = try EncryptionPrimitives.random(count: 11)
+        header.append(UInt8(truncatingIfNeeded: entry.crc >> 24))
+        try write(entry.local())
+        try write(encryptor.encrypt(header))
+        try spool.copy(encryptor: &encryptor, emit: write)
+        try spool.remove()
+    }
+
+    private func compressEntry(name: String, size: UInt64, method: CompressionMethod,
+                               read: (Int) throws -> Data, emit: (Data) throws -> Void) throws -> UInt32 {
+        let compressor = method == .deflate ? try DeflateCompressor(level: options.deflateLevel) : nil
+        var remaining = size
+        var crc: UInt32 = 0
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let requested = Int(min(UInt64(Self.chunkSize), remaining))
+            let chunk = try read(requested)
+            guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
+            crc = updateCRC(crc, chunk)
+            remaining -= UInt64(chunk.count)
+            if let compressor { try compressor.write(chunk, emit: emit) } else { try emit(chunk) }
+        }
+        guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
+        if let compressor { try compressor.write(Data(), finish: true, emit: emit) }
+        return crc
+    }
+
     private func write(_ data: Data) throws {
         let next = try checkedAdd(position, UInt64(data.count))
         try output.write(contentsOf: data)
@@ -349,8 +392,9 @@ public final class ArchiveWriter {
 
     private static func linkSignature(_ info: stat) -> [Int64] {
         // 同じ inode が後から変更されていれば、古い payload への hard link に置き換えない。
+        // Finder tag や LaunchServices の xattr 更新でも変わるため ctime は比較しない。
         [info.st_size, Int64(info.st_mtimespec.tv_sec), Int64(info.st_mtimespec.tv_nsec),
-         Int64(info.st_ctimespec.tv_sec), Int64(info.st_ctimespec.tv_nsec)]
+         Int64(info.st_mode)]
     }
 
     private func compression(name: String, mode: UInt16, size: UInt64) -> CompressionMethod {

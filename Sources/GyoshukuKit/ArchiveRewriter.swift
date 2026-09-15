@@ -11,7 +11,7 @@ public enum RewriterError: Error, Sendable, Equatable {
     case invalidState
 }
 
-/// KaitoKit が読める書庫を全 entry の再圧縮で編集・変換する。出力は暗号化しない。
+/// KaitoKit が読める書庫を全 entry の再圧縮で編集・変換する。options.password で出力を暗号化する。
 /// thread-safe ではない。呼出側は同じ書庫への操作も直列化する。
 /// add は直ちに出力へ書き、生き残る entry は commit 時に index 昇順で運ぶ。
 /// open 時の一つの reader を使い続け、solid group の decoder state を維持する。
@@ -67,8 +67,10 @@ public final class ArchiveRewriter: ArchiveEditing {
 
     /// output が nil なら同じ volume 上の一時出力で原本を置換し、指定時は新規作成する。
     /// 全 entry の表現可能性を検証するまで、出力や作業ディレクトリを作らない。
+    /// password は入力の復号用、options.password は出力の暗号化用として独立に指定する。
     public static func open(url: URL, password: String? = nil, output: URL? = nil,
                             format: ArchiveFormat, options: WriterOptions = WriterOptions()) throws -> ArchiveRewriter {
+        try options.validate(for: format)
         let source: ZipUpdateSource
         let reader: ArchiveReader
         do {

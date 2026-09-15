@@ -52,13 +52,12 @@ final class ZipUpdateSource: ByteSource {
 
     func checkUnchanged(at url: URL) throws {
         var info = stat()
+        // Finder tag や LaunchServices の xattr 更新でも変わるため ctime は比較しない。
         guard lstat(url.path, &info) == 0,
               info.st_dev == snapshot.st_dev, info.st_ino == snapshot.st_ino,
               info.st_size == snapshot.st_size, info.st_mode == snapshot.st_mode,
               info.st_mtimespec.tv_sec == snapshot.st_mtimespec.tv_sec,
-              info.st_mtimespec.tv_nsec == snapshot.st_mtimespec.tv_nsec,
-              info.st_ctimespec.tv_sec == snapshot.st_ctimespec.tv_sec,
-              info.st_ctimespec.tv_nsec == snapshot.st_ctimespec.tv_nsec else {
+              info.st_mtimespec.tv_nsec == snapshot.st_mtimespec.tv_nsec else {
             throw UpdaterError.sourceChanged
         }
     }

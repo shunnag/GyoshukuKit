@@ -2,6 +2,42 @@
 
 注目すべき変更を記録する。バージョニングは Semantic Versioning に従う。
 
+## [Unreleased]
+
+### 追加
+
+- `WriterOptions.password`、`zipEncryption`（既定 `.aes256`）、`encryptsSevenZipHeaders`。
+  ZIP のパスワードは UTF-8、7z は UTF-16LE。空パスワード、tar / tar.gz / LHA の暗号化、
+  パスワードなしの header 暗号化は出力作成前に拒否する。
+- ZIP WinZip AES-256 の stream 出力。20 byte 未満は AE-1 と実 CRC、以上は AE-2 と CRC 0。
+  local / central の method 99、bit 0、0x9901、version 51 を揃え、空ファイルも暗号化する。
+- ZIP ZipCrypto。圧縮結果を隣接する mode 0600 の一時ファイルへ spool し、確定 CRC の
+  上位 byte を含む暗号 header と payload を書く。成功・失敗時に spool を削除する。
+  ZIP の両暗号方式とも data descriptor を書かない。
+- 7z non-solid LZMA2 + AES-256-CBC、任意の AES EncodedHeader。cycles=19、salt なし、
+  folder ごとの 16 byte IV と zero padding。暗号 primitive は CommonCrypto / CryptoKit、乱数は Security。
+- updater は追加 entry の暗号化を選択でき、既存の暗号化 payload はそのまま保持する。
+  rewriter は入力パスワードと出力パスワードを独立に指定でき、復号・再暗号化・形式変換に対応する。
+- KaitoKit / unzip / 7zz oracle、AE 境界・認証破損・誤パスワード・header 秘匿・旧 record 保存・
+  spool cleanup・300 MiB stream 処理の XCTest。実行制限は[検証記録](Documentation/verification/2026-09-15-encryption.md)。
+
+### 修正
+
+- 入力と更新元の変更検査から ctime を除外し、dev / ino / size / mode / mtime を比較する。
+  tar hard link の内容 signature も同じ方針とし、Finder tag / LaunchServices の xattr 更新を許容する。
+- 7z の LZMA2 圧縮単位を最大 16 MiB とし、読取・AES・書込の 256 KiB と分離した。
+  初期の 256 KiB reset による圧縮率悪化を修正し、16 MiB 以下は従来の全体圧縮と同じ payload を保つ。
+  40 MiB の固定 seed テキストの平文・暗号往復と全体圧縮比 ±5% の回帰テストを追加した。
+- CommonCrypto の Int 定数と CCCryptorStatus（Int32）の三項演算子の型不一致を修正。
+  SDK の宣言に従い、status 比較、algorithm / options、PBKDF2 rounds、size_t 境界を明示的に変換する。
+
+> **Unreleased:** Password-protected ZIP AES-256 / ZipCrypto and 7z AES-256 output,
+> optional encrypted 7z headers, encrypted updater additions and independent input/output
+> passwords for rewriting. ZIP still writes no descriptors; ZipCrypto spools and cleans up.
+> 7z now encodes 16 MiB chunks with 256 KiB I/O and a compression-ratio regression guard.
+> CommonCrypto integer conversions match the SDK signatures. Source checks ignore ctime changes caused by tags/xattrs.
+> Added interoperability and streaming tests could not run in the sandbox; see the verification record.
+
 ## [0.3.0] - 2026-09-10
 
 ### 追加

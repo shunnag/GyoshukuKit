@@ -48,9 +48,15 @@ enum ZipRecords {
         var compressedSize: UInt64 = 0
         var crc: UInt32 = 0
         var reservedZIP64 = false
+        var encryption: ZipEncryption?
+
+        var aesVersion: UInt16? { encryption == .aes256 ? (size < 20 ? 1 : 2) : nil }
+        var storedCRC: UInt32 { aesVersion == 2 ? 0 : crc }
+        var storedMethod: UInt16 { aesVersion == nil ? method.rawValue : 99 }
+        var entryFlags: UInt16 { flags | (encryption == nil ? 0 : 1) }
 
         var needsSize64: Bool { size >= limit || compressedSize >= limit }
-        var version: UInt16 { needsSize64 || offset >= limit ? 45 : 20 }
+        var version: UInt16 { aesVersion != nil ? 51 : (needsSize64 || offset >= limit ? 45 : 20) }
 
         func extras(local: Bool) -> Data {
             var result = Data()
@@ -83,6 +89,13 @@ enum ZipRecords {
                 owner.le(gid)
                 result.append(field(0x7875, owner))
             }
+            if let aesVersion {
+                var aes = Data()
+                aes.le(aesVersion)
+                aes.append(contentsOf: [0x41, 0x45, 3])
+                aes.le(method.rawValue)
+                result.append(field(0x9901, aes))
+            }
             return result
         }
 
@@ -91,11 +104,11 @@ enum ZipRecords {
             var result = Data()
             result.le(UInt32(0x04034B50))
             result.le(version)
-            result.le(flags)
-            result.le(method.rawValue)
+            result.le(entryFlags)
+            result.le(storedMethod)
             result.le(dosTime)
             result.le(dosDate)
-            result.le(crc)
+            result.le(storedCRC)
             // 4.5.3 の local 例外: extra に両サイズがあるので両欄を sentinel にする。
             // central へこの判定を流用すると per-field 規則を壊す。
             result.le(needsSize64 ? UInt32.max : UInt32(compressedSize))
@@ -113,11 +126,11 @@ enum ZipRecords {
             result.le(UInt32(0x02014B50))
             result.le(madeBy)
             result.le(version)
-            result.le(flags)
-            result.le(method.rawValue)
+            result.le(entryFlags)
+            result.le(storedMethod)
             result.le(dosTime)
             result.le(dosDate)
-            result.le(crc)
+            result.le(storedCRC)
             result.le(UInt32(min(compressedSize, limit)))
             result.le(UInt32(min(size, limit)))
             result.le(UInt16(name.count))

@@ -38,9 +38,9 @@ public final class ArchiveUpdater: ArchiveEditing {
     public var entryNames: [String] { reader?.entries.map(\.name) ?? [] }
 
     /// 追加 entry の書き込み設定を、書庫にアクセスする前に検証する。
+    /// options.password は追加する通常ファイルだけを暗号化する。既存 entry の暗号化は保持する。
     public static func open(url: URL, options: WriterOptions = WriterOptions()) throws -> ArchiveUpdater {
-        guard (0...9).contains(options.deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
-        guard !options.preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
+        try options.validate(for: .zip)
         let source = try ZipUpdateSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         // 正規の空 ZIP / ZIP64 は検証済み終端だけで完結し、解釈する entry がない。
@@ -184,7 +184,8 @@ public final class ArchiveUpdater: ArchiveEditing {
         guard fstat(output.fileDescriptor, &info) == 0 else {
             throw WriterError.io(operation: "fstat clone", code: errno)
         }
-        let writer = ArchiveWriter(output: output, identity: (info.st_dev, info.st_ino), format: .zip, options: options)
+        let writer = ArchiveWriter(output: output, url: replacement!, identity: (info.st_dev, info.st_ino),
+                                   format: .zip, options: options)
         self.writer = writer
         try writer.prepareAppend(at: layout.centralOffset, existingPaths: existingPaths)
         return writer

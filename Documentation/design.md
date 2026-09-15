@@ -9,7 +9,7 @@
 
 KaitoKit と同じ性格を引き継ぐ。
 
-- 純 Swift。外部依存なし。zlib、libbz2、Apple Compression だけをサポートされた
+- 純 Swift。追加の外部依存なし。zlib、libbz2、Apple Compression、CommonCrypto / CryptoKit / Security をサポートされた
   形で使う。システムの libarchive は使わない —— SDK に `archive.h` が無く
   (実測)、prototype を手書きして依存するのは性格に合わない。加えて libarchive
   には in-place update が無く、書庫内編集のためにどのみち自前の updater が要る。
@@ -71,7 +71,7 @@ try editing.commit()        // index は open 時の値。削除予約で詰め�
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(末尾の zero block の手前へ) | ○(作り直す) |
 | 2 | tar.gz / .bz2 / .xz | ○ | × | × |
-| 3 | 7z | ○(non-solid・非暗号) | 作り直し | 作り直し |
+| 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | 作り直し | 作り直し |
 | 4 | LHA / LZH | ○(`-lh5-`) | ○ | ○ |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
@@ -112,7 +112,9 @@ UI 側は進捗と取り消しを必ず出す。
 
 原本は一度も in-place 編集しない。commit 前の失敗・破棄では clone を削除する。
 成功後の commit は no-op。失敗後の instance は再利用できない。原本の inode・size・
-mtime・ctime・mode が open 時と変わった場合は置換を拒否する。ただし排他 lock は取らず、
+mtime・mode が open 時と変わった場合は置換を拒否する。device も比較する。
+Finder tag や LaunchServices の `com.apple.lastuseddate#PS` 更新でも変わるため ctime は除外する。
+通常ファイルの読取前後と tar hard link の内容 signature も同じ方針にする。ただし排他 lock は取らず、
 同一書庫への他プロセスの操作も呼出側で直列化する。
 置換後の metadata 復元が失敗した場合はエラーを返すが、内容の置換は既に完了している。
 
@@ -177,7 +179,98 @@ signature の有無と ZIP64 かどうかで 0 / 12 / 16 / 20 / 24 byte と変�
 これは段階 1 の**追加**では不要で、**削除・改名**に入るときに必要になる。
 GyoshukuKit 側でこの accessor を利用し、KaitoKit の source は変更しない。
 
-## 8. やらないこと
+## 8. 暗号化出力（2026-09-15）
+
+`WriterOptions.password` は nil なら平文。空文字列は `invalidOption("password")`、
+tar / tar.gz / LHA の指定は `unsupportedOption("password")` にする。
+`encryptsSevenZipHeaders` の既定は false、パスワードなしの true は invalidOption。
+ZIP の既定は `ZipEncryption.aes256`、互換性のため `.zipCrypto` も選択可能。
+writer / updater / rewriter は同じ検証関数を使い、出力作成前に検証する。
+
+### ZIP WinZip AES-256
+
+通常ファイルだけ（空ファイルを含む）を暗号化する。directory / symlink は平文の stored。
+圧縮方式は既存の拡張子 heuristic と stored / deflate 設定を使い、両 header の method を 99、
+version needed を 51、flag を bit 0 + bit 11 にする。0x9901 の 7 byte 本体は、vendor version、
+`AE`、strength 3、実際の圧縮 method。20 byte 未満を AE-1 と実 CRC、以上を AE-2 と CRC 0 にする。
+これはこの writer の選択方針で、AE-1 / AE-2 の wire format は公開仕様に従う。
+
+UTF-8 パスワード + 16 byte のランダム salt を PBKDF2-HMAC-SHA1（1000 回）へ渡す。
+66 byte の結果を AES key 32 byte、HMAC key 32 byte、password verifier 2 byte に分割する。
+payload は salt / verifier / ciphertext / HMAC-SHA1 の先頭 10 byte の順。compressed size は全体
+（圧縮結果 + 28 byte）。CTR は 1 始まりの 128 bit little-endian counter を CommonCrypto の
+ECB で暗号化し、chunk 境界の鍵流の端数を次回へ持ち越す。HMAC の対象は ciphertext のみ。
+ZIP64 予約長の計算にも暗号化 overhead を含め、local header は seek して patch する。
+
+### ZIP ZipCrypto
+
+PKWARE traditional encryption の 3 個の UInt32 鍵を UTF-8 パスワードで初期化する。
+bit 3 がない場合、12 byte の encryption header の末尾は CRC の最上位 byte なので、
+データを書き始める前に CRC が必要になる。圧縮 / store と CRC 計算を先に行い、圧縮結果だけを
+出力の隣の `mkstemp`（mode 0600）へ保存する。CRC と packed size の確定後に local header、
+11 byte の乱数 + CRC 上位 byte を暗号化した header、spool を暗号化した payload の順に出力する。
+compressed size は spool + 12 byte。deinit による失敗時の削除と、成功時の明示的な close / unlink
+を持ち、一時ファイルの I/O エラーは `WriterError.io` にする。
+
+両 ZIP 方式とも **data descriptor は書かない**。既存の seek / patch と updater の layout 契約を
+維持するためで、ZipCrypto の spool はそのために必要になる。AES は spool を使わない。
+
+### 7z AES-256 と header
+
+非空 stream ごとに non-solid folder を作る。実測した `7zz a -p... -mhe=off -mhc=off` と
+同じ decoder 順で AES（06 F1 07 01）を coder 0、LZMA2（21）を coder 1 に置く。
+bind pair は input 1 ← output 0、packed input は暗黙の 0。unpack sizes は AES 出力である
+圧縮結果の真の長さ、LZMA2 出力であるファイル長の順で、substream CRC は元ファイルの CRC。
+
+AES property は `53 0F` + 16 byte IV（NumCyclesPower 19、salt なし）。UTF-16LE パスワードと
+8 byte little-endian counter を 0 から 2^19 - 1 まで連結して SHA-256 へ入力し、鍵を得る。
+同じ鍵は書庫内で再利用できるが IV は毎回乱数で生成する。AES-256-CBC は PKCS#7 を使わず、
+最後の block の不足だけを zero pad する。真の圧縮長を AES の unpack size に記録する。
+空ファイル・directory は従来の EmptyStream / EmptyFile 表現を使う。
+
+`SevenZipWriter.lzmaChunkSize` は **16 MiB**、I/O 用の `chunkSize` は **256 KiB** と分離する。
+短い read が返っても最大 16 MiB まで入力を集めてから Apple の LZMA buffer API を一度呼ぶ。
+各片の LZMA2 辞書 reset を残して終端 byte だけを取り除き、最後に一度だけ終端を書く。
+圧縮出力も 256 KiB ごとに分割して暗号化・書込を行う。一つの folder 内で decoder が reset する
+正当な stream であり、平文・暗号出力とも spool は不要。
+
+Apple の encoder は 8 MiB の辞書を使う。16 MiB 以下のファイルは従来の whole-file buffer API と
+同じ一回の圧縮なので、圧縮 payload と圧縮率は変わらない。16 MiB を超えるファイルだけ境界で
+辞書の蓄積が失われる。256 KiB ごとに辞書を捨てる初期案はソースコードで出力が約倍増したため撤回した。
+主な作業メモリの上限は一ファイルにつき **約 16 MiB の入力 + その圧縮出力**。別途 encoder の辞書・
+framing の一時領域・256 KiB の I/O buffer があるが、いずれもファイル全体の長さに比例して増えない。
+header metadata のメモリは entry 数と名前長に比例する。
+
+header 暗号化を指定したときは通常の Header を AES-only folder に通し、その ciphertext を
+全ファイルの packed data の後ろへ置く。NextHeader は `kEncodedHeader`（17）の StreamsInfo とし、
+PackPos は署名の 32 byte 後を起点にした暗号化 header の位置、folder unpack size / CRC は平文 header。
+StartHeader と NextHeader の CRC / offset / size は最後に確定する。名前の UTF-16LE byte は平文では残らない。
+
+乱数は `SecRandomCopyBytes`、失敗は `WriterError.io(operation: "random", code: status)`。
+AES / PBKDF2 / HMAC は CommonCrypto、7z KDF の SHA-256 は CryptoKit。依存は追加しない。
+KaitoKit の内部暗号型を公開・共有せず、公開パラメータに従って GyoshukuKit 内で実装する。
+
+### 編集と検証
+
+updater の `options.password` は追加分だけに適用し、既存 record は byte のまま運ぶ。
+削除・改名は ciphertext を変更せず、既存の暗号化方式やパスワードも維持する。
+全てを同じパスワードへ揃える場合は rewriter を使い、`password` で入力を復号し、
+`options.password` で出力を暗号化する。入力だけにパスワードを指定すれば平文へ変換できる。
+
+XCTest は KaitoKit、ZIP AES / 7z AES の 7zz、ZipCrypto の unzip を oracle にする。
+header byte・AE-1/AE-2 境界・誤パスワード・HMAC 改変・spool の成功/失敗時 cleanup・
+更新前後の record・再暗号化・300 MiB の chunk 読取・xattr 更新を検査する。
+40 MiB の固定 seed の擬似ソースコードを平文・暗号 7z の両方で KaitoKit / 7zz に往復させ、
+同じ入力を Compression framework の `compression_encode_buffer` で一括圧縮した結果に対して
+packed size が ±5% に収まることを確認する。参照圧縮は製品 compressor を呼ばない。
+5 / 16 MiB では short read を混ぜても一括圧縮と payload が byte 単位で一致することを確認する。
+実行済みの範囲と sandbox 制限は[検証記録](verification/2026-09-15-encryption.md)へ分けて記録する。
+
+参照: [WinZip AES 仕様](https://www.winzip.com/en/support/aes-encryption/)、
+[7z format](https://github.com/ip7z/7zip/blob/main/DOC/7zFormat.txt)、
+[XZ の LZMA2 decoder の reset 処理](https://github.com/tukaani-project/xz/blob/master/src/liblzma/lzma/lzma2_decoder.c)。
+
+## 9. やらないこと
 
 - **RAR の作成**。license が
   「cannot be used to develop RAR (WinRAR) compatible archiver」と明示している。
@@ -194,7 +287,8 @@ GyoshukuKit 側でこの accessor を利用し、KaitoKit の source は変更�
 > KaitoKit is read-only by design, and adding writing to it would push writer code
 > into consumers that only ever read; a separate repository makes that separation
 > structural rather than asserted. It inherits KaitoKit's character: pure Swift,
-> no external dependencies, only OS-bundled zlib, libbz2 and Apple Compression
+> no additional external dependencies, only OS-bundled zlib, libbz2, Apple Compression
+> and CommonCrypto / CryptoKit / Security
 > through supported APIs — deliberately not the system libarchive, which ships no
 > `archive.h` in the SDK and has no in-place update anyway.
 >
@@ -240,6 +334,15 @@ GyoshukuKit 側でこの accessor を利用し、KaitoKit の source は変更�
 > exposing the byte range of an entry's stored record with the data-descriptor
 > arithmetic done on KaitoKit's side so writer and reader cannot disagree. Stage
 > one does not need it. GyoshukuKit does not change KaitoKit's source.
+>
+> Password output supports ZIP WinZip AES-256 or ZipCrypto, plus non-solid 7z
+> AES-256-CBC and optional encrypted headers. ZIP still writes no descriptors;
+> ZipCrypto spools compressed bytes to learn the CRC first, while AES streams.
+> 7z bounds its LZMA2 input to 16 MiB while I/O and encryption stay at 256 KiB.
+> Files up to 16 MiB retain the whole-buffer compression ratio; larger files reset
+> the dictionary at chunk boundaries. A 40 MiB corpus guards packed size within
+> 5% of whole-buffer Apple compression. Updaters encrypt additions only; rewriters separate input and output
+> passwords. File-change checks exclude ctime to allow Finder tag and xattr updates.
 >
 > Three things are deliberately never done: writing RAR, whose licence forbids it;
 > creating self-extracting archives, which cannot be validly signed on macOS and
