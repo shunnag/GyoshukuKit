@@ -6,18 +6,18 @@ final class TarWriter {
     private let output: FileHandle
     private let url: URL
     private let identity: (dev_t, ino_t)
-    private let gzip: GzipCompressor?
+    private let compressor: (any TarCompressor)?
     private var position: UInt64 = 0
     private var finished = false
     private var aborted = false
     private struct FileID: Hashable { let device: Int64; let inode: UInt64 }
     private var hardLinks: [FileID: (path: String, signature: [Int64])] = [:]
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), gzip: GzipCompressor?) {
+    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), compressor: (any TarCompressor)?) {
         self.output = output
         self.url = url
         self.identity = identity
-        self.gzip = gzip
+        self.compressor = compressor
     }
 
     deinit { abort() }
@@ -78,7 +78,7 @@ final class TarWriter {
         try write(Data(count: 2 * TarRecords.blockSize))
         let padding = (UInt64(TarRecords.recordSize) - position % UInt64(TarRecords.recordSize)) % UInt64(TarRecords.recordSize)
         try write(Data(count: Int(padding)))
-        if let gzip { try gzip.write(Data(), finish: true, emit: emit) }
+        if let compressor { try compressor.write(Data(), finish: true, emit: emit) }
         try Task.checkCancellation()
         try output.synchronize()
         try Task.checkCancellation()
@@ -104,7 +104,7 @@ final class TarWriter {
     private func write(_ data: Data) throws {
         try Task.checkCancellation()
         let next = try checkedAdd(position, UInt64(data.count))
-        if let gzip { try gzip.write(data, emit: emit) } else { try emit(data) }
+        if let compressor { try compressor.write(data, finish: false, emit: emit) } else { try emit(data) }
         position = next
     }
 

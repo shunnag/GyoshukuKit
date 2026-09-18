@@ -8,7 +8,8 @@ let package = Package(
     products: [.library(name: "GyoshukuKit", targets: ["GyoshukuKit"])],
     dependencies: [.package(path: "../KaitoKit")],
     targets: [
-        .target(name: "GyoshukuKit", dependencies: [.product(name: "KaitoKit", package: "KaitoKit")], linkerSettings: [.linkedLibrary("z")]),
+        .systemLibrary(name: "CGyoshukuBzip2"),
+        .target(name: "GyoshukuKit", dependencies: ["CGyoshukuBzip2", .product(name: "KaitoKit", package: "KaitoKit")], linkerSettings: [.linkedLibrary("z")]),
         .testTarget(
             name: "GyoshukuKitTests",
             dependencies: ["GyoshukuKit", .product(name: "KaitoKit", package: "KaitoKit")]

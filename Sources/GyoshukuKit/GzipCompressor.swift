@@ -2,7 +2,7 @@ import Foundation
 private import zlib
 
 // tar 全体を一つの gzip member にする。ZIP 用の raw deflate の設定は変更しない。
-final class GzipCompressor {
+final class GzipCompressor: TarCompressor {
     private var stream = z_stream()
     private var initialized = false
     private var finished = false

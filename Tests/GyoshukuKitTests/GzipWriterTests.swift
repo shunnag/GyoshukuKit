@@ -66,7 +66,7 @@ final class GzipWriterTests: XCTestCase {
 
     func testInvalidOptionsAndDateLeaveNoArchive() throws {
         let directory = try ZipTestSupport.directory("gzip-invalid")
-        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip] {
+        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let url = directory.appendingPathComponent("\(format).tar.gz")
             for options in [WriterOptions(deflateLevel: -1), WriterOptions(deflateLevel: 10), WriterOptions(preserveMacOSMetadata: true)] {
                 XCTAssertThrowsError(try ArchiveWriter.create(url: url, format: format, options: options))

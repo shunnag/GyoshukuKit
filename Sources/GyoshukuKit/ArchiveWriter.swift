@@ -1,12 +1,12 @@
 import Foundation
 private import Darwin
 
-/// ZIP / ZIP64、tar、tar.gz、7z、LHA を新規作成する。既存の出力先は上書きしない。
+/// ZIP / ZIP64、tar（gzip / bzip2 / XZ 圧縮を含む）、7z、LHA を新規作成する。既存の出力先は上書きしない。
 ///
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
 /// add / finish が失敗した instance は再利用できない。
-/// ZIP の部分出力は呼出側で削除する。tar / tar.gz / 7z / LHA は失敗・未完了の破棄時に削除する。
+/// ZIP の部分出力は呼出側で削除する。tar（圧縮tarを含む）/ 7z / LHA は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
     public let format: ArchiveFormat
     private let options: WriterOptions
@@ -54,7 +54,13 @@ public final class ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         try options.validate(for: format)
         if format != .zip { try Task.checkCancellation() }
-        let gzip = format == .tarGzip ? try GzipCompressor(level: options.deflateLevel) : nil
+        let compressor: (any TarCompressor)?
+        switch format {
+        case .tarGzip: compressor = try GzipCompressor(level: options.deflateLevel)
+        case .tarBzip2: compressor = try Bzip2Compressor(level: options.bzip2Level)
+        case .tarXZ: compressor = try XZCompressor()
+        default: compressor = nil
+        }
         let fd = url.withUnsafeFileSystemRepresentation { path in
             path.map { Darwin.open($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666) } ?? -1
         }
@@ -63,8 +69,8 @@ public final class ArchiveWriter {
         var info = stat()
         guard fstat(fd, &info) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
         let identity = (info.st_dev, info.st_ino)
-        let tar = format == .tar || format == .tarGzip
-            ? TarWriter(output: handle, url: url, identity: identity, gzip: gzip) : nil
+        let tar = format.isTar
+            ? TarWriter(output: handle, url: url, identity: identity, compressor: compressor) : nil
         let sevenZip = format == .sevenZip
             ? SevenZipWriter(output: handle, url: url, identity: identity, options: options) : nil
         let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity) : nil
@@ -127,7 +133,7 @@ public final class ArchiveWriter {
             names.insert(key)
             if !directory { files.insert(key) }
             var prefix = ""
-            for component in key.split(separator: "/").dropLast() {
+            for component in Self.pathComponents(key).dropLast() {
                 prefix += prefix.isEmpty ? String(component) : "/" + component
                 requiredDirectories.insert(prefix)
             }
@@ -286,7 +292,7 @@ public final class ArchiveWriter {
         // file とその子を同居させない。後から親 directory を明示追加することは許す。
         guard directory || !requiredDirectories.contains(key) else { throw WriterError.invalidPath(name) }
         var prefix = ""
-        for component in key.split(separator: "/").dropLast() {
+        for component in Self.pathComponents(key).dropLast() {
             prefix += prefix.isEmpty ? String(component) : "/" + component
             guard !files.contains(prefix) else { throw WriterError.invalidPath(name) }
             requiredDirectories.insert(prefix)
@@ -406,12 +412,18 @@ public final class ArchiveWriter {
         return options.compressionMethod
     }
 
+    // A combining mark may share a grapheme with /; filesystem separators are bytes.
+    static func pathComponents(_ path: String, omittingEmptySubsequences: Bool = true) -> [String] {
+        path.utf8.split(separator: 47, omittingEmptySubsequences: omittingEmptySubsequences)
+            .map { String(decoding: $0, as: UTF8.self) }
+    }
+
     static func normalizedPath(_ path: String, directory: Bool) throws -> String {
         var name = path.precomposedStringWithCanonicalMapping
         if directory && !name.hasSuffix("/") { name += "/" }
         let body = directory ? String(name.dropLast()) : name
-        let components = body.split(separator: "/", omittingEmptySubsequences: false)
-        guard !body.isEmpty, !body.contains("\0"), !body.contains("\\"), !body.contains(":"),
+        let components = pathComponents(body, omittingEmptySubsequences: false)
+        guard !body.isEmpty, !body.utf8.contains(0), !body.utf8.contains(92), !body.utf8.contains(58),
               components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
               name.utf8.count <= Int(UInt16.max) else { throw WriterError.invalidPath(path) }
         return name

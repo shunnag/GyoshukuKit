@@ -13,17 +13,33 @@ enum LH5Encoder {
     }
 
     static func encode(_ input: Data) throws -> Data {
+        var bits = Bits()
+        try write(input, to: &bits)
+        return bits.finish()
+    }
+
+    // A streaming input may include up to one window of already emitted
+    // history. Seed matches from it without emitting that prefix again.
+    // Keep the bit writer across inputs: LH5 blocks have no byte padding.
+    static func write(_ input: Data, startingAt initialOffset: Int = 0, to bits: inout Bits) throws {
         try Task.checkCancellation()
-        guard !input.isEmpty else { return Data() }
-        return try input.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+        guard initialOffset >= 0, initialOffset <= windowSize, initialOffset <= input.count else {
+            throw WriterError.invalidState
+        }
+        guard initialOffset < input.count else { return }
+        try input.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             let bytes = raw.bindMemory(to: UInt8.self)
             var heads = [Int](repeating: -1, count: 65_536)
             var previous = [Int](repeating: -1, count: windowSize)
             var commands: [Command] = []
             commands.reserveCapacity(blockCommands)
-            var bits = Bits()
-            var offset = 0
-            var checkpoint = 0
+            var offset = initialOffset
+            for index in 0..<initialOffset where index + 2 < bytes.count {
+                let bucket = hash(bytes, index)
+                previous[index & (windowSize - 1)] = heads[bucket]
+                heads[bucket] = index
+            }
+            var checkpoint = initialOffset
             while offset < bytes.count {
                 if offset >= checkpoint {
                     try Task.checkCancellation()
@@ -76,7 +92,6 @@ enum LH5Encoder {
             }
             if !commands.isEmpty { try writeBlock(commands, to: &bits) }
             try Task.checkCancellation()
-            return bits.finish()
         }
     }
 
@@ -208,7 +223,13 @@ enum LH5Encoder {
 
         mutating func finish() -> Data {
             if available > 0 { write(0, count: 8 - available) }
-            return Data(bytes)
+            return takeCompleteBytes()
+        }
+
+        mutating func takeCompleteBytes() -> Data {
+            let result = Data(bytes)
+            bytes.removeAll(keepingCapacity: true)
+            return result
         }
     }
 

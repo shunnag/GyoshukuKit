@@ -6,7 +6,7 @@ import XCTest
 @testable import GyoshukuKit
 
 final class ArchiveRewriterTests: XCTestCase {
-    private let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .tar, .tarGzip, .sevenZip, .lha]
+    private let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha]
     private let date = ZipTestSupport.date
 
     private func suffix(_ format: GyoshukuKit.ArchiveFormat) -> String {
@@ -14,6 +14,8 @@ final class ArchiveRewriterTests: XCTestCase {
         case .zip: "zip"
         case .tar: "tar"
         case .tarGzip: "tar.gz"
+        case .tarBzip2: "tar.bz2"
+        case .tarXZ: "tar.xz"
         case .sevenZip: "7z"
         case .lha: "lha"
         }
@@ -114,7 +116,7 @@ final class ArchiveRewriterTests: XCTestCase {
         XCTAssertEqual(reader.entries.count, original.entries.count)
         for (entry, previous) in zip(reader.entries, original.entries) {
             XCTAssertEqual(entry.kind, previous.kind, entry.name)
-            let size = previous.kind == .symlink && (format == .tar || format == .tarGzip)
+            let size = previous.kind == .symlink && format.isTar
                 ? 0 : previous.uncompressedSize
             XCTAssertEqual(entry.uncompressedSize, size, entry.name)
             XCTAssertEqual(entry.posixPermissions, previous.posixPermissions, entry.name)
@@ -135,6 +137,8 @@ final class ArchiveRewriterTests: XCTestCase {
     func testZIPFixtureRewritesToZIP() throws { try verifyZIPFixture(to: .zip) }
     func testZIPFixtureRewritesToTAR() throws { try verifyZIPFixture(to: .tar) }
     func testZIPFixtureRewritesToTarGzip() throws { try verifyZIPFixture(to: .tarGzip) }
+    func testZIPFixtureRewritesToTarBzip2() throws { try verifyZIPFixture(to: .tarBzip2) }
+    func testZIPFixtureRewritesToTarXZ() throws { try verifyZIPFixture(to: .tarXZ) }
     func testZIPFixtureRewritesToSevenZip() throws { try verifyZIPFixture(to: .sevenZip) }
     func testZIPFixtureRewritesToLHA() throws { try verifyZIPFixture(to: .lha) }
 
@@ -506,7 +510,7 @@ final class ArchiveRewriterTests: XCTestCase {
     }
 
     func testHardLinkKeepsRenamedTargetInTarOutputs() throws {
-        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip] {
+        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let directory = try directory("hardlink-kept-\(format)")
             let source = try hardLinkArchive(in: directory)
             let output = directory.appendingPathComponent("output." + suffix(format))

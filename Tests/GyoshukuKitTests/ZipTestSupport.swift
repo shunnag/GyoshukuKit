@@ -5,8 +5,9 @@ import XCTest
 // 第三者実装の source を使わない、project-owned のクリーンルーム入力と byte 検査。
 enum ZipTestSupport {
     static let date = Date(timeIntervalSince1970: 1_700_000_001)
+    // Keep generated entries outside Xcode's recursively synchronized package groups.
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("build/verification")
+        .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".build/verification")
 
     static func report(_ message: String) {
         FileHandle.standardError.write(Data((message + "\n").utf8))

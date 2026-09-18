@@ -33,6 +33,9 @@ public final class ArchiveRewriter: ArchiveEditing {
     private let dataTargets: [Int: Int]
     private var removed: Set<Int> = []
     private var renamed: [Int: String] = [:]
+    private lazy var pathReservations = EditPathReservations(existingPaths)
+    private var indexedAppendCount = 0
+    private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
     private var workDirectory: URL?
     private var destination: URL?
@@ -115,7 +118,7 @@ public final class ArchiveRewriter: ArchiveEditing {
                 case .zip: _ = try ZipRecords.timestamp(date)
                 case .sevenZip: _ = try SevenZipRecords.timestamp(date)
                 case .lha: _ = try LHARecords.timestamp(date)
-                case .tar, .tarGzip: _ = try TarRecords.timestamp(date)
+                case .tar, .tarGzip, .tarBzip2, .tarXZ: _ = try TarRecords.timestamp(date)
                 }
             } catch { throw refuse("更新日時が出力形式の表現範囲外です") }
             if format == .lha {
@@ -151,9 +154,15 @@ public final class ArchiveRewriter: ArchiveEditing {
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
             for index in indices { try validateIndex(index) }
-            removed.formUnion(indices)
-            for index in indices { renamed.removeValue(forKey: index) }
-            writer?.replaceExistingPaths(existingPaths)
+            indexAppendedPaths()
+            for index in indices where !removed.contains(index) {
+                if survives(index) {
+                    pathReservations.remove(finalName(index), directory: reader.entries[index].kind == .directory)
+                }
+                removed.insert(index)
+                renamed.removeValue(forKey: index)
+            }
+            writerPathsNeedRefresh = true
         }
     }
 
@@ -164,17 +173,12 @@ public final class ArchiveRewriter: ArchiveEditing {
             guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
             let directory = reader.entries[index].kind == .directory
             let name = try ArchiveWriter.normalizedPath(path, directory: directory)
-            let key = directory ? String(name.dropLast()) : name
-            let otherPaths = reader.entries.filter { $0.index != index && survives($0.index) }
-                .map { (finalName($0.index), $0.kind == .directory) } + (writer?.appendedPaths ?? [])
-            for (other, isDirectory) in otherPaths {
-                let otherKey = other.hasSuffix("/") ? String(other.dropLast()) : other
-                guard key != otherKey else { throw WriterError.duplicatePath(name) }
-                guard !(!directory && otherKey.hasPrefix(key + "/")),
-                      !(!isDirectory && key.hasPrefix(otherKey + "/")) else { throw WriterError.invalidPath(name) }
-            }
+            indexAppendedPaths()
+            if survives(index) { pathReservations.remove(finalName(index), directory: directory) }
+            try pathReservations.validate(name, directory: directory)
+            pathReservations.insert(name, directory: directory)
             renamed[index] = name
-            writer?.replaceExistingPaths(existingPaths)
+            writerPathsNeedRefresh = true
         }
     }
 
@@ -237,11 +241,19 @@ public final class ArchiveRewriter: ArchiveEditing {
         }
     }
 
-    private var isTar: Bool { format == .tar || format == .tarGzip }
+    private var isTar: Bool { format.isTar }
     private func finalName(_ index: Int) -> String { renamed[index] ?? names[index] }
     private func survives(_ index: Int) -> Bool { !removed.contains(index) && !finalName(index).isEmpty }
     private var existingPaths: [(String, Bool)] {
         reader.entries.filter { survives($0.index) }.map { (finalName($0.index), $0.kind == .directory) }
+    }
+
+    private func indexAppendedPaths() {
+        guard let writer else { return }
+        for (path, directory) in writer.appendedPaths.dropFirst(indexedAppendCount) {
+            pathReservations.insert(path, directory: directory)
+        }
+        indexedAppendCount = writer.appendedPaths.count
     }
 
     private func validateIndex(_ index: Int) throws {
@@ -344,7 +356,14 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     private func preparedWriter() throws -> ArchiveWriter {
-        if let writer { return writer }
+        if let writer {
+            // 改名の予約中は索引だけ更新し、次の add の直前に writer の全名を同期する。
+            if writerPathsNeedRefresh {
+                writer.replaceExistingPaths(existingPaths)
+                writerPathsNeedRefresh = false
+            }
+            return writer
+        }
         try Task.checkCancellation()
         try checkUnchanged()
         let directory = (output ?? url).deletingLastPathComponent()
@@ -361,6 +380,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         }
         writer.replaceExistingPaths(existingPaths)
+        writerPathsNeedRefresh = false
         return writer
     }
 

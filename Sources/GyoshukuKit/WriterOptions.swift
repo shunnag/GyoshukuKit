@@ -8,10 +8,21 @@ public enum ArchiveFormat: Sendable {
     /// restricted pax tar 全体を gzip で包む。
     /// gzip header は時刻 0、OS=Unix、ファイル名・comment なし。
     case tarGzip
+    /// restricted pax tar 全体を bzip2 で包む。
+    case tarBzip2
+    /// restricted pax tar 全体を Apple Compression の固定設定 XZ で包む。
+    case tarXZ
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
     /// CP932 名の level-2 LHA。各ファイルは -lh5-、縮まなければ -lh0-。
     case lha
+
+    var isTar: Bool {
+        switch self {
+        case .tar, .tarGzip, .tarBzip2, .tarXZ: true
+        default: false
+        }
+    }
 }
 
 /// ZIP の圧縮方式。
@@ -32,6 +43,8 @@ public struct WriterOptions: Sendable {
     public var compressionMethod: CompressionMethod
     /// zlib の level (0...9)。既定は Info-ZIP と同じ 6。
     public var deflateLevel: Int
+    /// bzip2 の block size level (1...9)。既定は9（900,000 byte block）。
+    public var bzip2Level: Int
     /// ZIP で既知の圧縮済み拡張子は stored にする。false なら指定方式を使う。
     /// 空ファイル、ディレクトリ、symlink は常に stored。
     public var useCompressionHeuristic: Bool
@@ -50,6 +63,7 @@ public struct WriterOptions: Sendable {
     public init(
         compressionMethod: CompressionMethod = .deflate,
         deflateLevel: Int = 6,
+        bzip2Level: Int = 9,
         useCompressionHeuristic: Bool = true,
         preserveOwnerIDs: Bool = false,
         preserveMacOSMetadata: Bool = false,
@@ -59,6 +73,7 @@ public struct WriterOptions: Sendable {
     ) {
         self.compressionMethod = compressionMethod
         self.deflateLevel = deflateLevel
+        self.bzip2Level = bzip2Level
         self.useCompressionHeuristic = useCompressionHeuristic
         self.preserveOwnerIDs = preserveOwnerIDs
         self.preserveMacOSMetadata = preserveMacOSMetadata
@@ -70,6 +85,7 @@ public struct WriterOptions: Sendable {
     // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
     func validate(for format: ArchiveFormat) throws {
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
+        guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
         guard !preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
         if format == .sevenZip || format == .lha, preserveOwnerIDs {
             throw WriterError.unsupportedOption("preserveOwnerIDs")

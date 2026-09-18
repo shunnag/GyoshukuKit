@@ -5,7 +5,7 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
 - 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib)
-- 作成・全体再構築: tar / tar.gz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
+- 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
 - 依存: 開発中は隣接する `../KaitoKit`（0.4.0）。更新時の読取と往復検証に使用
 - ライセンス: MIT
 
@@ -78,7 +78,8 @@ try rewriter.commit()
 | `WriterOptions` | 既定値 | 意味 |
 |---|---|---|
 | `compressionMethod` | `.deflate` | `.stored` または `.deflate` |
-| `deflateLevel` | `6` | zlib の `0...9` |
+| `deflateLevel` | `6` | ZIP / tar.gz の zlib level `0...9` |
+| `bzip2Level` | `9` | tar.bz2 の block size level `1...9`（100,000〜900,000 byte） |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
 | `preserveOwnerIDs` | `false` | true のときディスク由来の uid/gid を 0x7875 に保存 |
 | `preserveMacOSMetadata` | `false` | true はこの段階では `unsupportedOption` |
@@ -101,7 +102,13 @@ EmptyStream として保存します。header 暗号化は名前も隠します�
 読取・暗号化・書込は 256 KiB 単位です。Apple の 8 MiB 辞書を使い、16 MiB 以下のファイルは
 従来の全体圧縮と同じ圧縮 payload になります。大きいファイルだけ 16 MiB 境界で辞書を reset します。
 主な作業メモリは最大 16 MiB の入力とその圧縮出力です。
-tar / tar.gz / LHA のパスワード指定は `unsupportedOption("password")`、
+LHA は1 MiBまでのmemberをメモリで処理し、それより大きいmemberは1 MiB入力と8 KiB辞書履歴で
+分割圧縮します。LH5 block間のbitを継続し、圧縮結果が大きければ従来どおりstoredにします。
+圧縮候補は作成直後unlinkするmode0600のspoolへ書き、raw bytesは未完成出力に保持します。
+作業用ディスクには一時的にraw bytesと圧縮候補の空きが必要です。取消し・途中失敗・容量不足時は
+spoolを閉じ、未完成出力を無効化して削除します。256 MiB入力でのwriter単体peak RSSは約14 MiBでした。
+再現できる測定条件と限界は[横断検証](Documentation/verification/2026-09-17-release-hardening.md)に記録します。
+tar（tar.gz / tar.bz2 / tar.xz を含む）/ LHA のパスワード指定は `unsupportedOption("password")`、
 パスワードなしの header 暗号化指定は `invalidOption("encryptsSevenZipHeaders")` です。
 
 名前は UTF-8 / NFC、bit 11 を常に立てます。絶対パス・`..`・空の成分・NUL・
@@ -118,7 +125,14 @@ macOS metadata の保存は今後の段階です。[設計書](Documentation/des
 [作成](Documentation/verification/2026-09-10-zip-writer.md)・
 [追加](Documentation/verification/2026-09-10-zip-updater.md)・
 [削除・改名](Documentation/verification/2026-09-10-zip-delete-rename.md)・
-[暗号化](Documentation/verification/2026-09-15-encryption.md)の検証記録を参照してください。
+[暗号化](Documentation/verification/2026-09-15-encryption.md)・
+[大規模編集とパス境界](Documentation/verification/2026-09-16-edit-review.md)・
+[全形式の空書庫と横断検証](Documentation/verification/2026-09-17-release-hardening.md)の検証記録を参照してください。
+
+tar.xz は Apple Compression、tar.bz2 は macOS の libbz2 をプロセス内で使います。
+TarWriter の 256 KiB の入力・出力をストリーム圧縮し、書庫全体をメモリへ保持しません。
+XZ は固定設定、bzip2 は `WriterOptions(bzip2Level: 1...9)` でレベルを指定できます。
+所有者・リンク・タイムスタンプ・取消し・失敗時の cleanup は通常の tar と共通です。
 
 ## ビルドと検証
 
@@ -133,15 +147,16 @@ swift test
 65,536 entry の全件検証と、改名で local offset が 4 GiB を越える再構築も含めます。
 作業用 clone と展開物に約 12 GiB の空き領域を確保し、
 巨大な展開物は成功後に削除します。小さい書庫と実ツールのログは
-`build/verification/` に残します。
+`.build/verification/` に残します。
 
 暗号化の oracle は KaitoKit のパスワード付き全 entry 往復、ZIP AES / 7z AES の `7zz t`、
 ZipCrypto の `unzip -P ... -t` と `7zz t` です。誤パスワード・AES 認証破損・header の秘匿、
 更新時の旧 record の byte 一致も検査します。300 MiB の入力を ZIP AES / 7z AES / ZipCrypto
 で stream 処理し、読取中と終了後の一時ファイルも検査します。40 MiB の固定 seed テキストでは
 平文・暗号 7z の往復と、Apple の全体圧縮から packed size が ±5% に収まることを検査します。
-5 / 16 MiB の圧縮 payload の byte 一致も検査します。2026-09-15 の sandbox では
-SwiftPM の module cache 書込が拒否されたため、追加テストの実行結果は未確認です。
+5 / 16 MiB の圧縮 payload の byte 一致も検査します。2026-09-15 はsandboxの
+module cache制限で未確認でしたが、2026-09-16には標準のSwiftPM実行環境で全件成功を確認しました。
+実行件数と大規模編集の測定は[追加の検証記録](Documentation/verification/2026-09-16-edit-review.md)にあります。
 
 実機固有の制限も検査しています。空 ZIP は Python の出力とも一致する正当な
 22 byte の書庫ですが、Apple unzip は警告、ditto は拒否します。Apple unzip の
@@ -154,7 +169,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
 > The local `../KaitoKit` dependency (0.4.0) provides update reading and round-trip verification.
-> Creation and full rewriting also support tar, tar.gz, non-solid 7z and LHA.
+> Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, non-solid 7z and LHA.
 >
 > Create an `ArchiveWriter`, add files, recursively add directories, add symlinks
 > without following them, or supply `Data`, then call `finish()`. Existing output
@@ -198,7 +213,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > `swift test` includes real unzip, 7-Zip, ditto and bsdtar checks plus KaitoKit
 > round trips, including all bytes above 4 GiB and all 65,536 entries. Required
 > tools are listed above; missing tools fail instead of silently skipping.
-> Tests retain small archives/logs under `build/verification` and remove large
+> Tests retain small archives/logs under `.build/verification` and remove large
 > extracted data after success. Allow about 12 GiB for working copies and extraction.
 >
 > Known tool limitations: Apple unzip warns on a valid empty archive and ditto
@@ -209,7 +224,15 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > Encryption tests add password-aware KaitoKit, 7zz and unzip oracles, header
 > inspection, failure cleanup, rewriting and 300 MiB streaming. A fixed-seed 40 MiB
 > text corpus also checks plain/encrypted 7z round trips and a ±5% packed-size
-> guard against whole-buffer Apple compression. Their execution
-> remains unverified in the 2026-09-15 sandbox because SwiftPM cannot write its
-> module cache. macOS metadata preservation remains future work. See the design
-> and verification records linked above. MIT licensed.
+> guard against whole-buffer Apple compression. The module-cache restriction
+> that blocked the 2026-09-15 sandbox run was resolved by using the standard SwiftPM
+> environment; the full suite passed on 2026-09-16. See the edit review linked above
+> for counts, bulk-rename measurements and Unicode path regressions. macOS metadata
+> preservation remains future work. MIT licensed.
+
+### 圧縮 tar の大容量検証
+
+`GYOSHUKU_LARGE_TAR_TESTS=1 swift test` は 4 GiB + 513 byte の実ファイルを両形式で作成し、
+Python / bsdtar / 7zz と KaitoKit で内容を照合します。通常実行では、この大容量ケースだけを skip します。
+6 GiB 以上の空き領域が必要です。読取側の既定 4 GiB 上限は変更せず、このテストでは明示的に上限を上げます。
+KaitoFinder の `Tools/benchmark_tar_memory.py` は最適化した実 writer のピークRSSと内容を検査します。

@@ -301,7 +301,7 @@ final class EncryptionTests: XCTestCase {
     func testOptionsAreValidatedBeforeCreatingOrAccessingFiles() throws {
         let directory = try ZipTestSupport.directory("encryption-options")
         let url = directory.appendingPathComponent("missing.archive")
-        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .lha] {
+        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ, .lha] {
             let options = WriterOptions(password: password)
             XCTAssertThrowsError(try ArchiveWriter.create(url: url, format: format, options: options)) {
                 XCTAssertEqual($0 as? WriterError, .unsupportedOption("password"))

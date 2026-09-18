@@ -224,7 +224,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testActualXattrIsNotArchivedOrRestored() throws {
-        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip] {
+        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let directory = try ZipTestSupport.directory("tar-metadata-\(format)")
             let source = directory.appendingPathComponent("source")
             let payload = Data("metadata-free payload\n".utf8)
@@ -234,12 +234,13 @@ final class TarWriterTests: XCTestCase {
             XCTAssertEqual(try ZipTestSupport.run("/usr/bin/xattr", ["-w", key, value, source.path], in: directory, log: "xattr-write"), "")
             XCTAssertEqual(try ZipTestSupport.run("/usr/bin/xattr", ["-p", key, source.path], in: directory, log: "xattr-read"), value + "\n")
             try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date, .posixPermissions: 0o644], ofItemAtPath: source.path)
-            let url = directory.appendingPathComponent(format == .tar ? "archive.tar" : "archive.tar.gz")
+            let suffix = format == .tar ? "tar" : format == .tarGzip ? "tar.gz" : format == .tarBzip2 ? "tar.bz2" : "tar.xz"
+            let url = directory.appendingPathComponent("archive." + suffix)
             let writer = try ArchiveWriter.create(url: url, format: format)
             try writer.add(contentsOf: source, as: "file")
             try writer.finish()
             try TarTestSupport.verify(url, expected: [.init(name: "file", data: payload)], gzip: format == .tarGzip)
-            let script = "import gzip,sys; b=gzip.open(sys.argv[1],'rb').read() if sys.argv[1].endswith('.gz') else open(sys.argv[1],'rb').read(); open(sys.argv[2],'wb').write(b); print(len(b))"
+            let script = "import bz2,gzip,lzma,sys; p=sys.argv[1]; reader=gzip.open if p.endswith('.gz') else bz2.open if p.endswith('.bz2') else lzma.open if p.endswith('.xz') else open; b=reader(p,'rb').read(); open(sys.argv[2],'wb').write(b); print(len(b))"
             let rawURL = directory.appendingPathComponent("raw.tar")
             let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, rawURL.path], in: directory, log: "python-raw")
             let raw = try Data(contentsOf: rawURL)
@@ -279,7 +280,7 @@ final class TarWriterTests: XCTestCase {
     func testSharedPathValidationAndFailedOutputCleanup() throws {
         let directory = try ZipTestSupport.directory("tar-invalid")
         let paths = ["", "/absolute", "../escape", "a/../b", "a//b", "a\\b", "C:drive", "nul\0name", "file/", String(repeating: "界", count: 22_000)]
-        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip] {
+        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             for (index, path) in paths.enumerated() {
                 let url = directory.appendingPathComponent("\(format)-\(index)")
                 let writer = try ArchiveWriter.create(url: url, format: format)
@@ -305,7 +306,7 @@ final class TarWriterTests: XCTestCase {
 
     func testLifecycleExistingDestinationAndOutputAsSource() throws {
         let directory = try ZipTestSupport.directory("tar-lifecycle")
-        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip] {
+        for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let url = directory.appendingPathComponent("\(format).tar")
             do {
                 let writer = try ArchiveWriter.create(url: url, format: format)
@@ -365,7 +366,8 @@ final class TarWriterTests: XCTestCase {
             try handle.truncate(atOffset: 512 * 1024 * 1024)
             try handle.close()
             defer { try? FileManager.default.removeItem(at: source) }
-            let url = directory.appendingPathComponent(format == .tar ? "archive.tar" : "archive.tar.gz")
+            let suffix = format == .tar ? "tar" : format == .tarGzip ? "tar.gz" : format == .tarBzip2 ? "tar.bz2" : "tar.xz"
+            let url = directory.appendingPathComponent("archive." + suffix)
             let task = Task.detached {
                 let writer = try ArchiveWriter.create(url: url, format: format, options: WriterOptions(deflateLevel: 0))
                 try writer.add(contentsOf: source, as: "large")

@@ -14,6 +14,9 @@ public final class ArchiveUpdater: ArchiveEditing {
     private let reader: ArchiveReader?
     private var removed: Set<Int> = []
     private var renamed: [Int: String] = [:]
+    private lazy var pathReservations = EditPathReservations(existingPaths)
+    private var indexedAppendCount = 0
+    private var writerPathsNeedRefresh = false
     // 公開 API を増やさず、nil とコピー途中の I/O 失敗も検証できる取得境界。
     var rawRecord: (ArchiveReader, ArchiveEntry) throws -> RawEntryRecord? = { try $0.rawRecord(of: $1) }
     private var writer: ArchiveWriter?
@@ -78,9 +81,14 @@ public final class ArchiveUpdater: ArchiveEditing {
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
             for index in indices { try validateIndex(index) }
-            removed.formUnion(indices)
-            for index in indices { renamed.removeValue(forKey: index) }
-            writer?.replaceExistingPaths(existingPaths)
+            indexAppendedPaths()
+            for index in indices where !removed.contains(index) {
+                let entry = reader!.entries[index]
+                pathReservations.remove(renamed[index] ?? entry.name, directory: entry.kind == .directory)
+                removed.insert(index)
+                renamed.removeValue(forKey: index)
+            }
+            writerPathsNeedRefresh = true
         }
     }
 
@@ -92,17 +100,12 @@ public final class ArchiveUpdater: ArchiveEditing {
             guard !removed.contains(index), let reader else { throw UpdaterError.invalidEntryIndex(index) }
             let directory = reader.entries[index].kind == .directory
             let name = try ArchiveWriter.normalizedPath(path, directory: directory)
-            let key = directory ? String(name.dropLast()) : name
-            let otherPaths = reader.entries.filter { $0.index != index && !removed.contains($0.index) }
-                .map { (renamed[$0.index] ?? $0.name, $0.kind == .directory) } + (writer?.appendedPaths ?? [])
-            for (other, isDirectory) in otherPaths {
-                let otherKey = other.hasSuffix("/") ? String(other.dropLast()) : other
-                guard key != otherKey else { throw WriterError.duplicatePath(name) }
-                guard !(!directory && otherKey.hasPrefix(key + "/")),
-                      !(!isDirectory && key.hasPrefix(otherKey + "/")) else { throw WriterError.invalidPath(name) }
-            }
+            indexAppendedPaths()
+            pathReservations.remove(renamed[index] ?? reader.entries[index].name, directory: directory)
+            try pathReservations.validate(name, directory: directory)
+            pathReservations.insert(name, directory: directory)
             renamed[index] = name
-            writer?.replaceExistingPaths(existingPaths)
+            writerPathsNeedRefresh = true
         }
     }
 
@@ -113,6 +116,14 @@ public final class ArchiveUpdater: ArchiveEditing {
     private var existingPaths: [(String, Bool)] {
         (reader?.entries ?? []).filter { !removed.contains($0.index) }
             .map { (renamed[$0.index] ?? $0.name, $0.kind == .directory) }
+    }
+
+    private func indexAppendedPaths() {
+        guard let writer else { return }
+        for (path, directory) in writer.appendedPaths.dropFirst(indexedAppendCount) {
+            pathReservations.insert(path, directory: directory)
+        }
+        indexedAppendCount = writer.appendedPaths.count
     }
 
     /// 終端を書いて同期し、原本を atomic replace する。成功後の再呼出しは no-op。
@@ -177,7 +188,14 @@ public final class ArchiveUpdater: ArchiveEditing {
 
     // add がなければ削除・改名の commit まで clone を遅延する。
     private func preparedWriter() throws -> ArchiveWriter {
-        if let writer { return writer }
+        if let writer {
+            // 大量の rename ごとに全名を再構築せず、次の add の直前だけ更新する。
+            if writerPathsNeedRefresh {
+                writer.replaceExistingPaths(existingPaths)
+                writerPathsNeedRefresh = false
+            }
+            return writer
+        }
         try prepareClone()
         let output = try FileHandle(forUpdating: replacement!)
         var info = stat()
@@ -188,6 +206,7 @@ public final class ArchiveUpdater: ArchiveEditing {
                                    format: .zip, options: options)
         self.writer = writer
         try writer.prepareAppend(at: layout.centralOffset, existingPaths: existingPaths)
+        writerPathsNeedRefresh = false
         return writer
     }
 

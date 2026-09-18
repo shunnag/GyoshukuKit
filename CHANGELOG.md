@@ -6,6 +6,10 @@
 
 ### 追加
 
+- `ArchiveFormat.tarBzip2` / `.tarXZ` のストリーム出力と書き換え。
+  bzip2 の block size は `WriterOptions.bzip2Level`（1〜9、既定9）で選択し、XZは固定設定。
+  4 GiB超・独立ツール・取消し・容量不足の[検証記録](Documentation/verification/2026-09-18-compressed-tar.md)。
+
 - `WriterOptions.password`、`zipEncryption`（既定 `.aes256`）、`encryptsSevenZipHeaders`。
   ZIP のパスワードは UTF-8、7z は UTF-16LE。空パスワード、tar / tar.gz / LHA の暗号化、
   パスワードなしの header 暗号化は出力作成前に拒否する。
