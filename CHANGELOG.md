@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-19
+
+最初の tag 付きリリース。0.1.0〜0.3.0 は CHANGELOG 上の区切りで、tag は打っていない。
+`Package.swift` の KaitoKit 依存は、隣に `../KaitoKit` の checkout があればその path（開発用）、なければ
+KaitoKit 0.7.0 の tag 参照を選ぶ（design.md §2）。tag 参照を root と隣の path 依存の両方から解決すると
+SwiftPM が identity `kaitokit` の衝突を警告し将来はエラーになるため、KaitoFinder の開発配置では path を使う。
+
 ### 追加
 
 - `ArchiveRewriter.probe(entries:format:)`。`open` と同じ表現可能性の検査（出力名の正規化と衝突、entry 種別、
