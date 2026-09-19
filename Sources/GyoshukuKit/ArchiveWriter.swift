@@ -175,7 +175,12 @@ public final class ArchiveWriter {
         if state == .finished { return }
         try perform {
             let start = position
-            try copyCentral(write)
+            var central = ZipCentralDirectory.CopyValidator(expectedCount: existingCount)
+            try copyCentral { bytes in
+                try central.consume(bytes)
+                try write(bytes)
+            }
+            try central.finish()
             for entry in entries { try write(entry.central()) }
             try write(ZipRecords.end(count: checkedAdd(existingCount, UInt64(entries.count)),
                                      centralSize: position - start, centralOffset: start, comment: comment))
@@ -359,7 +364,7 @@ public final class ArchiveWriter {
     private func writeZipCryptoEntry(_ entry: inout ZipRecords.Entry, name: String, password: String,
                                      read: (Int) throws -> Data) throws {
         let spool = try ZipCryptoSpool(nextTo: outputURL)
-        // spool の deinit は read / 圧縮 / 出力のどの失敗でも一時ファイルを削除する。
+        // spool は作成直後に unlink 済み。どの失敗でも deinit で descriptor を閉じる。
         entry.crc = try compressEntry(name: name, size: entry.size, method: entry.method, read: read, emit: spool.write)
         entry.compressedSize = try checkedAdd(spool.size, 12)
         var encryptor = ZipCryptoEncryptor(password: password)
@@ -368,7 +373,7 @@ public final class ArchiveWriter {
         try write(entry.local())
         try write(encryptor.encrypt(header))
         try spool.copy(encryptor: &encryptor, emit: write)
-        try spool.remove()
+        try spool.close()
     }
 
     private func compressEntry(name: String, size: UInt64, method: CompressionMethod,

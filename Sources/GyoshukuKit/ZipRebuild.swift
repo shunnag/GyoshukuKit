@@ -4,24 +4,31 @@ internal import KaitoKit
 // entry の解釈と descriptor の終端は KaitoKit だけが決める。
 // ここで読む CD の byte 表は、未知の extra / comment / 属性を保存して再出力するためのもの。
 enum ZipRebuild {
+    // output は source と byte-identical な clone。未移動の範囲はその byte を再利用する。
     static func write(source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader,
                       output: FileHandle, removed: Set<Int>, renamed: [Int: String],
                       rawRecord: (ArchiveReader, ArchiveEntry) throws -> RawEntryRecord?) throws {
         var position: UInt64 = 0
         var offsets = [UInt64?](repeating: nil, count: reader.entries.count)
         var descriptorMarkers: Set<Int> = []
-        try output.seek(toOffset: 0)
+        var scratch = Data(count: 256 * 1024)
         func emit(_ bytes: Data) throws {
             try Task.checkCancellation()
             let next = try checkedAdd(position, UInt64(bytes.count))
+            // clone 上の未移動 record を読み飛ばすと、handle の cursor は position と異なる。
+            try output.seek(toOffset: position)
             try output.write(contentsOf: bytes)
             position = next
         }
         func copy(_ range: Range<UInt64>) throws {
             var cursor = range.lowerBound
             while cursor < range.upperBound {
-                let count = Int(min(range.upperBound - cursor, 256 * 1024))
-                try emit(source.bytes(at: cursor, count: count))
+                try Task.checkCancellation()
+                let count = Int(min(range.upperBound - cursor, UInt64(scratch.count)))
+                try scratch.withUnsafeMutableBytes {
+                    try source.readExactly(into: UnsafeMutableRawBufferPointer(rebasing: $0[..<count]), at: cursor)
+                }
+                try emit(scratch.prefix(count))
                 cursor += UInt64(count)
             }
         }
@@ -49,11 +56,14 @@ enum ZipRebuild {
                 let bytes = Data(name.utf8)
                 let replacement = try header.renamed(bytes)
                 if bytes.count == header.name.count {
-                    // 同長なら record 全体を運び、local の名前・flag・名前用 extra だけを同じ位置で更新。
-                    try copy(raw.recordRange)
+                    // 未移動なら byte-identical な clone の payload / descriptor は触らない。
+                    if start == raw.recordRange.lowerBound {
+                        position = raw.recordRange.upperBound
+                    } else {
+                        try copy(raw.recordRange)
+                    }
                     try output.seek(toOffset: start)
                     try output.write(contentsOf: replacement)
-                    try output.seek(toOffset: position)
                 } else {
                     try emit(replacement)
                     // payload から descriptor 終端まで。幅の算術は一切持たない。
@@ -64,7 +74,11 @@ enum ZipRebuild {
                     let header = try LocalHeader(source: source, raw: raw)
                     if !header.hasZIP64 { descriptorMarkers.insert(entry.index) }
                 }
-                try copy(raw.recordRange)
+                if start == raw.recordRange.lowerBound {
+                    position = raw.recordRange.upperBound
+                } else {
+                    try copy(raw.recordRange)
+                }
             }
         }
         let centralOffset = position

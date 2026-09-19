@@ -327,6 +327,50 @@ final class EncryptionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testZipCryptoSpoolIsAnonymousWhileAliveAndStillCopiesBytes() throws {
+        let directory = try ZipTestSupport.directory("encryption-anonymous-spool")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let payload = Data("compressed plaintext spool\n".utf8)
+        do {
+            let spool = try ZipCryptoSpool(nextTo: directory.appendingPathComponent("archive.zip"))
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).count, 0,
+                           "ZipCrypto spool must be unlinked immediately after creation")
+            try spool.write(payload.prefix(7))
+            try spool.write(payload.dropFirst(7))
+            var encryptor = ZipCryptoEncryptor(password: password)
+            var actual = Data()
+            try spool.copy(encryptor: &encryptor) { actual.append($0) }
+            var oracle = ZipCryptoEncryptor(password: password)
+            XCTAssertEqual(actual, oracle.encrypt(payload), "unlinking must preserve every spooled byte")
+            XCTAssertEqual(spool.size, UInt64(payload.count))
+        }
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+    }
+
+    func testZipCryptoSpoolIsAbsentDuringAddAndBeforeFinish() throws {
+        let directory = try ZipTestSupport.directory("encryption-anonymous-add")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("source.bin")
+        let payload = Data(repeating: 0x37, count: 600_007)
+        try payload.write(to: source)
+        let url = directory.appendingPathComponent("archive.zip")
+        let writer = try ArchiveWriter.create(url: url, options: WriterOptions(password: password, zipEncryption: .zipCrypto))
+        var inspected = false
+        try writer.add(contentsOf: source, as: "file.bin") { input, requested in
+            if !inspected {
+                inspected = true
+                XCTAssertEqual(try EncryptionTestSupport.spoolFiles(in: directory).count, 0,
+                               "ZipCrypto add must not expose a named plaintext spool")
+            }
+            return try input.read(upToCount: requested) ?? Data()
+        }
+        XCTAssertTrue(inspected)
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)), ["source.bin", "archive.zip"])
+        try writer.finish()
+        try EncryptionTestSupport.verify(url, items: [.init(name: "file.bin", data: payload)]) { _ in true }
+        try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-anonymous", tool: "/usr/bin/unzip")
+    }
+
     func testZipCryptoSpoolRemovedAfterSourceChangesAndCancellation() throws {
         for failure in ["short", "grown", "mtime", "mode", "cancel"] {
             let directory = try ZipTestSupport.directory("encryption-spool-\(failure)")
@@ -338,12 +382,7 @@ final class EncryptionTests: XCTestCase {
             XCTAssertThrowsError(try writer.add(contentsOf: source, as: "file") { input, requested in
                 calls += 1
                 let spools = try EncryptionTestSupport.spoolFiles(in: directory)
-                XCTAssertEqual(spools.count, 1)
-                if calls == 1 {
-                    let spool = try XCTUnwrap(spools.first)
-                    let attributes = try FileManager.default.attributesOfItem(atPath: spool.path)
-                    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-                }
+                XCTAssertTrue(spools.isEmpty, "ZipCrypto failure paths must not expose a named spool")
                 if calls == 2 {
                     switch failure {
                     case "short": return Data()
@@ -526,8 +565,8 @@ final class EncryptionTests: XCTestCase {
                 XCTAssertLessThanOrEqual(requested, 256 * 1024)
                 if calls % 128 == 1 {
                     let contents = try FileManager.default.contentsOfDirectory(atPath: scratch.path)
-                    XCTAssertEqual(contents.count, variant.1 == .zipCrypto ? 2 : 1)
-                    XCTAssertEqual(try EncryptionTestSupport.spoolFiles(in: scratch).count, variant.1 == .zipCrypto ? 1 : 0)
+                    XCTAssertEqual(contents.count, 1)
+                    XCTAssertEqual(try EncryptionTestSupport.spoolFiles(in: scratch).count, 0)
                 }
                 return try input.read(upToCount: requested) ?? Data()
             }

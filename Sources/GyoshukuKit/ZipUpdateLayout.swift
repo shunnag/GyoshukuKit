@@ -7,12 +7,14 @@ public enum UpdateGatekeeper: String, Sendable {
     case sfxPrefix
     case trailingData
     case centralDirectoryOffset
+    case ambiguousEndRecord
 
     public var reason: String {
         switch self {
         case .sfxPrefix: "SFX prefix があるため ZIP の offset 基準を保証できません"
         case .trailingData: "EOCD の後ろに trailing data があります"
         case .centralDirectoryOffset: "EOCD.cdOffset が PK\\x01\\x02 を指しません。ZIP64 なしの offset 切り詰めなどが疑われます"
+        case .ambiguousEndRecord: "複数の EOCD 候補、または comment 内の EOCD があるため終端構造が曖昧です"
         }
     }
 }
@@ -28,6 +30,8 @@ public enum UpdaterError: Error, Sendable, Equatable {
 
 // 同じ descriptor を KaitoKit と CD コピーで共有する。pread のみなので cursor は共有しない。
 final class ZipUpdateSource: ByteSource {
+    // descriptor 境界の I/O 量を検証する内部 hook。並行テスト間で観測を共有しない。
+    @TaskLocal static var readObserver: (@Sendable (Int32, UInt64, Int) -> Void)?
     let descriptor: Int32
     let length: UInt64
     private let snapshot: stat
@@ -67,7 +71,10 @@ final class ZipUpdateSource: ByteSource {
         let count = Int(min(UInt64(buffer.count), length - offset))
         while true {
             let actual = pread(descriptor, buffer.baseAddress!, count, off_t(offset))
-            if actual >= 0 { return actual }
+            if actual >= 0 {
+                Self.readObserver?(descriptor, offset, actual)
+                return actual
+            }
             if errno != EINTR { throw WriterError.io(operation: "pread archive", code: errno) }
         }
     }
@@ -77,19 +84,27 @@ final class ZipUpdateSource: ByteSource {
             throw UpdaterError.invalidArchive("終端構造がファイル範囲外です")
         }
         var result = Data(count: count)
+        try result.withUnsafeMutableBytes { try readExactly(into: $0, at: offset) }
+        return result
+    }
+
+    // copy の固定長 scratch を再利用し、短い pread も全範囲を満たすまで継続する。
+    func readExactly(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws {
+        let count = buffer.count
+        guard offset <= length, UInt64(count) <= length - offset else {
+            throw UpdaterError.invalidArchive("終端構造がファイル範囲外です")
+        }
         var filled = 0
         while filled < count {
-            let actual = try result.withUnsafeMutableBytes {
-                try read(into: UnsafeMutableRawBufferPointer(rebasing: $0[filled..<count]), at: offset + UInt64(filled))
-            }
+            let actual = try read(into: UnsafeMutableRawBufferPointer(rebasing: buffer[filled..<count]),
+                                  at: offset + UInt64(filled))
             guard actual > 0 else { throw UpdaterError.sourceChanged }
             filled += actual
         }
-        return result
     }
 }
 
-// entry の parser は KaitoKit に任せる。ここでは更新に必要な終端の範囲と三門番だけを検査する。
+// entry の parser は KaitoKit に任せる。ここでは更新に必要な終端の範囲と編集用門番だけを検査する。
 struct ZipUpdateLayout {
     let centralOffset: UInt64
     let centralSize: UInt64
@@ -101,18 +116,25 @@ struct ZipUpdateLayout {
             throw UpdaterError.editingRefused(gatekeeper: gate, reason: gate.reason)
         }
         // KaitoKit が読む trailing data の上限と同じ。攻撃者のサイズで確保しない。
-        let tailSize = Int(min(source.length, 22 + 65_535 + 1_048_576))
+        let trailingLimit = 1_048_576
+        let tailSize = Int(min(source.length, UInt64(22 + 65_535 + trailingLimit)))
         guard tailSize >= 22 else { throw UpdaterError.invalidArchive("EOCD がありません") }
         let tail = try source.bytes(at: source.length - UInt64(tailSize), count: tailSize)
         var found: Int?
+        var endsAtEOF = 0
+        var enclosed = false
         for index in stride(from: tail.count - 22, through: 0, by: -1) {
-            if tail.zip32(index) == 0x06054B50,
-               index + 22 + Int(tail.zip16(index + 20)) <= tail.count {
-                found = index
-                break
-            }
+            guard tail[index] == 0x50, tail.zip32(index) == 0x06054B50 else { continue }
+            let commentEnd = index + 22 + Int(tail.zip16(index + 20))
+            guard commentEnd <= tail.count, tail.count - commentEnd <= trailingLimit else { continue }
+            if commentEnd == tail.count { endsAtEOF += 1 }
+            if let chosen = found {
+                // 選んだ header 自体が以前の comment 内なら、reader の fallback と解釈が分岐し得る。
+                if index + 22 <= chosen, chosen + 22 <= commentEnd { enclosed = true }
+            } else { found = index }
         }
         guard let end = found else { throw UpdaterError.invalidArchive("EOCD がありません") }
+        guard endsAtEOF <= 1, !enclosed else { try refuse(.ambiguousEndRecord) }
         let first = try source.bytes(at: 0, count: 4).zip32(0)
         guard first == 0x04034B50 || first == 0x06054B50 || first == 0x06064B50 else {
             try refuse(.sfxPrefix)

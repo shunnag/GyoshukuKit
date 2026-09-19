@@ -6,7 +6,7 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
 - 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib)
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
-- 依存: 開発中は隣接する `../KaitoKit`（0.4.0）。更新時の読取と往復検証に使用
+- 依存: `Package.swift` の path dependency は隣接する `../KaitoKit`（0.6.1 + unreleased）。更新時の読取と往復検証に使用
 - ライセンス: MIT
 
 ## 使用例
@@ -49,6 +49,9 @@ try updater.commit()
 削除・改名の index は open 時の KaitoKit の一覧と同じゼロ始まりで、予約しても変化しません。
 directory の子孫は呼出側で個別に指定します。追加済みの新 entry は index 操作の対象外です。
 生き残る entry の圧縮 payload と descriptor はそのまま運び、再圧縮しません。
+offset が変わらない record は clone 上で読み書きせず、同長改名では local header だけを patch
+します。末尾削除も残存 payload を書き直しません。移動が必要な範囲だけ 256 KiB の buffer で
+コピーし、最後に central directory を再出力・truncate します。
 未変更名は元の byte / flag を保持し、改名だけ UTF-8 / NFC / bit 11 を使います。
 移動できない entry、危険な名前、予約済み名との衝突、範囲外 index は理由付きで拒否します。
 ZIP32 descriptor の移動先が初めて ZIP64 offset を要する場合も、KaitoKit 0.4.0 の
@@ -58,6 +61,14 @@ descriptor 幅の制限により拒否します。詳細は削除・改名の検
 復元します。未 commit の破棄、途中失敗、置換前の Task cancellation では原本を変更しません。
 成功後の commit は no-op、失敗後は再利用できません。metadata 復元で失敗した場合は既に
 内容の置換は完了しています。同じ書庫への操作は呼出側で直列化してください。
+
+既に reader を持つ呼出側は `ArchiveUpdater.probe(url:)` で ZIP / ZIP64 の編集用終端と各門番を
+検査できます。reader の生成や CD の entry 解析を行わず、成功時に `Probe.entryCount: UInt64` を
+返します。SFX prefix・trailing data・不正な CD offset、分割 ZIP、矛盾した終端は `open` と同じ
+理由で拒否し、複数の整合する EOCD 候補や comment 内の終端候補も `ambiguousEndRecord` で拒否します。
+CD 全件の walk と local record の offset / 範囲の照合は `open` だけで行います。
+probe だけでは entry の正当性は保証しないため、自身の検証済み reader と
+`probe.entryCount == UInt64(reader.entries.count)` を必ず照合してから利用してください。
 
 `ArchiveUpdater.open(url:options:)` の `options.password` は新規追加する通常ファイルに適用します。
 既存 entry の暗号化方式・パスワードは保持するため、平文と暗号文の混在も可能です。
@@ -94,8 +105,9 @@ ZIP の空ファイル・ディレクトリ・symlink は常に stored です。
 ZIP のパスワードは UTF-8、7z は UTF-16LE を使います。ZIP は空ファイルも暗号化し、
 ディレクトリと symlink は暗号化しません。AES は 20 byte 未満を AE-1（CRC あり）、
 20 byte 以上を AE-2（CRC 欄は 0）で書き、作業ファイルを使わず stream に暗号化します。
-ZipCrypto は CRC の確定が必要なので圧縮結果を出力の隣の mode 0600 一時ファイルへ
-spool し、暗号化してコピーした後に削除します。失敗時にも spool を削除します。
+ZipCrypto は CRC の確定が必要なので、出力の隣で mode 0600 の一時ファイルを排他的に作成し、
+書込前に unlink した descriptor へ圧縮結果を spool します。暗号化してコピーした後や失敗時に
+descriptor を閉じます。圧縮中に名前付きの平文 spool を残しません。
 
 7z は非空 stream ごとに LZMA2 → AES-256-CBC を使い、空ファイルは従来どおり
 EmptyStream として保存します。header 暗号化は名前も隠します。LZMA2 の圧縮単位は最大 16 MiB、
@@ -127,7 +139,8 @@ macOS metadata の保存は今後の段階です。[設計書](Documentation/des
 [削除・改名](Documentation/verification/2026-09-10-zip-delete-rename.md)・
 [暗号化](Documentation/verification/2026-09-15-encryption.md)・
 [大規模編集とパス境界](Documentation/verification/2026-09-16-edit-review.md)・
-[全形式の空書庫と横断検証](Documentation/verification/2026-09-17-release-hardening.md)の検証記録を参照してください。
+[全形式の空書庫と横断検証](Documentation/verification/2026-09-17-release-hardening.md)・
+[ZIP の読取量と編集可否 probe](Documentation/verification/2026-09-19-release-review.md)の検証記録を参照してください。
 
 tar.xz は Apple Compression、tar.bz2 は macOS の libbz2 をプロセス内で使います。
 TarWriter の 256 KiB の入力・出力をストリーム圧縮し、書庫全体をメモリへ保持しません。
@@ -168,7 +181,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > Swift 6 and Apple Silicon, paired with the read-only KaitoKit. It uses system
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
-> The local `../KaitoKit` dependency (0.4.0) provides update reading and round-trip verification.
+> The `Package.swift` path dependency on `../KaitoKit` (0.6.1 + unreleased) provides update reading and round-trip verification.
 > Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, non-solid 7z and LHA.
 >
 > Create an `ArchiveWriter`, add files, recursively add directories, add symlinks
@@ -178,6 +191,10 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > for the caller to remove. Deinitialization closes without finalizing.
 >
 > ArchiveUpdater supports additions, deletion and renaming in one atomic commit.
+> Unmoved records remain on the clone without payload I/O; same-length renames patch only local headers.
+> `ArchiveUpdater.probe(url:)` checks ZIP end records and editing gatekeepers without creating a reader.
+> Ambiguous EOCD candidates are refused; only `open` walks the full CD and validates local record ranges.
+> Before trusting it, compare `Probe.entryCount` with the entry count of your own validated reader.
 > Removal/rename indices refer to the original list from open and remain stable;
 > callers explicitly select descendants. Surviving stored payloads and descriptors
 > are never recompressed. Unchanged names retain their bytes and flags, while
@@ -198,8 +215,8 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > `password` enables ZIP AES-256 (default) or `zipEncryption: .zipCrypto`, and 7z
 > AES-256. ZIP encrypts empty files but leaves directories and symlinks plain.
 > It writes AE-1 below 20 bytes and AE-2 otherwise. ZipCrypto spools compressed
-> bytes beside the output to obtain the CRC before writing its encryption header;
-> the spool is removed on success or failure. AES uses no spool. 7z optionally
+> bytes to a mode-0600 file unlinked immediately after creation to obtain the CRC before writing its encryption header;
+> the anonymous spool is closed on success or failure. AES uses no spool. 7z optionally
 > encrypts file names with `encryptsSevenZipHeaders`; empty streams stay empty.
 > ZIP passwords use UTF-8, 7z passwords UTF-16LE. Empty passwords, unsupported
 > formats and header encryption without a password are rejected. The updater

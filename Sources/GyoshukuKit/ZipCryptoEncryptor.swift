@@ -34,33 +34,27 @@ struct ZipCryptoEncryptor {
     }
 }
 
-// CRC が確定するまで圧縮結果だけを出力と同じ directory に置く。mkstemp は mode 0600。
-// ZIP bit 3 / descriptor を使わず、全ての終了経路で一時ファイルを削除する。
+// CRC が確定するまで圧縮結果だけを同じ volume の匿名ファイルへ置く。
+// mode 0600 で排他的に作成し、内容を書く前に unlink。異常終了でも名前付き payload を残さない。
 final class ZipCryptoSpool {
     private var descriptor: Int32
-    private let path: String
-    private var removed = false
     private(set) var size: UInt64 = 0
 
     init(nextTo output: URL) throws {
-        var template = Array(output.deletingLastPathComponent()
-            .appendingPathComponent(".gyoshuku-zipcrypto-XXXXXX").path.utf8CString)
-        let fd = mkstemp(&template)
+        let path = output.deletingLastPathComponent()
+            .appendingPathComponent(".gyoshuku-zipcrypto-\(UUID().uuidString)").path
+        let fd = Darwin.open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw WriterError.io(operation: "create ZipCrypto spool", code: errno) }
-        descriptor = fd
-        path = String(decoding: template.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        if fcntl(descriptor, F_SETFD, FD_CLOEXEC) == -1 {
+        guard unlink(path) == 0 else {
             let code = errno
-            Darwin.close(descriptor)
-            descriptor = -1
-            unlink(path)
-            throw WriterError.io(operation: "configure ZipCrypto spool", code: code)
+            Darwin.close(fd)
+            throw WriterError.io(operation: "unlink ZipCrypto spool", code: code)
         }
+        descriptor = fd
     }
 
     deinit {
         if descriptor >= 0 { Darwin.close(descriptor) }
-        if !removed { unlink(path) }
     }
 
     func write(_ data: Data) throws {
@@ -92,9 +86,8 @@ final class ZipCryptoSpool {
         }
     }
 
-    func remove() throws {
-        guard unlink(path) == 0 else { throw WriterError.io(operation: "remove ZipCrypto spool", code: errno) }
-        removed = true
+    func close() throws {
+        guard descriptor >= 0 else { return }
         let fd = descriptor
         descriptor = -1
         guard Darwin.close(fd) == 0 else { throw WriterError.io(operation: "close ZipCrypto spool", code: errno) }

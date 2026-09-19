@@ -40,6 +40,26 @@ public final class ArchiveUpdater: ArchiveEditing {
     /// 予約済みの削除・改名を反映せず、常に open 時の名前を返す。
     public var entryNames: [String] { reader?.entries.map(\.name) ?? [] }
 
+    /// ZIP の編集用終端検査を通過した書庫の最小情報。entry 自体の検証結果ではない。
+    public struct Probe: Sendable, Equatable {
+        /// EOCD / ZIP64 EOCD が宣言する entry 数。
+        public let entryCount: UInt64
+    }
+
+    /// KaitoKit の reader を作らず、単一 volume・正規の空書庫・編集用門番を検査する。
+    /// SFX prefix / trailing data / 不正な CD offset / 曖昧な EOCD は open と同じ editingRefused、
+    /// 終端の矛盾は同じ invalidArchive を返す。成功時はこれらの条件を満たす。
+    /// CD の entry は解析しないため、呼出側は自身の検証済み reader の entry 数と
+    /// entryCount が一致することを必ず確認してから、この結果を利用すること。
+    /// CD 全体の walk と local record の対応検査は open だけが行う。probe は tail の読取量を維持する。
+    /// entry 内容・読取制限の検査は reader の責務。同じ書庫への操作は直列化する。
+    public static func probe(url: URL) throws -> Probe {
+        let source = try ZipUpdateSource(url: url)
+        let layout = try ZipUpdateLayout(source: source)
+        try source.checkUnchanged(at: url)
+        return Probe(entryCount: layout.count)
+    }
+
     /// 追加 entry の書き込み設定を、書庫にアクセスする前に検証する。
     /// options.password は追加する通常ファイルだけを暗号化する。既存 entry の暗号化は保持する。
     public static func open(url: URL, options: WriterOptions = WriterOptions()) throws -> ArchiveUpdater {
@@ -58,6 +78,8 @@ public final class ArchiveUpdater: ArchiveEditing {
         guard reader.format == .zip, UInt64(reader.entries.count) == layout.count else {
             throw UpdaterError.invalidArchive("KaitoKit の entry 数と EOCD が一致しません")
         }
+        try ZipCentralDirectory.validate(source: source, reader: reader,
+            centralOffset: layout.centralOffset, centralSize: layout.centralSize)
         try source.checkUnchanged(at: url)
         return ArchiveUpdater(url: url, options: options, source: source, layout: layout, reader: reader)
     }

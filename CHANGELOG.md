@@ -6,6 +6,22 @@
 
 ### 追加
 
+- `ArchiveRewriter.probe(entries:format:)`。`open` と同じ表現可能性の検査（出力名の正規化と衝突、entry 種別、
+  hard link の参照先、更新日時の表現範囲、LHA の名前・サイズ）を、書庫を開き直さずに一覧に対して行う。
+  `open` の検査を `validateRepresentability(entries:format:)` に切り出して共有し、受理・拒否と文言は同一。
+  復号可否・`WriterOptions`・原本の同一性は検査しない。KaitoFinder が編集可否の判定で圧縮 tar を再展開しないためのもの。
+- `ArchiveUpdater.probe(url:)`。reader を開かず ZIP / ZIP64 の編集用門番と終端を検査し、
+  `entryCount` を返す。既存 reader を持つアプリが編集可否のために CD を再解析する処理を省く。
+  利用前に呼出側の reader の entry 数との一致を確認する。
+  読取量と受理・拒否の一致は[リリースレビュー](Documentation/verification/2026-09-19-release-review.md)に記録。
+- 既存実装の導入記録を補完: tar / tar.gz / non-solid 7z / LHA の新規 writer と、
+  `ArchiveEditing` / `ArchiveRewriter` による全体再構築・形式変換。
+  KaitoFinder 側の [2026-09-14 ArchiveRewriter 検証](../KaitoFinder/Documentation/verification/2026-09-14-archive-rewriter.md)と
+  [再圧縮モード編集の検証](../KaitoFinder/Documentation/verification/2026-09-14-rewrite-mode.md)を参照。
+- `EditPathReservations` による削除・改名・追加のパス予約管理。
+  同名・親子の衝突を差分更新し、大量改名の全件走査を省く。
+  [2026-09-16 の大規模編集・パス境界検証](Documentation/verification/2026-09-16-edit-review.md)を参照。
+
 - `ArchiveFormat.tarBzip2` / `.tarXZ` のストリーム出力と書き換え。
   bzip2 の block size は `WriterOptions.bzip2Level`（1〜9、既定9）で選択し、XZは固定設定。
   4 GiB超・独立ツール・取消し・容量不足の[検証記録](Documentation/verification/2026-09-18-compressed-tar.md)。
@@ -27,6 +43,24 @@
 
 ### 修正
 
+- EOCD 候補が複数 EOF に達する書庫と、先行 EOCD の comment が後続候補を含む書庫を
+  `UpdateGatekeeper.ambiguousEndRecord` で拒否する。comment 内の偽 EOCD により追加が見えなくなる
+  経路を修正した。`probe` は tail だけでこの門番を検査し、`open` は CD 全件の長さ・終端・
+  KaitoKit の local record との offset / 範囲一致も検査する。writer も旧 CD のコピー中に
+  signature・record 数・終端を検査し、payload 上書きや曖昧な CD の公開を防ぐ。
+- ZipCrypto spool は mode 0600、`O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC` で作成直後に
+  unlink し、descriptor だけを保持する。圧縮中の crash / SIGKILL で名前付きの平文圧縮データを
+  残さない。既存の符号化・暗号化と、取消し・失敗時の descriptor cleanup は維持する。
+- `ArchiveRewriter.open` で全 carried 名を writer と同じ正規化・予約検査に通す。
+  重複・NFC/NFD・directory の末尾 `/`・file と子の衝突は、部分出力を作る前に
+  `RewriterError.unrepresentable` で理由を返す。省略する root directory と正当な親 directory は許可する。
+  G4–G6 の失敗再現と修正後の結果は[リリースレビュー](Documentation/verification/2026-09-19-release-review.md)に記録。
+
+- ZIP 再構築で、offset が変わらない local record の読み書きを省く。同長改名は local header
+  だけを patch し、末尾削除では残存 payload に触れない。APFS clone の共有 extent を不要に
+  複製する全書庫の書き直しを防ぐ。移動が必要な範囲は 256 KiB の buffer を再利用してコピーし、
+  CD 再出力・truncate と追加後の再構築にも対応する。
+  byte 一致・読取量・APFS 空き容量測定の限界は[検証記録](Documentation/verification/2026-09-19-release-review.md)を参照。
 - 入力と更新元の変更検査から ctime を除外し、dev / ino / size / mode / mtime を比較する。
   tar hard link の内容 signature も同じ方針とし、Finder tag / LaunchServices の xattr 更新を許容する。
 - 7z の LZMA2 圧縮単位を最大 16 MiB とし、読取・AES・書込の 256 KiB と分離した。
@@ -41,6 +75,9 @@
 > 7z now encodes 16 MiB chunks with 256 KiB I/O and a compression-ratio regression guard.
 > CommonCrypto integer conversions match the SDK signatures. Source checks ignore ctime changes caused by tags/xattrs.
 > Added interoperability and streaming tests could not run in the sandbox; see the verification record.
+> ZIP rebuilds now skip unmoved records and reuse the copy buffer; same-length renames patch only local headers.
+> The reader-free `ArchiveUpdater.probe(url:)` avoids parsing the central directory again; callers must compare
+> its entry count with their validated reader. The 2026-09-19 record reports regression tests and measurement limits.
 
 ## [0.3.0] - 2026-09-10
 

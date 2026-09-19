@@ -87,10 +87,29 @@ public final class ArchiveRewriter: ArchiveEditing {
         } catch {
             throw RewriterError.invalidArchive(String(describing: error))
         }
+        let plan = try validateRepresentability(entries: reader.entries, format: format)
+        return ArchiveRewriter(url: url, output: output, format: format, options: options,
+                               source: source, reader: reader, names: plan.names,
+                               hardLinkTargets: plan.hardLinkTargets, dataTargets: plan.dataTargets)
+    }
+
+    /// 全 entry を出力形式で表現できるかを、書庫を開かずに検査する。
+    /// `open` と同じ検査（出力名の正規化と衝突、entry 種別、hard link の参照先、更新日時の表現範囲、
+    /// LHA の CP932 名・header 長・32 bit サイズ）を、既に一覧を持つ呼出側が再解析なしに行うためのもの。
+    /// 復号可否（password）、`WriterOptions`、原本の同一性は検査しない。暗号化の有無は
+    /// `entries.contains(\.isEncrypted)` で呼出側が判断する。
+    public static func probe(entries: [ArchiveEntry], format: ArchiveFormat) throws {
+        _ = try validateRepresentability(entries: entries, format: format)
+    }
+
+    // entry の一覧と出力形式だけに依存する。open と probe で同じ検査と同じ文言を共有する。
+    static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat) throws
+        -> (names: [String], hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
         var names: [String] = []
+        let carriedPaths = EditPathReservations([])
         var hardLinkTargets: [Int: Int] = [:]
         var dataTargets: [Int: Int] = [:]
-        for entry in reader.entries {
+        for entry in entries {
             func refuse(_ reason: String) -> RewriterError {
                 .unrepresentable(entry: entry.name, reason: reason)
             }
@@ -105,8 +124,8 @@ public final class ArchiveRewriter: ArchiveEditing {
             if entry.kind == .symlink, format == .lha { throw refuse("LHA は symlink を保存できません") }
             if entry.kind == .hardlink {
                 guard let text = entry.formatSpecific["hardLinkTargetIndex"], let index = Int(text),
-                      index >= 0, index < entry.index, reader.entries.indices.contains(index),
-                      reader.entries[index].kind == .file || dataTargets[index] != nil else {
+                      index >= 0, index < entry.index, entries.indices.contains(index),
+                      entries[index].kind == .file || dataTargets[index] != nil else {
                     throw refuse("hard link の参照先が欠けているか、先行する通常ファイルではありません")
                 }
                 hardLinkTargets[entry.index] = index
@@ -123,17 +142,21 @@ public final class ArchiveRewriter: ArchiveEditing {
             } catch { throw refuse("更新日時が出力形式の表現範囲外です") }
             if format == .lha {
                 // writer と同じ CP932 往復・header 長・サイズの検査を、出力作成前に行う。
-                let size = dataTargets[entry.index].map { reader.entries[$0].uncompressedSize }
+                let size = dataTargets[entry.index].map { entries[$0].uncompressedSize }
                     ?? entry.uncompressedSize
                 do {
                     _ = try LHARecords.Entry(name: name, mode: mode(for: entry), size: size ?? 0, date: date)
                 } catch { throw refuse("LHA の CP932 名・header 長・32 bit サイズで表現できません") }
             }
+            if !name.isEmpty {
+                let directory = entry.kind == .directory
+                do { try carriedPaths.validate(name, directory: directory) }
+                catch { throw refuse("正規化した出力名が他の entry と衝突しています: \(name)") }
+                carriedPaths.insert(name, directory: directory)
+            }
             names.append(name)
         }
-        return ArchiveRewriter(url: url, output: output, format: format, options: options,
-                               source: source, reader: reader, names: names,
-                               hardLinkTargets: hardLinkTargets, dataTargets: dataTargets)
+        return (names, hardLinkTargets, dataTargets)
     }
 
     public func add(contentsOf url: URL, as path: String) throws {

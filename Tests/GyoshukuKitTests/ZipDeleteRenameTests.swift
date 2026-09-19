@@ -5,6 +5,156 @@ import XCTest
 @testable import GyoshukuKit
 
 final class ZipDeleteRenameTests: XCTestCase {
+    private func storedFixture(_ directory: URL, payloadSize: Int = 64 * 1024 * 1024) throws
+        -> (URL, [ZipTestSupport.Expected]) {
+        let items = [
+            ZipTestSupport.Expected(name: "first.bin", data: Data(repeating: 0xA5, count: payloadSize)),
+            ZipTestSupport.Expected(name: "other.bin", data: Data(repeating: 0x5A, count: payloadSize))
+        ]
+        let url = directory.appendingPathComponent("archive.zip")
+        try writeStored(items, to: url)
+        return (url, items)
+    }
+
+    private func writeStored(_ items: [ZipTestSupport.Expected], to url: URL) throws {
+        let writer = try ArchiveWriter.create(url: url, options: .init(compressionMethod: .stored))
+        for item in items {
+            try writer.add(data: item.data, as: item.name, modificationDate: item.date, permissions: item.permissions)
+        }
+        try writer.finish()
+    }
+
+    private func assertStoredBytes(_ items: [ZipTestSupport.Expected], at url: URL) throws {
+        let expected = url.deletingLastPathComponent().appendingPathComponent("expected.zip")
+        try writeStored(items, to: expected)
+        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: expected), "entire stored ZIP is byte-exact")
+    }
+
+    func testUnshiftedSameLengthRenameReadsLessThanOneMiB() throws {
+        let directory = try ZipTestSupport.directory("unshifted-rename-io")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (url, items) = try storedFixture(directory)
+        let before = try Snapshot(url)
+        let updater = try ArchiveUpdater.open(url: url)
+        try updater.rename(entryAt: 0, to: "newer.bin")
+        let counter = ZipReadCounter()
+        try counter.measure { try updater.commit() }
+        ZipTestSupport.report("G1 same-length rename source bytes: \(counter.byteCount)")
+        XCTAssertLessThan(counter.byteCount, 1024 * 1024, "same-length rename must not read unmoved payloads")
+        // Independent whole-archive oracle: only the two equal-length name fields change.
+        var patched = before.bytes
+        patched.replaceSubrange(30..<39, with: Data("newer.bin".utf8))
+        let central = ZipBytes(data: before.bytes).central
+        patched.replaceSubrange((central + 46)..<(central + 55), with: Data("newer.bin".utf8))
+        XCTAssertEqual(try Data(contentsOf: url), patched)
+        try assertCarried(before, to: url, indices: [0, 1], renamed: [0])
+        var expected = items
+        expected[0].name = "newer.bin"
+        try assertStoredBytes(expected, at: url)
+    }
+
+    func testUnshiftedTailDeletionReadsLessThanOneMiB() throws {
+        let directory = try ZipTestSupport.directory("unshifted-tail-delete-io")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (url, items) = try storedFixture(directory)
+        let before = try Snapshot(url)
+        let updater = try ArchiveUpdater.open(url: url)
+        try updater.remove(entriesAt: [1])
+        let counter = ZipReadCounter()
+        try counter.measure { try updater.commit() }
+        ZipTestSupport.report("G1 tail deletion source bytes: \(counter.byteCount)")
+        XCTAssertLessThan(counter.byteCount, 1024 * 1024, "tail deletion must not read unmoved payloads")
+        try assertCarried(before, to: url, indices: [0])
+        try assertStoredBytes([items[0]], at: url)
+    }
+
+    func testShiftedFirstDeletionCopiesOnlySurvivor() throws {
+        let directory = try ZipTestSupport.directory("shifted-first-delete-io")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (url, items) = try storedFixture(directory)
+        let before = try Snapshot(url)
+        let updater = try ArchiveUpdater.open(url: url)
+        try updater.remove(entriesAt: [0])
+        let counter = ZipReadCounter()
+        try counter.measure { try updater.commit() }
+        ZipTestSupport.report("G1 first deletion source bytes: \(counter.byteCount)")
+        XCTAssertGreaterThanOrEqual(counter.byteCount, UInt64(items[1].data.count))
+        XCTAssertLessThan(counter.byteCount, UInt64(items[1].data.count + 1024 * 1024))
+        try assertCarried(before, to: url, indices: [1])
+        try assertStoredBytes([items[1]], at: url)
+    }
+
+    func testShiftedDifferentLengthRenameCopiesPayloadsByteExactly() throws {
+        let directory = try ZipTestSupport.directory("shifted-rename-io")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (url, items) = try storedFixture(directory)
+        let before = try Snapshot(url)
+        let updater = try ArchiveUpdater.open(url: url)
+        try updater.rename(entryAt: 0, to: "longer-first-name.bin")
+        let counter = ZipReadCounter()
+        try counter.measure { try updater.commit() }
+        ZipTestSupport.report("G1 different-length rename source bytes: \(counter.byteCount)")
+        let payloadBytes = UInt64(items.reduce(0) { $0 + $1.data.count })
+        XCTAssertGreaterThanOrEqual(counter.byteCount, payloadBytes)
+        XCTAssertLessThan(counter.byteCount, payloadBytes + 1024 * 1024)
+        try assertCarried(before, to: url, indices: [0, 1], renamed: [0])
+        var expected = items
+        expected[0].name = "longer-first-name.bin"
+        try assertStoredBytes(expected, at: url)
+    }
+
+    func testUnshiftedRenameAfterAddPreservesAppendedZIPByteExactly() throws {
+        let directory = try ZipTestSupport.directory("unshifted-rename-after-add")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (url, items) = try storedFixture(directory, payloadSize: 256 * 1024)
+        let before = try Snapshot(url)
+        let updater = try ArchiveUpdater.open(url: url, options: .init(compressionMethod: .stored))
+        let added = ZipTestSupport.Expected(name: "added.bin", data: Data("appended payload".utf8))
+        try updater.add(data: added.data, as: added.name, modificationDate: added.date, permissions: added.permissions)
+        try updater.rename(entryAt: 0, to: "newer.bin")
+        try updater.commit()
+        try assertCarried(before, to: url, indices: [0, 1], renamed: [0])
+        var expected = items + [added]
+        expected[0].name = "newer.bin"
+        try assertStoredBytes(expected, at: url)
+    }
+
+    func testUnshiftedSameLengthRenamePreservesAPFSCloneFreeSpace() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("gyoshuku-apfs-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func volumeInfo() throws -> statfs {
+            var info = statfs()
+            guard statfs(directory.path, &info) == 0 else { throw WriterError.io(operation: "statfs test volume", code: errno) }
+            return info
+        }
+        var info = try volumeInfo()
+        let type = withUnsafePointer(to: &info.f_fstypename) {
+            String(cString: UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self))
+        }
+        guard type == "apfs" else { throw XCTSkip("APFS clone free-space measurement requires APFS; found \(type)") }
+        let (url, _) = try storedFixture(directory)
+        let undo = directory.appendingPathComponent("undo.zip")
+        guard clonefile(url.path, undo.path, 0) == 0 else { throw WriterError.io(operation: "clonefile undo", code: errno) }
+        // Retain the original extents as an undo slot, as in the 2026-09-10 undo measurement.
+        let updater = try ArchiveUpdater.open(url: url)
+        try updater.rename(entryAt: 0, to: "newer.bin")
+        sync()
+        let before = try volumeInfo()
+        try updater.commit()
+        sync()
+        let after = try volumeInfo()
+        let beforeBytes = Int64(before.f_bavail) * Int64(before.f_bsize)
+        let afterBytes = Int64(after.f_bavail) * Int64(after.f_bsize)
+        let delta = beforeBytes - afterBytes
+        ZipTestSupport.report("G1 APFS free bytes before=\(beforeBytes) after=\(afterBytes) consumed=\(delta)")
+        // Allow 16 MiB for unrelated volume activity. Some environments return coarse/cached space
+        // values even after sync; this measurement complements the deterministic source-read tests.
+        XCTAssertLessThan(abs(delta), 16 * 1024 * 1024, "same-length rename must preserve APFS shared payload extents")
+        XCTAssertEqual(try ArchiveReader.open(url: undo).entries.map(\.name), ["first.bin", "other.bin"])
+        XCTAssertEqual(try ArchiveReader.open(url: url).entries.map(\.name), ["newer.bin", "other.bin"])
+    }
+
     private func original(_ label: String, count: Int = 5) throws -> (URL, [ZipTestSupport.Expected]) {
         let directory = try ZipTestSupport.directory(label)
         let url = directory.appendingPathComponent("archive.zip")
