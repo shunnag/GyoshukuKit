@@ -6,7 +6,7 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
 - 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib)
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
-- 依存: `Package.swift` の path dependency は隣接する `../KaitoKit`（0.6.1 + unreleased）。更新時の読取と往復検証に使用
+- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.7.0 以上。更新時の読取と往復検証に使用。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照（`from: "0.7.0"`）を選ぶ。切り替わった後は `.build` / DerivedData を削除して manifest を再評価させる
 - ライセンス: MIT
 
 ## 使用例
@@ -181,7 +181,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > Swift 6 and Apple Silicon, paired with the read-only KaitoKit. It uses system
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
-> The `Package.swift` path dependency on `../KaitoKit` (0.6.1 + unreleased) provides update reading and round-trip verification.
+> `Package.swift` depends on KaitoKit 0.7.0 or later for update reading and round-trip verification: it uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise. Delete `.build` / DerivedData after the mode changes so the manifest is re-evaluated.
 > Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, non-solid 7z and LHA.
 >
 > Create an `ArchiveWriter`, add files, recursively add directories, add symlinks
