@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-20
+
+### 修正
+
+- 0.4.0 の `Package.swift` は、利用側が SwiftPM で取得したときも `checkouts/` に並ぶ KaitoKit を隣の
+  開発用 checkout と見なして path 依存を選び、`swift package resolve` が
+  `exhausted attempts to resolve the dependencies graph` で失敗した。親ディレクトリが `checkouts` の場合は
+  常に tag 参照にする。root として使う場合の挙動（隣があれば path）は変えない。
+- 切り替え手順の記述を修正: `.build` の削除では manifest cache が残るため、`swift package purge-cache`
+  （Xcode は Reset Package Caches）を使う。
+
 ## [0.4.0] - 2026-09-19
 
 最初の tag 付きリリース。0.1.0〜0.3.0 は CHANGELOG 上の区切りで、tag は打っていない。
