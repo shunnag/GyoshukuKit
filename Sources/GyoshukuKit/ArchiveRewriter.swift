@@ -78,9 +78,11 @@ public final class ArchiveRewriter: ArchiveEditing {
         let reader: ArchiveReader
         do {
             source = try ZipUpdateSource(url: url)
+            // sidecar を保持し、index の詰め直しと resource fork の擬似 entry を編集に持ち込まない。
             reader = try ArchiveReader.open(url: url, options: ReaderOptions(
                 limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
-                password: password))
+                password: password,
+                appleDoublePolicy: .expose))
             try source.checkUnchanged(at: url)
         } catch let error as KaitoError {
             throw map(error, entry: nil)
@@ -112,6 +114,9 @@ public final class ArchiveRewriter: ArchiveEditing {
         for entry in entries {
             func refuse(_ reason: String) -> RewriterError {
                 .unrepresentable(entry: entry.name, reason: reason)
+            }
+            guard entry.formatSpecific["fork"] != "resource" else {
+                throw refuse("resource fork の擬似 entry は書き込めません。reader を appleDoublePolicy .expose で開いてください")
             }
             let carried = entry.pathComponents.drop(while: { $0 == "." }).joined(separator: "/")
             let name: String
