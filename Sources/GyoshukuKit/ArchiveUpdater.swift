@@ -73,8 +73,10 @@ public final class ArchiveUpdater: ArchiveEditing {
             return ArchiveUpdater(url: url, options: options, source: source, layout: layout, reader: nil)
         }
         // 再圧縮しないので展開量の制限は不要。entry 数と metadata の既定上限は維持する。
+        // 格納された index を保ち、詰め直しと resource fork の擬似 entry を編集に持ち込まない。
         let reader = try ArchiveReader.open(source: source, options: ReaderOptions(
-            limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max)))
+            limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
+            appleDoublePolicy: .expose))
         guard reader.format == .zip, UInt64(reader.entries.count) == layout.count else {
             throw UpdaterError.invalidArchive("KaitoKit の entry 数と EOCD が一致しません")
         }
@@ -174,8 +176,10 @@ public final class ArchiveUpdater: ArchiveEditing {
                     try FileManager.default.copyItem(at: replacement!, to: staged)
                     let stagedSource = try ZipUpdateSource(url: staged)
                     let stagedLayout = try ZipUpdateLayout(source: stagedSource)
+                    // 追加後も index の詰め直しと resource fork の擬似 entry を再構築に持ち込まない。
                     let stagedReader = try ArchiveReader.open(source: stagedSource, options: ReaderOptions(
-                        limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max)))
+                        limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
+                        appleDoublePolicy: .expose))
                     try rebuildArchive(source: stagedSource, layout: stagedLayout, reader: stagedReader)
                 }
             } else if rebuild, let reader {

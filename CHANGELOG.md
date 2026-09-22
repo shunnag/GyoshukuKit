@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-22
+
+### 修正
+
+- KaitoKit 0.8.0 で AppleDouble sidecar の既定方針が `.merge` になったことに対応し、
+  updater の入力・追加後の reader と rewriter の入力 reader に `appleDoublePolicy: .expose` を明示する。
+  書庫に格納された entry 一覧と index を保ち、Finder 製 ZIP の entry 数・offset 不一致による編集拒否、
+  再構築時の sidecar 消失や resource fork の擬似 entry の書き出しを防ぐ。
+- `ArchiveRewriter` の表現可能性検査と `probe(entries:format:)` は、
+  `formatSpecific["fork"] == "resource"` の擬似 entry を `RewriterError.unrepresentable` で拒否し、
+  reader を `.expose` で開くよう案内する。
+
+### 変更
+
+- KaitoKit の最低依存バージョンを 0.8.1 に更新する（0.8.0 の `appleDoublePolicy` 対応に加え、0.8.1 のリリースレビュー修正 R1〜R14 を含む版）。
+  隣接 checkout の path 依存自動選択は維持する。
+
+### 追加
+
+- Finder 製 ZIP の削除・追加と同時 commit、macOS tar の sidecar 名・本文の SHA-256 保持、
+  merge 済み一覧の擬似 entry 拒否を検証する4件の回帰テストを追加する。
+  KaitoKit 由来の fixture をリポジトリ内に複製し、隣接 checkout がなくても参照できるようにする。
+- `.expose` を一時的に外した ZIP の失敗再現と、修正後のビルド・全件テストを
+  [検証記録](Documentation/verification/2026-09-22-appledouble-expose.md)に記載する。
+
 ## [0.4.1] - 2026-09-20
 
 ### 修正
