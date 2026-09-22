@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### 修正
+
+- ZIP の EOCD disk 欄・巻内 entry 数の検査を、終端の曖昧性検査の直後、SFX prefix と trailing data の検査より前に移す。
+  native 分割 ZIP の最終巻に local header がなくても、`ArchiveUpdater.probe` / `open` は
+  `UpdaterError.invalidArchive("分割 ZIP は編集できません")` で拒否する。既存の `UpdateGatekeeper` は変更しない。
+
+### 追加
+
+- `ArchiveRewriter.volumeSet`。open 時に内部の KaitoKit reader が組み立てた巻と同一性を返し、単一ファイルでは nil になる。
+  `checkUnchanged` は URL 自身のファイルだけを検査するため、分割セットの編集を再生する前に呼出側が記録した同一性と照合する。
+- 分割 ZIP の最終巻と trailing data がある分割 ZIP の拒否理由、7z / tar の 3 巻バイト分割の inode、
+  単一ファイル（兄弟巻のない `.001` を含む）の `volumeSet` を検証する回帰テストを追加する。
+
 ## [0.4.2] - 2026-09-22
 
 ### 修正

@@ -50,6 +50,11 @@ public final class ArchiveRewriter: ArchiveEditing {
     /// 予約済みの削除・改名や追加を反映せず、常に open 時の名前を返す。
     public var entryNames: [String] { reader.entries.map(\.name) }
 
+    /// open 時に内部の reader が組み立てた分割巻と同一性を返す。単一ファイルは nil。
+    /// checkUnchanged は open に渡した URL 自身のファイルだけを検査する。
+    /// 分割セットを編集する呼出側は、編集を再生する前に自身が記録したセットの同一性と必ず照合する。
+    public var volumeSet: ArchiveVolumeSet? { reader.volumeSet }
+
     private init(url: URL, output: URL?, format: ArchiveFormat, options: WriterOptions,
                  source: ZipUpdateSource, reader: ArchiveReader, names: [String],
                  hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {

@@ -135,6 +135,11 @@ struct ZipUpdateLayout {
         }
         guard let end = found else { throw UpdaterError.invalidArchive("EOCD がありません") }
         guard endsAtEOF <= 1, !enclosed else { try refuse(.ambiguousEndRecord) }
+        // 分割 ZIP の最終巻には先頭 local header がない場合があるため、SFX より先に判定する。
+        guard tail.zip16(end + 4) == 0, tail.zip16(end + 6) == 0,
+              tail.zip16(end + 8) == tail.zip16(end + 10) else {
+            throw UpdaterError.invalidArchive("分割 ZIP は編集できません")
+        }
         let first = try source.bytes(at: 0, count: 4).zip32(0)
         guard first == 0x04034B50 || first == 0x06054B50 || first == 0x06064B50 else {
             try refuse(.sfxPrefix)
@@ -142,10 +147,6 @@ struct ZipUpdateLayout {
         let commentEnd = end + 22 + Int(tail.zip16(end + 20))
         guard commentEnd == tail.count else { try refuse(.trailingData) }
         let endOffset = source.length - UInt64(tailSize) + UInt64(end)
-        guard tail.zip16(end + 4) == 0, tail.zip16(end + 6) == 0,
-              tail.zip16(end + 8) == tail.zip16(end + 10) else {
-            throw UpdaterError.invalidArchive("分割 ZIP は編集できません")
-        }
         var count = UInt64(tail.zip16(end + 10))
         var size = UInt64(tail.zip32(end + 12))
         var offset = UInt64(tail.zip32(end + 16))

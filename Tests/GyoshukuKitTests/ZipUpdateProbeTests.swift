@@ -115,6 +115,34 @@ final class ZipUpdateProbeTests: XCTestCase {
         try assertRefused(url, error: .invalidArchive("ZIP64 locator が単一 volume ではありません"))
     }
 
+    func testProbeRefusesNativeSplitZIPFinalVolumeLikeOpen() throws {
+        let url = try archive("split-final-volume")
+        let original = try Data(contentsOf: url)
+        // 最終巻が CD から始まり、先頭 local header がない構造を作る。
+        let finalVolume = Data(original[ZipBytes(data: original).central...])
+        XCTAssertEqual(finalVolume.zip32(0), 0x02014B50)
+        let end = finalVolume.count - 22
+        let fields: [(UInt16, UInt16, UInt16)] = [(2, 0, 3), (0, 2, 3), (0, 0, 2)]
+        for (disk, centralDisk, entriesOnDisk) in fields {
+            var data = finalVolume
+            data.zipSet(disk, at: end + 4)
+            data.zipSet(centralDisk, at: end + 6)
+            data.zipSet(entriesOnDisk, at: end + 8)
+            data.zipSet(UInt32(0), at: end + 16)
+            try data.write(to: url)
+            try assertRefused(url, error: .invalidArchive("分割 ZIP は編集できません"))
+        }
+    }
+
+    func testProbeRefusesSplitZIPBeforeTrailingDataLikeOpen() throws {
+        let url = try archive("split-trailing")
+        var data = try Data(contentsOf: url)
+        data.zipSet(UInt16(1), at: data.count - 18)
+        data.append(Data("trailing data".utf8))
+        try data.write(to: url)
+        try assertRefused(url, error: .invalidArchive("分割 ZIP は編集できません"))
+    }
+
     func testProbeRefusesMalformedEndRecordsLikeOpen() throws {
         let url = try archive("malformed", count: 0)
         var noncanonical = try Data(contentsOf: url)
