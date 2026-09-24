@@ -167,6 +167,12 @@ XZ は固定設定、bzip2 は `WriterOptions(bzip2Level: 1...9)` でレベル�
 
 ## ビルドと検証
 
+書き込み速度の測定は独立した [Benchmarks package](Benchmarks/README.md) を使います。
+`Benchmarks/make-corpora.sh /tmp/gyoshuku-corpora` で固定 seed の入力を作成し、
+`Benchmarks/run.sh /tmp/gyoshuku-corpora` で全形式の release 実行時間・peak RSS・出力サイズを測定します。
+2026-09-24 の [並列 LZMA2](Documentation/verification/2026-09-24-parallel-lzma2.md) と
+[並列 deflate / bzip2](Documentation/verification/2026-09-24-parallel-deflate-bzip2.md) の検証記録も参照してください。
+
 ```sh
 swift build
 swift test
