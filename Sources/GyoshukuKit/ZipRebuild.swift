@@ -130,7 +130,7 @@ enum ZipRebuild {
             result.zipSet(fixed.zip16(6) | ZipRecords.flags, at: 6)
             result.zipSet(UInt16(name.count), at: 26)
             result.append(name)
-            result.append(renamedExtra(extra))
+            result.append(try renamedExtra(extra))
             return result
         }
     }
@@ -171,7 +171,7 @@ enum ZipRebuild {
             }
             // KaitoKit が許した末尾 padding も残す。新しい ZIP64 field は必ずその前に置く。
             extras.append(extra.dropFirst(consumed))
-            if newName != nil { extras = renamedExtra(extras) }
+            if newName != nil { extras = try renamedExtra(extras) }
             let name = newName ?? name
             guard name.count <= Int(UInt16.max), extras.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
             var result = fixed
@@ -203,12 +203,26 @@ enum ZipRebuild {
         return fields
     }
 
-    private static func renamedExtra(_ extra: Data) -> Data {
+    private static func renamedExtra(_ extra: Data) throws -> Data {
         var result = extra
-        // Unicode Path は旧名とその CRC を含む。padding ID へ置換し、同長改名でも
-        // payload の位置を動かさず旧名の override を無効にする。他の extra は触らない。
-        for field in extraFields(extra) where field.id == 0x7075 {
-            result.zipSet(UInt16(0xFFFF), at: field.range.lowerBound)
+        var consumed = 0
+        for field in extraFields(extra) {
+            switch field.id {
+            case 0x7075:
+                // 長さを保って旧名と CRC を消し、同長改名の payload 位置を維持する。
+                result.zipSet(UInt16(0xFFFF), at: field.range.lowerBound)
+                result.resetBytes(in: (field.range.lowerBound + 4)..<field.range.upperBound)
+            case 0x0008, 0x2605, 0x334D, 0x4F4C, 0x554E:
+                // 名前と他の metadata が混在し得る拡張は、黙って捨てず改名を拒否する。
+                throw UpdaterError.invalidArchive(String(format:
+                    "名前を含む ZIP extra field 0x%04X を安全に更新できないため改名できません", field.id))
+            default: break
+            }
+            consumed = field.range.upperBound
+        }
+        // CD では未解析の末尾も許されるが、旧名を含まないとは保証できない。
+        guard extra.dropFirst(consumed).allSatisfy({ $0 == 0 }) else {
+            throw UpdaterError.invalidArchive("ZIP extra field の末尾を解析できないため改名できません")
         }
         return result
     }

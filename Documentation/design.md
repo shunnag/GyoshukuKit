@@ -134,6 +134,9 @@ local と central の extra field 長は異なるので local を CD から再�
 名前・flag を patch、異長改名は元の local header と extra を元に再出力し、payload から
 `recordRange.upperBound` までコピーする。descriptor の長さは算出しない。
 改名時だけ UTF-8 / NFC / bit 11 を使い、旧 Unicode Path extra は長さを保った padding にする。
+その本文は CRC・旧名を含めてゼロで埋める。重複・未知 version の field も同様に扱う。
+他の名前を持つ既知の extra（0x0008 / 0x2605 / 0x334D / 0x4F4C / 0x554E）や
+非ゼロの未解析末尾がある場合、metadata を黙って捨てず改名を拒否する。
 CD の各 ZIP64 size / offset は独立判定する。central だけで wide descriptor を宣言していた
 entry は、値が小さくなっても空の ZIP64 marker を残して KaitoKit の幅の解釈を維持する。
 逆に ZIP32 descriptor に offset 用 ZIP64 extra が初めて必要になる移動は拒否する。

@@ -3,8 +3,7 @@ import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 
-/// `ArchiveRewriter.probe(entries:format:)` は `open` と同じ表現可能性の判定を、書庫を開かずに行う。
-/// 既存の fixture で open の受理・拒否と `unrepresentable` の内容が一致することを oracle にする。
+/// 一覧で判定できる条件について、entries 版 probe と open の受理・拒否と理由を照合する。
 final class ArchiveRewriterProbeTests: XCTestCase {
     private func fixture(_ names: [String], directoryIndices: Set<Int> = []) throws -> URL {
         let directory = try ZipTestSupport.directory("rewriter-probe-\(UUID())")
@@ -38,6 +37,9 @@ final class ArchiveRewriterProbeTests: XCTestCase {
         let opened = outcome { _ = try ArchiveRewriter.open(url: url, output: nil, format: format) }
         let probed = outcome { try ArchiveRewriter.probe(entries: entries, format: format) }
         XCTAssertEqual(probed, opened, "probe must give open's verdict for \(format)", file: file, line: line)
+        let reader = try ArchiveReader.open(url: url, options: ReaderOptions(appleDoublePolicy: .expose))
+        XCTAssertEqual(outcome { try ArchiveRewriter.probe(reader: reader, format: format) }, opened,
+                       file: file, line: line)
     }
 
     func testProbeMatchesOpenForCollisionsAndAcceptedShapes() throws {

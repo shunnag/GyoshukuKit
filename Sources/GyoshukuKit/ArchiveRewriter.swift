@@ -94,23 +94,61 @@ public final class ArchiveRewriter: ArchiveEditing {
         } catch {
             throw RewriterError.invalidArchive(String(describing: error))
         }
-        let plan = try validateRepresentability(entries: reader.entries, format: format)
+        let plan = try validateRepresentability(entries: reader.entries, format: format, reader: reader)
         return ArchiveRewriter(url: url, output: output, format: format, options: options,
                                source: source, reader: reader, names: plan.names,
                                hardLinkTargets: plan.hardLinkTargets, dataTargets: plan.dataTargets)
     }
 
     /// 全 entry を出力形式で表現できるかを、書庫を開かずに検査する。
-    /// `open` と同じ検査（出力名の正規化と衝突、entry 種別、hard link の参照先、更新日時の表現範囲、
-    /// LHA の CP932 名・header 長・32 bit サイズ）を、既に一覧を持つ呼出側が再解析なしに行うためのもの。
+    /// 未対応の LHA method・7z coder と、出力名・種別・日時・サイズの表現範囲を検査する。
+    /// 一覧だけでは MacBinary envelope を検出できない。MacLHA の m member も受理する。
+    /// 既存書庫の編集では、開いた reader に `probe(reader:format:)` を別途実行すること。
     /// 復号可否（password）、`WriterOptions`、原本の同一性は検査しない。暗号化の有無は
     /// `entries.contains(\.isEncrypted)` で呼出側が判断する。
     public static func probe(entries: [ArchiveEntry], format: ArchiveFormat) throws {
         _ = try validateRepresentability(entries: entries, format: format)
     }
 
-    // entry の一覧と出力形式だけに依存する。open と probe で同じ検査と同じ文言を共有する。
-    static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat) throws
+    /// `open` と同じ検査。reader は appleDoublePolicy .expose で開くこと。
+    /// MacLHA の候補だけ stream の初期長を調べ、envelope を失う entry を拒否する。
+    /// 全本文の復号・CRC、password、WriterOptions、原本の同一性は検査しない。
+    public static func probe(reader: ArchiveReader, format: ArchiveFormat) throws {
+        _ = try validateRepresentability(entries: reader.entries, format: format, reader: reader)
+    }
+
+    private static func validateSource(_ entry: ArchiveEntry, reader: ArchiveReader?) throws {
+        func refuse(_ reason: String) -> RewriterError {
+            .unrepresentable(entry: entry.name, reason: reason)
+        }
+        if entry.formatSpecific["headerLevel"] != nil {
+            let method = entry.formatSpecific["method"] ?? entry.methodDescription
+            switch method {
+            case "-lh0-", "-lz4-", "-pm0-", "-lhd-", "-lh1-",
+                 "-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-", "-lz5-", "-lzs-": break
+            default: throw refuse("未対応の LHA 圧縮方式は再圧縮できません: \(method)")
+            }
+            if let reader, entry.kind != .directory, entry.formatSpecific["osID"] == "m",
+               ["1", "2"].contains(entry.formatSpecific["headerLevel"]) {
+                do {
+                    let stream = try reader.stream(entry)
+                    guard let size = entry.uncompressedSize, stream.remaining == size else {
+                        throw refuse("MacBinary の envelope・resource fork を保持できないため再圧縮できません")
+                    }
+                } catch let error as KaitoError {
+                    throw map(error, entry: entry.name)
+                }
+            }
+        }
+        // KaitoKit は未知の coder ID をこの表記で公開する。既知の coder の allowlist は持たない。
+        if let method = entry.methodDescription.split(separator: "+").first(where: { $0.hasPrefix("7z method 0x") }) {
+            throw refuse("未対応の 7z 圧縮方式は再圧縮できません: \(method)")
+        }
+    }
+
+    // open と probe で検査順と拒否理由を共有する。
+    private static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat,
+                                                reader: ArchiveReader? = nil) throws
         -> (names: [String], hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
         var names: [String] = []
         let carriedPaths = EditPathReservations([])
@@ -123,6 +161,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             guard entry.formatSpecific["fork"] != "resource" else {
                 throw refuse("resource fork の擬似 entry は書き込めません。reader を appleDoublePolicy .expose で開いてください")
             }
+            try validateSource(entry, reader: reader)
             let carried = entry.pathComponents.drop(while: { $0 == "." }).joined(separator: "/")
             let name: String
             // ./ や . の directory は書庫の root。改名された時だけ通常の directory として運ぶ。

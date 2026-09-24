@@ -84,6 +84,18 @@ let rewriter = try ArchiveRewriter.open(
 try rewriter.commit()
 ```
 
+KaitoFinder などが再圧縮による編集・変換の可否を判定するときは、
+`appleDoublePolicy: .expose` の reader を渡して `ArchiveRewriter.probe(reader:format:)` を呼びます。
+`open` も同じ検査を行い、未対応の LHA method / 7z coder と、envelope・resource fork を
+保持できない MacBinary 入りの MacLHA member を `RewriterError.unrepresentable(entry:reason:)` で拒否します。
+MacLHA の level 1/2 だけ stream の初期長を確認し、通常の本文を持つ `m` member は受理します。
+
+`probe(entries:format:)` は投影済みの entry 一覧や追加予約の検査に使えます。
+MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、envelope は検出しません。
+既存書庫の編集では、開いた reader に `probe(reader:format:)` を別途実行してください。
+いずれも全本文の復号・CRC、パスワード、`WriterOptions`、原本の同一性を保証する検査ではありません。
+詳細と ZIP 改名時の名前の扱いは [P0-G 検証記録](Documentation/verification/2026-09-24-p0g-editability-and-zip-names.md)を参照してください。
+
 ## 設定と形式
 
 | `WriterOptions` | 既定値 | 意味 |
