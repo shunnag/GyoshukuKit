@@ -54,6 +54,57 @@ final class ZipWriterTests: XCTestCase {
         try ZipTestSupport.verify(url, expected: [.init(name: "zero")])
     }
 
+    func testReusedDeflateMatchesFreshWriterForEveryMemberAndLevel() throws {
+        let directory = try ZipTestSupport.directory("deflate-reuse")
+        let text = Data(String(repeating: "独立した deflate stream\n", count: 24_000).utf8)
+        var state: UInt32 = 0x1234_5678
+        let random = Data((0..<(2 * 256 * 1024 + 31)).map { _ in
+            state ^= state << 13
+            state ^= state >> 17
+            state ^= state << 5
+            return UInt8(truncatingIfNeeded: state)
+        })
+        let members: [(name: String, data: Data)] = [
+            ("A.txt", text), ("B.bin", random), ("empty", Data()),
+            ("stored.PNG", Data(text.prefix(513))), ("C.txt", Data(text.suffix(32_769)))
+        ]
+        for member in members { try member.data.write(to: directory.appendingPathComponent(member.name)) }
+
+        for level in 0...9 {
+            let options = WriterOptions(deflateLevel: level)
+            let url = directory.appendingPathComponent("multi-\(level).zip")
+            let writer = try ArchiveWriter.create(url: url, options: options)
+            for member in members {
+                try writer.add(contentsOf: directory.appendingPathComponent(member.name), as: member.name)
+            }
+            try writer.finish()
+            let multiple = ZipBytes(data: try Data(contentsOf: url))
+            var offset = 0
+            for (index, member) in members.enumerated() {
+                let singleURL = directory.appendingPathComponent("single-\(level)-\(index).zip")
+                let singleWriter = try ArchiveWriter.create(url: singleURL, options: options)
+                try singleWriter.add(data: member.data, as: member.name, modificationDate: ZipTestSupport.date)
+                try singleWriter.finish()
+                let single = ZipBytes(data: try Data(contentsOf: singleURL))
+                let context = "level \(level), \(member.name)"
+                let method: UInt16 = member.data.isEmpty || member.name.hasSuffix(".PNG") ? 0 : 8
+                XCTAssertEqual(multiple.u32(offset), 0x04034B50, context)
+                XCTAssertEqual(multiple.u16(offset + 8), method, context)
+                XCTAssertEqual(single.u16(8), method, context)
+                XCTAssertEqual(multiple.u32(offset + 14), single.u32(14), context)
+                XCTAssertEqual(multiple.u32(offset + 18), single.u32(18), context)
+                XCTAssertEqual(multiple.u32(offset + 22), UInt32(member.data.count), context)
+                let start = offset + 30 + Int(multiple.u16(offset + 26)) + Int(multiple.u16(offset + 28))
+                let end = start + Int(multiple.u32(offset + 18))
+                let singleStart = 30 + Int(single.u16(26)) + Int(single.u16(28))
+                XCTAssertEqual(multiple.data.subdata(in: start..<end),
+                               single.data.subdata(in: singleStart..<single.central), context)
+                offset = end
+            }
+            XCTAssertEqual(offset, multiple.central)
+        }
+    }
+
     func testJapaneseUTF8NFCAndTimestampExtraLengths() throws {
         let directory = try ZipTestSupport.directory("japanese")
         let url = directory.appendingPathComponent("archive.zip")

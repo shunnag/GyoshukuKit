@@ -177,7 +177,7 @@ private final class LHACompressionSpool {
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            let chunk = try file.read(upToCount: Int(min(256 * 1024, remaining))) ?? Data()
+            let chunk = try FileRead.readChunk(file.fileDescriptor, upTo: Int(min(256 * 1024, remaining)))
             guard !chunk.isEmpty else { throw WriterError.io(operation: "read LHA spool", code: EIO) }
             try emit(chunk)
             remaining -= UInt64(chunk.count)

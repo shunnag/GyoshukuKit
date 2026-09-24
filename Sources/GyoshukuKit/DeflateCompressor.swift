@@ -20,6 +20,11 @@ final class DeflateCompressor {
         if initialized { _ = deflateEnd(&stream) }
     }
 
+    func reset() throws {
+        let status = deflateReset(&stream)
+        guard status == Z_OK else { throw WriterError.compression(status) }
+    }
+
     func write(_ input: Data, finish: Bool = false, emit: (Data) throws -> Void) throws {
         var offset = 0
         while true {

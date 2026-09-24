@@ -238,19 +238,21 @@ public final class ArchiveRewriter: ArchiveEditing {
             var done = 0
             for entry in reader.entries.sorted(by: { $0.index < $1.index }) {
                 guard survives(entry.index) || neededTargets.contains(entry.index) else { continue }
-                try Task.checkCancellation()
-                do {
-                    if entry.isEncrypted, reader.password == nil { throw KaitoError.passwordRequired }
-                    if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry) }
-                    if !survives(entry.index) { continue }
-                    try carry(entry, writer: writer, buffered: buffered)
-                } catch let error as KaitoError {
-                    throw Self.map(error, entry: entry.name)
-                } catch WriterError.sourceChanged(let name) {
-                    throw RewriterError.invalidArchive("entry のサイズが一致しません: \(name)")
+                try autoreleasepool {
+                    try Task.checkCancellation()
+                    do {
+                        if entry.isEncrypted, reader.password == nil { throw KaitoError.passwordRequired }
+                        if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry) }
+                        if !survives(entry.index) { return }
+                        try carry(entry, writer: writer, buffered: buffered)
+                    } catch let error as KaitoError {
+                        throw Self.map(error, entry: entry.name)
+                    } catch WriterError.sourceChanged(let name) {
+                        throw RewriterError.invalidArchive("entry のサイズが一致しません: \(name)")
+                    }
+                    done += 1
+                    try didCarry?(done, survivors.count)
                 }
-                done += 1
-                try didCarry?(done, survivors.count)
             }
             let quarantine = output == nil ? try readQuarantine() : nil
             try checkUnchanged()
@@ -368,7 +370,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         defer { try? file.close() }
         try body(entry.size) {
             try Task.checkCancellation()
-            return try file.read(upToCount: min($0, Self.chunkSize)) ?? Data()
+            return try FileRead.readChunk(file.fileDescriptor, upTo: min($0, Self.chunkSize))
         }
     }
 

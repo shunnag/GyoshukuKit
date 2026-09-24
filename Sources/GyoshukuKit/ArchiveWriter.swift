@@ -17,6 +17,7 @@ public final class ArchiveWriter {
     private let tarWriter: TarWriter?
     private let sevenZipWriter: SevenZipWriter?
     private let lhaWriter: LHAWriter?
+    private var deflateCompressor: DeflateCompressor?
     private var position: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
     private(set) var appendedPaths: [(String, Bool)] = []
@@ -26,6 +27,9 @@ public final class ArchiveWriter {
     private enum State { case writing, finished, failed }
     private var state = State.writing
     private static let chunkSize = 256 * 1024
+    private static let compressedExtensions: Set<String> = [
+        "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
+    ]
 
     init(output: FileHandle, url: URL, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
          tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil, lhaWriter: LHAWriter? = nil) {
@@ -81,7 +85,7 @@ public final class ArchiveWriter {
     /// ディレクトリは名前順で再帰追加する。symlink は辿らず target path を保存する。
     /// LHA は通常ファイルとディレクトリのみ対応し、symlink は拒否する。
     public func add(contentsOf url: URL, as path: String) throws {
-        try add(contentsOf: url, as: path) { try $0.read(upToCount: $1) ?? Data() }
+        try add(contentsOf: url, as: path) { try FileRead.readChunk($0.fileDescriptor, upTo: $1) }
     }
 
     // 通常の source 読取と stat 検査を共有し、読取中の変更も決定的に検証できる。
@@ -181,7 +185,9 @@ public final class ArchiveWriter {
                 try write(bytes)
             }
             try central.finish()
-            for entry in entries { try write(entry.central()) }
+            for entry in entries {
+                try autoreleasepool { try write(entry.central()) }
+            }
             try write(ZipRecords.end(count: checkedAdd(existingCount, UInt64(entries.count)),
                                      centralSize: position - start, centralOffset: start, comment: comment))
             try output.truncate(atOffset: position)
@@ -195,7 +201,7 @@ public final class ArchiveWriter {
         guard state == .writing else { throw WriterError.invalidState }
         do {
             if tarWriter != nil || sevenZipWriter != nil || lhaWriter != nil { try Task.checkCancellation() }
-            try body()
+            try autoreleasepool { try body() }
         } catch {
             state = .failed
             tarWriter?.abort()
@@ -224,9 +230,16 @@ public final class ArchiveWriter {
         case S_IFDIR:
             try addEntry(path: path, mode: UInt16(info.st_mode), size: 0, date: date, atime: atime, owners: owners) { _ in Data() }
             let base = path.hasSuffix("/") ? String(path.dropLast()) : path
-            for child in try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                try addDisk(child, as: base + "/" + child.lastPathComponent, read: read)
+            // 名前は一度だけ取得し、ソート中の Foundation 呼出しを避ける。
+            let children = try autoreleasepool {
+                try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                    .map { child in autoreleasepool { (url: child, name: child.lastPathComponent) } }
+                    .sorted(by: { $0.name < $1.name })
+            }
+            for child in children {
+                try autoreleasepool {
+                    try addDisk(child.url, as: base + "/" + child.name, read: read)
+                }
             }
         case S_IFLNK:
             // readlink は NUL を付けない。target を UTF-8 へ再符号化せず byte のまま保存する。
@@ -378,7 +391,17 @@ public final class ArchiveWriter {
 
     private func compressEntry(name: String, size: UInt64, method: CompressionMethod,
                                read: (Int) throws -> Data, emit: (Data) throws -> Void) throws -> UInt32 {
-        let compressor = method == .deflate ? try DeflateCompressor(level: options.deflateLevel) : nil
+        let compressor: DeflateCompressor?
+        if method == .deflate {
+            if let deflateCompressor {
+                try deflateCompressor.reset()
+            } else {
+                deflateCompressor = try DeflateCompressor(level: options.deflateLevel)
+            }
+            compressor = deflateCompressor
+        } else {
+            compressor = nil
+        }
         var remaining = size
         var crc: UInt32 = 0
         while remaining > 0 {
@@ -411,8 +434,7 @@ public final class ArchiveWriter {
     private func compression(name: String, mode: UInt16, size: UInt64) -> CompressionMethod {
         guard size > 0, mode & 0xF000 == 0x8000 else { return .stored }
         if options.useCompressionHeuristic {
-            let compressed: Set<String> = ["zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"]
-            if compressed.contains((name as NSString).pathExtension.lowercased()) { return .stored }
+            if Self.compressedExtensions.contains((name as NSString).pathExtension.lowercased()) { return .stored }
         }
         return options.compressionMethod
     }
