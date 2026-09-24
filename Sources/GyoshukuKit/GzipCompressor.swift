@@ -1,75 +1,78 @@
 import Foundation
-private import zlib
 
-// tar 全体を一つの gzip member にする。ZIP 用の raw deflate の設定は変更しない。
 final class GzipCompressor: TarCompressor {
-    private var stream = z_stream()
-    private var initialized = false
+    private let level: Int
+    private let blockSize: Int
+    private let pipeline: OrderedChunkPipeline<DeflateBlock, Data, Void>
+    private var input = Data()
+    private var dictionary = Data()
+    private var crc: UInt32 = 0
+    private var size: UInt32 = 0
+    private var started = false
     private var finished = false
-    private var output = [UInt8](repeating: 0, count: 256 * 1024)
-    // deflateSetHeader は pointer を保持するので、一時的な inout の領域を渡さない。
-    private let header: UnsafeMutablePointer<gz_header>
 
-    init(level: Int) throws {
-        header = .allocate(capacity: 1)
-        header.initialize(to: gz_header())
-        // gzip 側は再現可能な MTIME=0、OS=Unix。名前・comment・extra は持ち出さない。
-        header.pointee.time = 0
-        header.pointee.os = 3
-        let status = deflateInit2_(
-            &stream, Int32(level), Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY,
-            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)
-        )
-        guard status == Z_OK else { throw WriterError.compression(status) }
-        initialized = true
-        let headerStatus = deflateSetHeader(&stream, header)
-        guard headerStatus == Z_OK else { throw WriterError.compression(headerStatus) }
+    init(level: Int, threads: Int = WriterOptions().resolvedCompressionThreads,
+         blockSize: Int = DeflateBlock.size, encoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode) throws {
+        guard (0...9).contains(level) else { throw WriterError.invalidOption("deflateLevel") }
+        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        precondition((1...DeflateBlock.size).contains(blockSize))
+        self.level = level
+        self.blockSize = blockSize
+        pipeline = OrderedChunkPipeline(threads: threads) { try encoder($0, level) }
     }
 
-    deinit {
-        if initialized { _ = deflateEnd(&stream) }
-        header.deinitialize(count: 1)
-        header.deallocate()
-    }
-
-    func write(_ input: Data, finish: Bool = false, emit: (Data) throws -> Void) throws {
+    func write(_ data: Data, finish: Bool = false, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
-        if input.isEmpty && !finish { return }
-        var offset = 0
-        while true {
+        do {
             try Task.checkCancellation()
-            let available = min(input.count - offset, Int(uInt.max))
-            let capacity = output.count
-            let finalChunk = finish && available == input.count - offset
-            let status = input.withUnsafeBytes { inputBytes in
-                output.withUnsafeMutableBytes { outputBytes in
-                    stream.next_in = inputBytes.baseAddress.map {
-                        UnsafeMutablePointer(mutating: $0.assumingMemoryBound(to: Bytef.self).advanced(by: offset))
-                    }
-                    stream.avail_in = uInt(available)
-                    stream.next_out = outputBytes.baseAddress!.assumingMemoryBound(to: Bytef.self)
-                    stream.avail_out = uInt(capacity)
-                    defer {
-                        stream.next_in = nil
-                        stream.next_out = nil
-                    }
-                    return deflate(&stream, finalChunk ? Z_FINISH : Z_NO_FLUSH)
+            if data.isEmpty && !finish { return }
+            if !started {
+                try emit(Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, level == 9 ? 2 : (level <= 1 ? 4 : 0), 3]))
+                started = true
+            }
+            var offset = data.startIndex
+            while offset < data.endIndex {
+                try Task.checkCancellation()
+                // 満杯でも次の入力まで保持し、最後の block だけ FINISH にする。
+                if input.count == blockSize { try submit(final: false, emit: emit) }
+                if input.isEmpty {
+                    try pipeline.waitForCapacity { _, result in try emit(result!) }
+                    input.reserveCapacity(blockSize)
                 }
+                let count = min(data.endIndex - offset, blockSize - input.count, 256 * 1024)
+                let chunk = data[offset..<(offset + count)]
+                input.append(chunk)
+                crc = updateCRC(crc, chunk)
+                size &+= UInt32(count)
+                offset += count
             }
-            guard Int(stream.avail_in) <= available, Int(stream.avail_out) <= capacity else {
-                throw WriterError.compression(Z_STREAM_ERROR)
-            }
-            let consumed = available - Int(stream.avail_in)
-            let produced = capacity - Int(stream.avail_out)
-            offset += consumed
-            guard status == Z_OK || status == Z_STREAM_END else { throw WriterError.compression(status) }
-            if produced > 0 { try emit(Data(output.prefix(produced))) }
-            if status == Z_STREAM_END {
+            if finish {
+                if input.isEmpty { try pipeline.waitForCapacity { _, result in try emit(result!) } }
+                try submit(final: true, emit: emit)
+                try pipeline.finish { _, result in try emit(result!) }
+                var trailer = Data()
+                trailer.le(crc)
+                trailer.le(size)
+                try emit(trailer)
                 finished = true
-                return
             }
-            if !finish && offset == input.count { return }
-            guard consumed > 0 || produced > 0 else { throw WriterError.compression(Z_BUF_ERROR) }
+        } catch {
+            abandon()
+            throw error
         }
+    }
+
+    func abandon() {
+        pipeline.abandon()
+        input = Data()
+        dictionary = Data()
+        finished = true
+    }
+
+    private func submit(final: Bool, emit: (Data) throws -> Void) throws {
+        let block = DeflateBlock(input: input, dictionary: dictionary, final: final)
+        dictionary = final ? Data() : DeflateBlock.dictionary(from: input)
+        input = Data()
+        try pipeline.submit(block, tag: ()) { _, result in try emit(result!) }
     }
 }

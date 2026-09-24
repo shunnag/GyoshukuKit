@@ -90,8 +90,9 @@ final class ZipAESEncryptor {
     private var pending = Data()
     private var finished = false
 
-    init(password: String) throws {
-        let salt = try EncryptionPrimitives.random(count: 16)
+    init(password: String, salt: Data? = nil) throws {
+        let salt = try salt ?? EncryptionPrimitives.random(count: 16)
+        precondition(salt.count == 16)
         let material = try EncryptionPrimitives.zipKeyMaterial(password: password, salt: salt)
         key = Data(material.prefix(32))
         prefix = salt + material.suffix(2)

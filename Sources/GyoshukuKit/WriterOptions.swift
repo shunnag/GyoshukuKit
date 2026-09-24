@@ -8,7 +8,7 @@ public enum ArchiveFormat: Sendable {
     /// restricted pax tar 全体を gzip で包む。
     /// gzip header は時刻 0、OS=Unix、ファイル名・comment なし。
     case tarGzip
-    /// restricted pax tar 全体を bzip2 で包む。
+    /// restricted pax tar を 5 × level × 100,000 byte ごとの bzip2 stream の連結で包む。
     case tarBzip2
     /// restricted pax tar を 16 MiB ごとの LZMA2 block を持つ単一 XZ stream で包む。
     case tarXZ
@@ -59,8 +59,11 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
-    /// 7z / tar.xz の圧縮並列数（1...64）。nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。
-    /// 圧縮中は各 thread が約130 MiB を保持する。他の形式では無視する。
+    /// ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz の圧縮並列数（1...64）。
+    /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数。
+    /// deflate / bzip2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB。
+    /// chunk size は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が16 MiB。
+    /// bzip2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
     public var compressionThreads: Int?
 
     public init(

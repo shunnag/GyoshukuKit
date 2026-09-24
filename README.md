@@ -97,10 +97,22 @@ try rewriter.commit()
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
+| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz の並列数 `1...64`。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
 
 ZIP の空ファイル・ディレクトリ・symlink は常に stored です。通常ファイルの payload は
 256 KiB 単位で読み書きし、作業メモリをファイルサイズに比例させません。central directory 用の
 メタデータは entry 数と名前長に比例します。
+
+ZIP / tar.gz は固定 1 MiB ごとに raw deflate を圧縮し、直前 block の末尾 32 KiB を辞書に使います。
+ZIP の小さい member は個別の `add(contentsOf:as:)` 呼出し間でも並列化し、出力は追加順です。
+tar.gz は従来の header を持つ単一 gzip member、tar.bz2 は `5 × bzip2Level × 100,000` byte ごとの
+完全な bzip2 stream の連結です。thread 数を変えても payload の byte 列は変わりません。
+ZIP の暗号化では salt が毎回変わります。圧縮失敗は後続の `add` / `finish` で通知されることがあります。
+deflate / bzip2 の未出力 chunk と組立中の入力は合計で最大 `compressionThreads` 個に抑えます。
+deflate / bzip2 の主なメモリは thread ごとに入力と出力（約2 × chunk size）と codec state、
+LZMA2 は thread ごとに約130 MiBです。待機中の取消しは50 msごとに確認します。
+bzip2 の chunk は内部 block size の5倍です。level 9 は4,500,000 byteごとの独立streamとなり、
+thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB（約15.8 MiB）を使います。
 
 ZIP のパスワードは UTF-8、7z は UTF-16LE を使います。ZIP は空ファイルも暗号化し、
 ディレクトリと symlink は暗号化しません。AES は 20 byte 未満を AE-1（CRC あり）、

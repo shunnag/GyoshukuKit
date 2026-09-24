@@ -6,7 +6,7 @@ private import Darwin
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
 /// add / finish が失敗した instance は再利用できない。
-/// 7z / tar.xz の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
+/// ZIP / 圧縮tar / 7z の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
 /// ZIP の部分出力は呼出側で削除する。tar（圧縮tarを含む）/ 7z / LHA は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
     public let format: ArchiveFormat
@@ -19,6 +19,17 @@ public final class ArchiveWriter {
     private let sevenZipWriter: SevenZipWriter?
     private let lhaWriter: LHAWriter?
     private var deflateCompressor: DeflateCompressor?
+    private struct DeflateTag {
+        let entry: ZipRecords.Entry?
+        let crc: UInt32?
+    }
+    private let deflateBlockSize: Int
+    private let zipPipeline: OrderedChunkPipeline<DeflateBlock, Data, DeflateTag>?
+    private let zipSalt: () throws -> Data
+    private var emittingEntry: ZipRecords.Entry?
+    private var emittingHeaderSize = 0
+    private var emittingStart: UInt64 = 0
+    private var emittingAES: ZipAESEncryptor?
     private var position: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
     private(set) var appendedPaths: [(String, Bool)] = []
@@ -33,7 +44,10 @@ public final class ArchiveWriter {
     ]
 
     init(output: FileHandle, url: URL, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
-         tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil, lhaWriter: LHAWriter? = nil) {
+         tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil, lhaWriter: LHAWriter? = nil,
+         deflateBlockSize: Int = DeflateBlock.size,
+         deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
+         zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) }) {
         self.output = output
         self.outputURL = url
         self.outputIdentity = identity
@@ -42,9 +56,16 @@ public final class ArchiveWriter {
         self.tarWriter = tarWriter
         self.sevenZipWriter = sevenZipWriter
         self.lhaWriter = lhaWriter
+        precondition((1...DeflateBlock.size).contains(deflateBlockSize))
+        self.deflateBlockSize = deflateBlockSize
+        self.zipSalt = zipSalt
+        zipPipeline = format == .zip ? OrderedChunkPipeline(threads: options.resolvedCompressionThreads) {
+            try deflateEncoder($0, options.deflateLevel)
+        } : nil
     }
 
     deinit {
+        zipPipeline?.abandon()
         tarWriter?.abort()
         sevenZipWriter?.abort()
         lhaWriter?.abort()
@@ -61,16 +82,25 @@ public final class ArchiveWriter {
 
     // 小さい入力でも複数 chunk と待機中の失敗を検証できるようにする。
     static func create(
-        url: URL, format: ArchiveFormat, options: WriterOptions = WriterOptions(), lzmaChunkSize: Int,
+        url: URL, format: ArchiveFormat, options: WriterOptions = WriterOptions(),
+        deflateBlockSize: Int = DeflateBlock.size,
+        deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
+        bzip2Encoder: @escaping ParallelBzip2Compressor.Encoder = ParallelBzip2Compressor.encode,
+        zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) },
+        lzmaChunkSize: Int,
         lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode
     ) throws -> ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         try options.validate(for: format)
-        if format != .zip { try Task.checkCancellation() }
+        try Task.checkCancellation()
         let compressor: (any TarCompressor)?
         switch format {
-        case .tarGzip: compressor = try GzipCompressor(level: options.deflateLevel)
-        case .tarBzip2: compressor = try Bzip2Compressor(level: options.bzip2Level)
+        case .tarGzip:
+            compressor = try GzipCompressor(level: options.deflateLevel, threads: options.resolvedCompressionThreads,
+                                            blockSize: deflateBlockSize, encoder: deflateEncoder)
+        case .tarBzip2:
+            compressor = try ParallelBzip2Compressor(level: options.bzip2Level, threads: options.resolvedCompressionThreads,
+                                                     encoder: bzip2Encoder)
         case .tarXZ:
             compressor = try ParallelXZCompressor(threads: options.resolvedCompressionThreads,
                                                   chunkSize: lzmaChunkSize, encoder: lzmaEncoder)
@@ -91,7 +121,8 @@ public final class ArchiveWriter {
                              chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
         let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity) : nil
         return ArchiveWriter(output: handle, url: url, identity: identity, format: format, options: options,
-                             tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha)
+                             tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha,
+                             deflateBlockSize: deflateBlockSize, deflateEncoder: deflateEncoder, zipSalt: zipSalt)
     }
 
     /// ディレクトリは名前順で再帰追加する。symlink は辿らず target path を保存する。
@@ -190,6 +221,7 @@ public final class ArchiveWriter {
                 copyCentral: (_ emit: (Data) throws -> Void) throws -> Void) throws {
         if state == .finished { return }
         try perform {
+            try zipPipeline?.finish(emit: emitDeflate)
             let start = position
             var central = ZipCentralDirectory.CopyValidator(expectedCount: existingCount)
             try copyCentral { bytes in
@@ -212,10 +244,13 @@ public final class ArchiveWriter {
     private func perform(_ body: () throws -> Void) throws {
         guard state == .writing else { throw WriterError.invalidState }
         do {
-            if tarWriter != nil || sevenZipWriter != nil || lhaWriter != nil { try Task.checkCancellation() }
+            try Task.checkCancellation()
             try autoreleasepool { try body() }
         } catch {
             state = .failed
+            zipPipeline?.abandon()
+            emittingEntry = nil
+            emittingAES = nil
             tarWriter?.abort()
             sevenZipWriter?.abort()
             lhaWriter?.abort()
@@ -225,7 +260,7 @@ public final class ArchiveWriter {
     }
 
     private func addDisk(_ url: URL, as path: String, read: (FileHandle, Int) throws -> Data) throws {
-        if tarWriter != nil || sevenZipWriter != nil || lhaWriter != nil { try Task.checkCancellation() }
+        try Task.checkCancellation()
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         var info = stat()
         let status = url.withUnsafeFileSystemRepresentation { pointer in
@@ -343,7 +378,11 @@ public final class ArchiveWriter {
             appendedPaths.append((name, directory))
             return
         }
+        try Task.checkCancellation()
         let method = compression(name: name, mode: mode, size: size)
+        if method == .stored || (options.password != nil && options.zipEncryption == .zipCrypto) {
+            try zipPipeline?.drain(emit: emitDeflate)
+        }
         let mtime = try ZipRecords.timestamp(date)
         let accessTime = try ZipRecords.timestamp(atime ?? date)
         let dos = ZipRecords.dosDate(date)
@@ -360,17 +399,18 @@ public final class ArchiveWriter {
             appendedPaths.append((name, directory))
             return
         }
-        // zlib compressBound の保守的上限。境界付近でも header の領域を後から増やさない。
-        var bound = size
-        if method == .deflate {
-            for extra in [size >> 12, size >> 14, size >> 25, 13] { bound = try checkedAdd(bound, extra) }
-        }
+        var bound = method == .deflate ? try DeflateBlock.bound(size: size, blockSize: deflateBlockSize) : size
         if entry.encryption == .aes256 { bound = try checkedAdd(bound, 28) }
         entry.reservedZIP64 = bound >= ZipRecords.limit
+        if method == .deflate {
+            try submitDeflate(entry, name: name, read: read)
+            appendedPaths.append((name, directory))
+            return
+        }
         let header = entry.local()
         try write(header)
         let start = position
-        let aes = try password.map { try ZipAESEncryptor(password: $0) }
+        let aes = try password.map { try ZipAESEncryptor(password: $0, salt: zipSalt()) }
         if let aes { try write(aes.prefix) }
         entry.crc = try compressEntry(name: name, size: size, method: method, read: read) { chunk in
             try write(aes.map { try $0.encrypt(chunk) } ?? chunk)
@@ -384,6 +424,68 @@ public final class ArchiveWriter {
         try output.seek(toOffset: position)
         entries.append(entry)
         appendedPaths.append((name, directory))
+    }
+
+    private func submitDeflate(_ entry: ZipRecords.Entry, name: String, read: (Int) throws -> Data) throws {
+        let pipeline = zipPipeline!
+        var remaining = entry.size
+        var first = true
+        var crc: UInt32 = 0
+        var dictionary = Data()
+        while remaining > 0 {
+            try pipeline.waitForCapacity(emit: emitDeflate)
+            let count = Int(min(remaining, UInt64(deflateBlockSize)))
+            var input = Data()
+            input.reserveCapacity(count)
+            while input.count < count {
+                try Task.checkCancellation()
+                let requested = min(Self.chunkSize, count - input.count)
+                let chunk = try read(requested)
+                guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
+                input.append(chunk)
+                crc = updateCRC(crc, chunk)
+            }
+            remaining -= UInt64(count)
+            if remaining == 0, try !read(1).isEmpty { throw WriterError.sourceChanged(name) }
+            let block = DeflateBlock(input: input, dictionary: dictionary, final: remaining == 0)
+            dictionary = remaining == 0 ? Data() : DeflateBlock.dictionary(from: input)
+            try pipeline.submit(block, tag: DeflateTag(entry: first ? entry : nil, crc: remaining == 0 ? crc : nil),
+                                emit: emitDeflate)
+            first = false
+        }
+    }
+
+    private func emitDeflate(_ tag: DeflateTag, _ result: Data?) throws {
+        try Task.checkCancellation()
+        if var entry = tag.entry {
+            entry.offset = position
+            emittingEntry = entry
+            let header = entry.local()
+            emittingHeaderSize = header.count
+            try write(header)
+            emittingStart = position
+            emittingAES = try options.password.map { try ZipAESEncryptor(password: $0, salt: zipSalt()) }
+            if let emittingAES { try write(emittingAES.prefix) }
+        }
+        let compressed = result!
+        for offset in stride(from: compressed.startIndex, to: compressed.endIndex, by: Self.chunkSize) {
+            let chunk = compressed[offset..<min(offset + Self.chunkSize, compressed.endIndex)]
+            try write(emittingAES.map { try $0.encrypt(chunk) } ?? chunk)
+        }
+        if let crc = tag.crc {
+            if let emittingAES { try write(emittingAES.finish()) }
+            var entry = emittingEntry!
+            entry.crc = crc
+            entry.compressedSize = position - emittingStart
+            let patched = entry.local()
+            guard patched.count == emittingHeaderSize else { throw WriterError.sizeOverflow }
+            try output.seek(toOffset: entry.offset)
+            try output.write(contentsOf: patched)
+            try output.seek(toOffset: position)
+            entries.append(entry)
+            emittingEntry = nil
+            emittingAES = nil
+        }
     }
 
     private func writeZipCryptoEntry(_ entry: inout ZipRecords.Entry, name: String, password: String,
@@ -431,6 +533,7 @@ public final class ArchiveWriter {
     }
 
     private func write(_ data: Data) throws {
+        try Task.checkCancellation()
         let next = try checkedAdd(position, UInt64(data.count))
         try output.write(contentsOf: data)
         position = next
