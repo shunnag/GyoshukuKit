@@ -6,6 +6,7 @@ private import Darwin
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
 /// add / finish が失敗した instance は再利用できない。
+/// 7z / tar.xz の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
 /// ZIP の部分出力は呼出側で削除する。tar（圧縮tarを含む）/ 7z / LHA は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
     public let format: ArchiveFormat
@@ -55,6 +56,14 @@ public final class ArchiveWriter {
     public static func create(
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
     ) throws -> ArchiveWriter {
+        try create(url: url, format: format, options: options, lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
+    }
+
+    // 小さい入力でも複数 chunk と待機中の失敗を検証できるようにする。
+    static func create(
+        url: URL, format: ArchiveFormat, options: WriterOptions = WriterOptions(), lzmaChunkSize: Int,
+        lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode
+    ) throws -> ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         try options.validate(for: format)
         if format != .zip { try Task.checkCancellation() }
@@ -62,7 +71,9 @@ public final class ArchiveWriter {
         switch format {
         case .tarGzip: compressor = try GzipCompressor(level: options.deflateLevel)
         case .tarBzip2: compressor = try Bzip2Compressor(level: options.bzip2Level)
-        case .tarXZ: compressor = try XZCompressor()
+        case .tarXZ:
+            compressor = try ParallelXZCompressor(threads: options.resolvedCompressionThreads,
+                                                  chunkSize: lzmaChunkSize, encoder: lzmaEncoder)
         default: compressor = nil
         }
         let fd = url.withUnsafeFileSystemRepresentation { path in
@@ -76,7 +87,8 @@ public final class ArchiveWriter {
         let tar = format.isTar
             ? TarWriter(output: handle, url: url, identity: identity, compressor: compressor) : nil
         let sevenZip = format == .sevenZip
-            ? SevenZipWriter(output: handle, url: url, identity: identity, options: options) : nil
+            ? SevenZipWriter(output: handle, url: url, identity: identity, options: options,
+                             chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
         let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity) : nil
         return ArchiveWriter(output: handle, url: url, identity: identity, format: format, options: options,
                              tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha)

@@ -10,7 +10,7 @@ public enum ArchiveFormat: Sendable {
     case tarGzip
     /// restricted pax tar 全体を bzip2 で包む。
     case tarBzip2
-    /// restricted pax tar 全体を Apple Compression の固定設定 XZ で包む。
+    /// restricted pax tar を 16 MiB ごとの LZMA2 block を持つ単一 XZ stream で包む。
     case tarXZ
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
@@ -59,6 +59,9 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
+    /// 7z / tar.xz の圧縮並列数（1...64）。nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。
+    /// 圧縮中は各 thread が約130 MiB を保持する。他の形式では無視する。
+    public var compressionThreads: Int?
 
     public init(
         compressionMethod: CompressionMethod = .deflate,
@@ -69,7 +72,8 @@ public struct WriterOptions: Sendable {
         preserveMacOSMetadata: Bool = false,
         password: String? = nil,
         zipEncryption: ZipEncryption = .aes256,
-        encryptsSevenZipHeaders: Bool = false
+        encryptsSevenZipHeaders: Bool = false,
+        compressionThreads: Int? = nil
     ) {
         self.compressionMethod = compressionMethod
         self.deflateLevel = deflateLevel
@@ -80,12 +84,21 @@ public struct WriterOptions: Sendable {
         self.password = password
         self.zipEncryption = zipEncryption
         self.encryptsSevenZipHeaders = encryptsSevenZipHeaders
+        self.compressionThreads = compressionThreads
+    }
+
+    var resolvedCompressionThreads: Int {
+        compressionThreads ?? max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8,
+                                        Int(ProcessInfo.processInfo.physicalMemory / (1 << 30))))
     }
 
     // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
     func validate(for format: ArchiveFormat) throws {
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
+        if let compressionThreads, !(1...64).contains(compressionThreads) {
+            throw WriterError.invalidOption("compressionThreads")
+        }
         guard !preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
         if format == .sevenZip || format == .lha, preserveOwnerIDs {
             throw WriterError.unsupportedOption("preserveOwnerIDs")

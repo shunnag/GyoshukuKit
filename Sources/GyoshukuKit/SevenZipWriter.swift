@@ -12,38 +12,50 @@ final class SevenZipWriter {
     private var finished = false
     private var aborted = false
     private static let chunkSize = 256 * 1024
-    private static let lzmaChunkSize = 16 * 1024 * 1024
+    private let lzmaChunkSize: Int
+    private let pipeline: LZMA2ChunkPipeline<ChunkTag>
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), options: WriterOptions) {
+    private final class PendingEntry {
+        var record: SevenZipRecords.Entry
+        let aes: SevenZipAESEncryptor?
+        var start: UInt64?
+
+        init(record: SevenZipRecords.Entry, aes: SevenZipAESEncryptor?) {
+            self.record = record
+            self.aes = aes
+            self.record.aesProperties = aes?.properties
+        }
+    }
+
+    private struct ChunkTag {
+        let entry: PendingEntry
+        let isLast: Bool
+    }
+
+    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), options: WriterOptions,
+         chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
+         encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) {
+        precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))
         self.output = output
         self.url = url
         self.identity = identity
         self.options = options
+        lzmaChunkSize = chunkSize
+        pipeline = LZMA2ChunkPipeline(threads: options.resolvedCompressionThreads, encoder: encoder)
     }
 
     deinit { abort() }
 
     func add(name: String, mode: UInt16, size: UInt64, date: Date, read: (Int) throws -> Data) throws {
         try Task.checkCancellation()
-        var entry = SevenZipRecords.Entry(name: name, mode: mode, size: size,
+        let record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
-        let aes = size > 0 ? try makeEncryptor() : nil
-        entry.aesProperties = aes?.properties
-        let start = position
-        func emit(_ data: Data) throws {
-            entry.compressedSize = try checkedAdd(entry.compressedSize, UInt64(data.count))
-            for offset in stride(from: 0, to: data.count, by: Self.chunkSize) {
-                try Task.checkCancellation()
-                let start = data.startIndex + offset
-                let chunk = data.subdata(in: start..<min(start + Self.chunkSize, data.endIndex))
-                try write(aes.map { try $0.encrypt(chunk) } ?? chunk)
-            }
-        }
+        let entry = PendingEntry(record: record, aes: size > 0 ? try makeEncryptor() : nil)
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            let inputSize = Int(min(UInt64(Self.lzmaChunkSize), remaining))
+            let inputSize = Int(min(UInt64(lzmaChunkSize), remaining))
             var input = Data()
             input.reserveCapacity(inputSize)
             // 短い read でも圧縮境界を変えず、I/O だけを 256 KiB に保つ。
@@ -52,31 +64,26 @@ final class SevenZipWriter {
                 let requested = min(Self.chunkSize, inputSize - input.count)
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
-                entry.crc = updateCRC(entry.crc, chunk)
+                entry.record.crc = updateCRC(entry.record.crc, chunk)
                 remaining -= UInt64(chunk.count)
                 input.append(chunk)
             }
-            // Apple の 8 MiB 辞書を活かし、buffer API の入力は最大 16 MiB にする。各片の reset は維持し、
-            // LZMA2 終端だけを除いて一つの stream に連結する（最後に一度だけ終端を書く）。
-            let compressed = try LZMA2Compressor.encode(input)
-            guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
-                  compressed.payload.last == 0 else { throw WriterError.compression(-1) }
-            entry.properties = max(entry.properties, compressed.properties)
-            try emit(Data(compressed.payload.dropLast()))
+            if remaining == 0 {
+                guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
+            }
+            try pipeline.submit(input, tag: ChunkTag(entry: entry, isLast: remaining == 0), emit: emit)
         }
-        guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
-        if size > 0 {
-            try emit(Data([0]))
-            if let aes { try write(aes.finish()) }
-            entry.packedSize = position - start
+        if size == 0 {
+            guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
+            try pipeline.submit(nil, tag: ChunkTag(entry: entry, isLast: true), emit: emit)
         }
         try Task.checkCancellation()
-        entries.append(entry)
     }
 
     func finish() throws {
         try Task.checkCancellation()
         try reserveSignature()
+        try pipeline.finish(emit: emit)
         var packedSize = position - 32
         var header = try SevenZipRecords.header(entries)
         if options.encryptsSevenZipHeaders {
@@ -86,7 +93,7 @@ final class SevenZipWriter {
             let start = position
             for offset in stride(from: 0, to: header.count, by: Self.chunkSize) {
                 try Task.checkCancellation()
-                try write(aes.encrypt(header.subdata(in: offset..<min(offset + Self.chunkSize, header.count))))
+                try write(aes.encrypt(header[offset..<min(offset + Self.chunkSize, header.count)]))
             }
             try write(aes.finish())
             header = SevenZipRecords.encodedHeader(packOffset: packedSize, packedSize: position - start,
@@ -110,6 +117,7 @@ final class SevenZipWriter {
     func abort() {
         guard !finished, !aborted else { return }
         aborted = true
+        pipeline.abandon()
         try? output.truncate(atOffset: 0)
         // 出力先が置換されていても別の inode を削除しない。旧 inode の別名は truncate で無効になる。
         url.withUnsafeFileSystemRepresentation { path in
@@ -132,11 +140,42 @@ final class SevenZipWriter {
         return try SevenZipAESEncryptor(key: encryptionKey!)
     }
 
+    private func emit(_ tag: ChunkTag, _ result: LZMA2ChunkPipeline<ChunkTag>.Output?) throws {
+        try Task.checkCancellation()
+        let entry = tag.entry
+        if entry.start == nil { entry.start = position }
+        if let compressed = result?.compressed {
+            // 各片の辞書 reset を維持し、LZMA2 終端は entry の最後に一度だけ置く。
+            guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
+                  compressed.payload.last == 0 else { throw WriterError.compression(-1) }
+            entry.record.properties = max(entry.record.properties, compressed.properties)
+            try emit(compressed.payload.dropLast(), to: entry)
+        }
+        if tag.isLast {
+            if entry.record.size > 0 {
+                try emit(Data([0]), to: entry)
+                if let aes = entry.aes { try write(aes.finish()) }
+                entry.record.packedSize = position - entry.start!
+            }
+            entries.append(entry.record)
+        }
+    }
+
+    private func emit(_ data: Data, to entry: PendingEntry) throws {
+        entry.record.compressedSize = try checkedAdd(entry.record.compressedSize, UInt64(data.count))
+        for offset in stride(from: 0, to: data.count, by: Self.chunkSize) {
+            try Task.checkCancellation()
+            let start = data.startIndex + offset
+            let chunk = data[start..<min(start + Self.chunkSize, data.endIndex)]
+            try write(entry.aes.map { try $0.encrypt(chunk) } ?? chunk)
+        }
+    }
+
     private func write(_ data: Data) throws {
         for offset in stride(from: 0, to: data.count, by: Self.chunkSize) {
             try Task.checkCancellation()
             let start = data.startIndex + offset
-            let chunk = data.subdata(in: start..<min(start + Self.chunkSize, data.endIndex))
+            let chunk = data[start..<min(start + Self.chunkSize, data.endIndex)]
             let next = try checkedAdd(position, UInt64(chunk.count))
             try output.write(contentsOf: chunk)
             position = next

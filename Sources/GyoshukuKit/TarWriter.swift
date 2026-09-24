@@ -89,6 +89,7 @@ final class TarWriter {
     func abort() {
         guard !finished, !aborted else { return }
         aborted = true
+        compressor?.abandon()
         // tar は途中まででも読めるため、失敗時には終端を省くだけでは不十分。
         // 別名の hard link も無効化し、出力先が置換されていれば別人のファイルは消さない。
         try? output.truncate(atOffset: 0)
