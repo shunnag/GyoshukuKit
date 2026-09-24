@@ -123,7 +123,7 @@ public final class ArchiveUpdater: ArchiveEditing {
             try validateIndex(index)
             guard !removed.contains(index), let reader else { throw UpdaterError.invalidEntryIndex(index) }
             let directory = reader.entries[index].kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory)
+            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .zip)
             indexAppendedPaths()
             pathReservations.remove(renamed[index] ?? reader.entries[index].name, directory: directory)
             try pathReservations.validate(name, directory: directory)

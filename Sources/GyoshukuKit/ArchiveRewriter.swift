@@ -128,7 +128,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             // ./ や . の directory は書庫の root。改名された時だけ通常の directory として運ぶ。
             do {
                 name = carried.isEmpty && entry.kind == .directory ? ""
-                    : try ArchiveWriter.normalizedPath(carried, directory: entry.kind == .directory)
+                    : try ArchiveWriter.normalizedPath(carried, directory: entry.kind == .directory, format: format)
             } catch { throw refuse("出力名に空の要素・禁止文字・不正な相対パスが含まれています") }
             guard entry.kind != .other else { throw refuse("この entry 種別は書き込めません") }
             if entry.kind == .symlink, format == .lha { throw refuse("LHA は symlink を保存できません") }
@@ -205,7 +205,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             try validateIndex(index)
             guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
             let directory = reader.entries[index].kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory)
+            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: format)
             indexAppendedPaths()
             if survives(index) { pathReservations.remove(finalName(index), directory: directory) }
             try pathReservations.validate(name, directory: directory)

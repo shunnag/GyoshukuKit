@@ -335,7 +335,7 @@ public final class ArchiveWriter {
             if info.st_nlink > 1, hardLink == nil, let tarWriter {
                 tarWriter.rememberHardLink(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
                                           signature: Self.linkSignature(info),
-                                          path: try Self.normalizedPath(path, directory: false))
+                                          path: try Self.normalizedPath(path, directory: false, format: format))
             }
         default:
             throw WriterError.unsupportedFileType(url.path)
@@ -349,7 +349,7 @@ public final class ArchiveWriter {
         read: (Int) throws -> Data
     ) throws {
         let directory = mode & 0xF000 == 0x4000
-        let name = try Self.normalizedPath(path, directory: directory)
+        let name = try Self.normalizedPath(path, directory: directory, format: format)
         let key = directory ? String(name.dropLast()) : name
         guard names.insert(key).inserted else {
             throw WriterError.duplicatePath(name)
@@ -560,12 +560,14 @@ public final class ArchiveWriter {
             .map { String(decoding: $0, as: UTF8.self) }
     }
 
-    static func normalizedPath(_ path: String, directory: Bool) throws -> String {
+    static func normalizedPath(_ path: String, directory: Bool, format: ArchiveFormat) throws -> String {
         var name = path.precomposedStringWithCanonicalMapping
         if directory && !name.hasSuffix("/") { name += "/" }
         let body = directory ? String(name.dropLast()) : name
         let components = pathComponents(body, omittingEmptySubsequences: false)
-        guard !body.isEmpty, !body.utf8.contains(0), !body.utf8.contains(92), !body.utf8.contains(58),
+        // tar は名前中の \ と : を許す。ZIP / 7z / LHA は Windows 向けの制約を保つ。
+        guard !body.isEmpty, !body.utf8.contains(0),
+              format.isTar || (!body.utf8.contains(92) && !body.utf8.contains(58)),
               components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
               name.utf8.count <= Int(UInt16.max) else { throw WriterError.invalidPath(path) }
         return name

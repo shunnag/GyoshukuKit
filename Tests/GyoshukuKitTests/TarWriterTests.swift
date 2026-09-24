@@ -279,7 +279,7 @@ final class TarWriterTests: XCTestCase {
 
     func testSharedPathValidationAndFailedOutputCleanup() throws {
         let directory = try ZipTestSupport.directory("tar-invalid")
-        let paths = ["", "/absolute", "../escape", "a/../b", "a//b", "a\\b", "C:drive", "nul\0name", "file/", String(repeating: "界", count: 22_000)]
+        let paths = ["", "/absolute", "../escape", "a/../b", "a/./b", "a//b", "nul\0name", "file/", String(repeating: "界", count: 22_000)]
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             for (index, path) in paths.enumerated() {
                 let url = directory.appendingPathComponent("\(format)-\(index)")

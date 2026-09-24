@@ -135,9 +135,15 @@ spoolを閉じ、未完成出力を無効化して削除します。256 MiB入�
 tar（tar.gz / tar.bz2 / tar.xz を含む）/ LHA のパスワード指定は `unsupportedOption("password")`、
 パスワードなしの header 暗号化指定は `invalidOption("encryptsSevenZipHeaders")` です。
 
-名前は UTF-8 / NFC、bit 11 を常に立てます。絶対パス・`..`・空の成分・NUL・
-Windows の区切り文字 `\` / `:`・NFC 正規化後の重複・file と子の衝突は拒否します。
-mtime / atime は秒単位で、extended timestamp の符号付き 32 bit Unix 秒の範囲外は
+新規追加・改名・`ArchiveRewriter` の再出力名は、全形式で NFC へ正規化します。
+空の名前・絶対パス・`.` / `..`・空の成分・NUL・
+UTF-8 で 65,535 byte を超える出力名・NFC 正規化後の重複・file と子の衝突は拒否します。
+`\` / `:` は Windows 向けの ZIP / 7z / LHA 出力で拒否します。
+tar / tar.gz / tar.bz2 / tar.xz では両文字を名前の一部として許可します。
+`ArchiveRewriter` の既存名の検査にも、出力形式の規則を適用します。
+
+ZIP の名前は UTF-8 で書き、bit 11 を常に立てます。
+ZIP の mtime / atime は秒単位で、extended timestamp の符号付き 32 bit Unix 秒の範囲外は
 `invalidDate` です。DOS 日付にはローカル時刻を使い、表現範囲へ丸めます。
 
 UNIX host、POSIX mode、symlink、local / central で長さの違う timestamp extra、
