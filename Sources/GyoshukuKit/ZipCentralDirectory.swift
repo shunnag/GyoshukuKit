@@ -7,6 +7,9 @@ struct ZipRecordLayout: Sendable, Equatable {
     let hasDataDescriptor: Bool
     let centralHasZIP64Extra: Bool
     let localHasZIP64Extra: Bool
+    let encryption: ZipRawEncryption
+    let storedCRC32: UInt32
+    let compressionMethod: UInt16
     var isZIP64: Bool { centralHasZIP64Extra || localHasZIP64Extra }
 }
 
@@ -17,6 +20,9 @@ extension ZipRecordLayout {
         hasDataDescriptor = spi.hasDataDescriptor
         centralHasZIP64Extra = spi.centralHasZIP64Extra
         localHasZIP64Extra = spi.localHasZIP64Extra
+        encryption = spi.encryption
+        storedCRC32 = spi.storedCRC32
+        compressionMethod = spi.compressionMethod
     }
 }
 

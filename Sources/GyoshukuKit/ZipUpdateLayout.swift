@@ -24,6 +24,7 @@ public enum UpdaterError: Error, Sendable, Equatable {
     case invalidArchive(String)
     case invalidEntryIndex(Int)
     case nonRelocatableEntry(index: Int, name: String, reason: String)
+    case reencryptionFailed(index: Int, name: String, reason: String)
     case sourceChanged
     case invalidState
 }

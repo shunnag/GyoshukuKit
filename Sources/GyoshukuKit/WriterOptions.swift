@@ -60,6 +60,7 @@ public struct WriterOptions: Sendable {
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
     /// ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz の圧縮並列数（1...64）。
+    /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数。
     /// deflate / bzip2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB。
     /// chunk size は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が16 MiB。

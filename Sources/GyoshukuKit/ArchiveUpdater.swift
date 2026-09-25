@@ -17,6 +17,9 @@ public final class ArchiveUpdater: ArchiveEditing {
     private let reader: ArchiveReader?
     private var removed: Set<Int> = []
     private var renamed: [Int: String] = [:]
+    private var reencryptionRequested = false
+    private var currentPassword: String?
+    var afterRebuild: ((URL) throws -> Void)?
     private var pathReservations: EditPathReservations?
     var hasPathReservations: Bool { pathReservations != nil }
     private var indexedAppendCount = 0
@@ -32,7 +35,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     @_spi(Testing) public private(set) var lastCommitStrategy: CommitStrategy?
 
     public struct CommitProgress: Sendable, Equatable {
-        /// commit が出力に書いた byte。追加 data の drain は含まない。
+        /// commit の仕事量。再暗号化では読取・検証・鍵導出も含む。追加 data の drain は含まない。
         public let completedBytes: UInt64
         public let totalBytes: UInt64
     }
@@ -99,7 +102,8 @@ public final class ArchiveUpdater: ArchiveEditing {
     /// output は存在してはならず、親 directory は呼出側が用意する。
     /// 一時 snapshot は output の隣に置き、commit・失敗・破棄で消す。
     /// 成功した output は fsync・close 済みで mode 0600。属性の復元と公開は呼出側が行う。
-    /// options.password は追加する通常ファイルだけを暗号化する。
+    /// options.password は追加する通常ファイルを暗号化する。
+    /// 既存 entry にも適用するときは reencryptExistingEntries(currentPassword:) を予約する。
     public static func open(url: URL, output: URL? = nil, options: WriterOptions = WriterOptions()) throws -> ArchiveUpdater {
         try options.validate(for: .zip)
         if let output { try ArchiveSourceSnapshot.validateOutput(output) }
@@ -140,6 +144,20 @@ public final class ArchiveUpdater: ArchiveEditing {
 
     public func addDirectory(_ path: String) throws {
         try perform { try preparedWriter().addDirectory(path) }
+    }
+
+    /// commit 時に既存 entry の暗号化を options にそろえる。圧縮データは作り直さない。
+    /// 通常ファイルは password / zipEncryption（AES-256）、directory と symlink は平文にする。
+    /// 同じ方式で password の UTF-8 byte 列が同じ entry は byte のまま運び、password は検証しない。
+    /// 全暗号化 entry を currentPassword で検証済みであることは呼出側の責務。
+    /// 追加 entry は対象外。変換が 0 件なら出力は変わらない。remove / rename / add との順序は問わない。
+    /// currentPassword は入力の復号用。一度だけ呼べる。進捗は commit(progress:) に含まれる。
+    public func reencryptExistingEntries(currentPassword: String?) throws {
+        try perform {
+            guard !reencryptionRequested else { throw UpdaterError.invalidState }
+            reencryptionRequested = true
+            self.currentPassword = currentPassword
+        }
     }
 
     /// open 時のゼロ始まり index を削除予約する。重複指定は一度だけ削除する。
@@ -212,14 +230,17 @@ public final class ArchiveUpdater: ArchiveEditing {
         if state == .committed { return }
         try perform {
             try checkUnchanged()
-            let rebuild = !removed.isEmpty || !renamed.isEmpty
+            let reencryption = try reencryptionRequested ? ZipReencryption.plan(reader: reader, directory: directory,
+                removed: removed, options: options, currentPassword: currentPassword) : nil
+            let rebuild = !removed.isEmpty || !renamed.isEmpty || reencryption != nil
             let appended = try writer?.drainAppendedRecords()
+            var verification: (ZipRebuild.Plan, ZipCommitMeter)?
             if rebuild, let reader {
                 try prepareClone()
                 let written = appended.map { appendStart!..<$0.end }
                 let plan = try ZipRebuild.plan(source: source, layout: layout, reader: reader, directory: directory,
                     removed: removed, renamed: renamed, writtenRange: written,
-                    appended: appended?.entries ?? [], recordLayout: recordLayout)
+                    appended: appended?.entries ?? [], reencryption: reencryption, recordLayout: recordLayout)
                 var stagedSource: ZipUpdateSource?
                 if let written, plan.end != written.lowerBound {
                     let parent = outputURL?.deletingLastPathComponent() ?? replacementDirectory!
@@ -231,12 +252,12 @@ public final class ArchiveUpdater: ArchiveEditing {
                 } else if appended != nil { lastCommitStrategy = .rebuildThenAppend }
                 else { lastCommitStrategy = plan.inPlace ? .inPlacePatch : .rebuild }
                 let movedBytes = stagedSource == nil ? 0 : written!.upperBound - written!.lowerBound
-                let total = try checkedAdd(plan.totalBytes, movedBytes)
+                let total = try checkedAdd(checkedAdd(plan.totalBytes, movedBytes), reencryption?.work ?? 0)
                 try Task.checkCancellation()
                 try progress?(.init(completedBytes: 0, totalBytes: total))
                 var engine = ZipCopyEngine(descriptor: outputHandle!.fileDescriptor, totalBytes: total)
                 try ZipRebuild.execute(plan, source: source, directory: directory, layout: layout,
-                    stagedSource: stagedSource, writtenRange: written, engine: &engine, progress: progress)
+                    stagedSource: stagedSource, writtenRange: written, reencryption: reencryption, engine: &engine, progress: progress)
                 if let appended, let written {
                     if let corrupt = Self.testingAppendedCorruption, let first = appended.entries.first {
                         var bytes = try ZipAppendedRecordCheck.read(outputHandle!.fileDescriptor, at: plan.end, count: first.local().count)
@@ -250,7 +271,8 @@ public final class ArchiveUpdater: ArchiveEditing {
                 try Task.checkCancellation()
                 if !plan.inPlace { try outputHandle!.truncate(atOffset: plan.finalEnd) }
                 try outputHandle!.synchronize()
-                try engine.meter.finish(progress: progress)
+                if reencryption != nil { verification = (plan, engine.meter) }
+                else { try engine.meter.finish(progress: progress) }
             } else if let writer, let appended {
                 lastCommitStrategy = .appendOnly
                 var size = layout.centralSize
@@ -280,6 +302,19 @@ public final class ArchiveUpdater: ArchiveEditing {
             self.writer = nil
             try outputHandle?.close()
             outputHandle = nil
+            if let reencryption, let (plan, pendingMeter) = verification {
+                var meter = pendingMeter
+                do { try afterRebuild?(replacement!) }
+                catch is CancellationError { throw CancellationError() }
+                catch { throw UpdaterError.reencryptionFailed(index: -1, name: "", reason: "出力の検証を開始できません") }
+                try reencryption.verify(url: replacement!, plan: plan, directory: directory, renamed: renamed,
+                    appended: appended?.entries ?? [], meter: &meter, progress: progress)
+                guard meter.completedBytes == meter.totalBytes else {
+                    throw UpdaterError.reencryptionFailed(index: -1, name: "", reason: "変換の仕事量が計画と一致しません")
+                }
+                try meter.finish(progress: progress)
+            }
+            currentPassword = nil
             try Task.checkCancellation()
             if let replacement {
                 try checkOutputIdentity()
@@ -400,6 +435,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     }
 
     private func cleanup() {
+        currentPassword = nil
         writer = nil
         try? outputHandle?.close()
         outputHandle = nil

@@ -310,10 +310,10 @@ KaitoKit の内部暗号型を公開・共有せず、公開パラメータに�
 
 ### 編集と検証
 
-updater の `options.password` は追加分だけに適用し、既存 record は byte のまま運ぶ。
-削除・改名は ciphertext を変更せず、既存の暗号化方式やパスワードも維持する。
-全てを同じパスワードへ揃える場合は rewriter を使い、`password` で入力を復号し、
-`options.password` で出力を暗号化する。入力だけにパスワードを指定すれば平文へ変換できる。
+updater の `options.password` は通常は追加分だけに適用し、既存 record は byte のまま運ぶ。
+削除・改名だけなら ciphertext と既存 password を維持する。ZIP 全体をそろえる場合は
+`reencryptExistingEntries(currentPassword:)` を一度予約する。圧縮データを作り直す必要はない。
+他形式の rewriter は `password` で入力を復号し、`options.password` で出力を暗号化する。
 
 XCTest は KaitoKit、ZIP AES / 7z AES の 7zz、ZipCrypto の unzip を oracle にする。
 header byte・AE-1/AE-2 境界・誤パスワード・HMAC 改変・spool の成功/失敗時 cleanup・
@@ -327,6 +327,48 @@ packed size が ±5% に収まることを確認する。参照圧縮は製品 c
 参照: [WinZip AES 仕様](https://www.winzip.com/en/support/aes-encryption/)、
 [7z format](https://github.com/ip7z/7zip/blob/main/DOC/7zFormat.txt)、
 [XZ の LZMA2 decoder の reset 処理](https://github.com/tukaani-project/xz/blob/master/src/liblzma/lzma/lzma2_decoder.c)。
+
+### ZIP の再暗号化（P1b）
+
+予約は `adding` 状態で一度だけ受け付け、remove / rename / add との順序に依存しない。
+commit の `checkUnchanged` 後、生存する既存 entry だけを計画する。通常ファイルは options の
+plain / ZipCrypto / AES-256、directory と symlink は平文にする。同じ方式・同じ UTF-8 byte の
+password なら運ぶだけで、実際の password は検証しない。入力の全件検証は呼出側が行う。
+空書庫や変換 0 件の予約は P1-G の経路・出力 byte・strategy・進捗を変えない。
+
+`ZipRecordLayout` は KaitoKit SPI の encryption / storedCRC32 / compressionMethod も保持する。
+`ZipPlannedAction.convert` は keep・canonical CD・同長改名 patch・descriptor marker の対象外。
+変換 entry は descriptor を捨てるため ZIP32 descriptor の offset 越境拒否も不要になる。
+運ぶ entry には従来の拒否を残す。追加分は writer が暗号化し、変換しない。追加位置の予測が
+変換でずれたときは stagedRebuild、一致すれば rebuildThenAppend、追加なしは rebuild になる。
+
+`OrderedChunkPipeline` は `WriterOptions.resolvedCompressionThreads` 件の窓で導出だけを並列化する。
+入力は KaitoKit の `ZipAESKeyMaterial.derive`、出力は GK の PBKDF2-HMAC-SHA1（1,000 回）。
+reader・出力・salt の乱数・TaskLocal observer は commit の thread だけで扱う。
+乱数の試験注入は P1-G と同じ `testingRandomBytes`（AES salt 16 byte、ZipCrypto header 11 byte）。
+出力の材料 66 byte / salt 16 byte は連続した Data に保存し、検証後に解放する。
+
+AES の AE-2 から平文 / ZipCrypto へ変える場合だけ、pass A で展開 CRC を先に計算する。
+payload は `zipStoredPayloadStream(at:aesKey:)` から最大 1 MiB ずつ復号し、既存の encryptor へ渡す。
+圧縮器や ZipCrypto spool は呼ばない。小さい record は header から認証 tag まで一度に組み立てる。
+local / CD の元の名前・時刻・属性・comment・未知 extra を保ち、暗号欄とサイズだけを組み直す。
+0x0001 は先頭、0x9901 は既知 field の末尾、解析できない末尾は最後に置く。改名時は既存の
+Unicode 名の無効化と不透明 extra の拒否を適用する。AES → AES は AE の版を保つ。
+
+fsync・close 後、公開前に出力を読み直す。V0 は門番・entry 数・名前・種別・方式・サイズ・CRC・
+暗号状態と、GK による local / CD の照合。P1-G の追加 record 検査も残す。V1 は全変換 entry の
+復号した保存 payload の長さと CRC。V2 は ZipCrypto 入力・AE-2 の pass A 対象・平文 → AE-2 で
+展開を検証し、CRC のない AE-2 は入力 CD の CRC と照合する。V3 は AES 出力の先頭・末尾を含む
+等間隔の最大 16 件を password から導き直して保存 byte を照合する。AE-2 の encryption key だけが
+誤っても HMAC / verifier が正しければ材料経由の読取は成功するため、V3 は省略しない。
+
+入力の wrongPassword / passwordRequired だけはそのまま返す。V2 が失敗した ZipCrypto 入力は
+通常の stream で読み直し、照合 byte が偶然合った誤 password を区別する。出力検証の失敗は
+`reencryptionFailed` に包み、取消しは `CancellationError` のまま返す。変換中の I/O は従来どおり。
+`CommitProgress` は書込み + pass A / V1 / V2 / V3 の保存長 + 導出 1 回 65,536 の仕事量。
+total は計画時に固定し、完了時の一致を確認してから公開する。失敗と取消しは作業ファイルを削除する。
+
+実測と A2–A10 の範囲は [P1b 検証記録](verification/2026-09-25-p1b-reencryption.md) を参照。
 
 ## 9. やらないこと
 
@@ -399,7 +441,8 @@ packed size が ±5% に収まることを確認する。参照圧縮は製品 c
 > 7z bounds its LZMA2 input to 16 MiB while I/O and encryption stay at 256 KiB.
 > Files up to 16 MiB retain the whole-buffer compression ratio; larger files reset
 > the dictionary at chunk boundaries. A 40 MiB corpus guards packed size within
-> 5% of whole-buffer Apple compression. Updaters encrypt additions only; rewriters separate input and output
+> 5% of whole-buffer Apple compression. Updaters encrypt additions by default and can explicitly
+> re-encrypt existing ZIP payloads without recompression. Rewriters separate input and output
 > passwords. File-change checks exclude ctime to allow Finder tag and xattr updates.
 >
 > Three things are deliberately never done: writing RAR, whose licence forbids it;

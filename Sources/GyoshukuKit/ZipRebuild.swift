@@ -14,6 +14,7 @@ enum ZipRebuild {
     enum CentralAction {
         case original(Range<Int>, UInt64)
         case rebuilt(Data)
+        case converted(ZipConversion)
     }
 
     struct Plan {
@@ -46,6 +47,7 @@ enum ZipRebuild {
     static func plan(source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader,
                      directory: ZipValidatedDirectory, removed: Set<Int>, renamed: [Int: String],
                      writtenRange: Range<UInt64>? = nil, appended: [ZipRecords.Entry] = [],
+                     reencryption: ZipReencryption? = nil,
                      recordLayout: (Int) throws -> ZipRecordLayout?) throws -> Plan {
         var position: UInt64 = 0
         var records: [PlannedRecord] = []
@@ -59,6 +61,15 @@ enum ZipRebuild {
                     reason: "rawRecord が nil のため独立して移動できません。削除・改名による再構築を拒否します")
             }
             let start = position
+            if let conversion = reencryption?.conversions[entry.index] {
+                let header = try CentralHeader(bytes: directory.bytes, range: directory.records[entry.index].centralRange)
+                try conversion.assemble(source: source, header: header, offset: start, name: renamed[entry.index])
+                position = try checkedAdd(start, checkedAdd(UInt64(conversion.local.count), conversion.compressedSize))
+                localBytes = try checkedAdd(localBytes, position - start)
+                patchable = false
+                records.append(PlannedRecord(index: entry.index, offset: start, action: .convert(conversion), marker: false))
+                continue
+            }
             if start >= ZipRecords.limit, raw.hasDataDescriptor, !raw.isZIP64 {
                 throw UpdaterError.nonRelocatableEntry(index: entry.index, name: entry.name,
                     reason: "ZIP32 descriptor の移動先に ZIP64 offset が必要です。KaitoKit 0.4.0 の幅の解釈が変わるため再構築を拒否します")
@@ -107,7 +118,10 @@ enum ZipRebuild {
             let newName = renamed[record.index]
             let action: CentralAction
             let count: Int
-            if validated.usesFastPath(offset: record.offset, renamed: newName != nil, marker: record.marker) {
+            if case .convert(let conversion) = record.action {
+                action = .converted(conversion)
+                count = conversion.central.count
+            } else if validated.usesFastPath(offset: record.offset, renamed: newName != nil, marker: record.marker) {
                 action = .original(validated.centralRange, record.offset)
                 count = validated.centralRange.count
             } else {
@@ -153,15 +167,16 @@ enum ZipRebuild {
 
     static func execute(_ plan: Plan, source: ZipUpdateSource, directory: ZipValidatedDirectory,
                         layout: ZipUpdateLayout, stagedSource: ZipUpdateSource?, writtenRange: Range<UInt64>?,
+                        reencryption: ZipReencryption? = nil,
                         engine: inout ZipCopyEngine, progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
-        try executeLocal(plan, source: source, engine: &engine, progress: progress)
+        try executeLocal(plan, source: source, reencryption: reencryption, engine: &engine, progress: progress)
         if let stagedSource, let writtenRange {
             try engine.copy(writtenRange, from: stagedSource, to: plan.end, progress: progress)
         }
         try executeCentral(plan, directory: directory, layout: layout, engine: &engine, progress: progress)
     }
 
-    private static func executeLocal(_ plan: Plan, source: ZipUpdateSource, engine: inout ZipCopyEngine,
+    private static func executeLocal(_ plan: Plan, source: ZipUpdateSource, reencryption: ZipReencryption?, engine: inout ZipCopyEngine,
                              progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         try Task.checkCancellation()
         var pending: (range: Range<UInt64>, offset: UInt64)?
@@ -169,7 +184,8 @@ enum ZipRebuild {
             if let pending { try engine.copy(pending.range, from: source, to: pending.offset, progress: progress) }
             pending = nil
         }
-        for record in plan.records {
+        func emit(_ record: PlannedRecord, _ keys: ZipReencryption.Keys?) throws {
+            if reencryption != nil { try Task.checkCancellation() }
             if case .copy(let range) = record.action {
                 if let previous = pending, previous.range.upperBound == range.lowerBound,
                    previous.offset + (previous.range.upperBound - previous.range.lowerBound) == record.offset {
@@ -178,7 +194,7 @@ enum ZipRebuild {
                     try flushCopy(&engine)
                     pending = (range, record.offset)
                 }
-                continue
+                return
             }
             try flushCopy(&engine)
             switch record.action {
@@ -188,8 +204,12 @@ enum ZipRebuild {
                 try engine.append(bytes, at: record.offset, progress: progress)
                 try engine.copy(range, from: source, to: record.offset + UInt64(bytes.count), progress: progress)
             case .copy: preconditionFailure()
+            case .convert(let conversion):
+                try reencryption!.convert(conversion, keys: keys, at: record.offset, engine: &engine, progress: progress)
             }
         }
+        if let reencryption { try reencryption.withKeys(records: plan.records, source: source, emit: emit) }
+        else { for record in plan.records { try emit(record, nil) } }
         try flushCopy(&engine)
     }
 
@@ -212,13 +232,16 @@ enum ZipRebuild {
             case .rebuilt(let bytes):
                 try engine.append(bytes, at: position, progress: progress)
                 position += UInt64(bytes.count)
+            case .converted(let conversion):
+                try engine.append(conversion.central, at: position, progress: progress)
+                position += UInt64(conversion.central.count)
             }
         }
         if !plan.inPlace { try engine.append(plan.trailer, at: position, progress: progress) }
         try engine.flush(progress: progress)
     }
 
-    private struct LocalHeader {
+    struct LocalHeader {
         var fixed: Data
         let name: Data
         let extra: Data
@@ -334,7 +357,7 @@ enum ZipRebuild {
         return fields
     }
 
-    private static func renamedExtra(_ extra: Data) throws -> Data {
+    static func renamedExtra(_ extra: Data) throws -> Data {
         var result = extra
         var consumed = 0
         for field in extraFields(extra) {
@@ -365,4 +388,5 @@ enum ZipPlannedAction {
     case patchHeader(Data)
     case copy(Range<UInt64>)
     case headerThenCopy(Data, Range<UInt64>)
+    case convert(ZipConversion)
 }

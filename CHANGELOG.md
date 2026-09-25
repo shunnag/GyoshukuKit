@@ -6,6 +6,11 @@
 
 ### 追加
 
+- `ArchiveUpdater.reencryptExistingEntries(currentPassword:)`。ZIP の暗号化を設定・変更・解除し、
+  圧縮済み payload はそのまま保つ。通常ファイルは options に従い、directory と symlink は平文にする。
+  同じ方式・同じ UTF-8 password の entry は検証せずに運ぶため、入力の全件検証は呼出側の責務。
+- `UpdaterError.reencryptionFailed(index:name:reason:)`。出力検証の失敗を入力の password エラーから分ける。
+  **source 互換性**: `UpdaterError` を網羅する switch には新しい case が必要。
 - ZIP updater の `open(url:output:options:)`。原本の descriptor から clone snapshot を作り、
   指定した作業ファイルを mode 0600・flags 0・fsync・close 済みで返す。immutable / append の
   UF/SF flags は EPERM で拒否し、clone の ENOTSUP / EXDEV だけ直接読取へ戻す。
@@ -18,6 +23,13 @@
 
 ### 変更
 
+- ZIP の password 操作を updater で行うと、元の圧縮方式・名前の byte・時刻・属性・extra・comment・
+  directory の payload が保たれる。変換 entry だけ descriptor を除き、暗号欄・CRC・サイズ・ZIP64 を再構築する。
+  AES 入力の AE-1/AE-2 は維持し、強度は AES-256 にそろえる。変換 0 件は従来の updater と同じ byte を返す。
+- 再暗号化の鍵導出は `compressionThreads` の数で並列化する。`CommitProgress` はこの経路で書込みに加え
+  pass A・V1–V3 の読取と鍵導出の仕事量を含む。公開前に KaitoKit と独立した header の検査、保存 byte・CRC・
+  password からの鍵導出の照合を行う。変換で位置が変わる追加付き commit は `.stagedRebuild` になる。
+  実行した試験とツールの制限は [P1b 検証記録](Documentation/verification/2026-09-25-p1b-reencryption.md) に記載する。
 - ZIP の CD を一括検証し、KaitoKit の検証済み raw layout とともに保持する。
   再構築は計画と 4 MiB のコピーに分け、連続する必要範囲だけを読み、canonical CD の offset だけを patch する。
   条件を満たす同長改名は header と CD の patch だけで完成し、削除だけでは名前予約表を作らない。
