@@ -141,3 +141,18 @@ sudo や権限変更は行っていない。
 | 公開 API | `git diff -U0 -- Sources` に `public` / `@_spi` の追加なし |
 
 AC-Ga4（release の `gyoshuku-bench lha --threads 8` の時間と常駐メモリ、threads 1/2/4/8/16 の出力の byte 一致）は、負荷の平均が 4 未満のときに採り、この節の後に追記する。
+
+### AC-Ga4 の計測（オーケストレータ、2026-09-26 08:15–08:19）
+
+`gyoshuku-bench lha`（release）。新しい側は 5faab4b（KaitoKit ef06e22）を `git archive` して build、基準は d5c51b3 の直列（threads 1）。
+corpus は `Benchmarks/make-corpora.sh` の出力（`SP/bcorp`。仕様の「今」の値と同じ corpus）。負荷の平均（1 分）は 4.3〜4.9。
+
+| corpus | 基準（直列）s（3 回） | 8 threads s（3 回） | 条件 | 最大常駐メモリ（8 threads） |
+|---|---|---|---|---|
+| small | 9.21、5.93、6.05 | 2.64、2.66、2.52 | ≦ 3.0 | ≦ 66 MB |
+| headers | 0.94、0.71、0.68 | 0.34、0.32、0.29 | ≦ 0.35 | ≦ 32 MB |
+| text256 | 4.68、4.64、4.67 | 1.01、1.01、1.00 | ≦ 1.6 | ≦ 53 MB |
+
+各回の出力は基準の直列の出力と `cmp` で一致した。加えて、別の大きな corpus（`SP/corpus`: small・headers・text256・random256）で、
+threads 1 / 2 / 4 / 8 / 16 の全 20 通りの出力が d5c51b3 の直列の出力と byte 一致した（その corpus の headers は 9,485 件・63 MB で、
+8 threads で 0.98 s。仕様の閾値の corpus ではないので判定には使わない）。最大常駐メモリは全て 120 MiB 以下。AC-Ga4 は合格。
