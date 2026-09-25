@@ -18,6 +18,7 @@ public enum ArchiveFormat: Sendable {
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
     /// CP932 名の level-2 LHA。各ファイルは -lh5-、縮まなければ -lh0-。
+    /// 1 MiB 以下は member ごと、それ以上は 1 MiB と 8 KiB の履歴で並列に符号化する。出力は並列数によらず同一。
     case lha
 
     var isTar: Bool {
@@ -68,13 +69,14 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
-    /// ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz の圧縮並列数（1...64）。
+    /// ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz / LHA の圧縮並列数（1...64）。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数。
     /// deflate / bzip2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB。
     /// chunk 上限は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が16 MiB。
     /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
     /// bzip2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
+    /// LHA は thread ごとに入力1 MiB + 履歴8 KiB + 出力と表約1.1 MiB。1 は同期、2以上は出力が後続の add / finish まで遅れ得る。
     public var compressionThreads: Int?
     /// rewriter の追加位置。updater は末尾への追加を使う。
     public var additionPlacement: AdditionPlacement

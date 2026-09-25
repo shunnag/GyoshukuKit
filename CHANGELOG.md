@@ -53,6 +53,12 @@
 
 ### 変更
 
+- LHA の LH5 符号化に `compressionThreads` を適用する。1 MiB 以下は member ごと、
+  大きい file は 1 MiB の区切りと 8 KiB の履歴で並列に符号化し、bit 単位で継ぐ。
+  直列時の出力 byte・header・圧縮方式の選択は保つ。並列数 1 は同期のまま、2 以上では
+  add が出力前に戻る場合があり、符号化の失敗・取消しは後続の add / finish で通知する。
+  [P4-G-a 検証記録](Documentation/verification/2026-09-26-p4ga-parallel-lh5.md) に試験を記載する。
+
 - `ArchiveRewriter` の追加位置は既定で末尾（`additionPlacement: .end`）。追加は commit まで予約し、
   `.beginning` は従来の先頭追加を保つ。運ぶ tar の uid/gid は既定で維持（`carriedTarOwnerIDs: .keep`）、
   `.reset` で 0 にする。`preserveOwnerIDs` はディスクからの追加にだけ効く。

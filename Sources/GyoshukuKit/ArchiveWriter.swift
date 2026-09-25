@@ -6,7 +6,7 @@ private import Darwin
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
 /// add / finish が失敗した instance は再利用できない。
-/// ZIP / 圧縮tar / 7z の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
+/// ZIP / 圧縮tar / 7z / LHA の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
 /// ZIP の部分出力は呼出側で削除する。tar（圧縮tarを含む）/ 7z / LHA は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
     public let format: ArchiveFormat
@@ -100,7 +100,8 @@ public final class ArchiveWriter {
         bzip2Encoder: @escaping ParallelBzip2Compressor.Encoder = ParallelBzip2Compressor.encode,
         zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) },
         lzmaChunkSize: Int,
-        lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode
+        lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode,
+        lh5Encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode
     ) throws -> ArchiveWriter {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         try options.validate(for: format)
@@ -131,7 +132,8 @@ public final class ArchiveWriter {
         let sevenZip = format == .sevenZip
             ? SevenZipWriter(output: handle, url: url, identity: identity, options: options,
                              chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
-        let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity) : nil
+        let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity,
+                                            threads: options.resolvedCompressionThreads, encoder: lh5Encoder) : nil
         return ArchiveWriter(output: handle, url: url, identity: identity, format: format, options: options,
                              tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha,
                              deflateBlockSize: deflateBlockSize, deflateEncoder: deflateEncoder, zipSalt: zipSalt)
@@ -260,6 +262,16 @@ public final class ArchiveWriter {
         try perform {
             guard let tarWriter else { throw WriterError.invalidState }
             end = try tarWriter.endMembers()
+            state = .finished
+        }
+        return end
+    }
+
+    func endLHAMembers() throws -> UInt64 {
+        var end: UInt64 = 0
+        try perform {
+            guard let lhaWriter else { throw WriterError.invalidState }
+            end = try lhaWriter.endMembers()
             state = .finished
         }
         return end

@@ -66,7 +66,7 @@ private func benchmark(_ arguments: [String]) throws {
 
     let threads: Int
     switch format {
-    case .tar, .lha: threads = 1
+    case .tar: threads = 1
     default:
         // 報告値だけ WriterOptions.resolvedCompressionThreads と揃え、nil はそのまま渡す。
         threads = options.compressionThreads ?? max(1, min(

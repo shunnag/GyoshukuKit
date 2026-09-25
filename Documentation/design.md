@@ -94,6 +94,25 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 従来の追加位置・所有者設定と open 時に拒否される入力は ArchiveRewriter を使う。
 UI 側は進捗と取り消しを必ず出す。
 
+### LHA の並列 LH5（P4-G-a）
+
+`ArchiveWriter.create` は `options.resolvedCompressionThreads` を LHAWriter に渡す。
+rewriter もこの経路を使う。1 は従来の同期処理、2 以上では 1 MiB 以下の member を
+`OrderedChunkPipeline` に渡し、CRC と入力の読み切りは呼出側で行う。directory も投入順を保つ。
+入力を確保する前に容量を待ち、同時に保持する入力を並列数までに抑える。
+
+大きい member は従来と同じ 1 MiB と直前 8 KiB の履歴に分ける。各 worker が返す完全な byte と
+端数 bit を投入順に padding なしで継ぐ。LH5 の辞書・Huffman block の区切りは従来どおりで、
+どの並列数でも直列時の byte と一致する。raw を先に出力し、縮めば spool から置き換える。
+完成 byte の累計が原本サイズ以上になった区切りで残りの符号化を破棄し、raw の保存を続ける。
+
+`add` の後に符号化が残る場合、失敗・取消しは後続の add / finish / internal の endMembers で通知し、
+従来の abort で出力を削除する。大きい member の前と終了時に member の pipeline を drain する。
+internal の `endLHAMembers()` は終端・fsync・close なしで追加の終わりを返す。
+`recordsMembers` を有効にしたときだけ、実際の出力時点の header 絶対位置・header/data 長・method と
+canonical な名前の byte（directory の 0xFF を `/` に変換し filename を連結）を保存する。
+後続の LHAUpdater はこの追加 writer を既存の `SplicedArchiveOutput` と組み合わせる。
+
 ## 5. 既定値の方針
 
 - ZIP は general purpose **bit 11** を立てて UTF-8 名を書き、NFC へ正規化する。

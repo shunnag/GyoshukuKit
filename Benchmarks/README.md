@@ -55,7 +55,7 @@ bzip2 は library 既定の9、XZ / 7z / LHA は library 固有の設定です�
 `--threads` は `compressionThreads`（1...64）へ渡し、省略時は nil のまま library に委ねます。
 表示する `threads` は圧縮 worker 数の上限で、実際に同時稼働した thread 数ではありません。
 自動値の表示は library の現行規則（CPU 数・物理メモリ GiB・8 の最小値、最低1）と揃えています。
-tar / LHA は常に1です。単独実行の `elapsed_s` は `ContinuousClock` で create から finish までを
+非圧縮 tar は常に1です。単独実行の `elapsed_s` は `ContinuousClock` で create から finish までを
 測り、runner の wall 秒はプロセス起動・終了も含みます。`--level` / `--threads` は reference には適用しません。
 
 2026-09-24 の検証記録:
