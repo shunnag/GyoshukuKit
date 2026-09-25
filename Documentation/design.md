@@ -55,7 +55,20 @@ let editing = try ArchiveUpdater.open(url: archive)
 try editing.remove(entriesAt: [0, 2])
 try editing.rename(entryAt: 1, to: "docs/新しい名前.txt")
 try editing.commit()        // index は open 時の値。削除予約で詰め直さない
+
+// 非圧縮 tar は原本を保ち、指定した新規 output へ必要な範囲だけ書く。
+let tar = try TarUpdater.open(url: archive, output: destination)
+try tar.rename(entryAt: 0, to: "renamed.txt")
+try tar.add(contentsOf: fileURL, as: "new.txt", ownerIDs: ArchiveOwnerIDs(user: 501, group: 20))
+try tar.commit(progress: { progress in /* completedBytes / totalBytes */ })
 ```
+
+`ArchiveEditing` は日付・所有者指定の `addDirectory(_:modificationDate:ownerIDs:)` と
+`add(contentsOf:as:ownerIDs:)` も要求する。従来の conformer 向けの既定実装は、指定値が
+あれば `unsupportedOption` を返す。ZIP / tar は明示 ID を全子孫へ適用し、7z / LHA は拒否する。
+`ArchiveRewriter` の既定は既存項目の後ろへ追加する `.end`。add は名前と追加元の署名を予約し、
+出力を作らず commit で運んでから追加する。追加元の最上位 inode・mode・size・mtime を再検査し、
+directory の子孫は commit で探索する。`.beginning` は従来の add 時に書く動作を保つ。
 
 `ArchiveWriter` / `ArchiveUpdater` は thread-safe にしない。KaitoKit と同じく、
 一つの instance の操作は呼出側が直列化する。値型の設定は `Sendable` にする。
@@ -69,14 +82,14 @@ try editing.commit()        // index は open 時の値。削除予約で詰め�
 | 段階 | 形式 | 作成 | 追加 | 削除・改名 |
 |---|---|---|---|---|
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
-| 2 | tar | ○ | ○(末尾の zero block の手前へ) | ○(作り直す) |
+| 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | × | × |
 | 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | 作り直し | 作り直し |
 | 4 | LHA / LZH | ○(`-lh5-`) | ○ | ○ |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
 
-圧縮 tar に増分更新が無いのは形式の性質で、毎回 展開 → 変更 → 再圧縮になる。
+圧縮 tar の編集は現在 ArchiveRewriter で 展開 → 変更 → 再圧縮する。
 UI 側は進捗と取り消しを必ず出す。
 
 ## 5. 既定値の方針
@@ -90,11 +103,44 @@ UI 側は進捗と取り消しを必ず出す。
   **読む側は必須** —— `ditto` は deflate entry すべてに bit 3 を立てる。
 - tar は macOS metadata(`._` AppleDouble、`SCHILY.xattr`)を**既定で書かない**。
   Apple の bsdtar は既定で書き、それが Mac 製書庫が Windows で嫌われる主因。
-- uid/gid は既定 0、uname/gname は空。作者のアカウント名を書庫へ入れない。
+- 新規 tar とディスク追加の uid/gid は既定 0、uname/gname は空。`preserveOwnerIDs` はディスク追加だけに効く。
+  運ぶ tar の ID は `carriedTarOwnerIDs: .keep` で数値を維持する。rewriter の `.reset` は 0 にする。
+  TarUpdater は header の ID・uname/gname・pax・sparse 表現を byte 単位で運び、名前も正規化しない。
+  追加・改名と衝突判定には従来の NFC 正規化を使う。`additionPlacement` の既定は `.end`。
 - 圧縮は zlib の deflate、既定 level 6(Info-ZIP と同じ)。Apple の Compression
   framework は `COMPRESSION_ZLIB` が level 5 相当に固定で選べない(実測)。
 
 ## 6. 更新の安全性
+
+### 非圧縮 tar の最小書き換え（P2-G）
+
+TarUpdater は P1-G の `ArchiveSourceSnapshot` を共有し、原本を O_RDONLY で開く。
+immutable / append flags を拒否し、descriptor clone が ENOTSUP / EXDEV のときだけ sequential に戻す。
+KaitoKit の open と全件の表現可能性検査に加え、`TarLayout` が独立して tar を走査し、
+member の名前・種別・保存長を照合する。走査は任意の ByteSource と座標だけで動き、
+4 KiB の header cache と拡張 payload の範囲読取を使う。旧 GNU sparse・非 comment 大域 pax・
+hdrcharset・不安定な名前 encoding・sparse hard link などは open で `requiresRewrite` になる。
+`.beginning` と `.reset` も open で拒否し、rewriter へ戻す判断を mutate 前に確定できる。
+
+`TarEditPlan` は生存 member 順の source / literal 区間を作る。変更しない header/body と comment の
+大域 pax はそのまま、改名では必要な name / prefix / link / checksum と pax record だけを変える。
+削除された hard link の参照先は生存 holder へ付け替え、holder が無ければ最初の link を実体化する。
+変更した commit は 1,024 B の EOF と 10,240 B record までの fill を新しく書く。変更 0 件は尾部も含め原本と一致する。
+
+形式共通の `SplicedArchiveOutput` が clone、新規 output、4 MiB copy、追加 block の再配置、scratch、
+truncate、fsync、close、inode に限定した cleanup を所有する。TarUpdater は計画と終端・形式照合を渡す。
+同じ位置の source は clone 上で書かない。sequential の初回 add は先に prefix を埋め、予約の変更で
+追加位置や prefix が変わった場合だけ同じ directory の scratch へ追加を退避する。
+generated 区間と最初の fsync 後の finalPatch も形式共通の契約として用意し、後続の updater が再利用する。
+
+V1 は変更 header、V2 は source 境界 header、V3 は追加群、V4 は終端と長さ、V5 は書いた source と
+出力の全 byte を照合する。V5 は 4 MiB ごとの直接 pread 比較で、未移動の clone 範囲は読まない。
+V2/V5 の読取を一つの `SplicedArchiveOutput.verificationReadObserver` に報告する。
+共通 `CommitProgress` の total は計画後に固定し、commit 中の書込み（再配置の往復を含む）と
+V2/V5 の読取を数える。初回 add の書込みは含めない。単調に通知し、最後は 0 を含め completed == total。
+callback の throw・再入・取消しは失敗として、自分の inode の output / snapshot / scratch を削除する。
+
+試験・互換性・計測値は [P2-G 検証記録](verification/2026-09-25-p2g-tar-updater.md) に記す。
 
 ### 段階 1 の追加
 

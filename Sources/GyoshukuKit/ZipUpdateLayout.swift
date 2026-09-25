@@ -53,6 +53,21 @@ final class ZipUpdateSource: ByteSource {
         length = UInt64(info.st_size)
     }
 
+    // 出力や scratch のパスが置換されても、所有する inode から読み続ける。
+    init(duplicating original: Int32) throws {
+        let fd = fcntl(original, F_DUPFD_CLOEXEC, 0)
+        guard fd >= 0 else { throw WriterError.io(operation: "dup source", code: errno) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0 else {
+            Darwin.close(fd)
+            throw UpdaterError.invalidArchive("通常ファイルではありません")
+        }
+        descriptor = fd
+        identity = ZipFileIdentity(info)
+        flags = info.st_flags
+        length = UInt64(info.st_size)
+    }
+
     deinit { Darwin.close(descriptor) }
 
     var mode: UInt16 { UInt16(identity.mode & 0o7777) }

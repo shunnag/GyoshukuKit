@@ -9,17 +9,20 @@ final class TarWriter {
     private let compressor: (any TarCompressor)?
     private var position: UInt64 = 0
     var recordsMemberLayout = false
+    var observesWrites = false
     private(set) var memberLayouts: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)] = []
     private var finished = false
     private var aborted = false
     private struct FileID: Hashable { let device: Int64; let inode: UInt64 }
     private var hardLinks: [FileID: (path: String, signature: [Int64])] = [:]
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), compressor: (any TarCompressor)?) {
+    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), compressor: (any TarCompressor)?,
+         startPosition: UInt64 = 0) {
         self.output = output
         self.url = url
         self.identity = identity
         self.compressor = compressor
+        self.position = startPosition
     }
 
     deinit { abort() }
@@ -81,6 +84,13 @@ final class TarWriter {
         if recordsMemberLayout { memberLayouts.append((groupStart, dataStart, position)) }
     }
 
+    func endMembers() throws -> UInt64 {
+        guard compressor == nil, !finished, !aborted else { throw WriterError.invalidState }
+        try Task.checkCancellation()
+        finished = true
+        return position
+    }
+
     func finish() throws {
         try Task.checkCancellation()
         // 終端の二 block を必ず置き、その後を従来の blocking factor 20 までゼロで埋める。
@@ -122,5 +132,6 @@ final class TarWriter {
     private func emit(_ data: Data) throws {
         try Task.checkCancellation()
         try output.write(contentsOf: data)
+        if observesWrites { ZipCopyEngine.writeObserver?(position, data.count) }
     }
 }

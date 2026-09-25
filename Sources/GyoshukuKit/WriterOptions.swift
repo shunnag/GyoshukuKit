@@ -40,6 +40,12 @@ public enum ZipEncryption: Sendable {
     case zipCrypto
 }
 
+/// rewriter が既存項目に対して追加を置く位置。
+public enum AdditionPlacement: Sendable, Equatable { case end, beginning }
+
+/// 既存 tar 項目を rewriter で運ぶ際の所有者 ID。
+public enum CarriedOwnerIDs: Sendable, Equatable { case keep, reset }
+
 /// instance 間で共有できる書き込み設定。
 public struct WriterOptions: Sendable {
     /// ZIP の member に使う圧縮方式。tar.gz は全体を deflate、7z は LZMA2、LHA は LH5 にする。
@@ -70,6 +76,10 @@ public struct WriterOptions: Sendable {
     /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
     /// bzip2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
     public var compressionThreads: Int?
+    /// rewriter の追加位置。updater は末尾への追加を使う。
+    public var additionPlacement: AdditionPlacement
+    /// 運ぶ tar の uid/gid。ディスクからの追加には preserveOwnerIDs を使う。
+    public var carriedTarOwnerIDs: CarriedOwnerIDs
 
     public init(
         compressionMethod: CompressionMethod = .deflate,
@@ -81,7 +91,9 @@ public struct WriterOptions: Sendable {
         password: String? = nil,
         zipEncryption: ZipEncryption = .aes256,
         encryptsSevenZipHeaders: Bool = false,
-        compressionThreads: Int? = nil
+        compressionThreads: Int? = nil,
+        additionPlacement: AdditionPlacement = .end,
+        carriedTarOwnerIDs: CarriedOwnerIDs = .keep
     ) {
         self.compressionMethod = compressionMethod
         self.deflateLevel = deflateLevel
@@ -93,6 +105,8 @@ public struct WriterOptions: Sendable {
         self.zipEncryption = zipEncryption
         self.encryptsSevenZipHeaders = encryptsSevenZipHeaders
         self.compressionThreads = compressionThreads
+        self.additionPlacement = additionPlacement
+        self.carriedTarOwnerIDs = carriedTarOwnerIDs
     }
 
     var resolvedCompressionThreads: Int {

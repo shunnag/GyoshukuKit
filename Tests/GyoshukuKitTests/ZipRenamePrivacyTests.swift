@@ -91,14 +91,14 @@ final class ZipRenamePrivacyTests: XCTestCase {
 
     func testOldNamesAbsentAfterRenameRemovalAndStagedAddThroughBothEditors() throws {
         let equalLength = String(repeating: "n", count: try XCTUnwrap(oldName.data(using: .shiftJIS)).count)
-        for rewrite in [false, true] {
+        for (rewrite, placement) in [(false, AdditionPlacement.end), (true, .end), (true, .beginning)] {
             for added in [false, true] {
                 for newName in ["x", equalLength, "longer-directory/a-much-longer-name.txt"] {
                     let url = try fixture()
                     let beforeReader = try ArchiveReader.open(url: url)
                     let beforeRecord = try XCTUnwrap(beforeReader.rawRecord(of: beforeReader.entries[0]))
                     let editor: any ArchiveEditing = rewrite
-                        ? try ArchiveRewriter.open(url: url, format: .zip)
+                        ? try ArchiveRewriter.open(url: url, format: .zip, options: .init(additionPlacement: placement))
                         : try ArchiveUpdater.open(url: url)
                     let appended = ZipTestSupport.Expected(name: "added.txt", data: Data("appended contents".utf8))
                     if added { try editor.add(data: appended.data, as: appended.name, modificationDate: appended.date, permissions: appended.permissions) }
@@ -117,7 +117,7 @@ final class ZipRenamePrivacyTests: XCTestCase {
                         if newName == equalLength { XCTAssertEqual(record.payloadRange, beforeRecord.payloadRange) }
                     }
                     var expected: [ZipTestSupport.Expected] = [.init(name: newName, data: payload), .init(name: "keep.txt", data: payload)]
-                    if added { expected.insert(appended, at: rewrite ? 0 : expected.count) }
+                    if added { expected.insert(appended, at: rewrite && placement == .beginning ? 0 : expected.count) }
                     try ZipTestSupport.verify(url, expected: expected)
                 }
             }

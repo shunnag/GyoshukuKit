@@ -153,14 +153,14 @@ final class ArchiveRewriterTests: XCTestCase {
 
     func testRemoveRenameAndAddCarryOnlySurvivorsInIndexOrder() throws {
         let marker = Data("UNIQUE-REMOVED-ENTRY-PAYLOAD-73F174C7".utf8)
-        for format in formats {
-            let directory = try directory("edit-\(format)")
+        for (format, placement) in formats.flatMap({ format in [AdditionPlacement.end, .beginning].map { (format, $0) } }) {
+            let directory = try directory("edit-\(format)-\(placement)")
             let source = try archive(in: directory, filename: "source." + suffix(format), files: [
                 ("removed.txt", marker), ("rename.txt", Data("renamed contents".utf8)),
                 ("keep.txt", Data("keep".utf8)), ("parent/child.txt", Data("child".utf8))
             ])
             let originalNames = try ArchiveReader.open(url: source).entries.map(\.name)
-            let rewriter = try ArchiveRewriter.open(url: source, format: format)
+            let rewriter = try ArchiveRewriter.open(url: source, format: format, options: WriterOptions(additionPlacement: placement))
             try rewriter.remove(entriesAt: [0, 0])
             try rewriter.rename(entryAt: 1, to: "renamed.txt")
             try rewriter.add(data: Data("new removed path".utf8), as: "removed.txt")
@@ -177,10 +177,10 @@ final class ArchiveRewriterTests: XCTestCase {
             }
             XCTAssertEqual(done, [1, 2, 3])
             let reader = try ArchiveReader.open(url: source)
-            XCTAssertEqual(reader.entries.map(\.name), [
-                "removed.txt", "rename.txt", "new-empty/", "disk.txt", "renamed.txt", "keep.txt", "parent/child.txt"
-            ])
-            XCTAssertEqual(try reader.read(reader.entries[4]), Data("renamed contents".utf8))
+            let added = ["removed.txt", "rename.txt", "new-empty/", "disk.txt"]
+            let carried = ["renamed.txt", "keep.txt", "parent/child.txt"]
+            XCTAssertEqual(reader.entries.map(\.name), placement == .beginning ? added + carried : carried + added)
+            XCTAssertEqual(try reader.read(reader.entries[placement == .beginning ? 4 : 0]), Data("renamed contents".utf8))
             XCTAssertEqual(rewriter.entryNames, originalNames)
             if format == .tar { XCTAssertNil(try Data(contentsOf: source).range(of: marker)) }
             XCTAssertEqual(try workDirectories(in: directory), [])
@@ -246,15 +246,15 @@ final class ArchiveRewriterTests: XCTestCase {
     }
 
     func testEncryptedZIPWrongPasswordCleansUp() throws {
-        for inPlace in [false, true] {
-            let directory = try directory("wrong-password-\(inPlace)")
+        for (inPlace, placement) in [false, true].flatMap({ inPlace in [AdditionPlacement.end, .beginning].map { (inPlace, $0) } }) {
+            let directory = try directory("wrong-password-\(inPlace)-\(placement)")
             let source = try encryptedZIP(in: directory)
             let before = try Data(contentsOf: source)
             let output = directory.appendingPathComponent("output.tar")
             let rewriter = try ArchiveRewriter.open(url: source, password: "wrong-password",
-                                                    output: inPlace ? nil : output, format: .tar)
+                                                    output: inPlace ? nil : output, format: .tar, options: .init(additionPlacement: placement))
             try rewriter.add(data: Data("queued".utf8), as: "queued")
-            XCTAssertEqual(try workDirectories(in: directory).count, 1)
+            XCTAssertEqual(try workDirectories(in: directory).count, placement == .beginning ? 1 : 0)
             XCTAssertThrowsError(try rewriter.commit()) {
                 XCTAssertEqual($0 as? RewriterError, .password(entry: "secret.txt"))
             }
@@ -345,16 +345,16 @@ final class ArchiveRewriterTests: XCTestCase {
     }
 
     func testDeinitWithoutCommitRemovesQueuedOutputAndWorkDirectory() throws {
-        for format in formats {
+        for (format, placement) in formats.flatMap({ format in [AdditionPlacement.end, .beginning].map { (format, $0) } }) {
             for inPlace in [false, true] {
-                let directory = try directory("abandon-\(format)-\(inPlace)")
+                let directory = try directory("abandon-\(format)-\(inPlace)-\(placement)")
                 let source = try archive(in: directory)
                 let before = try Data(contentsOf: source)
                 let output = directory.appendingPathComponent("output")
-                var rewriter: ArchiveRewriter? = try ArchiveRewriter.open(url: source, output: inPlace ? nil : output, format: format)
+                var rewriter: ArchiveRewriter? = try ArchiveRewriter.open(url: source, output: inPlace ? nil : output, format: format, options: WriterOptions(additionPlacement: placement))
                 try rewriter!.add(data: Data("discarded".utf8), as: "queued")
-                XCTAssertEqual(try workDirectories(in: directory).count, 1)
-                if !inPlace { XCTAssertTrue(FileManager.default.fileExists(atPath: output.path)) }
+                XCTAssertEqual(try workDirectories(in: directory).count, placement == .beginning ? 1 : 0)
+                if !inPlace { XCTAssertEqual(FileManager.default.fileExists(atPath: output.path), placement == .beginning) }
                 rewriter = nil
                 XCTAssertEqual(try Data(contentsOf: source), before)
                 XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
@@ -540,20 +540,20 @@ final class ArchiveRewriterTests: XCTestCase {
     }
 
     func testHardLinkExpandsRemovedTargetInsteadOfAnAddedReplacement() throws {
-        for format in formats {
-            let directory = try directory("hardlink-removed-\(format)")
+        for (format, placement) in formats.flatMap({ format in [AdditionPlacement.end, .beginning].map { (format, $0) } }) {
+            let directory = try directory("hardlink-removed-\(format)-\(placement)")
             let source = try hardLinkArchive(in: directory)
             let output = directory.appendingPathComponent("output." + suffix(format))
-            let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format)
+            let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format, options: .init(additionPlacement: placement))
             try rewriter.remove(entriesAt: [0])
             try rewriter.add(data: Data("replacement".utf8), as: "target")
             try rewriter.commit { done, total in XCTAssertEqual(done, 1); XCTAssertEqual(total, 1) }
             let reader = try ArchiveReader.open(url: output)
-            XCTAssertEqual(reader.entries.map(\.name), ["target", "hard"])
+            XCTAssertEqual(reader.entries.map(\.name), placement == .beginning ? ["target", "hard"] : ["hard", "target"])
             XCTAssertEqual(reader.entries.map(\.kind), [.file, .file])
             guard reader.entries.count == 2 else { continue }
-            XCTAssertEqual(try reader.read(reader.entries[0]), Data("replacement".utf8))
-            XCTAssertEqual(try reader.read(reader.entries[1]), Data(repeating: 0x37, count: 300_001))
+            XCTAssertEqual(try reader.read(reader.entries[placement == .beginning ? 0 : 1]), Data("replacement".utf8))
+            XCTAssertEqual(try reader.read(reader.entries[placement == .beginning ? 1 : 0]), Data(repeating: 0x37, count: 300_001))
             XCTAssertEqual(try workDirectories(in: directory), [])
         }
     }
@@ -654,13 +654,13 @@ final class ArchiveRewriterTests: XCTestCase {
         let source = directory.appendingPathComponent("source.tar")
         let entry = TarRecords.Entry(name: Data("owned".utf8), mtime: 1_700_000_001, uid: 501, gid: 20)
         try (entry.headers() + Data(count: 1024)).write(to: source)
-        for preserve in [false, true] {
-            let output = directory.appendingPathComponent("output-\(preserve).tar")
+        for (preserve, legacy) in [(false, false), (true, false), (false, true), (true, true)] {
+            let output = directory.appendingPathComponent("output-\(preserve)-\(legacy).tar")
             try ArchiveRewriter.open(url: source, output: output, format: .tar,
-                                     options: WriterOptions(preserveOwnerIDs: preserve)).commit()
+                                     options: WriterOptions(preserveOwnerIDs: preserve, carriedTarOwnerIDs: legacy && !preserve ? .reset : .keep)).commit()
             let reader = try ArchiveReader.open(url: output)
-            XCTAssertEqual(reader.entries[0].formatSpecific["uid"], preserve ? "501" : "0")
-            XCTAssertEqual(reader.entries[0].formatSpecific["gid"], preserve ? "20" : "0")
+            XCTAssertEqual(reader.entries[0].formatSpecific["uid"], !legacy || preserve ? "501" : "0")
+            XCTAssertEqual(reader.entries[0].formatSpecific["gid"], !legacy || preserve ? "20" : "0")
         }
     }
 

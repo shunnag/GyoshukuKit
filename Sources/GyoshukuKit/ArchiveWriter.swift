@@ -139,10 +139,29 @@ public final class ArchiveWriter {
         try perform { try addDisk(url, as: path, read: read) }
     }
 
+    func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?, expected: DiskSignature? = nil) throws {
+        try perform {
+            try validateOwnerIDs(ownerIDs)
+            try addDisk(url, as: path, ownerIDs: ownerIDs, expected: expected) {
+                try FileRead.readChunk($0.fileDescriptor, upTo: $1)
+            }
+        }
+    }
+
+    private func validateOwnerIDs(_ ids: ArchiveOwnerIDs?) throws {
+        if ids != nil, format == .sevenZip || format == .lha { throw WriterError.unsupportedOption("ownerIDs") }
+    }
+
     /// 明示的な空ディレクトリ。mode は 0755、mtime は現在時刻。
     public func addDirectory(_ path: String) throws {
+        try addDirectory(path, modificationDate: nil, ownerIDs: nil)
+    }
+
+    func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
         try perform {
-            try addEntry(path: path, mode: 0o40755, size: 0, date: Date(), atime: nil, owners: nil) { _ in Data() }
+            try validateOwnerIDs(ownerIDs)
+            try addEntry(path: path, mode: 0o40755, size: 0, date: modificationDate ?? Date(), atime: nil,
+                         owners: ownerIDs.map { ($0.user, $0.group) }) { _ in Data() }
         }
     }
 
@@ -227,6 +246,16 @@ public final class ArchiveWriter {
         return (entries, position)
     }
 
+    func endTarMembers() throws -> UInt64 {
+        var end: UInt64 = 0
+        try perform {
+            guard let tarWriter else { throw WriterError.invalidState }
+            end = try tarWriter.endMembers()
+            state = .finished
+        }
+        return end
+    }
+
     func finish(existingCount: UInt64, comment: Data,
                 progress: ((UInt64, Int) throws -> Void)? = nil,
                 copyCentral: (_ emit: (Data) throws -> Void) throws -> Void) throws {
@@ -278,7 +307,8 @@ public final class ArchiveWriter {
         }
     }
 
-    private func addDisk(_ url: URL, as path: String, read: (FileHandle, Int) throws -> Data) throws {
+    private func addDisk(_ url: URL, as path: String, ownerIDs: ArchiveOwnerIDs? = nil,
+                         expected: DiskSignature? = nil, read: (FileHandle, Int) throws -> Data) throws {
         try Task.checkCancellation()
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         var info = stat()
@@ -286,12 +316,13 @@ public final class ArchiveWriter {
             pointer.map { lstat($0, &info) } ?? -1
         }
         guard status == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
+        if let expected, !expected.matches(info) { throw WriterError.sourceChanged(url.path) }
         guard info.st_dev != outputIdentity.0 || info.st_ino != outputIdentity.1 else {
             throw WriterError.invalidPath("source contains output archive")
         }
         let date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec))
         let atime = Date(timeIntervalSince1970: Double(info.st_atimespec.tv_sec))
-        let owners = options.preserveOwnerIDs ? (info.st_uid, info.st_gid) : nil
+        let owners = ownerIDs.map { ($0.user, $0.group) } ?? (options.preserveOwnerIDs ? (info.st_uid, info.st_gid) : nil)
         switch info.st_mode & S_IFMT {
         case S_IFDIR:
             try addEntry(path: path, mode: UInt16(info.st_mode), size: 0, date: date, atime: atime, owners: owners) { _ in Data() }
@@ -304,7 +335,7 @@ public final class ArchiveWriter {
             }
             for child in children {
                 try autoreleasepool {
-                    try addDisk(child.url, as: base + "/" + child.name, read: read)
+                    try addDisk(child.url, as: base + "/" + child.name, ownerIDs: ownerIDs, read: read)
                 }
             }
         case S_IFLNK:

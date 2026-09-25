@@ -13,7 +13,8 @@ public enum RewriterError: Error, Sendable, Equatable {
 
 /// KaitoKit が読める書庫を全 entry の再圧縮で編集・変換する。options.password で出力を暗号化する。
 /// thread-safe ではない。呼出側は同じ書庫への操作も直列化する。
-/// add は直ちに出力へ書き、生き残る entry は commit 時に index 昇順で運ぶ。
+/// 既定では生き残る entry の後ろへ追加する。ディスク追加元は commit まで同一に保つこと。
+/// .beginning は add 時に出力し、commit 時に既存 entry を後ろへ運ぶ。
 /// open 時の一つの reader を使い続け、solid group の decoder state を維持する。
 /// 先頭の . を除いた名前が空の root directory は、実名へ改名されない限り出力しない。
 /// root も entryNames に残り、その index の削除・改名は他の entry と同じように扱う。
@@ -37,6 +38,12 @@ public final class ArchiveRewriter: ArchiveEditing {
     private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
+    private enum Addition {
+        case disk(URL, String, ArchiveOwnerIDs?, DiskSignature)
+        case data(Data, String, Date?, UInt16?)
+        case directory(String, Date?, ArchiveOwnerIDs?)
+    }
+    private var additions: [Addition] = []
     private var workDirectory: URL?
     private var destination: URL?
     private var destinationIdentity: (dev_t, ino_t)?
@@ -147,7 +154,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     // open と probe で検査順と拒否理由を共有する。
-    private static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat,
+    static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat,
                                                 reader: ArchiveReader? = nil) throws
         -> (names: [String], hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
         var names: [String] = []
@@ -209,17 +216,59 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     public func add(contentsOf url: URL, as path: String) throws {
-        try perform { try preparedWriter().add(contentsOf: url, as: path) }
+        try add(contentsOf: url, as: path, ownerIDs: nil)
+    }
+
+    public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?) throws {
+        try perform {
+            try validateOwnerIDs(ownerIDs)
+            if options.additionPlacement == .beginning {
+                try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs)
+            } else {
+                let signature = try DiskSignature.capture(url)
+                let name = try reserveAddition(path, directory: signature.isDirectory)
+                additions.append(.disk(url, name, ownerIDs, signature))
+            }
+        }
     }
 
     public func add(data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil) throws {
         try perform {
-            try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions)
+            if options.additionPlacement == .beginning {
+                try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions)
+            } else {
+                let name = try reserveAddition(path, directory: false)
+                additions.append(.data(data, name, modificationDate, permissions))
+            }
         }
     }
 
     public func addDirectory(_ path: String) throws {
-        try perform { try preparedWriter().addDirectory(path) }
+        try addDirectory(path, modificationDate: nil, ownerIDs: nil)
+    }
+
+    public func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
+        try perform {
+            try validateOwnerIDs(ownerIDs)
+            if options.additionPlacement == .beginning {
+                try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: ownerIDs)
+            } else {
+                let name = try reserveAddition(path, directory: true)
+                additions.append(.directory(name, modificationDate, ownerIDs))
+            }
+        }
+    }
+
+    private func validateOwnerIDs(_ ids: ArchiveOwnerIDs?) throws {
+        if ids != nil, format == .sevenZip || format == .lha { throw WriterError.unsupportedOption("ownerIDs") }
+    }
+
+    private func reserveAddition(_ path: String, directory: Bool) throws -> String {
+        try Task.checkCancellation()
+        let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: format)
+        try pathReservations.validate(name, directory: directory)
+        pathReservations.insert(name, directory: directory)
+        return name
     }
 
     /// open 時の index を削除予約する。重複は一度だけ削除し、子孫は暗黙に削除しない。
@@ -293,6 +342,18 @@ public final class ArchiveRewriter: ArchiveEditing {
                     try didCarry?(done, survivors.count)
                 }
             }
+            for addition in additions {
+                try Task.checkCancellation()
+                switch addition {
+                case let .disk(url, path, ids, signature):
+                    try writer.add(contentsOf: url, as: path, ownerIDs: ids, expected: signature)
+                case let .data(data, path, date, mode):
+                    try writer.add(data: data, as: path, modificationDate: date, permissions: mode)
+                case let .directory(path, date, ids):
+                    try writer.addDirectory(path, modificationDate: date, ownerIDs: ids)
+                }
+            }
+            additions.removeAll()
             let quarantine = output == nil ? try readQuarantine() : nil
             try checkUnchanged()
             try Task.checkCancellation()
@@ -340,7 +401,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     private func carry(_ entry: ArchiveEntry, writer: ArchiveWriter, buffered: [Int: BufferedEntry]) throws {
-        let owners: (UInt32, UInt32)? = options.preserveOwnerIDs && isTar
+        let owners: (UInt32, UInt32)? = options.carriedTarOwnerIDs == .keep && isTar
             ? (UInt32(entry.formatSpecific["uid"] ?? "") ?? 0, UInt32(entry.formatSpecific["gid"] ?? "") ?? 0) : nil
         func add(size: UInt64, hardLink: String? = nil, read: (Int) throws -> Data) throws {
             try writer.addEntry(path: finalName(entry.index), mode: Self.mode(for: entry), size: size,
@@ -493,6 +554,7 @@ public final class ArchiveRewriter: ArchiveEditing {
 
     private func cleanup() {
         writer = nil
+        additions.removeAll()
         if state != .committed, let destination, let identity = destinationIdentity {
             var info = stat()
             if lstat(destination.path, &info) == 0, info.st_dev == identity.0, info.st_ino == identity.1 {

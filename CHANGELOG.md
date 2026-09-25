@@ -6,6 +6,14 @@
 
 ### 追加
 
+- `TarUpdater.open(url:output:options:)`。非圧縮 tar の変更 header と位置の動く範囲だけを書き、
+  運ぶ member の名前の byte・pax・sparse 表現・所有者を保つ。open での `requiresRewrite` と
+  commit での `outputVerificationFailed` を `TarUpdaterError` で区別する。
+- `ArchiveOwnerIDs` と `ArchiveEditing` の所有者指定 disk add・日付/所有者指定 directory add。
+  従来の conformer 向けの既定実装は、指定値がある場合 `unsupportedOption` を返す。
+- 後続形式でも共有する internal `SplicedArchiveOutput`、`TarLayout` / `TarEditPlan`、
+  clone/sequential・検証 fault・differential・prototype oracle・100k/9 GiB probe の試験。
+
 - `ArchiveUpdater.reencryptExistingEntries(currentPassword:)`。ZIP の暗号化を設定・変更・解除し、
   圧縮済み payload はそのまま保つ。通常ファイルは options に従い、directory と symlink は平文にする。
   同じ方式・同じ UTF-8 password の entry は検証せずに運ぶため、入力の全件検証は呼出側の責務。
@@ -22,6 +30,12 @@
   結果は [P1-G検証記録](Documentation/verification/2026-09-25-p1g-zip-editing.md) に記載する。
 
 ### 変更
+
+- `ArchiveRewriter` の追加位置は既定で末尾（`additionPlacement: .end`）。追加は commit まで予約し、
+  `.beginning` は従来の先頭追加を保つ。運ぶ tar の uid/gid は既定で維持（`carriedTarOwnerIDs: .keep`）、
+  `.reset` で 0 にする。`preserveOwnerIDs` はディスクからの追加にだけ効く。
+- `CommitProgress` の共通契約は計画後に固定した total、単調な completed、最後の一致（0 を含む）。
+  TarUpdater は commit の書込みと V2/V5 の照合読取を合計し、一つの観測経路へ報告する。
 
 - ZIP の password 操作を updater で行うと、元の圧縮方式・名前の byte・時刻・属性・extra・comment・
   directory の payload が保たれる。変換 entry だけ descriptor を除き、暗号欄・CRC・サイズ・ZIP64 を再構築する。

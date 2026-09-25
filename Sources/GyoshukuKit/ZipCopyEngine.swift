@@ -32,11 +32,17 @@ struct ZipCopyEngine {
     private var used = 0
     private var start: UInt64 = 0
     var meter: ZipCommitMeter
+    private var sharedMeter: CommitProgressMeter?
 
     init(descriptor: Int32, totalBytes: UInt64) {
         self.descriptor = descriptor
         buffer = Data(count: max(1, Self.testingBufferSize))
         meter = ZipCommitMeter(totalBytes: totalBytes)
+    }
+
+    init(descriptor: Int32, meter: CommitProgressMeter?) {
+        self.init(descriptor: descriptor, totalBytes: 0)
+        self.sharedMeter = meter
     }
 
     mutating func flush(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
@@ -45,6 +51,7 @@ struct ZipCopyEngine {
             try Self.pwrite(descriptor, bytes: UnsafeRawBufferPointer(rebasing: bytes[..<used]), at: start)
         }
         try meter.wrote(used, progress: progress)
+        try sharedMeter?.advance(UInt64(used))
         start += UInt64(used)
         used = 0
     }
@@ -130,6 +137,7 @@ struct ZipCopyEngine {
         try flush(progress: progress)
         try bytes.withUnsafeBytes { try Self.pwrite(descriptor, bytes: $0, at: offset) }
         try meter.wrote(bytes.count, progress: progress)
+        try sharedMeter?.advance(UInt64(bytes.count))
     }
 
     static func pwrite(_ descriptor: Int32, bytes: UnsafeRawBufferPointer, at offset: UInt64) throws {

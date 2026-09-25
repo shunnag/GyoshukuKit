@@ -40,6 +40,13 @@ struct ArchiveOwnedFile {
         identity = ZipFileIdentity(info)
     }
 
+    init(url: URL, descriptor: Int32) throws {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
+        self.url = url
+        identity = ZipFileIdentity(info)
+    }
+
     func remove() {
         var info = stat()
         if lstat(url.path, &info) == 0, identity.matchesInode(info) { _ = unlink(url.path) }
@@ -54,14 +61,15 @@ final class ArchiveSourceSnapshot {
     let originalURL: URL
     let snapshot: ArchiveOwnedFile?
 
-    init(url: URL, directory: URL, pathExtension: String) throws {
+    init(url: URL, directory: URL, pathExtension: String, disablesClone: Bool = false) throws {
         originalURL = url
         original = try ZipUpdateSource(url: url)
         let refused = UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND)
         guard original.flags & refused == 0 else { throw WriterError.io(operation: "source flags", code: EPERM) }
         let target = directory.appendingPathComponent(".gyoshuku-source-\(UUID().uuidString).\(pathExtension)")
         let status: Int32
-        if let code = Self.testingCloneError { errno = code; status = -1 }
+        if disablesClone { errno = ENOTSUP; status = -1 }
+        else if let code = Self.testingCloneError { errno = code; status = -1 }
         else { status = fclonefileat(original.descriptor, AT_FDCWD, target.path, UInt32(CLONE_NOFOLLOW | CLONE_NOOWNERCOPY)) }
         if status != 0 {
             let code = errno

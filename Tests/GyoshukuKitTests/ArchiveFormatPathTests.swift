@@ -86,13 +86,13 @@ final class ArchiveFormatPathTests: XCTestCase {
     }
 
     func testTarRewriterRenamesAndAddsColonAndBackslashNames() throws {
-        for (format, suffix) in tarFormats {
-            let source = try fixture("edit-\(format)")
+        for (format, suffix, placement) in tarFormats.flatMap({ format, suffix in [AdditionPlacement.end, .beginning].map { (format, suffix, $0) } }) {
+            let source = try fixture("edit-\(format)-\(placement)")
             let output = source.deletingLastPathComponent().appendingPathComponent("output." + suffix)
             let disk = source.deletingLastPathComponent().appendingPathComponent("1:2 recipe.txt")
             let payload = Data("new contents".utf8)
             try payload.write(to: disk)
-            let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format)
+            let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format, options: .init(additionPlacement: placement))
             try rewriter.rename(entryAt: 0, to: "man3/File::Spec.3pm")
             try rewriter.rename(entryAt: 1, to: "folder\\name")
             try rewriter.remove(entriesAt: [2])
@@ -101,9 +101,10 @@ final class ArchiveFormatPathTests: XCTestCase {
             try rewriter.add(contentsOf: disk, as: disk.lastPathComponent)
             try rewriter.commit()
             let reader = try ArchiveReader.open(url: output)
-            let expected = [("Maildir/cur/message:2,S", payload), ("new\\dir:/", Data()),
+            var expected = [("Maildir/cur/message:2,S", payload), ("new\\dir:/", Data()),
                             ("1:2 recipe.txt", payload), ("man3/File::Spec.3pm", carried[0].1),
                             ("folder\\name", carried[1].1)]
+            if placement == .end { expected = Array(expected.suffix(2)) + Array(expected.prefix(3)) }
             XCTAssertEqual(reader.entries.map { $0.rawName.bytes }, expected.map { Array($0.0.utf8) })
             for (entry, item) in zip(reader.entries, expected) where entry.kind == .file {
                 XCTAssertEqual(try reader.read(entry), item.1, "\(format): \(item.0)")
