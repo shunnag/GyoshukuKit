@@ -84,15 +84,16 @@ fileprivate final class SplicedSegmentWriter {
 }
 
 final class SplicedScratchFile {
-    private let file: ArchiveOwnedFile
+    private let url: URL
     fileprivate let handle: FileHandle
     fileprivate(set) var length: UInt64 = 0
+    private var discarded = false
 
     fileprivate init(url: URL) throws {
         let fd = Darwin.open(url.path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw WriterError.io(operation: "create scratch", code: errno) }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        file = try ArchiveOwnedFile(url: url, descriptor: fd)
+        self.url = url
     }
     deinit { discard() }
     func append(_ bytes: Data) throws {
@@ -102,19 +103,21 @@ final class SplicedScratchFile {
         length = writer.position
     }
     func source() throws -> ZipUpdateSource {
-        let source = try ZipUpdateSource(duplicating: handle.fileDescriptor)
-        guard source.identity.device == file.identity.device, source.identity.inode == file.identity.inode else {
-            throw UpdaterError.sourceChanged
-        }
-        return source
+        try ZipUpdateSource(duplicating: handle.fileDescriptor)
     }
-    fileprivate func discard() { try? handle.close(); file.remove() }
+    fileprivate func discard() {
+        guard !discarded else { return }
+        discarded = true
+        ArchiveOwnedFile.remove(url: url, descriptor: handle.fileDescriptor)
+        try? handle.close()
+    }
 }
 
 // 形式側は座標と終端を渡し、inode の所有とコピー・照合はここに集める。
 final class SplicedArchiveOutput {
     @TaskLocal static var verificationReadObserver: (@Sendable (UInt64, Int) -> Void)?
     @TaskLocal static var testingBeforeSynchronize: (@Sendable (Int32) throws -> Void)?
+    @TaskLocal static var testingDidCloneOutput: (@Sendable (URL) throws -> Void)?
     @TaskLocal static var testingDidSynchronize: (@Sendable () -> Void)?
     @TaskLocal static var testingVerificationElapsed: (@Sendable (Double) -> Void)?
     private let snapshot: ArchiveSourceSnapshot
@@ -144,12 +147,17 @@ final class SplicedArchiveOutput {
                 throw WriterError.io(operation: "clone output", code: errno)
             }
             owned = try ArchiveOwnedFile(url: output)
+            try Self.testingDidCloneOutput?(output)
         }
         let flags = O_RDWR | O_CLOEXEC | O_NOFOLLOW | (isCloneMode ? 0 : O_CREAT | O_EXCL)
         let fd = Darwin.open(output.path, flags, 0o600)
         guard fd >= 0 else { throw WriterError.io(operation: "open output", code: errno) }
-        handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        if owned == nil { owned = try ArchiveOwnedFile(url: output, descriptor: fd) }
+        let opened = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        if let owned {
+            var info = stat()
+            guard fstat(fd, &info) == 0, owned.identity.matchesInode(info) else { throw UpdaterError.sourceChanged }
+        }
+        handle = opened
         try checkOutput()
         guard fchflags(fd, 0) == 0, fchmod(fd, 0o600) == 0 else {
             throw WriterError.io(operation: "output attributes", code: errno)
@@ -158,11 +166,8 @@ final class SplicedArchiveOutput {
     }
 
     private func checkOutput() throws {
-        guard let handle, let owned else { throw UpdaterError.invalidState }
-        var info = stat()
-        var path = stat()
-        guard fstat(handle.fileDescriptor, &info) == 0, lstat(output.path, &path) == 0,
-              owned.identity.matchesInode(info), owned.identity.matchesInode(path) else {
+        guard let handle else { throw UpdaterError.invalidState }
+        guard ArchiveOwnedFile.matches(url: output, descriptor: handle.fileDescriptor) else {
             throw UpdaterError.sourceChanged
         }
     }
@@ -267,9 +272,9 @@ final class SplicedArchiveOutput {
                 file.length = writer.position
                 spool = file
                 if isCloneMode {
+                    ArchiveOwnedFile.remove(url: output, descriptor: handle!.fileDescriptor)
                     try handle?.close()
                     handle = nil
-                    owned?.remove()
                     owned = nil
                     try create()
                 } else { try handle!.truncate(atOffset: 0) }
@@ -302,6 +307,7 @@ final class SplicedArchiveOutput {
             try Task.checkCancellation()
             try snapshot.checkUnchanged()
             try checkOutput()
+            owned = try ArchiveOwnedFile(url: output, descriptor: handle!.fileDescriptor)
             try handle!.close()
             handle = nil
             scratch.forEach { $0.discard() }
@@ -353,9 +359,10 @@ final class SplicedArchiveOutput {
     }
 
     func discard() {
+        if let handle { ArchiveOwnedFile.remove(url: output, descriptor: handle.fileDescriptor) }
+        else { owned?.remove() }
         try? handle?.close()
         handle = nil
-        owned?.remove()
         owned = nil
         scratch.forEach { $0.discard() }
         scratch.removeAll()

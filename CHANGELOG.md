@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 修正
+
+- FAT32 / exFAT で空 file の最初の書込みや truncate により inode が変わっても、
+  TarUpdater の出力・再配置 spool を正しく検査し、失敗時に削除する。
+  開いている出力は現在の descriptor とパスを照合し、空 file の仮 inode を保存済み ID として使わない。
+  tar / 7z / LHA writer と ArchiveRewriter の破棄にも同じ規則を適用する。原本の同一性検査は変えない。
+
 ### 追加
 
 - `TarUpdater.open(url:output:options:)`。非圧縮 tar の変更 header と位置の動く範囲だけを書き、

@@ -46,7 +46,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     private var additions: [Addition] = []
     private var workDirectory: URL?
     private var destination: URL?
-    private var destinationIdentity: (dev_t, ino_t)?
+    private var destinationHandle: FileHandle?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
     private static let chunkSize = 256 * 1024
@@ -510,7 +510,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         let writer = try ArchiveWriter.create(url: destination, format: format, options: options)
         self.writer = writer
         self.destination = destination
-        destinationIdentity = writer.outputIdentity
+        destinationHandle = try writer.duplicateOutput()
         if output == nil {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         }
@@ -553,17 +553,15 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     private func cleanup() {
+        if state != .committed, let destination, let destinationHandle {
+            ArchiveOwnedFile.remove(url: destination, descriptor: destinationHandle.fileDescriptor)
+        }
         writer = nil
         additions.removeAll()
-        if state != .committed, let destination, let identity = destinationIdentity {
-            var info = stat()
-            if lstat(destination.path, &info) == 0, info.st_dev == identity.0, info.st_ino == identity.1 {
-                _ = unlink(destination.path)
-            }
-        }
+        try? destinationHandle?.close()
+        destinationHandle = nil
         if let workDirectory { try? FileManager.default.removeItem(at: workDirectory) }
         workDirectory = nil
         destination = nil
-        destinationIdentity = nil
     }
 }

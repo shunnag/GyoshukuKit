@@ -292,6 +292,166 @@ git diff --check
 git status --short
 ```
 
+## S11 correction 1 — FAT32 / exFAT (2026-09-26 JST)
+
+Base commit is `efdb651`; it was not amended. This correction changes ownership
+checks for files created by GyoshukuKit. FAT32 and exFAT assign an empty file a
+temporary high-range inode and assign its first-cluster inode when it receives data.
+Truncation to zero can return it to a temporary inode. Retaining the creation-time
+inode caused both the false `sourceChanged` error and the failed cleanup.
+
+While an owned descriptor is open, path checks and removal now compare a fresh
+`fstat(fd)` with `lstat(path)`. An unlinked descriptor is not an ownership match.
+For temporary inode values, `F_GETPATH` and the canonical path must also agree;
+temporary IDs alone do not establish ownership.
+Closed-descriptor cleanup uses an identity captured after the last write and
+rejects temporary identities. The first version recognized only `ino_t.max` and
+`ino_t.max - 1`; correction 2 below covers the full fake range. The original
+archive's `ZipFileIdentity` and `checkUnchanged` checks are unchanged.
+
+The ownership audit covered every `ArchiveOwnedFile` initializer and exclusive
+file creation in Sources:
+
+| Site | Result |
+|---|---|
+| `SplicedArchiveOutput` sequential output | No creation-time identity is retained. Checks and cleanup use the live descriptor, including after relocation truncates it to zero. The final identity is captured immediately before close, allowing cleanup if the final progress callback throws. |
+| `SplicedScratchFile`, including relocation spool | No empty-file identity is retained. Reads duplicate the owned descriptor. Cleanup compares the live descriptor/path before closing and is idempotent. |
+| `ArchiveWriter` and tar / 7z / LHA writers | Output-versus-input checks use the current output descriptor. Abort checks/unlinks before truncating, preserving replacement files and invalidating the abandoned inode's other links. Existing internal initializer labels remain compatible; their initial inode arguments are not stored. |
+| `ArchiveRewriter` | Holds its own duplicate output descriptor through cleanup, even when its writer has already closed. This also covers ZIP writer failure/discard. The duplicate is closed on success and failure. |
+| ZIP updater output and staged snapshot | `ArchiveOwnedFile(url:)` is recorded after a non-empty ZIP has been copied/cloned. ZIP rebuilds terminate with non-empty end records. These sites did not have an empty-file capture and retain their existing checks. |
+| Re-encryption / `ZipCryptoSpool` / `LHACompressionSpool` | Re-encryption uses the ZIP output above. The two codec spools are unlinked immediately while open and retain no pathname identity. |
+| Rewriter entry buffers | Created in the private work directory, with no stored empty-file inode; cleanup remains owned by that work directory. |
+| `ArchiveSourceSnapshot` | Non-empty source/clone identities and original-source checks remain unchanged. Sentinel values are not accepted by closed-file removal. |
+
+The only production `ArchiveOwnedFile(url:descriptor:)` call left is the final
+capture in `SplicedArchiveOutput`, after writing and verification.
+Clone output descriptors are adopted for cleanup only after they match the
+identity recorded for that clone. `ArchiveOwnedFileTests` replaces the clone
+between creation and open with both an empty file and a non-empty file, and
+checks that failure/discard preserves those replacements.
+
+Added `FATVolumeTests` and the `ArchiveTestDisk` helper. The tests invoke real
+`hdiutil create -size 128m -fs "MS-DOS FAT32"` / `-fs ExFAT`, followed by
+`hdiutil attach -nobrowse -mountpoint ...`. They use `XCTSkip` if image creation
+or attachment is unavailable. An HFS+ image run and a host-volume run use the
+same cases. The image tests assert the empty → allocated → empty inode behavior
+on FAT32/exFAT, so an incorrect filesystem cannot silently qualify the tests.
+
+Coverage per volume:
+
+- TarUpdater with clone disabled: delete first/last/all, same/different-length
+  rename, append, append-then-delete relocation, and unchanged commit. Every
+  committed archive is listed and read through KaitoKit; source bytes, inode,
+  and mtime remain unchanged and directories contain only source plus output.
+- Cancellation during a commit write, discard after the first add, V5 corruption,
+  and an exception from the final progress callback. Each failure leaves only
+  the source.
+- Synthetic SplicedArchiveOutput commits, relocation, generated data from
+  scratch, empty/non-empty discard, generated-length failure after relocation,
+  scratch reads before/after allocation, and preservation of replaced empty and
+  non-empty output/scratch paths.
+- All seven public writer formats accept a separate empty disk file while their
+  output is still empty. Non-ZIP writers remove abandoned output. Rewriter
+  cancellation in both placements and discard cover all seven formats.
+- ZIP update with staged additions, re-encryption success, and cancellation at
+  verification preserve the source and clean their own output.
+
+Existing tests, including `SplicedArchiveOutputTests` and AC-G10 output-mode tests,
+were not edited.
+
+### Commands and results for the correction
+
+All builds/tests used `/private/tmp/gyoshuku-p2g-fat.wL5yRz/GyoshukuKit`, beside
+a fresh `git archive 73c1b9f` export at
+`/private/tmp/gyoshuku-p2g-fat.wL5yRz/KaitoKit`. Live sibling trees were not edited
+or built. No commit was made. Swift/OS and native SwiftPM settings are the same
+as recorded above.
+
+| Log in `/private/tmp/gyoshuku-p2g-fat.wL5yRz` | Result |
+|---|---|
+| `initial-focused.log` | 81 tests, 0 failures, 1 existing opt-in skip, 27.573 s |
+| `fat-volume.log` | Initial new-test run: host cases passed; FAT32/exFAT skipped, 3 tests total, 0 failures, 2.132 s |
+| `focused-final.log` | 122 tests, 0 failures, 7 skips, 83.426 s |
+| `build-final.log` | Debug build passed, 0.22 s |
+| `full-final.log` | 403 tests, 0 failures, 11 skips, 578.602 s; includes 300 differential cases and 20 baseline byte matches |
+| `ownership-final.log` | Final clone-adoption guard and related ownership tests: 19 tests, 0 failures, 3 image skips, 3.783 s |
+| `build-after-ownership.log` | Final debug build passed, 0.55 s |
+
+The full run preceded the last clone-descriptor adoption guard and its new test.
+After that change, the final targeted run rebuilt the final source and reran
+`ArchiveOwnedFileTests`, every new volume scenario, the unchanged
+`SplicedArchiveOutputTests`, and TarUpdater operation/output/cancellation/fault
+tests. The full suite was not repeated after this last guard. Its 11 skips were
+the eight opt-in tests listed in the original report plus the three image tests.
+The existing APFS free-space assertion passed with 0 B consumed. All runs exited
+successfully; there were no failing test runs in this correction.
+
+**Real FAT32, exFAT, and HFS+ image execution was unavailable here.** Each
+`hdiutil create` attempt failed with exit 1 and “装置が構成されていません” (device
+not configured); none reached a successful attach. The three new image tests
+therefore skipped. Their complete regression body passed on the host filesystem.
+The other four skips in the final focused run were the existing opt-in compressed
+tar >4 GiB test and three large ZIP re-encryption tests. No real-image pass is
+claimed; the orchestrator can run `--filter FATVolumeTests` on an attach-capable
+host without another opt-in variable.
+
+Commands below use `P2_FAT=/private/tmp/gyoshuku-p2g-fat.wL5yRz`:
+
+```sh
+git -C /Users/nagash/Github/KaitoKit archive 73c1b9f | tar -x -C "$P2_FAT/KaitoKit"
+rsync -a --exclude .git --exclude .build --exclude .agents --exclude .codex ./ "$P2_FAT/GyoshukuKit/"
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" \
+  --filter 'SplicedArchiveOutputTests|TarUpdaterOutputModeTests|TarUpdaterCancellationTests|TarUpdaterVerificationFaultTests|ArchiveRewriterTests|LHALifecycleTests|SevenZipLifecycleTests|TarWriterTests' \
+  > "$P2_FAT/initial-focused.log" 2>&1
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" --filter FATVolumeTests > "$P2_FAT/fat-volume.log" 2>&1
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" \
+  --filter 'FATVolumeTests|SplicedArchiveOutputTests|TarUpdaterOutputModeTests|TarUpdaterCancellationTests|TarUpdaterVerificationFaultTests|ArchiveRewriterTests|LHALifecycleTests|SevenZipLifecycleTests|TarWriterTests|ZipUpdaterOutputModeTests|ZipReencryption' \
+  > "$P2_FAT/focused-final.log" 2>&1
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift build \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" > "$P2_FAT/build-final.log" 2>&1
+
+GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit \
+GYOSHUKU_P2_COMPAT_OUTPUT="$P2_FAT/compat-bytes" \
+GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p2g.HazIgb/baseline-bytes \
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" > "$P2_FAT/full-final.log" 2>&1
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" \
+  --filter 'ArchiveOwnedFileTests|FATVolumeTests|SplicedArchiveOutputTests|TarUpdaterOutputModeTests|TarUpdaterTests|TarUpdaterCancellationTests|TarUpdaterVerificationFaultTests' \
+  > "$P2_FAT/ownership-final.log" 2>&1
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift build \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" > "$P2_FAT/build-after-ownership.log" 2>&1
+
+rg -n 'ArchiveOwnedFile\(|O_CREAT|outputIdentity|destinationIdentity' Sources/GyoshukuKit
+git diff --check
+git status --short
+```
+
+The correction did not rerun the release scale, prototype oracle, or 9 GiB
+opt-in probes; their earlier measurements above belong to the original P2-G run.
+Final audit: all 123 Sources/Tests files match the isolated package byte for
+byte, existing tests are unchanged, no public/SPI declarations or unsafe
+concurrency annotations were added, and `git diff --check` passes. The
+`ZipFileIdentity` and `ArchiveSourceSnapshot` definitions were compared against
+`efdb651` and are unchanged; only the separate owned-output helper in that file
+changed. HEAD remains `efdb651`.
+
 ## Orchestrator verification (2026-09-26 JST)
 
 Isolated layout `$SCR/v4/{KaitoKit,GyoshukuKit}`: KaitoKit `73c1b9f` exported with `git archive`, GyoshukuKit
@@ -319,3 +479,96 @@ Release `TAR-SCALE`, 100,000 × 1 KiB, APFS clone mode (load average 3.8–5.6 b
 
 All AC-G15 limits hold (open ≤ rewriter + 25 %; first delete ≤ 150 ms; last delete, same-length rename and append ≤ 20 ms).
 Write and verification-read byte counts equal Codex's run.
+
+## S11 correction 2 — temporary inode range (2026-09-26 JST)
+
+The orchestrator reported 404 tests with two failures, both FAT32 assertions
+that an empty file had an unassigned inode. Its C probes on real images observed
+FAT32 empty-file IDs of `UINT64_MAX - 1`, `- 3`, and `- 4` in different directories,
+and exFAT IDs of `UINT64_MAX`, `- 1`, and `- 2`. These are a descending counter
+of temporary IDs for empty vnodes, not a fixed pair or one shared ID. Those
+measurements came from the orchestrator; they were not repeated in this sandbox.
+
+`ArchiveOwnedFile.hasAssignedInode` now rejects every inode at or above `2^63`.
+The comment records the descending fake range and the lower real cluster/CNID/
+object ID range. This is the only production-code change from correction 1;
+descriptor/path checks, foreign-file preservation, and the original-source
+checks retain their behavior.
+
+The real-image ownership checks now run at the mount root, `cases/ownership/`,
+and `cases/ownership/deeper/`. They assert the numeric fake range without assuming
+an exact ID or comparing IDs between distinct empty files. They retain the first
+write changing the inode (now writing 4 KiB), truncation returning to the fake
+range, rejection of the recorded non-empty identity after truncation, and
+preservation of a replacement empty file at the old path while removing only
+the moved owned file. Nested directories still receive exact contents checks;
+mount-root checks cover the two test paths to allow filesystem management files.
+All existing TarUpdater, direct SplicedArchiveOutput/scratch, writer/rewriter,
+and ZIP scenarios remain. The new `testAssignedInodeRange` covers both sides
+of `2^63` and several high IDs beyond the old two-value predicate even when
+image attachment is unavailable.
+
+### Commands and results for correction 2
+
+Reused `/private/tmp/gyoshuku-p2g-fat.wL5yRz/{GyoshukuKit,KaitoKit}`. A read-only
+byte comparison against `git -C /Users/nagash/Github/KaitoKit archive 73c1b9f`
+confirmed all 1,379 committed KaitoKit files in the isolated export. Its full
+commit is `73c1b9f89978f51e6bdfaebec01b28755f39341b`. All 123 GyoshukuKit
+Sources/Tests files matched the isolated build/test copy. No live sibling was
+built or edited; no commit was made.
+
+Commands below use `P2_FAT=/private/tmp/gyoshuku-p2g-fat.wL5yRz`:
+
+```sh
+rsync -a --exclude .git --exclude .build --exclude .agents --exclude .codex ./ "$P2_FAT/GyoshukuKit/"
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift build \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" > "$P2_FAT/correction2-build.log" 2>&1
+
+CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
+  --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
+  --cache-path "$P2_FAT/cache" \
+  --filter 'ArchiveOwnedFileTests|FATVolumeTests|SplicedArchiveOutputTests|TarUpdaterOutputModeTests|TarUpdaterTests|TarUpdaterCancellationTests|TarUpdaterVerificationFaultTests|ArchiveRewriterTests|LHALifecycleTests|SevenZipLifecycleTests|TarWriterTests|ZipUpdaterOutputModeTests|ZipReencryption' \
+  > "$P2_FAT/correction2-focused.log" 2>&1
+
+git diff --check
+git status --short
+```
+
+| Log in `/private/tmp/gyoshuku-p2g-fat.wL5yRz` | Result |
+|---|---|
+| `correction2-build.log` | Debug build passed, 0.69 s |
+| `correction2-focused.log` | 127 tests, 0 failures, 7 skips, 86.560 s |
+
+Both commands exited 0. The new boundary test, host-volume scenarios, and
+replacement/cleanup regressions passed. Three skips were the FAT32, exFAT, and
+HFS+ image tests: each attempted `hdiutil create -size 128m -fs ... -volname
+GYOSHUKU .../volume.dmg`, which exited 1 with “装置が構成されていません” (device
+not configured), before attach. No corrected real-image pass is claimed here.
+The other four skips were the existing compressed-tar >4 GiB test and three
+large ZIP re-encryption tests. The filter also selected `CompressedTarWriterTests`
+through `TarWriterTests`; there is no separate `SevenZipLifecycleTests` suite,
+while the host-volume cases exercise the 7z writer/rewriter lifecycle.
+
+`git diff --check` passed. Byte comparison with `efdb651` confirmed that
+`ZipFileIdentity` and `ArchiveSourceSnapshot` remain unchanged. The full suite
+and size/throughput benchmarks were not rerun for this predicate correction;
+earlier results above retain their original scope. HEAD remains `efdb651`.
+
+## Orchestrator verification of the FAT / exFAT corrections (2026-09-26 JST)
+
+Found by the orchestrator's KaitoFinder run on hdiutil images: every sequential-mode `TarUpdater` commit on FAT32 / exFAT failed
+with `sourceChanged` and left the output behind. Probe facts (C program on fresh images): an empty file created with
+`O_CREAT|O_EXCL` gets a fake inode from a decreasing counter at the top of the range (UINT64_MAX, UINT64_MAX-1, … -4 observed, one
+per empty file; `ftruncate(0)` hands out a new one), and the first write replaces it with the cluster number. fstat and lstat agree
+at every moment.
+
+Isolated layout `$SCR/v4`: this working tree next to KaitoKit `d35f2da` (git archive). Host with working hdiutil.
+
+| Run | Result |
+|---|---|
+| `swift test` after correction 1 | 404 tests, 2 failures (`FATVolumeTests.testFAT32` assumed fixed fake values), 10 skipped |
+| `swift test` after correction 2 | 405 tests, 0 failures, 10 skipped (opt-in); `FATVolumeTests` FAT32 / exFAT / HFS+ / host all pass on real images |
+| Standalone probe (open → remove [→ add] → commit) on fresh FAT32 and exFAT images | both commits succeed with strategy `sequential`; only the original and the committed outputs remain |
+| KaitoFinder `TarUpdateEditTests` (FAT32 / exFAT / HFS+ edits match APFS) against this tree | pass |

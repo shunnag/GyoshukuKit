@@ -47,9 +47,38 @@ struct ArchiveOwnedFile {
         identity = ZipFileIdentity(info)
     }
 
+    // FAT/exFAT は空 file ごとに上位範囲から降順の仮 inode を割り当てる。
+    // 実体の cluster 番号（HFS+ の CNID / APFS の object ID も）は 2^63 未満。
+    static func hasAssignedInode(_ inode: ino_t) -> Bool {
+        inode < (ino_t(1) << 63)
+    }
+
+    static func matches(url: URL, descriptor: Int32) -> Bool {
+        var opened = stat()
+        var path = stat()
+        guard fstat(descriptor, &opened) == 0, opened.st_nlink > 0,
+              lstat(url.path, &path) == 0, opened.st_dev == path.st_dev, opened.st_ino == path.st_ino,
+              opened.st_mode & S_IFMT == path.st_mode & S_IFMT else { return false }
+        if !hasAssignedInode(opened.st_ino) {
+            // 仮値同士だけでは、rename された空 file とその跡の別 file を区別できない。
+            var name = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor, F_GETPATH, &name) == 0 else { return false }
+            let actual = name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            guard let canonical = realpath(url.path, nil) else { return false }
+            defer { free(canonical) }
+            guard String(decoding: actual, as: UTF8.self) == String(cString: canonical) else { return false }
+        }
+        return true
+    }
+
+    static func remove(url: URL, descriptor: Int32) {
+        if matches(url: url, descriptor: descriptor) { _ = unlink(url.path) }
+    }
+
     func remove() {
         var info = stat()
-        if lstat(url.path, &info) == 0, identity.matchesInode(info) { _ = unlink(url.path) }
+        if Self.hasAssignedInode(identity.inode), lstat(url.path, &info) == 0,
+           Self.hasAssignedInode(info.st_ino), identity.matchesInode(info) { _ = unlink(url.path) }
     }
 }
 

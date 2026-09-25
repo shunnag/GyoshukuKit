@@ -5,7 +5,6 @@ private import Darwin
 final class TarWriter {
     private let output: FileHandle
     private let url: URL
-    private let identity: (dev_t, ino_t)
     private let compressor: (any TarCompressor)?
     private var position: UInt64 = 0
     var recordsMemberLayout = false
@@ -16,11 +15,10 @@ final class TarWriter {
     private struct FileID: Hashable { let device: Int64; let inode: UInt64 }
     private var hardLinks: [FileID: (path: String, signature: [Int64])] = [:]
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), compressor: (any TarCompressor)?,
+    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), compressor: (any TarCompressor)?,
          startPosition: UInt64 = 0) {
         self.output = output
         self.url = url
-        self.identity = identity
         self.compressor = compressor
         self.position = startPosition
     }
@@ -112,14 +110,8 @@ final class TarWriter {
         compressor?.abandon()
         // tar は途中まででも読めるため、失敗時には終端を省くだけでは不十分。
         // 別名の hard link も無効化し、出力先が置換されていれば別人のファイルは消さない。
+        ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)
         try? output.truncate(atOffset: 0)
-        url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return }
-            var current = stat()
-            if lstat(path, &current) == 0, current.st_dev == identity.0, current.st_ino == identity.1 {
-                _ = unlink(path)
-            }
-        }
     }
 
     private func write(_ data: Data) throws {

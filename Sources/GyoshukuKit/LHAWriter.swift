@@ -5,16 +5,14 @@ private import Darwin
 final class LHAWriter {
     private let output: FileHandle
     private let url: URL
-    private let identity: (dev_t, ino_t)
     private var finished = false
     private var aborted = false
     private static let chunkSize = 256 * 1024
     private static let compressionChunkSize = 1 * 1024 * 1024
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t)) {
+    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t)) {
         self.output = output
         self.url = url
-        self.identity = identity
     }
 
     deinit { abort() }
@@ -118,14 +116,8 @@ final class LHAWriter {
         guard !finished, !aborted else { return }
         aborted = true
         // LHA は完了済み member だけでも読める。終端を省くのではなく旧 inode 全体を無効にする。
+        ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)
         try? output.truncate(atOffset: 0)
-        url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return }
-            var current = stat()
-            if lstat(path, &current) == 0, current.st_dev == identity.0, current.st_ino == identity.1 {
-                _ = unlink(path)
-            }
-        }
     }
 
     private func write(_ data: Data) throws {

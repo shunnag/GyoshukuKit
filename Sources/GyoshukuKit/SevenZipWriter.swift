@@ -4,7 +4,6 @@ private import Darwin
 final class SevenZipWriter {
     private let output: FileHandle
     private let url: URL
-    private let identity: (dev_t, ino_t)
     private let options: WriterOptions
     private var encryptionKey: Data?
     private var entries: [SevenZipRecords.Entry] = []
@@ -32,13 +31,12 @@ final class SevenZipWriter {
         let isLast: Bool
     }
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), options: WriterOptions,
+    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), options: WriterOptions,
          chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) {
         precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))
         self.output = output
         self.url = url
-        self.identity = identity
         self.options = options
         lzmaChunkSize = chunkSize
         pipeline = LZMA2ChunkPipeline(threads: options.resolvedCompressionThreads, encoder: encoder)
@@ -118,15 +116,9 @@ final class SevenZipWriter {
         guard !finished, !aborted else { return }
         aborted = true
         pipeline.abandon()
-        try? output.truncate(atOffset: 0)
         // 出力先が置換されていても別の inode を削除しない。旧 inode の別名は truncate で無効になる。
-        url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return }
-            var current = stat()
-            if lstat(path, &current) == 0, current.st_dev == identity.0, current.st_ino == identity.1 {
-                _ = unlink(path)
-            }
-        }
+        ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)
+        try? output.truncate(atOffset: 0)
     }
 
     private func reserveSignature() throws {

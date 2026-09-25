@@ -13,8 +13,6 @@ public final class ArchiveWriter {
     private let options: WriterOptions
     private let output: FileHandle
     private let outputURL: URL
-    // rewriter の失敗時も、出力先が別 inode に置換されていれば削除しない。
-    let outputIdentity: (dev_t, ino_t)
     private let tarWriter: TarWriter?
     private let sevenZipWriter: SevenZipWriter?
     private let lhaWriter: LHAWriter?
@@ -45,14 +43,13 @@ public final class ArchiveWriter {
         "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
     ]
 
-    init(output: FileHandle, url: URL, identity: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
+    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
          tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil, lhaWriter: LHAWriter? = nil,
          deflateBlockSize: Int = DeflateBlock.size,
          deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
          zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) }) {
         self.output = output
         self.outputURL = url
-        self.outputIdentity = identity
         self.format = format
         self.options = options
         self.tarWriter = tarWriter
@@ -72,6 +69,17 @@ public final class ArchiveWriter {
         sevenZipWriter?.abort()
         lhaWriter?.abort()
         try? output.close()
+    }
+
+    // writer が閉じた後も rewriter が自分の出力だけを片付けられるよう、descriptor を渡す。
+    func duplicateOutput() throws -> FileHandle {
+        let fd = fcntl(output.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+        guard fd >= 0 else {
+            let code = errno
+            ArchiveOwnedFile.remove(url: outputURL, descriptor: output.fileDescriptor)
+            throw WriterError.io(operation: "dup writer output", code: code)
+        }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
     /// create と同じ新規作成 API。既存書庫を更新する操作ではない。
@@ -317,7 +325,12 @@ public final class ArchiveWriter {
         }
         guard status == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
         if let expected, !expected.matches(info) { throw WriterError.sourceChanged(url.path) }
-        guard info.st_dev != outputIdentity.0 || info.st_ino != outputIdentity.1 else {
+        var destination = stat()
+        guard fstat(output.fileDescriptor, &destination) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
+        let isOutput = ArchiveOwnedFile.hasAssignedInode(destination.st_ino)
+            ? info.st_dev == destination.st_dev && info.st_ino == destination.st_ino
+            : ArchiveOwnedFile.matches(url: url, descriptor: output.fileDescriptor)
+        guard !isOutput else {
             throw WriterError.invalidPath("source contains output archive")
         }
         let date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec))
