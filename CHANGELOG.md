@@ -6,12 +6,23 @@
 
 ### 修正
 
+- CompressedTarUpdater の追加/literal 保存領域に 1 GiB の空き容量を要求する制約を外す。
+  出力 volume の空き容量が 1 GiB 未満でも小さな編集を行える。実際の書込み失敗時の後始末は保つ。
+
 - FAT32 / exFAT で空 file の最初の書込みや truncate により inode が変わっても、
   TarUpdater の出力・再配置 spool を正しく検査し、失敗時に削除する。
   開いている出力は現在の descriptor とパスを照合し、空 file の仮 inode を保存済み ID として使わない。
   tar / 7z / LHA writer と ArchiveRewriter の破棄にも同じ規則を適用する。原本の同一性検査は変えない。
 
 ### 追加
+
+- `CompressedTarUpdater.open(reader:output:format:options:)`。session reader の tar image と
+  地図を使い、gzip / bzip2 / xz の変更を含む区切りだけを再符号化する。
+  P2 の編集規則・追加 factory・予約を共有し、従来の設定は open で `requiresRewrite` にする。
+  `assess(reader:)` は初回の全体符号化を見積もり、`commit(progress:)` は戦略・出力 identity・
+  segment 列・byte 統計を返す。公開前の KaitoKit K5 検証は呼出側が行う。
+  FAT/exFAT の仮 inode を保存せず、失敗・取消しでは自分の出力だけを削除する。
+  [G2 検証記録](Documentation/verification/2026-09-26-p3g2-compressed-tar-updater.md) に試験と計測を記載する。
 
 - `TarUpdater.open(url:output:options:)`。非圧縮 tar の変更 header と位置の動く範囲だけを書き、
   運ぶ member の名前の byte・pax・sparse 表現・所有者を保つ。open での `requiresRewrite` と

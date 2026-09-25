@@ -9,6 +9,7 @@ final class TarWriter {
     private var position: UInt64 = 0
     var recordsMemberLayout = false
     var observesWrites = false
+    var willWrite: ((Int) throws -> Void)?
     private(set) var memberLayouts: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)] = []
     private var finished = false
     private var aborted = false
@@ -123,6 +124,7 @@ final class TarWriter {
 
     private func emit(_ data: Data) throws {
         try Task.checkCancellation()
+        try willWrite?(data.count)
         try output.write(contentsOf: data)
         if observesWrites { ZipCopyEngine.writeObserver?(position, data.count) }
     }

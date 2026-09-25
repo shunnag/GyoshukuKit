@@ -83,13 +83,15 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 |---|---|---|---|---|
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
-| 2 | tar.gz / .bz2 / .xz | ○ | × | × |
+| 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
 | 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | 作り直し | 作り直し |
 | 4 | LHA / LZH | ○(`-lh5-`) | ○ | ○ |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
 
-圧縮 tar の編集は現在 ArchiveRewriter で 展開 → 変更 → 再圧縮する。
+圧縮 tar は session reader の復号済み image と区切りの地図から編集する。
+継げる区切りが無い入力は最初の変更で全体を G1 の配置に符号化する。
+従来の追加位置・所有者設定と open 時に拒否される入力は ArchiveRewriter を使う。
 UI 側は進捗と取り消しを必ず出す。
 
 ## 5. 既定値の方針
@@ -111,6 +113,63 @@ UI 側は進捗と取り消しを必ず出す。
   framework は `COMPRESSION_ZLIB` が level 5 相当に固定で選べない(実測)。
 
 ## 6. 更新の安全性
+
+### 圧縮 tar の区切り単位の更新（P3-G G2）
+
+`CompressedTarUpdater.open(reader:output:format:options:)` は KaitoKit の
+`recordsTarEditLayout` を立てた session reader を受け取り、原本の URL は受け取らない。
+`assess(reader:)` は snapshot と地図だけを見て初回の全体符号化の見込みを返す。
+open は P2 の `TarLayout` と K1 の member/header/global/EOF 境界を照合し、
+従来の設定と R0–R8・R10 を拒否する。ここでは出力も一時ファイルも作らない。
+
+変更の意味は `TarEditPlan` と追加用 factory を共有する。hard link の付け替え・実体化、
+pax/sparse header 群の変更、comment の global header、所有者と未変更名の byte を保つ。
+変更 commit は新しい EOF と record fill を作り、変更なしは圧縮 byte もそのまま複写する。
+`TarImageSource` は旧 image と追加/literal の区間を二分探索し、image 全体を複写しない。
+追加/literal だけの保存領域は出力の隣に O_EXCL・0600 で作って直ちに unlink し、
+固定の予備容量や空き容量の事前検査は設けず、実際の書込みエラーを伝えて後始末する。
+出力 volume 上で追加と literal だけを保存するため、出力本体と同じ容量方針にする。
+
+運ぶ chunk は新 image の一つの連続する source 区間に収まるものだけとする。
+gzip はさらに直前 32 KiB も同じ source 区間に収め、BFINAL を途中へ運ばない。
+残りの橋を G1 の `TarChunkLayout` で切る。上限は gzip 1 MiB、bzip2 は
+5 × level × 100,000 B、xz は `ParallelXZCompressor.defaultBlockSize`（16 MiB）。
+大きい member は header 群と本文を分け、終端は独立する。橋に隣接する S/16 未満の
+chunk を片側一つ吸収し、間が小さい chunk だけの橋同士も併合する。
+gzip の CRC は libz の `crc32_combine`、xz の block/Index/footer は G1 の `XZFraming` を使う。
+bzip2 は運ぶ stream の元の level を維持する。CRC64 の xz、地図の無い容器、
+運べる chunk の無い計画は fullEncode になる。
+
+進捗の total は橋の image byte、運ぶ圧縮 byte、自己照合の圧縮/framing 読取 byte の合計。
+圧縮長を先に求めて total を固定し、その後に出力を作る。並列数 × chunk 上限の定数倍の
+cache に符号化結果を残し、収まらない fullEncode の chunk は書出し時に再符号化する。
+追加の圧縮 spool は作らない。この事前符号化中も Task の取消しを確認するが、
+最初の進捗通知は total が確定した後になる。callback の throw・再入も失敗として扱う。
+
+自己照合は V0（区間・座標・gzip 窓）、V1（橋だけを並列に復号して新 image と比較）、
+V2（header/trailer、bzip2 EOS、xz block/Index/footer）、V3（出力と原本の同一性）を行う。
+V4 は copy engine が読んだ圧縮 byte の CRC32 を open 時の digest と比較し、
+mtime を戻した同一 inode の変更も `sourceChanged` にする。読取りは一回で、
+出力の運んだ payload は自己照合で読み直さない。検証読取は既存の
+`SplicedArchiveOutput.verificationReadObserver` に報告する。
+
+`commit(progress:)` は戦略、自己照合後の出力 identity、統計、
+`.reused(output:base:)` / `.encoded(output:)` の segment 列を返す。
+呼出側はこれを一対一で KaitoKit の `CompressedTarSplice` へ写し、**公開前に K5
+`openSplicedCompressedTar` を呼ぶこと**。全体の open で検証し直してよいのは
+K5 の `.baseNotSpliceable` の場合だけで、それ以外の失敗は公開しない。
+K5 は運んだ出力の digest・gzip 窓・橋の復号・容器の終端を独立に検証する。
+GK の自己照合だけでは、書いた後の運ぶ payload の破損を検出しない。
+
+原本は snapshot の descriptor の同一性を open・commit 開始・fsync 後に検査する。
+原本のパスが別 inode へ置換されたかは呼出側の責任で、GK は保持した inode を読む。
+作った output は `ArchiveOwnedFile` の fresh fstat/lstat 照合で所有を確認し、
+失敗時も別の inode は消さない。FAT/exFAT の空 file の仮 inode を保存しない。
+成功した出力は 0600・fsync・close 済みで、公開・属性復元は呼出側が行う。
+圧縮率の極端に高い小さな書庫では、数十 byte の区切り差でも相対サイズ差が 1% を
+超える場合がある。検証記録では byte 差と比率を両方示す。
+
+試験・互換性・AC9 の TSV は [G2 検証記録](verification/2026-09-26-p3g2-compressed-tar-updater.md) に記す。
 
 ### 非圧縮 tar の最小書き換え（P2-G）
 
@@ -447,8 +506,12 @@ total は計画時に固定し、完了時の一致を確認してから公開�
 > and an atomic replace. Neither is thread-safe, matching KaitoKit's contract.
 >
 > Formats arrive in four stages — ZIP, then tar and the compressed tars, then 7z,
-> then LHA. Compressed tars support no incremental update at all, which is a
-> property of the format, so every change is a full decompress-modify-recompress.
+> then LHA. `CompressedTarUpdater` edits gzip, bzip2 and xz tar archives from a
+> session reader's decoded image and chunk map. It carries reusable compressed
+> chunks unchanged and encodes the changed regions. Inputs without usable framing
+> receive a full encode into the member-aligned layout on their first edit.
+> The caller must verify the output with KaitoKit's K5 before publication; a full
+> verification open is the fallback only when K5 reports `baseNotSpliceable`.
 >
 > Defaults are chosen so a recipient on Windows is not inconvenienced: UTF-8 names
 > with bit 11 and NFC normalization, UNIX host byte so POSIX modes and symlinks

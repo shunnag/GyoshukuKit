@@ -1,5 +1,6 @@
 import Foundation
 private import Darwin
+internal import KaitoKit
 
 struct ZipCommitMeter {
     var completedBytes: UInt64 = 0
@@ -138,6 +139,33 @@ struct ZipCopyEngine {
         try bytes.withUnsafeBytes { try Self.pwrite(descriptor, bytes: $0, at: offset) }
         try meter.wrote(bytes.count, progress: progress)
         try sharedMeter?.advance(UInt64(bytes.count))
+    }
+
+    // snapshot の ByteSource を開き直さずに運び、書く前の byte を区切りごとに照合する。
+    mutating func copy(_ range: Range<UInt64>, from source: any ByteSource, to offset: UInt64,
+                       compressedCRC32: UInt32? = nil) throws {
+        guard range.upperBound <= source.length else { throw UpdaterError.sourceChanged }
+        try move(to: offset, progress: nil)
+        var cursor = range.lowerBound
+        var crc: UInt32 = 0
+        while cursor < range.upperBound {
+            try Task.checkCancellation()
+            let count = Int(min(UInt64(buffer.count - used), range.upperBound - cursor))
+            try buffer.withUnsafeMutableBytes { bytes in
+                var filled = 0
+                while filled < count {
+                    let n = try source.read(into: .init(rebasing: bytes[(used + filled)..<(used + count)]),
+                                            at: cursor + UInt64(filled))
+                    guard n > 0, n <= count - filled else { throw UpdaterError.sourceChanged }
+                    filled += n
+                }
+                if compressedCRC32 != nil { crc = updateCRC(crc, .init(rebasing: bytes[used..<(used + count)])) }
+            }
+            used += count
+            cursor += UInt64(count)
+            if used == buffer.count { try flush(progress: nil) }
+        }
+        if let compressedCRC32, crc != compressedCRC32 { throw UpdaterError.sourceChanged }
     }
 
     static func pwrite(_ descriptor: Int32, bytes: UnsafeRawBufferPointer, at offset: UInt64) throws {
