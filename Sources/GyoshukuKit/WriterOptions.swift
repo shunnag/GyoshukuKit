@@ -7,10 +7,13 @@ public enum ArchiveFormat: Sendable {
     case tar
     /// restricted pax tar 全体を gzip で包む。
     /// gzip header は時刻 0、OS=Unix、ファイル名・comment なし。
+    /// member 境界で最大 1 MiB に区切り、大きい member は header 群と本文を分ける。終端は独立させる。
     case tarGzip
-    /// restricted pax tar を 5 × level × 100,000 byte ごとの bzip2 stream の連結で包む。
+    /// restricted pax tar を member 境界で最大 5 × level × 100,000 byte の bzip2 stream に区切る。
+    /// 大きい member は header 群と本文を分け、tar 終端は独立した stream にする。
     case tarBzip2
-    /// restricted pax tar を 16 MiB ごとの LZMA2 block を持つ単一 XZ stream で包む。
+    /// restricted pax tar を member 境界で最大 16 MiB の LZMA2 block に区切り、単一 XZ stream で包む。
+    /// 大きい member は header 群と本文を分け、tar 終端は独立した block にする。
     case tarXZ
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
@@ -63,7 +66,8 @@ public struct WriterOptions: Sendable {
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数。
     /// deflate / bzip2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB。
-    /// chunk size は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が16 MiB。
+    /// chunk 上限は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が16 MiB。
+    /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
     /// bzip2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
     public var compressionThreads: Int?
 

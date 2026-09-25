@@ -8,6 +8,8 @@ final class TarWriter {
     private let identity: (dev_t, ino_t)
     private let compressor: (any TarCompressor)?
     private var position: UInt64 = 0
+    var recordsMemberLayout = false
+    private(set) var memberLayouts: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)] = []
     private var finished = false
     private var aborted = false
     private struct FileID: Hashable { let device: Int64; let inode: UInt64 }
@@ -56,7 +58,13 @@ final class TarWriter {
             entry.link = Data(hardLink.utf8)
             entry.size = 0
         }
-        try write(entry.headers())
+        let headers = try entry.headers()
+        let bodyLength = entry.type == 0x30 ? try checkedAdd(size, UInt64(TarRecords.padding(size))) : 0
+        let groupStart = position
+        let dataStart = try checkedAdd(position, UInt64(headers.count))
+        _ = try checkedAdd(dataStart, bodyLength)
+        compressor?.beginMember(headerLength: UInt64(headers.count), bodyLength: bodyLength)
+        try write(headers)
         if entry.type == 0x30 {
             var remaining = size
             while remaining > 0 {
@@ -70,11 +78,13 @@ final class TarWriter {
             guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
             try write(Data(count: TarRecords.padding(size)))
         }
+        if recordsMemberLayout { memberLayouts.append((groupStart, dataStart, position)) }
     }
 
     func finish() throws {
         try Task.checkCancellation()
         // 終端の二 block を必ず置き、その後を従来の blocking factor 20 までゼロで埋める。
+        compressor?.beginEndOfArchive()
         try write(Data(count: 2 * TarRecords.blockSize))
         let padding = (UInt64(TarRecords.recordSize) - position % UInt64(TarRecords.recordSize)) % UInt64(TarRecords.recordSize)
         try write(Data(count: Int(padding)))

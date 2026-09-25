@@ -5,6 +5,7 @@ final class ParallelBzip2Compressor: TarCompressor {
     // RLE1 で縮む tar 入力も、複数の内部 block を満たしてから区切る。
     static func chunkSize(level: Int) -> Int { 5 * level * 100_000 }
     private let chunkSize: Int
+    private var layout: TarChunkLayout
     private let pipeline: OrderedChunkPipeline<Data, Data, Void>
     private var input = Data()
     private var submitted = false
@@ -14,8 +15,15 @@ final class ParallelBzip2Compressor: TarCompressor {
         guard (1...9).contains(level) else { throw WriterError.invalidOption("bzip2Level") }
         guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         chunkSize = Self.chunkSize(level: level)
+        layout = TarChunkLayout(limit: chunkSize)
         pipeline = OrderedChunkPipeline(threads: threads) { try encoder($0, level) }
     }
+
+    func beginMember(headerLength: UInt64, bodyLength: UInt64) {
+        layout.beginMember(headerLength: headerLength, bodyLength: bodyLength, bufferedCount: input.count)
+    }
+
+    func beginEndOfArchive() { layout.beginEndOfArchive(bufferedCount: input.count) }
 
     static func encode(_ input: Data, level: Int) throws -> Data {
         var result = Data()
@@ -27,6 +35,7 @@ final class ParallelBzip2Compressor: TarCompressor {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
+            if layout.takePendingCut() { try submit(emit: emit) }
             var offset = data.startIndex
             while offset < data.endIndex {
                 try Task.checkCancellation()
@@ -34,10 +43,11 @@ final class ParallelBzip2Compressor: TarCompressor {
                     try pipeline.waitForCapacity { _, result in try emit(result!) }
                     input.reserveCapacity(chunkSize)
                 }
-                let count = min(data.endIndex - offset, chunkSize - input.count, 256 * 1024)
+                let count = layout.nextCount(available: data.endIndex - offset, bufferedCount: input.count)
                 input.append(data[offset..<(offset + count)])
                 offset += count
-                if input.count == chunkSize { try submit(emit: emit) }
+                let cut = layout.appended(count, bufferedCount: input.count)
+                if cut || (!layout.hasHints && input.count == chunkSize) { try submit(emit: emit) }
             }
             if finish {
                 if !input.isEmpty || !submitted { try submit(emit: emit) }

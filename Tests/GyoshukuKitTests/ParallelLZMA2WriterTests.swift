@@ -113,7 +113,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let listing = try ZipTestSupport.run(xz, ["-l", "--robot", url.path], in: directory, log: "xz-list")
         let fields = try XCTUnwrap(listing.split(separator: "\n").first { $0.hasPrefix("file\t") }).split(separator: "\t")
         XCTAssertEqual(fields[1], "1")
-        XCTAssertEqual(fields[2], "4")
+        XCTAssertEqual(fields[2], Substring(String(try TarChunkLayoutTestSupport.expectedLengths(url, format: .tarXZ, limit: Self.chunkSize).count)))
         XCTAssertEqual(fields[6], "CRC32")
     }
 

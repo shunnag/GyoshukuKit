@@ -79,7 +79,8 @@ public final class ArchiveWriter {
     public static func create(
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
     ) throws -> ArchiveWriter {
-        try create(url: url, format: format, options: options, lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
+        try create(url: url, format: format, options: options,
+                   lzmaChunkSize: format == .tarXZ ? ParallelXZCompressor.defaultBlockSize : LZMA2ChunkPipeline<Void>.chunkSize)
     }
 
     // 小さい入力でも複数 chunk と待機中の失敗を検証できるようにする。

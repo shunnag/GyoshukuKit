@@ -180,7 +180,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
             assert b[:4]==b'BZh9'
             d=bz2.BZ2Decompressor(); parts.append(d.decompress(b)); assert d.eof
             b=d.unused_data
-        assert len(parts)>1 and all(len(p)==4500000 for p in parts[:-1])
+        assert [len(p) for p in parts] == \(try TarChunkLayoutTestSupport.expectedLengths(url, format: .tarBzip2, limit: 4_500_000))
         assert 0<len(parts[-1])<=4500000 and b''.join(parts)==whole
         sys.stdout.buffer.write(whole)
         """
