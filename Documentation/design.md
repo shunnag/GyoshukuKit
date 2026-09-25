@@ -102,7 +102,7 @@ UI 側は進捗と取り消しを必ず出す。
    (`FileManager.copyItem`。実測 300 MB で 0.002 s)。最初の add まで遅延する。
 2. clone の旧 CD offset から新しい local record を書く。既存の local record は
    元の位置のままであり、再圧縮も descriptor の探索も行わない。
-3. 原本の開いた descriptor から **旧 CD の byte をそのまま**コピーし、新しい CD を
+3. open で検証して保持した **旧 CD の byte をそのまま**コピーし、新しい CD を
    続ける。旧 local offset が動かないので、旧 CD の再符号化や部分修正は不要。
    旧 entry 数・CD size・CD offset を合算した EOCD を作り、必要なら ZIP64 EOCD と
    locator を新たに書く。旧 ZIP コメントも保持し、末尾を truncate・同期する。
@@ -120,8 +120,12 @@ Finder tag や LaunchServices の `com.apple.lastuseddate#PS` 更新でも変わ
 
 ### 段階 3 の削除・改名(0.3.0)
 
-生き残る local record 全体を新しい位置へ運ぶには、KaitoKit の rawRecord accessor が
-必要になる。KaitoKit 0.4.0 の `rawRecord(of:)` を使用し、nil の生存 entry は理由付きで拒否する。
+生き残る local record 全体を新しい位置へ運ぶには、KaitoKit が検証した範囲が必要になる。
+open で `@_spi(ZipRawLayout) zipRawRecordLayout(at:)` を使い、CD を一括で読み、独立した
+walk の offset・件数・終端と ZIP64 extra の解釈を照合する。CD の bytes と検証済み範囲を保持し、
+commit は同じ record を再解析しない。nil の生存 entry は理由付きで拒否する。
+CD の一括確保は KaitoKit と同じ metadata 上限以内に限定する。validate 自体は取消しを検査しないが、
+KaitoKit の解析は取消し済みの Task で CancellationError を投げる。
 local と central の extra field 長は異なるので local を CD から再構成しない。
 この場合は offset が動き、ZIP64 extra も増減するため CD 全体を再出力する。
 追加だけにこの再構成や descriptor 探索を持ち込まない。
@@ -130,9 +134,15 @@ local と central の extra field 長は異なるので local を CD から再�
 予約名を使う。削除済み entry の改名は拒否し、削除予約した名前は後の追加・改名で再利用できる。
 子孫の削除・改名、symlink target の変更は暗黙に行わない。
 
-生存 record は archive order に 256 KiB ずつ運ぶ。同長改名は local header の同じ位置へ
-名前・flag を patch、異長改名は元の local header と extra を元に再出力し、payload から
-`recordRange.upperBound` までコピーする。descriptor の長さは算出しない。
+先に local、次に CD の順で出力を計画する。生存 record は CD 順に、source と出力がともに
+厳密に連続する copy だけを併合し、4 MiB の buffer で運ぶ。隙間と未移動の payload は読まない。
+改名する local header は一度だけ読み、同長かつ未移動なら header を patch、他は header の後に
+payload から `recordRange.upperBound` までをコピーする。descriptor の長さは算出しない。
+ZIP64 extra・sentinel・disk start が不要で、reader とサイズが一致する canonical な CD は、
+元の byte をコピーして local offset だけを patch する。他は従来の再符号化を行う。
+同長改名だけで、全 record が未移動、CD の手前に隙間がなく、全 CD が canonical、
+改名後も CD の名前の byte 長が同じ、かつ終端が従来の再生成結果と完全一致するときは、
+local と CD の改名箇所だけを patch して同期する。CD 全体の再出力と truncate は行わない。
 改名時だけ UTF-8 / NFC / bit 11 を使い、旧 Unicode Path extra は長さを保った padding にする。
 その本文は CRC・旧名を含めてゼロで埋める。重複・未知 version の field も同様に扱う。
 他の名前を持つ既知の extra（0x0008 / 0x2605 / 0x334D / 0x4F4C / 0x554E）や
@@ -142,10 +152,43 @@ entry は、値が小さくなっても空の ZIP64 marker を残して KaitoKit
 逆に ZIP32 descriptor に offset 用 ZIP64 extra が初めて必要になる移動は拒否する。
 KaitoKit 0.4.0 がこの extra も wide 判定に使うためで、descriptor の独自変換はしない。
 
-追加が混在するときは従来の append を clone 上で完成させ、その APFS snapshot から
-生存 record（追加分を含む）を元の clone へ再構築する。全ての作業ファイルは同じ replacement
-directory に置き、失敗・破棄で削除する。Task cancellation は record / コピー chunk ごとと
-置換直前に確認する。commit 後の metadata 復元と競合についての契約は追加と同じ。
+削除だけでは名前予約表を作らない。改名で初めて、残る既存名と追加済みの名前から作る。
+追加が混在するときは、最初の add の前に詰めた位置を予測して、その位置へ追加 record を書く。
+writer の仮想 offset は旧 CD offset を基準にし、従来の local header の version も保つ。
+commit で追加 pipeline を drain し、生存 record を移動してから CD と終端を一度だけ書く。
+writer が上書きした範囲 W と交差する生存 record は、同じ位置に残る場合も source から復元する。
+追加の後に予約を変えて予測位置が変わった場合だけ、出力の段階 snapshot を作り、追加 block を
+そこから最終位置へコピーする。全 N 件の段階 reader と二度目の raw walk は不要になる。
+追加 M 件は出力 descriptor で header の完全一致と連続性を確認し、その block と仮想の CD・終端を
+提示する ByteSource を KaitoKit で開いて raw name・サイズ・local/payload 範囲・descriptor 不在を照合する。
+追加 payload の CRC は従来どおりここでは展開検証しない。
+
+計画は 4,096 件ごとと計画直後、実行直前、コピー・書込み chunk ごと、公開直前に取消しを確認する。
+CD 側の改名拒否は実行中の I/O エラーより先に判定する。混在時も既存 N 件と追加 M 件を別々に検査するため、
+従来の段階 reader が N+M 件に課していた entry 数・metadata の上限による拒否はなくなる。
+呼出側による公開前の全体検証は維持する。今日 commit が成功する入力の出力 byte は変えない。
+
+### 作業ファイルへの直接出力と進捗
+
+`ArchiveUpdater.open(url:output:options:)` の output は既存であってはならず、親は呼出側が用意する。
+省略時の原本置換は従来どおり。指定時は原本を O_RDONLY | O_NOFOLLOW で開き、immutable / append の
+UF/SF flags があれば何も作らず EPERM を返す。開いた descriptor から `fclonefileat` で output の隣に
+source snapshot を作り、flags を 0 にする。以後の門番・reader・validate・rebuild・CD 読取はこの descriptor
+だけを使う。ENOTSUP / EXDEV だけは原本への直接読取へ戻り、他の clone エラーは失敗にする。
+この処理は形式に依存しない internal の `ArchiveSourceSnapshot` で、拡張子を指定できる（後続の tar 用）。
+
+最初の add または commit で snapshot の descriptor から output を clone し、snapshot がない場合は
+原本を copyItem する。変更がなくても output は作る。作成前後と commit の開始・終了直前に原本の
+同一性を確認し、snapshot があればその同一性も確認する。output は flags 0、mode 0600 にして開き、
+fstat と lstat の dev/ino を照合する。成功時は fsync・close 済みで返す。xattr・quarantine・作成日は
+clone のまま保持し、mode・属性の復元と公開の rename は呼出側が行う。output mode では
+replaceItemAt と itemReplacementDirectory を使わない。取消し・失敗・破棄時は、自分が作った output と
+snapshot の dev/ino が一致する場合だけ消す。成功時も snapshot を消す。ZipCrypto spool は隣に作り直後に unlink する。
+
+`commit(progress:)` は同期的に `CommitProgress(completedBytes:totalBytes:)` を通知する。
+追加 pipeline の drain 後に計画から total を決め、実行前の 0、4 MiB 以上進んだ時、最後の完了値を通知する。
+この段階では total は commit 中の移動・patch・CD・終端の書込み byte であり、drain 中の追加 data は含まない。
+callback を呼出しの外に保持せず、throw は取消しと同じく原本を保って作業ファイルを片付ける。
 
 ### 編集を断る三つの門番
 
@@ -160,7 +203,19 @@ directory に置き、失敗・破棄で削除する。Task cancellation は rec
   編集が静かに壊す。詳細は KaitoFinder の
   `Documentation/verification/2026-09-10-ditto-zip64.md`。
 
-## 7. KaitoKit の rawRecord API (0.4.0 で実装済み)
+## 7. KaitoKit の raw record API と ZIP layout SPI
+
+ZIP updater は `@_spi(ZipRawLayout) internal import KaitoKit` で `ZipRawRecordLayout` と
+`ArchiveReader.zipRawRecordLayout(at:)` を使う。公開の rawRecord と同じ local・descriptor 検査を保ち、
+String 辞書と entry 全体の等値比較を作らず、範囲 2 つと descriptor・central/local ZIP64 の有無を受け取る。
+この型は KaitoKit 側の public init を必要とせず、GK 内では internal な検証済み layout に写す。
+
+試験用 `@_spi(Testing)` は `ArchiveUpdater.CommitStrategy`（unchanged / appendOnly / inPlacePatch /
+rebuild / rebuildThenAppend / stagedRebuild）と `lastCommitStrategy` だけを公開する。
+KaitoKit 0.11.0 が SPI を提供するため、release commit で Package.swift の URL 依存を `from: "0.11.0"` に
+上げる必要がある。開発中は sibling の KaitoKit を使い、manifest の自動選択規則は変えない。
+
+従来の public rawRecord API（0.4.0）は引き続き利用できる。
 
 削除・改名で生き残る entry を再圧縮せずに運ぶには、生 record の範囲が要る。
 `ZipReader` は `localHeaderOffset` / `dataOffset` / `compressedSize` を private に

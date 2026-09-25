@@ -406,10 +406,10 @@ final class ZipDeleteRenameTests: XCTestCase {
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [4])
         var called: [Int] = []
-        updater.rawRecord = { reader, original in
-            called.append(original.index)
-            if original.index == 1 { return try incomplete.rawRecord(of: entry) }
-            return try reader.rawRecord(of: original)
+        updater.recordLayout = { index in
+            called.append(index)
+            if index == 1 { return nil }
+            return updater.validatedLayout(at: index)
         }
         XCTAssertThrowsError(try updater.commit()) { error in
             guard case let UpdaterError.nonRelocatableEntry(index, name, reason) = error else { return XCTFail("\(error)") }
@@ -423,9 +423,9 @@ final class ZipDeleteRenameTests: XCTestCase {
         XCTAssertThrowsError(try updater.commit())
         let removing = try ArchiveUpdater.open(url: url)
         try removing.remove(entriesAt: [1])
-        removing.rawRecord = { reader, original in
-            XCTAssertNotEqual(original.index, 1)
-            return try reader.rawRecord(of: original)
+        removing.recordLayout = { index in
+            XCTAssertNotEqual(index, 1)
+            return removing.validatedLayout(at: index)
         }
         try removing.commit()
         try ZipTestSupport.verify(url, expected: [0, 2, 3, 4].map { items[$0] })
@@ -445,10 +445,10 @@ final class ZipDeleteRenameTests: XCTestCase {
             let updater = try ArchiveUpdater.open(url: url)
             try updater.remove(entriesAt: [4])
             var copied = 0
-            updater.rawRecord = { reader, entry in
-                if entry.index == 2 { throw failure }
+            updater.recordLayout = { index in
+                if index == 2 { throw failure }
                 copied += 1
-                return try reader.rawRecord(of: entry)
+                return updater.validatedLayout(at: index)
             }
             XCTAssertThrowsError(try updater.commit()) { XCTAssertEqual($0 as? WriterError, failure) }
             XCTAssertEqual(copied, 2)
@@ -462,9 +462,9 @@ final class ZipDeleteRenameTests: XCTestCase {
         let task = Task {
             let updater = try ArchiveUpdater.open(url: url)
             try updater.remove(entriesAt: [4])
-            updater.rawRecord = { reader, entry in
-                if entry.index == 2 { withUnsafeCurrentTask { $0?.cancel() } }
-                return try reader.rawRecord(of: entry)
+            updater.recordLayout = { index in
+                if index == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+                return updater.validatedLayout(at: index)
             }
             try updater.commit()
         }

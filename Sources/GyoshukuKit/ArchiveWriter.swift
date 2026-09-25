@@ -31,6 +31,8 @@ public final class ArchiveWriter {
     private var emittingStart: UInt64 = 0
     private var emittingAES: ZipAESEncryptor?
     private var position: UInt64 = 0
+    private var appendStart: UInt64 = 0
+    private var recordBase: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
     private(set) var appendedPaths: [(String, Bool)] = []
     private var names: Set<String> = []
@@ -164,9 +166,11 @@ public final class ArchiveWriter {
     }
 
     // updater も同じ追加処理を使う。既存名は衝突検査にだけ使い、保存 byte は変更しない。
-    func prepareAppend(at offset: UInt64, existingPaths: [(String, Bool)]) throws {
+    func prepareAppend(at offset: UInt64, existingPaths: [(String, Bool)], recordBase: UInt64? = nil) throws {
         try output.seek(toOffset: offset)
         position = offset
+        appendStart = offset
+        self.recordBase = recordBase ?? offset
         replaceExistingPaths(existingPaths)
     }
 
@@ -217,22 +221,36 @@ public final class ArchiveWriter {
     }
 
     // 旧 CD は一定量ずつ原本から運ぶ。local/central/EOCD の生成は writer と完全に共有する。
+    func drainAppendedRecords() throws -> (entries: [ZipRecords.Entry], end: UInt64) {
+        try perform { try zipPipeline?.drain(emit: emitDeflate) }
+        return (entries, position)
+    }
+
     func finish(existingCount: UInt64, comment: Data,
+                progress: ((UInt64, Int) throws -> Void)? = nil,
                 copyCentral: (_ emit: (Data) throws -> Void) throws -> Void) throws {
         if state == .finished { return }
         try perform {
             try zipPipeline?.finish(emit: emitDeflate)
             let start = position
+            func emit(_ bytes: Data) throws {
+                let offset = position
+                try write(bytes)
+                if let progress {
+                    ZipCopyEngine.writeObserver?(offset, bytes.count)
+                    try progress(offset, bytes.count)
+                }
+            }
             var central = ZipCentralDirectory.CopyValidator(expectedCount: existingCount)
             try copyCentral { bytes in
                 try central.consume(bytes)
-                try write(bytes)
+                try emit(bytes)
             }
             try central.finish()
             for entry in entries {
-                try autoreleasepool { try write(entry.central()) }
+                try autoreleasepool { try emit(entry.central()) }
             }
-            try write(ZipRecords.end(count: checkedAdd(existingCount, UInt64(entries.count)),
+            try emit(ZipRecords.end(count: checkedAdd(existingCount, UInt64(entries.count)),
                                      centralSize: position - start, centralOffset: start, comment: comment))
             try output.truncate(atOffset: position)
             try output.synchronize()
@@ -389,7 +407,7 @@ public final class ArchiveWriter {
         var entry = ZipRecords.Entry(
             name: Data(name.utf8), method: method, mtime: mtime,
             atime: accessTime, dosTime: dos.time, dosDate: dos.date,
-            mode: mode, owners: owners, offset: position, size: size
+            mode: mode, owners: owners, offset: try checkedAdd(recordBase, position - appendStart), size: size
         )
         let password = mode & 0xF000 == 0x8000 ? options.password : nil
         entry.encryption = password == nil ? nil : options.zipEncryption
@@ -419,7 +437,7 @@ public final class ArchiveWriter {
         entry.compressedSize = position - start
         let patched = entry.local()
         guard patched.count == header.count else { throw WriterError.sizeOverflow }
-        try output.seek(toOffset: entry.offset)
+        try output.seek(toOffset: checkedAdd(appendStart, entry.offset - recordBase))
         try output.write(contentsOf: patched)
         try output.seek(toOffset: position)
         entries.append(entry)
@@ -458,7 +476,7 @@ public final class ArchiveWriter {
     private func emitDeflate(_ tag: DeflateTag, _ result: Data?) throws {
         try Task.checkCancellation()
         if var entry = tag.entry {
-            entry.offset = position
+            entry.offset = try checkedAdd(recordBase, position - appendStart)
             emittingEntry = entry
             let header = entry.local()
             emittingHeaderSize = header.count
@@ -479,7 +497,7 @@ public final class ArchiveWriter {
             entry.compressedSize = position - emittingStart
             let patched = entry.local()
             guard patched.count == emittingHeaderSize else { throw WriterError.sizeOverflow }
-            try output.seek(toOffset: entry.offset)
+            try output.seek(toOffset: checkedAdd(appendStart, entry.offset - recordBase))
             try output.write(contentsOf: patched)
             try output.seek(toOffset: position)
             entries.append(entry)

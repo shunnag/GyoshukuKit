@@ -1,6 +1,6 @@
 import Foundation
 private import Darwin
-internal import KaitoKit
+public import KaitoKit
 
 /// 読み取り可能でも、安全な編集の条件を満たさない書庫を区別する。
 public enum UpdateGatekeeper: String, Sendable {
@@ -34,7 +34,8 @@ final class ZipUpdateSource: ByteSource {
     @TaskLocal static var readObserver: (@Sendable (Int32, UInt64, Int) -> Void)?
     let descriptor: Int32
     let length: UInt64
-    private let snapshot: stat
+    let identity: ZipFileIdentity
+    let flags: UInt32
 
     init(url: URL) throws {
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
@@ -46,24 +47,17 @@ final class ZipUpdateSource: ByteSource {
             throw UpdaterError.invalidArchive("通常ファイルではありません")
         }
         descriptor = fd
-        snapshot = info
+        identity = ZipFileIdentity(info)
+        flags = info.st_flags
         length = UInt64(info.st_size)
     }
 
     deinit { Darwin.close(descriptor) }
 
-    var mode: UInt16 { UInt16(snapshot.st_mode & 0o7777) }
+    var mode: UInt16 { UInt16(identity.mode & 0o7777) }
 
     func checkUnchanged(at url: URL) throws {
-        var info = stat()
-        // Finder tag や LaunchServices の xattr 更新でも変わるため ctime は比較しない。
-        guard lstat(url.path, &info) == 0,
-              info.st_dev == snapshot.st_dev, info.st_ino == snapshot.st_ino,
-              info.st_size == snapshot.st_size, info.st_mode == snapshot.st_mode,
-              info.st_mtimespec.tv_sec == snapshot.st_mtimespec.tv_sec,
-              info.st_mtimespec.tv_nsec == snapshot.st_mtimespec.tv_nsec else {
-            throw UpdaterError.sourceChanged
-        }
+        try identity.checkUnchanged(at: url)
     }
 
     func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
@@ -110,6 +104,7 @@ struct ZipUpdateLayout {
     let centralSize: UInt64
     let count: UInt64
     let comment: Data
+    let endBytes: Data?
 
     init(source: ZipUpdateSource) throws {
         func refuse(_ gate: UpdateGatekeeper) throws -> Never {
@@ -193,6 +188,7 @@ struct ZipUpdateLayout {
         centralSize = size
         self.count = count
         comment = tail.subdata(in: (end + 22)..<commentEnd)
+        endBytes = directoryEnd == endOffset ? tail.subdata(in: end..<commentEnd) : nil
     }
 }
 
@@ -202,8 +198,13 @@ extension Data {
     func zip32(_ at: Int) -> UInt32 { UInt32(zip16(at)) | UInt32(zip16(at + 2)) << 16 }
     func zip64(_ at: Int) -> UInt64 { UInt64(zip32(at)) | UInt64(zip32(at + 4)) << 32 }
     mutating func zipSet<T: FixedWidthInteger>(_ value: T, at: Int) {
-        var encoded = Data()
-        encoded.le(value)
-        replaceSubrange(at..<(at + encoded.count), with: encoded)
+        let relative = at - startIndex
+        precondition(relative >= 0 && relative <= count && MemoryLayout<T>.size <= count - relative)
+        var little = value.littleEndian
+        Swift.withUnsafeBytes(of: &little) { encoded in
+            withUnsafeMutableBytes { bytes in
+                bytes.baseAddress!.advanced(by: relative).copyMemory(from: encoded.baseAddress!, byteCount: encoded.count)
+            }
+        }
     }
 }

@@ -1,5 +1,39 @@
 import Foundation
-internal import KaitoKit
+@_spi(ZipRawLayout) internal import KaitoKit
+
+struct ZipRecordLayout: Sendable, Equatable {
+    let recordRange: Range<UInt64>
+    let payloadRange: Range<UInt64>
+    let hasDataDescriptor: Bool
+    let centralHasZIP64Extra: Bool
+    let localHasZIP64Extra: Bool
+    var isZIP64: Bool { centralHasZIP64Extra || localHasZIP64Extra }
+}
+
+extension ZipRecordLayout {
+    init(_ spi: ZipRawRecordLayout) {
+        recordRange = spi.recordRange
+        payloadRange = spi.payloadRange
+        hasDataDescriptor = spi.hasDataDescriptor
+        centralHasZIP64Extra = spi.centralHasZIP64Extra
+        localHasZIP64Extra = spi.localHasZIP64Extra
+    }
+}
+
+struct ZipValidatedDirectory {
+    let bytes: Data
+    let records: [ZipValidatedRecord]
+}
+
+struct ZipValidatedRecord {
+    let centralRange: Range<Int>
+    let layout: ZipRecordLayout
+    let canonical: Bool
+
+    func usesFastPath(offset: UInt64, renamed: Bool, marker: Bool) -> Bool {
+        canonical && !renamed && !marker && offset < ZipRecords.limit
+    }
+}
 
 enum ZipCentralDirectory {
     private struct Header {
@@ -10,27 +44,32 @@ enum ZipCentralDirectory {
         let zip64OffsetPosition: Int
 
         init(_ bytes: Data) throws {
-            guard bytes.count == 46, bytes.zip32(0) == 0x02014B50 else {
-                throw UpdaterError.invalidArchive("CD record の signature がありません")
-            }
-            nameLength = Int(bytes.zip16(28))
-            extraLength = Int(bytes.zip16(30))
-            variableLength = nameLength + extraLength + Int(bytes.zip16(32))
-            localOffset32 = bytes.zip32(42)
-            zip64OffsetPosition = (bytes.zip32(24) == UInt32.max ? 8 : 0)
-                + (bytes.zip32(20) == UInt32.max ? 8 : 0)
+            guard bytes.count == 46 else { throw UpdaterError.invalidArchive("CD record の signature がありません") }
+            try self.init(bytes, at: 0)
         }
 
-        func localOffset(source: ZipUpdateSource, at cursor: UInt64) throws -> UInt64 {
+        init(_ bytes: Data, at cursor: Int) throws {
+            guard bytes.count - cursor >= 46, bytes.zip32(cursor) == 0x02014B50 else {
+                throw UpdaterError.invalidArchive("CD record の signature がありません")
+            }
+            nameLength = Int(bytes.zip16(cursor + 28))
+            extraLength = Int(bytes.zip16(cursor + 30))
+            variableLength = nameLength + extraLength + Int(bytes.zip16(cursor + 32))
+            localOffset32 = bytes.zip32(cursor + 42)
+            zip64OffsetPosition = (bytes.zip32(cursor + 24) == UInt32.max ? 8 : 0)
+                + (bytes.zip32(cursor + 20) == UInt32.max ? 8 : 0)
+        }
+
+        func localOffset(bytes: Data, at cursor: Int) throws -> UInt64 {
             guard localOffset32 == UInt32.max else { return UInt64(localOffset32) }
-            let extra = try source.bytes(at: cursor + 46 + UInt64(nameLength), count: extraLength)
-            var index = 0
-            while extra.count - index >= 4 {
-                let length = Int(extra.zip16(index + 2))
-                guard length <= extra.count - index - 4 else { break }
-                if extra.zip16(index) == 1 {
+            var index = cursor + 46 + nameLength
+            let end = index + extraLength
+            while end - index >= 4 {
+                let length = Int(bytes.zip16(index + 2))
+                guard length <= end - index - 4 else { break }
+                if bytes.zip16(index) == 1 {
                     guard length >= zip64OffsetPosition + 8 else { break }
-                    return extra.zip64(index + 4 + zip64OffsetPosition)
+                    return bytes.zip64(index + 4 + zip64OffsetPosition)
                 }
                 index += 4 + length
             }
@@ -38,29 +77,33 @@ enum ZipCentralDirectory {
         }
     }
 
-    // open の entry 数照合後に使う。サイズや offset の解釈は KaitoKit の raw record と必ず照合する。
-    // probe はこの O(entries) の walk を行わず、終端の曖昧さの検査に留める。
+    // validate 自体は取消しを検査しない。KaitoKit の解析は取消し済み Task で CancellationError を投げる。
+    @discardableResult
     static func validate(source: ZipUpdateSource, reader: ArchiveReader,
-                         centralOffset: UInt64, centralSize: UInt64) throws {
+                         centralOffset: UInt64, centralSize: UInt64,
+                         maximumCentralSize: UInt64 = ReadLimits().maxTotalMetadataSize) throws -> ZipValidatedDirectory {
         guard centralOffset <= source.length, centralSize <= source.length - centralOffset else {
             throw UpdaterError.invalidArchive("CD の範囲がファイル範囲外です")
         }
-        let end = centralOffset + centralSize
-        var cursor = centralOffset
-        // open は KaitoKit の open と同じく取消しに依存しない。KaitoFinder は公開後の再オープンを
-        // 取消し済みの Task で行うことがあり、ここで CancellationError を返すと成功した保存を隠す。
-        // walk は maxTotalMetadataSize / maxEntryCount で有界。
+        guard centralSize <= maximumCentralSize, centralSize <= UInt64(Int.max) else {
+            throw UpdaterError.invalidArchive("CD のサイズが metadata の上限を超えています")
+        }
+        let bytes = try source.bytes(at: centralOffset, count: Int(centralSize))
+        let end = bytes.count
+        var cursor = 0
+        var records: [ZipValidatedRecord] = []
+        records.reserveCapacity(reader.entries.count)
         for entry in reader.entries {
             guard cursor <= end, end - cursor >= 46 else {
                 throw UpdaterError.invalidArchive("CD record が途中で終わっています")
             }
-            let header = try Header(source.bytes(at: cursor, count: 46))
-            guard UInt64(header.variableLength) <= end - cursor - 46 else {
+            let header = try Header(bytes, at: cursor)
+            guard header.variableLength <= end - cursor - 46 else {
                 throw UpdaterError.invalidArchive("CD record の可変長領域が範囲外です")
             }
-            let offset = try header.localOffset(source: source, at: cursor)
-            let record: RawEntryRecord?
-            do { record = try reader.rawRecord(of: entry) }
+            let offset = try header.localOffset(bytes: bytes, at: cursor)
+            let record: ZipRecordLayout?
+            do { record = try reader.zipRawRecordLayout(at: entry.index).map(ZipRecordLayout.init) }
             catch let error as KaitoError {
                 throw UpdaterError.invalidArchive("ZIP local record を検証できません: \(entry.name): \(error)")
             }
@@ -73,11 +116,25 @@ enum ZipCentralDirectory {
             guard record.recordRange.upperBound <= centralOffset else {
                 throw UpdaterError.invalidArchive("CD の開始位置が local record の終端より前です: \(entry.name)")
             }
-            cursor += 46 + UInt64(header.variableLength)
+            let extraStart = cursor + 46 + header.nameLength
+            let extra = bytes.subdata(in: extraStart..<(extraStart + header.extraLength))
+            let hasZIP64 = ZipRebuild.extraFields(extra).contains { $0.id == 1 }
+            guard hasZIP64 == record.centralHasZIP64Extra else {
+                throw UpdaterError.invalidArchive("CD の ZIP64 extra の解釈が KaitoKit と一致しません: \(entry.name)")
+            }
+            let canonical = !hasZIP64 && bytes.zip32(cursor + 20) != UInt32.max
+                && bytes.zip32(cursor + 24) != UInt32.max
+                && entry.compressedSize == UInt64(bytes.zip32(cursor + 20))
+                && entry.uncompressedSize == UInt64(bytes.zip32(cursor + 24))
+                && bytes.zip16(cursor + 34) == 0 && header.localOffset32 != UInt32.max
+            let next = cursor + 46 + header.variableLength
+            records.append(ZipValidatedRecord(centralRange: cursor..<next, layout: record, canonical: canonical))
+            cursor = next
         }
         guard cursor == end else {
             throw UpdaterError.invalidArchive("CD の walk 終端と宣言されたサイズが一致しません")
         }
+        return ZipValidatedDirectory(bytes: bytes, records: records)
     }
 
     // copyCentral の chunk 境界に依存せず、固定 header 46 byte だけを保持する。

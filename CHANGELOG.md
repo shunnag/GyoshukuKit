@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+### 追加
+
+- ZIP updater の `open(url:output:options:)`。原本の descriptor から clone snapshot を作り、
+  指定した作業ファイルを mode 0600・flags 0・fsync・close 済みで返す。immutable / append の
+  UF/SF flags は EPERM で拒否し、clone の ENOTSUP / EXDEV だけ直接読取へ戻す。
+  snapshot helper は後続の tar updater と共有できる internal 実装にする。
+- `ArchiveUpdater.CommitProgress` と `commit(progress:)`。計画した書込み byte の進捗を同期通知し、
+  callback の throw・取消し・失敗では原本を保ち、自分の inode の作業ファイルだけを削除する。
+- `@_spi(Testing)` の commit strategy、legacy byte oracle、境界・読取量・cleanup・進捗試験、
+  `GYOSHUKU_ZIP_SCALE_ENTRIES` で有効にする ZIP-SCALE probe。
+  結果は [P1-G検証記録](Documentation/verification/2026-09-25-p1g-zip-editing.md) に記載する。
+
+### 変更
+
+- ZIP の CD を一括検証し、KaitoKit の検証済み raw layout とともに保持する。
+  再構築は計画と 4 MiB のコピーに分け、連続する必要範囲だけを読み、canonical CD の offset だけを patch する。
+  条件を満たす同長改名は header と CD の patch だけで完成し、削除だけでは名前予約表を作らない。
+- 削除・改名後の追加は詰めた位置へ直接書き、CD は一度だけ生成する。追加の後に位置が変わる場合だけ
+  段階 snapshot を使う。追加 record の照合は GK と KaitoKit の両方で残す。
+  従来成功していた編集の出力 byte を保つ。混在時の N+M 件への段階 reader の上限はなくなり、
+  CD 側の拒否は実行時 I/O より先、取消しは計画 4,096 件ごと・直後・実行前・chunk ごとになる。
+- **release 時の要件**: KaitoKit 0.11.0 の tag を先に用意し、Package.swift の URL 依存を
+  `from: "0.11.0"` に更新する。この変更では manifest と sibling path の選択を変えない。
+
 ## [0.5.0] - 2026-09-24
 
 ### 修正
