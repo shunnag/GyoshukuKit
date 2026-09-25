@@ -257,7 +257,22 @@ entry は、値が小さくなっても空の ZIP64 marker を残して KaitoKit
 逆に ZIP32 descriptor に offset 用 ZIP64 extra が初めて必要になる移動は拒否する。
 KaitoKit 0.4.0 がこの extra も wide 判定に使うためで、descriptor の独自変換はしない。
 
-削除だけでは名前予約表を作らない。改名で初めて、残る既存名と追加済みの名前から作る。
+削除だけでは名前予約表を作らない。ZIP の open 時の entry が 2,048 件以上なら、追加・改名の
+名前検査を合計 4 回まで `LiveNameCheck` の走査で行う。最初の走査で元の名前を UTF-8 の平らな
+snapshot に一度だけ写し、削除・改名した index の除外配列、改名後の名前、追加済みの名前を
+別に照合する。ASCII で空成分のない名前は byte と `/` の境界で比較し、それ以外だけ NFC の
+比較 key を持つ。改名の予約表は空成分を残し、writer の必要 directory は空成分を除くという
+従来の違いも保つ。改名は祖先 file、同名、子孫の順、追加は同名、子孫、祖先 file の順に拒否する。
+5 回目以降は必要な側の既存の表を作り、改名は `EditPathReservations` を差分更新する。
+削除がないときの生存名一覧は元の順で作り、改名した index だけを差し替える。
+少数の改名の後に表へ切り替えても、全件に対する改名辞書の検索を加えない。
+2,048 件未満では初回から従来の表を使う。TarUpdater・CompressedTarUpdater には適用しない。
+
+writer の正規化・名前の予約は internal `reserveEntryName(_:directory:)` 一か所に置き、
+`addEntry` が呼ぶ。ZIP updater だけが internal `existingPathCheck` を設定し、走査中は元の名前を
+writer の集合に入れない。budget を使い切った次の追加で既存名を補い、hook を外す。
+後続の一括追加も同じ関数を同じ順に呼び、budget・例外・集合の更新順を共有する。
+
 追加が混在するときは、最初の add の前に詰めた位置を予測して、その位置へ追加 record を書く。
 writer の仮想 offset は旧 CD offset を基準にし、従来の local header の version も保つ。
 commit で追加 pipeline を drain し、生存 record を移動してから CD と終端を一度だけ書く。

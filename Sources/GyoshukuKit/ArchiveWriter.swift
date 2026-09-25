@@ -36,6 +36,7 @@ public final class ArchiveWriter {
     private var names: Set<String> = []
     private var files: Set<String> = []
     private var requiredDirectories: Set<String> = []
+    var existingPathCheck: ((String, Bool) throws -> Void)?
     private enum State { case writing, finished, failed }
     private var state = State.writing
     private static let chunkSize = 256 * 1024
@@ -405,15 +406,10 @@ public final class ArchiveWriter {
         }
     }
 
-    // rewriter は展開 stream を同じ serializer に渡す。失敗時の破棄は呼出側が行う。
-    func addEntry(
-        path: String, mode: UInt16, size: UInt64, date: Date, atime: Date?, owners: (UInt32, UInt32)?,
-        hardLink: String? = nil,
-        read: (Int) throws -> Data
-    ) throws {
-        let directory = mode & 0xF000 == 0x4000
+    func reserveEntryName(_ path: String, directory: Bool) throws -> String {
         let name = try Self.normalizedPath(path, directory: directory, format: format)
         let key = directory ? String(name.dropLast()) : name
+        try existingPathCheck?(name, directory)
         guard names.insert(key).inserted else {
             throw WriterError.duplicatePath(name)
         }
@@ -426,6 +422,17 @@ public final class ArchiveWriter {
             requiredDirectories.insert(prefix)
         }
         if !directory { files.insert(key) }
+        return name
+    }
+
+    // rewriter は展開 stream を同じ serializer に渡す。失敗時の破棄は呼出側が行う。
+    func addEntry(
+        path: String, mode: UInt16, size: UInt64, date: Date, atime: Date?, owners: (UInt32, UInt32)?,
+        hardLink: String? = nil,
+        read: (Int) throws -> Data
+    ) throws {
+        let directory = mode & 0xF000 == 0x4000
+        let name = try reserveEntryName(path, directory: directory)
         if let tarWriter {
             try tarWriter.add(name: name, mode: mode, size: size, date: date, owners: owners, hardLink: hardLink, read: read)
             appendedPaths.append((name, directory))

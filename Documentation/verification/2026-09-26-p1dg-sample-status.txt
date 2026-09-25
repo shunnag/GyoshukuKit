@@ -1,0 +1,3 @@
+sample[88971]: sample cannot examine process 88899 (xctest) for unknown reasons, even though it appears to exist; try running with `sudo`.
+
+exit=255

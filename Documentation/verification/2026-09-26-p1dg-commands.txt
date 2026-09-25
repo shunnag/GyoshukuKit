@@ -1,0 +1,302 @@
+Isolated snapshots: GyoshukuKit d5c51b3; KaitoKit d35f2da.
+
+2026-09-26 05:07:16 build-after
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift build --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/build-after.log
+
+2026-09-26 05:11:02 test-live-initial
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache --filter LiveNameCheck
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-live-initial.log
+
+2026-09-26 05:11:31 build-baseline-release
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift build --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache --build-tests -c release -Xswiftc -enable-testing
+
+2026-09-26 05:12:26 test-full
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache
+
+2026-09-26 05:12:26 build-after-release
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift build --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache --build-tests -c release -Xswiftc -enable-testing --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/build-baseline-release.log
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/build-after-release.log
+
+2026-09-26 05:20:53 compat-baseline
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_P2_COMPAT_OUTPUT=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-baseline CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ArchiveWriterP2CompatibilityTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/compat-baseline.log
+
+2026-09-26 05:21:57 compat-after
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_P2_COMPAT_OUTPUT=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-after GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-baseline CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter ArchiveWriterP2CompatibilityTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/compat-after.log
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-full.log
+
+2026-09-26 05:24:18 test-live-release
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter 'LiveNameCheck|ArchiveEditingScale|EditPathReservations'
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-live-release.log
+
+2026-09-26 05:24:33 zip-scale-baseline-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-baseline-00-warmup.log
+
+2026-09-26 05:24:45 zip-scale-after-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-after-00-warmup.log
+
+2026-09-26 05:24:57 zip-scale-baseline-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-baseline-01.log
+
+2026-09-26 05:25:09 zip-scale-after-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-after-01.log
+
+2026-09-26 05:25:20 zip-scale-baseline-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-baseline-02.log
+
+2026-09-26 05:25:31 zip-scale-after-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-after-02.log
+
+2026-09-26 05:25:42 zip-scale-baseline-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-baseline-03.log
+
+2026-09-26 05:25:53 zip-scale-after-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-after-03.log
+
+2026-09-26 05:26:04 shiftjis-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-00-warmup.log
+
+2026-09-26 05:26:06 shiftjis-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-01.log
+
+2026-09-26 05:26:07 shiftjis-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-02.log
+
+2026-09-26 05:26:08 shiftjis-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-03.log
+
+2026-09-26 05:27:27 test-live-release-final
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter 'LiveNameCheck|ArchiveEditingScale|EditPathReservations'
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-live-release-final.log
+
+2026-09-26 05:29:31 zip-scale-final-baseline-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-baseline-00-warmup.log
+
+2026-09-26 05:29:43 zip-scale-final-after-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-after-00-warmup.log
+
+2026-09-26 05:29:54 zip-scale-final-baseline-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-baseline-01.log
+
+2026-09-26 05:30:05 zip-scale-final-after-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-after-01.log
+
+2026-09-26 05:30:16 zip-scale-final-baseline-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-baseline-02.log
+
+2026-09-26 05:30:27 zip-scale-final-after-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-after-02.log
+
+2026-09-26 05:30:37 zip-scale-final-baseline-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-baseline-03.log
+
+2026-09-26 05:30:49 zip-scale-final-after-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-final-after-03.log
+
+2026-09-26 05:30:59 shiftjis-final-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-final-00-warmup.log
+
+2026-09-26 05:31:00 shiftjis-final-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-final-01.log
+
+2026-09-26 05:31:01 shiftjis-final-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-final-02.log
+
+2026-09-26 05:31:02 shiftjis-final-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-final-03.log
+
+profile-final (diagnostic, excluded from timing medians)
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000
+/Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest GyoshukuKitTests.ZipUpdaterScaleProbeTests/testScale /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release/arm64-apple-macosx/release/GyoshukuKitPackageTests.xctest
+/usr/bin/sample 88899 2 1 -file /private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/sample-final.txt
+xctest_exit=0 sample_exit=255
+
+2026-09-26 05:32:46 test-full-final
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache
+
+2026-09-26 05:32:46 build-paths-release
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift build --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache --build-tests -c release -Xswiftc -enable-testing --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/build-paths-release.log
+
+2026-09-26 05:36:12 build-final-release
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift build --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache --build-tests -c release -Xswiftc -enable-testing --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/build-final-release.log
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-full-final.log
+
+2026-09-26 05:43:32 test-full-release-final
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d GYOSHUKU_P2_COMPAT_OUTPUT=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-final GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-baseline CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-full-release-final.log
+
+2026-09-26 05:52:47 zip-scale-paths-baseline-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-baseline-00-warmup.log
+
+2026-09-26 05:52:59 zip-scale-paths-after-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-after-00-warmup.log
+
+2026-09-26 05:53:10 zip-scale-paths-baseline-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-baseline-01.log
+
+2026-09-26 05:53:22 zip-scale-paths-after-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-after-01.log
+
+2026-09-26 05:53:33 zip-scale-paths-baseline-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-baseline-02.log
+
+2026-09-26 05:53:45 zip-scale-paths-after-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-after-02.log
+
+2026-09-26 05:53:55 zip-scale-paths-baseline-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/baseline/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-baseline-03.log
+
+2026-09-26 05:54:07 zip-scale-paths-after-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_ZIP_SCALE_ENTRIES=500000 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --filter ZipUpdaterScaleProbeTests --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/zip-scale-paths-after-03.log
+
+2026-09-26 05:54:18 shiftjis-paths-00-warmup
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-paths-00-warmup.log
+
+2026-09-26 05:54:19 shiftjis-paths-01
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-paths-01.log
+
+2026-09-26 05:54:20 shiftjis-paths-02
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-paths-02.log
+
+2026-09-26 05:54:21 shiftjis-paths-03
+cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
+GYOSHUKU_LIVE_NAME_SCALE=1 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release --filter LiveNameCheckTests/testShiftJISFirstScanWhenEnabled
+exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/shiftjis-paths-03.log

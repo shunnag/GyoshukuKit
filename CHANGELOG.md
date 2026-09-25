@@ -6,6 +6,10 @@
 
 ### 修正
 
+- ZIP updater の少数の追加・改名では、全件の名前表の構築を最初の 4 回まで生存名の走査に置き換える。
+  5 回目から従来の表を使い、2,048 件未満は初回から表を使う。衝突の判定・例外・出力 byte・公開 API は保つ。
+  [P1d-G 検証記録](Documentation/verification/2026-09-26-p1dg-live-name-check.md) に試験と計測を記載する。
+
 - CompressedTarUpdater の追加/literal 保存領域に 1 GiB の空き容量を要求する制約を外す。
   出力 volume の空き容量が 1 GiB 未満でも小さな編集を行える。実際の書込み失敗時の後始末は保つ。
 

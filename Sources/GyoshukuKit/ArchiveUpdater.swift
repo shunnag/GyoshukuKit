@@ -24,10 +24,16 @@ public final class ArchiveUpdater: ArchiveEditing {
     var hasPathReservations: Bool { pathReservations != nil }
     private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
+    private var liveNameCheck: LiveNameCheck?
+    private lazy var excluded = [Bool](repeating: false, count: Int(layout.count))
+    private(set) var nameCheckScanCount = 0
+    var writerUsesLiveNameCheck: Bool { writer?.existingPathCheck != nil }
     // 最終計画だけが使う取得境界。検証時と追加だけの commit は seam を通らない。
     lazy var recordLayout: (Int) throws -> ZipRecordLayout? = { [unowned self] in validatedLayout(at: $0) }
     @TaskLocal static var testingRandomBytes: (@Sendable (Int) throws -> Data)?
     @TaskLocal static var testingAppendedCorruption: (@Sendable (inout Data) -> Void)?
+    @TaskLocal static var testingNameCheckBudget: Int?
+    @TaskLocal static var testingNameCheckMinimumEntries: Int?
 
     @_spi(Testing) public enum CommitStrategy: Sendable, Equatable {
         case unchanged, appendOnly, inPlacePatch, rebuild, rebuildThenAppend, stagedRebuild
@@ -180,6 +186,7 @@ public final class ArchiveUpdater: ArchiveEditing {
                 pathReservations?.remove(renamed[index] ?? entry.name, directory: entry.kind == .directory)
                 removed.insert(index)
                 renamed.removeValue(forKey: index)
+                excluded[index] = true
             }
             writerPathsNeedRefresh = true
         }
@@ -193,12 +200,17 @@ public final class ArchiveUpdater: ArchiveEditing {
             guard !removed.contains(index), let reader else { throw UpdaterError.invalidEntryIndex(index) }
             let directory = reader.entries[index].kind == .directory
             let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .zip)
-            let pathReservations = reservations()
-            indexAppendedPaths()
-            pathReservations.remove(renamed[index] ?? reader.entries[index].name, directory: directory)
-            try pathReservations.validate(name, directory: directory)
-            pathReservations.insert(name, directory: directory)
+            if pathReservations == nil, canScanNames {
+                try checkLiveName(name, directory: directory, mode: .reservations, excluding: index)
+            } else {
+                let pathReservations = reservations()
+                indexAppendedPaths()
+                pathReservations.remove(renamed[index] ?? reader.entries[index].name, directory: directory)
+                try pathReservations.validate(name, directory: directory)
+                pathReservations.insert(name, directory: directory)
+            }
             renamed[index] = name
+            excluded[index] = true
             writerPathsNeedRefresh = true
         }
     }
@@ -208,8 +220,34 @@ public final class ArchiveUpdater: ArchiveEditing {
     }
 
     private var existingPaths: [(String, Bool)] {
-        (reader?.entries ?? []).filter { !removed.contains($0.index) }
-            .map { (renamed[$0.index] ?? $0.name, $0.kind == .directory) }
+        let entries = reader?.entries ?? []
+        if !removed.isEmpty {
+            return entries.filter { !removed.contains($0.index) }
+                .map { (renamed[$0.index] ?? $0.name, $0.kind == .directory) }
+        }
+        // 少数の改名で、全件の dictionary 検索を繰り返さない。
+        var paths = entries.map { ($0.name, $0.kind == .directory) }
+        for (index, name) in renamed { paths[index].0 = name }
+        return paths
+    }
+
+    private var canScanNames: Bool {
+        Int(layout.count) >= (Self.testingNameCheckMinimumEntries ?? 2_048)
+            && nameCheckScanCount < (Self.testingNameCheckBudget ?? 4)
+    }
+
+    private func checkLiveName(_ name: String, directory: Bool, mode: LiveNameCheck.Mode,
+                               excluding index: Int? = nil) throws {
+        if liveNameCheck == nil {
+            let entries = reader?.entries ?? []
+            liveNameCheck = LiveNameCheck(count: entries.count) { index in
+                let entry = entries[index]
+                return (entry.name, entry.kind == .directory)
+            }
+        }
+        nameCheckScanCount += 1
+        try liveNameCheck!.validate(name, directory: directory, mode: mode, excluded: excluded,
+                                   excluding: index, renamed: renamed, appended: writer?.appendedPaths ?? [])
     }
 
     private func reservations() -> EditPathReservations {
@@ -365,7 +403,7 @@ public final class ArchiveUpdater: ArchiveEditing {
 
     private func preparedWriter() throws -> ArchiveWriter {
         if let writer {
-            if writerPathsNeedRefresh {
+            if writerPathsNeedRefresh, writer.existingPathCheck == nil {
                 writer.replaceExistingPaths(existingPaths)
                 writerPathsNeedRefresh = false
             }
@@ -382,7 +420,20 @@ public final class ArchiveUpdater: ArchiveEditing {
             identity: (ownedOutput!.identity.device, ownedOutput!.identity.inode), format: .zip, options: options,
             zipSalt: { try hook?(16) ?? EncryptionPrimitives.random(count: 16) })
         self.writer = writer
-        try writer.prepareAppend(at: position, existingPaths: existingPaths, recordBase: layout.centralOffset)
+        if canScanNames {
+            try writer.prepareAppend(at: position, existingPaths: [], recordBase: layout.centralOffset)
+            writer.existingPathCheck = { [unowned self] name, directory in
+                if self.canScanNames {
+                    try self.checkLiveName(name, directory: directory, mode: .writer)
+                } else {
+                    self.writer!.replaceExistingPaths(self.existingPaths)
+                    self.writer!.existingPathCheck = nil
+                    self.writerPathsNeedRefresh = false
+                }
+            }
+        } else {
+            try writer.prepareAppend(at: position, existingPaths: existingPaths, recordBase: layout.centralOffset)
+        }
         writerPathsNeedRefresh = false
         return writer
     }
