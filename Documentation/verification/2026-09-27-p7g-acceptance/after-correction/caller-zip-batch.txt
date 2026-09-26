@@ -1,0 +1,36 @@
+main thread samples: 449
+wait-leaf samples: 18  busy: .959
+-- leaf functions (libsystem_kernel / libz / libsystem_platform)
+82 lstat
+22 getattrlistbulk
+17 __workq_kernreturn
+6 open
+6 fstat
+6 __open
+5 mach_absolute_time
+4 _platform_memmove
+3 __psynch_mutexdrop
+3 __getattrlist
+1 write
+1 _platform_memcmp
+1 __psynch_cvwait
+-- ArchiveWriter.swift lines (recursion lines aggregate nested samples)
+0 + :
+0 + 1
+0 + 181
+0 + 183
+2 0 ArchiveWriter.emitCompleteZip(_:data:crc:addition:)
+13 572 ArchiveWriter.reserveEntryName(_:directory:)
+2 575 ArchiveWriter.reserveEntryName(_:directory:)
+3 579 ArchiveWriter.reserveEntryName(_:directory:)
+2 581 ArchiveWriter.reserveEntryName(_:directory:)
+2 583 ArchiveWriter.reserveEntryName(_:directory:)
+1 584 ArchiveWriter.reserveEntryName(_:directory:)
+3 753 ArchiveWriter.emitCompleteZip(_:data:crc:addition:)
+2 754 ArchiveWriter.emitCompleteZip(_:data:crc:addition:)
+4 755 ArchiveWriter.emitCompleteZip(_:data:crc:addition:)
+2 814 ArchiveWriter.write(_:addition:)
+1 816 ArchiveWriter.write(_:addition:)
+2 825 ArchiveWriter.flushZipOutput()
+12 845 ArchiveWriter.compression(name:mode:size:)
+183 894 ArchiveWriter.add(_:events:)

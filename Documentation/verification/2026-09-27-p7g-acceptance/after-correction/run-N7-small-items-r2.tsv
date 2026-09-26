@@ -1,0 +1,7 @@
+tool	format	corpus	threads	wall_s	peak_rss_mib	user_s	output_bytes
+gyoshuku-bench	zip	small	8	2.470	81.59	2.750	66456798
+gyoshuku-bench	tgz	small	8	2.210	94.16	4.170	53017427
+gyoshuku-bench	tbz	small	8	2.240	136.03	6.350	40101196
+gyoshuku-bench	txz	small	8	6.600	574.20	43.220	39352656
+gyoshuku-bench	7z	small	8	3.300	222.56	15.290	66978862
+gyoshuku-bench	lha	small	8	2.810	81.02	4.790	63200923
