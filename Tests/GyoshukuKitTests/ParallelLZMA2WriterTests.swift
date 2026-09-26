@@ -14,11 +14,12 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let directory = try ZipTestSupport.directory("parallel-7z-chunks")
         let items = [SevenZipTestSupport.Expected(name: "large.txt", data: Self.payload)]
         let expected = try serialArchive(items)
-        for threads in [1, 4, 8] {
-            let url = directory.appendingPathComponent("threads-\(threads).7z")
+        for (threads, drain) in [(1, false), (4, false), (8, false), (1, true), (8, true)] {
+            let url = directory.appendingPathComponent("threads-\(threads)-\(drain).7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
                                                  options: WriterOptions(compressionThreads: threads), lzmaChunkSize: Self.chunkSize)
             try writer.add(data: items[0].data, as: items[0].name, modificationDate: ZipTestSupport.date)
+            if drain { try writer.finishAdditions(progress: { _ in }) }
             try writer.finish()
             XCTAssertEqual(try Data(contentsOf: url), expected)
             try verify(url, items: items)

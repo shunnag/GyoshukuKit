@@ -412,6 +412,64 @@ snapshot の dev/ino が一致する場合だけ消す。成功時も snapshot �
 この段階では total は commit 中の移動・patch・CD・終端の書込み byte であり、drain 中の追加 data は含まない。
 callback を呼出しの外に保持せず、throw は取消しと同じく原本を保って作業ファイルを片付ける。
 
+### 追加・書き直しと圧縮待ちの byte 進捗（P6-G）
+
+`ArchiveEditing.add(contentsOf:as:ownerIDs:progress:)` と writer の `add(contentsOf:as:progress:)` は、
+一回の呼出しで読む通常ファイルの byte を数える。通常ファイルの total は lstat の size、symlink は 0。
+directory は progress があるときだけ、追加と同じ名前順・symlink を辿らない lstat の事前走査で合計する。
+元の lstat / 出力との同一性、O_NOFOLLOW と fstat、読後の fstat の順序は維持する。
+事前走査後の子孫の変更は既存の検査で扱い、観測値は total へ clamp する。progress が nil のときは
+事前走査・meter・追加の read wrapper を作らない。数える時点は writer へ渡した時なので、圧縮完了前に最終通知が来る。
+
+新しい session は既存の `ArchiveUpdater.CommitProgress` と `CommitProgressMeter` を使い、最初の
+`(0, total)` で total を固定する。completed は単調で total 以下、成功時の最終通知は一度だけ
+`(total, total)`（total が 0 なら開始と完了の二回）。通知は 4 MiB 以上の前進時と開始・完了で、
+回数は `ceil(total / 4 MiB) + 2` 以下。callback は呼出側の thread で同期実行し、保持しない。
+throw は元の error のまま失敗し、既存の cleanup 契約に従う（単体 ZIP writer の部分出力は呼出側が削除する）。
+
+`finishAdditions(progress:)` は受取済みで未出力の入力を drain し、追加口を閉じる。終端は finish / commit が書く。
+total は開始時の組立中 buffer と pipeline の未出力重みの和。tar の入力重みには header と padding も含む。
+出力ごとに重みを進め、tar の組立中 buffer は終端前と同じ境界で送る。gzip の辞書も維持するので、
+呼ぶ場合と呼ばない場合で出力 byte は一致する。二度目は `(0, 0)` を二回通知する。
+閉じた後の add・add(data:)・addDirectory は perform の catch の外で invalidState を返し、instance を失敗にしない。
+writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より前に閉鎖を検査する。
+削除・改名・commit は引き続き可能。既存 updater の commit の total・通知・strategy は変えない。
+
+検証済み options の `maximumPendingInputBytes(for:)` は、並列数 `t = resolvedCompressionThreads` と
+以下の形式別定数から決まる。tar.xz は P14 の配置を使う。
+
+| 形式 | 上界（byte） |
+|---|---|
+| ZIP | `t × DeflateBlock.size`（stored または ZipCrypto は 0） |
+| tar | 0 |
+| tar.gz | `(t + 1) × DeflateBlock.size` |
+| tar.bz2 | `(t + 1) × (5 × bzip2Level × 100,000)` |
+| tar.xz | `t × 16 MiB + 4 MiB + (t > 1 ? (t + 1) × 64 KiB : 0)` |
+| 7z | `t × 16 MiB` |
+| LHA | `t > 1 ? t × 1 MiB : 0` |
+
+tar.xz は通常 block が最大 t 個、軽量 block と合わせて最大 `2t + 1` 個。最大 byte は通常 t 個と
+軽量 `t + 1` 個で得られる。add から戻ると大きな member の header 群と本文は既に送信済みで、
+組立中は小さな member の packing 上限 4 MiB 以下。t = 1 は 20 MiB、t = 8 は 132.5625 MiB。
+drain の加算は item 単位で、packed block は 4 MiB 以下、大きな piece は 16 MiB 以下、軽量 block は 64 KiB 以下。
+4 MiB は中間通知の最小間隔であり、16 MiB piece を一度に加算する場合は未通知分と合わせて 20 MiB 未満の前進になる。
+rewriter の最後の finish は、実際の待ちより大きかった D の予算の残りも完了にする。
+
+rewriter の `.end` は add 時には記録して `(0, 0)` を二回通知し、`readsAdditionsDuringCommit` が true。
+`.beginning` は writer の追加 session を使う。rewriter の finishAdditions は自身の入口だけを閉じて
+`(0, 0)` を二回通知する。carry との間に圧縮境界を作らない。
+commit の total は `C + A + D`。C は生存 entry と hard link 実体化に伴う退避・再読取、A は記録した
+追加の通常ファイル・data・directory 子孫の byte（beginning は 0）、
+`D = min(C + A + 開始時の待ち, maximumPendingInputBytes)`。
+directory・tar hard link・linkPath symlink・不明サイズ entry の読取は C に数えない。
+carry と追加の後に writer を drain し、finish 後、原本の置換前に最終通知する。didCarry の回数と引数は維持する。
+
+観測だけの既定実装は `(0, 0)` の前後で、ownerIDs が nil なら従来の二引数 add、指定時は ownerIDs 付き add を呼ぶ。
+既定の finishAdditions は `(0, 0)` を二回、readsAdditionsDuringCommit は false。
+open、非 clone volume で最初の追加に必要な prefix のコピー・再符号化、reader adoption、公開前の
+verification open / output probe / entry comparison、公開・再読込には新しい callback を足さない。
+これらの区間は呼出側が別に扱う。従来の ZIP commit では最終通知の total が変わり得るため、共通の利用側は通知ごとの比を使う。
+
 ### 編集を断る三つの門番
 
 読み取りは従来どおり行い、**編集だけ**を断る。理由を呼出側へ返す。

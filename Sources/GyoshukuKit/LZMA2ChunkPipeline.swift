@@ -10,6 +10,7 @@ final class LZMA2ChunkPipeline<Tag> {
     }
 
     private let pipeline: OrderedChunkPipeline<Data, Output, Tag>
+    var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
     init(threads: Int, checksum: Bool = false, lightWeightLimit: UInt64 = 0,
          encoder: @escaping Encoder = LZMA2Compressor.encode) {
@@ -18,11 +19,15 @@ final class LZMA2ChunkPipeline<Tag> {
         }
     }
 
-    func submit(_ input: Data?, tag: Tag, weight: UInt64 = 0, emit: (Tag, Output?) throws -> Void) throws {
+    func submit(_ input: Data?, tag: Tag, weight: UInt64 = 0,
+                didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         if let input { precondition(!input.isEmpty && input.count <= Self.chunkSize) }
-        try pipeline.submit(input, tag: tag, weight: weight, emit: emit)
+        try pipeline.submit(input, tag: tag, weight: weight, didEmit: didEmit, emit: emit)
     }
 
+    func drain(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
+        try pipeline.drain(didEmit: didEmit, emit: emit)
+    }
     func finish(emit: (Tag, Output?) throws -> Void) throws { try pipeline.finish(emit: emit) }
     func abandon() { pipeline.abandon() }
 }

@@ -4,6 +4,9 @@ private import CGyoshukuBzip2
 /// Uses the system libbz2 low-level streaming API, not an external process.
 /// The bz_stream has a stable address for its entire native lifetime.
 final class Bzip2Compressor: TarCompressor {
+    // この同期 codec は ParallelBzip2Compressor の内部で一つの stream を完結させる。
+    var pendingInputBytes: UInt64 { 0 }
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {}
     private let stream: UnsafeMutablePointer<bz_stream>
     private var initialized = false
     private var finished = false

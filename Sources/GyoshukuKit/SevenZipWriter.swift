@@ -52,6 +52,12 @@ final class SevenZipWriter {
 
     deinit { abort() }
 
+    var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
+        try pipeline.drain(didEmit: didEmit, emit: emit)
+    }
+
     func add(name: String, mode: UInt16, size: UInt64, date: Date, read: (Int) throws -> Data) throws {
         try Task.checkCancellation()
         let record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
@@ -77,7 +83,7 @@ final class SevenZipWriter {
             if remaining == 0 {
                 guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
             }
-            try pipeline.submit(input, tag: ChunkTag(entry: entry, isLast: remaining == 0), emit: emit)
+            try pipeline.submit(input, tag: ChunkTag(entry: entry, isLast: remaining == 0), weight: UInt64(input.count), emit: emit)
         }
         if size == 0 {
             guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }

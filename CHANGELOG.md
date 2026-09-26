@@ -20,6 +20,12 @@
 
 ### 追加
 
+- ディスク追加の byte 進捗、`finishAdditions(progress:)`、`readsAdditionsDuringCommit`、
+  `ArchiveRewriter.commit(progress:didCarry:)` と `WriterOptions.maximumPendingInputBytes(for:)`。
+  追加の読取と圧縮待ちを分けて同期通知し、既存の出力 byte と updater の commit 進捗を保つ。
+  bench に `--progress` と `--mode recursive|items` を追加する。
+  [P6-G 検証記録](Documentation/verification/2026-09-27-p6g-progress.md) に上限値の導出と検証を記載する。
+
 - `SevenZipUpdater.open(url:password:output:options:)` と `ArchiveReencrypting`。
   7z の運ぶ pack・coder・IV・CRC と file の生の名前・時刻・属性・anti・StartPos を保ち、
   改名は header、削除は移動範囲、追加は末尾だけを書く。solid の一部削除はその folder だけを

@@ -4,6 +4,7 @@ internal import Darwin
 struct DiskSignature {
     private let identity: ZipFileIdentity
     var isDirectory: Bool { identity.mode & S_IFMT == S_IFDIR }
+    var inputByteCount: UInt64 { identity.mode & S_IFMT == S_IFREG ? UInt64(max(0, identity.size)) : 0 }
 
     init(_ info: stat) { identity = ZipFileIdentity(info) }
 

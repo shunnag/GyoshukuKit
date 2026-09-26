@@ -3,9 +3,11 @@ import GyoshukuKit
 private import Darwin
 
 private let usage = """
-Usage: gyoshuku-bench <zip|tar|tgz|tbz|txz|7z|lha> <output> <source>... [--level N] [--threads N]
+Usage: gyoshuku-bench <zip|tar|tgz|tbz|txz|7z|lha> <output> <source>... [--level N] [--threads N] [--progress] [--mode recursive|items]
   --level N    deflateLevel, 0...9 (ZIP / tar.gz; default 6)
   --threads N  compressionThreads, 1...64 (default: library auto selection)
+  --progress   Observe add and finishAdditions byte progress
+  --mode MODE  recursive (default) or sorted preorder items; enumeration is timed
   --           Treat remaining arguments as source paths
 Output must be a new file. Directories are added recursively under their basename.
 """
@@ -33,10 +35,20 @@ private func benchmark(_ arguments: [String]) throws {
     var sources: [URL] = []
     var index = 2
     var parseOptions = true
+    var reportsProgress = false
+    var mode = "recursive"
     while index < arguments.count {
         let argument = arguments[index]
         if parseOptions && argument == "--" {
             parseOptions = false
+        } else if parseOptions && argument == "--progress" {
+            reportsProgress = true
+        } else if parseOptions && argument == "--mode" {
+            guard index + 1 < arguments.count, ["recursive", "items"].contains(arguments[index + 1]) else {
+                throw ArgumentError(description: "--mode requires recursive or items.")
+            }
+            index += 1
+            mode = arguments[index]
         } else if parseOptions && (argument == "--level" || argument == "--threads") {
             let range = argument == "--level" ? 0...9 : 1...64
             guard index + 1 < arguments.count,
@@ -78,9 +90,32 @@ private func benchmark(_ arguments: [String]) throws {
     let clock = ContinuousClock()
     let start = clock.now
     let writer = try ArchiveWriter.create(url: output, format: format, options: options)
-    for source in sources {
-        try writer.add(contentsOf: source, as: source.lastPathComponent)
+    func add(_ source: URL, as path: String) throws {
+        if reportsProgress { try writer.add(contentsOf: source, as: path, progress: { _ in }) }
+        else { try writer.add(contentsOf: source, as: path) }
     }
+    if mode == "items" {
+        var items: [(url: URL, path: String, directory: Bool)] = []
+        func walk(_ url: URL, path: String) throws {
+            var info = stat()
+            guard lstat(url.path, &info) == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
+            let directory = info.st_mode & S_IFMT == S_IFDIR
+            items.append((url, path, directory))
+            if directory {
+                let children = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                    .map { (url: $0, name: $0.lastPathComponent) }.sorted { $0.name < $1.name }
+                for child in children { try walk(child.url, path: path + "/" + child.name) }
+            }
+        }
+        for source in sources { try walk(source, path: source.lastPathComponent) }
+        for item in items {
+            if item.directory { try writer.addDirectory(item.path) }
+            else { try add(item.url, as: item.path) }
+        }
+    } else {
+        for source in sources { try add(source, as: source.lastPathComponent) }
+    }
+    if reportsProgress { try writer.finishAdditions(progress: { _ in }) }
     try writer.finish()
     let elapsed = start.duration(to: clock.now).components
     let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18

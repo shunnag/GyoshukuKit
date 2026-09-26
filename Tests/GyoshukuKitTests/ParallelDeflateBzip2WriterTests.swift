@@ -39,17 +39,22 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         return [.init(name: "large", data: Data(data.prefix(2 * chunkSize + 137)))] + items.dropFirst()
     }
 
+    static func addProgressFixture(to writer: ArchiveWriter) throws {
+        try add(items.filter { writer.format != .lha || $0.mode & 0xF000 != 0xA000 }, to: writer)
+    }
+
     func testZIPThreadCountsAndAESAreByteIdenticalAtLevels6And9() throws {
         let directory = try ZipTestSupport.directory("m8-zip-determinism")
         for level in [6, 9] {
             for encrypted in [false, true] {
                 var expected: Data?
-                for threads in [1, 4, 8] {
-                    let url = directory.appendingPathComponent("\(level)-\(encrypted)-\(threads).zip")
+                for (threads, drain) in [(1, false), (4, false), (8, false), (1, true), (8, true)] {
+                    let url = directory.appendingPathComponent("\(level)-\(encrypted)-\(threads)-\(drain).zip")
                     let options = WriterOptions(deflateLevel: level, password: encrypted ? Self.password : nil,
                                                 compressionThreads: threads)
                     let writer = try Self.writer(url, format: .zip, options: options)
                     try Self.add(Self.items, to: writer)
+                    if drain { try writer.finishAdditions(progress: { _ in }) }
                     try writer.finish()
                     let data = try Data(contentsOf: url)
                     if let expected { XCTAssertEqual(data, expected) } else { expected = data }
@@ -94,11 +99,12 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
             let items = format == .tarBzip2 ? Self.bzip2Items : Self.items
             for level in format == .tarGzip ? [6, 9] : [1, 9] {
                 var expected: Data?
-                for threads in [1, 4, 8] {
-                    let url = directory.appendingPathComponent("\(format)-\(level)-\(threads).tar.\(format == .tarGzip ? "gz" : "bz2")")
+                for (threads, drain) in [(1, false), (4, false), (8, false), (1, true), (8, true)] {
+                    let url = directory.appendingPathComponent("\(format)-\(level)-\(threads)-\(drain).tar.\(format == .tarGzip ? "gz" : "bz2")")
                     let writer = try Self.writer(url, format: format,
                         options: WriterOptions(deflateLevel: level, bzip2Level: level, compressionThreads: threads))
                     try Self.add(items, to: writer)
+                    if drain { try writer.finishAdditions(progress: { _ in }) }
                     try writer.finish()
                     let data = try Data(contentsOf: url)
                     if let expected { XCTAssertEqual(data, expected) } else { expected = data }

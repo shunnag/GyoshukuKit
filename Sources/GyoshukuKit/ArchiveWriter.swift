@@ -5,7 +5,7 @@ private import Darwin
 ///
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
-/// add / finish が失敗した instance は再利用できない。
+/// add / finish が失敗した instance は再利用できない（追加を閉じた後の誤った add を除く）。
 /// ZIP / 圧縮tar / 7z / LHA の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
 /// ZIP の部分出力は呼出側で削除する。tar（圧縮tarを含む）/ 7z / LHA は失敗・未完了の破棄時に削除する。
 public final class ArchiveWriter {
@@ -39,6 +39,8 @@ public final class ArchiveWriter {
     var existingPathCheck: ((String, Bool) throws -> Void)?
     private enum State { case writing, finished, failed }
     private var state = State.writing
+    private var additionsClosed = false
+    @TaskLocal static var testingAfterPreWalk: (@Sendable () throws -> Void)?
     private static let chunkSize = 256 * 1024
     private static let compressedExtensions: Set<String> = [
         "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
@@ -146,15 +148,33 @@ public final class ArchiveWriter {
         try add(contentsOf: url, as: path) { try FileRead.readChunk($0.fileDescriptor, upTo: $1) }
     }
 
-    // 通常の source 読取と stat 検査を共有し、読取中の変更も決定的に検証できる。
-    func add(contentsOf url: URL, as path: String, read: (FileHandle, Int) throws -> Data) throws {
-        try perform { try addDisk(url, as: path, read: read) }
+    /// 通常ファイルの読取 byte を同期通知する。directory は名前順に事前走査して total を固定する。
+    /// 圧縮の完了前に (total, total) になることがある。残りは finishAdditions が報告する。
+    public func add(contentsOf url: URL, as path: String,
+                    progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try add(contentsOf: url, as: path, ownerIDs: nil, progress: progress)
     }
 
-    func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?, expected: DiskSignature? = nil) throws {
-        try perform {
+    // 通常の source 読取と stat 検査を共有し、読取中の変更も決定的に検証できる。
+    func add(contentsOf url: URL, as path: String, read: (FileHandle, Int) throws -> Data) throws {
+        try performAddition { try addDisk(url, as: path, read: read) }
+    }
+
+    func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?, expected: DiskSignature? = nil,
+             progress: ((ArchiveUpdater.CommitProgress) throws -> Void)? = nil) throws {
+        try performAddition {
             try validateOwnerIDs(ownerIDs)
-            try addDisk(url, as: path, ownerIDs: ownerIDs, expected: expected) {
+            try addDisk(url, as: path, ownerIDs: ownerIDs, expected: expected, progress: progress) {
+                try FileRead.readChunk($0.fileDescriptor, upTo: $1)
+            }
+        }
+    }
+
+    func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?, expected: DiskSignature,
+             meter: CommitProgressMeter?) throws {
+        try performAddition {
+            try validateOwnerIDs(ownerIDs)
+            try addDisk(url, as: path, ownerIDs: ownerIDs, expected: expected, meter: meter) {
                 try FileRead.readChunk($0.fileDescriptor, upTo: $1)
             }
         }
@@ -170,7 +190,7 @@ public final class ArchiveWriter {
     }
 
     func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform {
+        try performAddition {
             try validateOwnerIDs(ownerIDs)
             try addEntry(path: path, mode: 0o40755, size: 0, date: modificationDate ?? Date(), atime: nil,
                          owners: ownerIDs.map { ($0.user, $0.group) }) { _ in Data() }
@@ -184,17 +204,56 @@ public final class ArchiveWriter {
     public func add(
         data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil
     ) throws {
-        try perform {
+        try add(data: data, as: path, modificationDate: modificationDate, permissions: permissions, meter: nil)
+    }
+
+    func add(data: Data, as path: String, modificationDate: Date?, permissions: UInt16?, meter: CommitProgressMeter?) throws {
+        try performAddition {
             var offset = 0
             try addEntry(
                 path: path, mode: 0o100000 | ((permissions ?? 0o644) & 0o7777), size: UInt64(data.count),
                 date: modificationDate ?? Date(), atime: nil, owners: nil
             ) { requested in
                 let count = min(requested, data.count - offset)
+                try meter?.advance(UInt64(count))
                 defer { offset += count }
                 return data.subdata(in: (data.startIndex + offset)..<(data.startIndex + offset + count))
             }
         }
+    }
+
+    var pendingInputBytes: UInt64 {
+        (zipPipeline?.pendingInputBytes ?? 0) + (tarWriter?.pendingInputBytes ?? 0)
+            + (sevenZipWriter?.pendingInputBytes ?? 0) + (lhaWriter?.pendingInputBytes ?? 0)
+    }
+
+    /// 受取済みの入力を出力し、追加を閉じる。終端は finish() が書く。
+    /// total は呼出し時の待ちの入力 byte で、maximumPendingInputBytes(for:) 以下。
+    /// 二度目は (0, 0) を二度通知する。閉じた後の誤った追加で writer は失敗状態にならない。
+    public func finishAdditions(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try perform {
+            additionsClosed = true
+            let meter = progress.map { CommitProgressMeter(total: pendingInputBytes, progress: $0) }
+            try meter?.start()
+            try finishAdditions(meter: meter)
+            try meter?.finish()
+        }
+    }
+
+    func finishAdditions(meter: CommitProgressMeter?) throws {
+        try perform {
+            additionsClosed = true
+            let advance = meter.map { meter in { (count: UInt64) in try meter.advance(count) } }
+            try zipPipeline?.drain(didEmit: advance, emit: emitDeflate)
+            try tarWriter?.finishAdditions(didEmit: advance)
+            try sevenZipWriter?.finishAdditions(didEmit: advance)
+            try lhaWriter?.finishAdditions(didEmit: advance)
+        }
+    }
+
+    private func performAddition(_ body: () throws -> Void) throws {
+        guard !additionsClosed else { throw WriterError.invalidState }
+        try perform(body)
     }
 
     // updater も同じ追加処理を使う。既存名は衝突検査にだけ使い、保存 byte は変更しない。
@@ -352,7 +411,9 @@ public final class ArchiveWriter {
     }
 
     private func addDisk(_ url: URL, as path: String, ownerIDs: ArchiveOwnerIDs? = nil,
-                         expected: DiskSignature? = nil, read: (FileHandle, Int) throws -> Data) throws {
+                         expected: DiskSignature? = nil,
+                         progress: ((ArchiveUpdater.CommitProgress) throws -> Void)? = nil,
+                         meter suppliedMeter: CommitProgressMeter? = nil, read: (FileHandle, Int) throws -> Data) throws {
         try Task.checkCancellation()
         guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
         var info = stat()
@@ -369,6 +430,13 @@ public final class ArchiveWriter {
         guard !isOutput else {
             throw WriterError.invalidPath("source contains output archive")
         }
+        let session: CommitProgressMeter?
+        if let progress {
+            let total = try Self.inputByteCount(url, info: info)
+            session = CommitProgressMeter(total: total, progress: progress)
+            try session?.start()
+        } else { session = nil }
+        let meter = session ?? suppliedMeter
         let date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec))
         let atime = Date(timeIntervalSince1970: Double(info.st_atimespec.tv_sec))
         let owners = ownerIDs.map { ($0.user, $0.group) } ?? (options.preserveOwnerIDs ? (info.st_uid, info.st_gid) : nil)
@@ -384,7 +452,7 @@ public final class ArchiveWriter {
             }
             for child in children {
                 try autoreleasepool {
-                    try addDisk(child.url, as: base + "/" + child.name, ownerIDs: ownerIDs, read: read)
+                    try addDisk(child.url, as: base + "/" + child.name, ownerIDs: ownerIDs, meter: meter, read: read)
                 }
             }
         case S_IFLNK:
@@ -418,9 +486,16 @@ public final class ArchiveWriter {
             }
             let hardLink = try tarWriter?.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
                                                         signature: Self.linkSignature(info))
-            try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
-                         owners: owners, hardLink: hardLink) {
-                try read(input, $0)
+            if let meter {
+                try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
+                             owners: owners, hardLink: hardLink) {
+                    let bytes = try read(input, $0)
+                    try meter.advance(UInt64(bytes.count))
+                    return bytes
+                }
+            } else {
+                try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
+                             owners: owners, hardLink: hardLink) { try read(input, $0) }
             }
             var after = stat()
             guard fstat(fd, &after) == 0 else { throw WriterError.io(operation: "fstat after read", code: errno) }
@@ -439,6 +514,37 @@ public final class ArchiveWriter {
         default:
             throw WriterError.unsupportedFileType(url.path)
         }
+        try session?.finish()
+    }
+
+    // open はせず、追加と同じ名前順で lstat する。symlink の target は数えない。
+    static func inputByteCount(_ url: URL) throws -> UInt64 {
+        var info = stat()
+        guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+        guard lstat(url.path, &info) == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
+        return try inputByteCount(url, info: info)
+    }
+
+    private static func inputByteCount(_ url: URL, info: stat) throws -> UInt64 {
+        func walk(_ url: URL, info: stat) throws -> UInt64 {
+            try Task.checkCancellation()
+            if info.st_mode & S_IFMT == S_IFREG { return UInt64(max(0, info.st_size)) }
+            guard info.st_mode & S_IFMT == S_IFDIR else { return 0 }
+            let children = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                .map { (url: $0, name: $0.lastPathComponent) }.sorted { $0.name < $1.name }
+            var total: UInt64 = 0
+            for child in children {
+                try autoreleasepool {
+                    var childInfo = stat()
+                    guard lstat(child.url.path, &childInfo) == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
+                    total = try checkedAdd(total, walk(child.url, info: childInfo))
+                }
+            }
+            return total
+        }
+        let total = try walk(url, info: info)
+        if info.st_mode & S_IFMT == S_IFDIR { try testingAfterPreWalk?() }
+        return total
     }
 
     func reserveEntryName(_ path: String, directory: Bool) throws -> String {
@@ -466,6 +572,7 @@ public final class ArchiveWriter {
         hardLink: String? = nil,
         read: (Int) throws -> Data
     ) throws {
+        guard state == .writing, !additionsClosed else { throw WriterError.invalidState }
         let directory = mode & 0xF000 == 0x4000
         let name = try reserveEntryName(path, directory: directory)
         if let tarWriter {
@@ -555,7 +662,7 @@ public final class ArchiveWriter {
             let block = DeflateBlock(input: input, dictionary: dictionary, final: remaining == 0)
             dictionary = remaining == 0 ? Data() : DeflateBlock.dictionary(from: input)
             try pipeline.submit(block, tag: DeflateTag(entry: first ? entry : nil, crc: remaining == 0 ? crc : nil),
-                                emit: emitDeflate)
+                                weight: UInt64(input.count), emit: emitDeflate)
             first = false
         }
     }
@@ -600,7 +707,7 @@ public final class ArchiveWriter {
         entry.crc = try compressEntry(name: name, size: entry.size, method: entry.method, read: read, emit: spool.write)
         entry.compressedSize = try checkedAdd(spool.size, 12)
         var encryptor = ZipCryptoEncryptor(password: password)
-        var header = try EncryptionPrimitives.random(count: 11)
+        var header = try ArchiveUpdater.testingRandomBytes?(11) ?? EncryptionPrimitives.random(count: 11)
         header.append(UInt8(truncatingIfNeeded: entry.crc >> 24))
         try write(entry.local())
         try write(encryptor.encrypt(header))

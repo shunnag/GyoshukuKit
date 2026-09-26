@@ -41,8 +41,10 @@ public final class ArchiveUpdater: ArchiveEditing {
     @_spi(Testing) public private(set) var lastCommitStrategy: CommitStrategy?
 
     public struct CommitProgress: Sendable, Equatable {
-        /// commit の仕事量。照合の読取・再暗号化の鍵導出も含み、事前の add は含まない。
-        /// 各 updater が計画後に total を固定し、単調に進み、最後は 0 を含め total に一致する。
+        /// 呼出しごとの仕事量。add は追加元の読取、finishAdditions は未出力の入力 byte。
+        /// updater の commit は照合の読取・再暗号化の鍵導出も含み、事前の add は含まない。
+        /// 単調に進み、成功時は 0 を含め total に一致する。ZIP commit は最終 total が変わり得る。
+        /// 新しい追加・追加の終わり・rewriter commit の session は最初の total を固定する。
         public let completedBytes: UInt64
         public let totalBytes: UInt64
     }
@@ -64,6 +66,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     private var appendStart: UInt64?
     private enum State { case adding, committed, failed }
     private var state = State.adding
+    private var additionsClosed = false
 
     private init(url: URL, output: URL?, options: WriterOptions, source: ZipUpdateSource,
                  sourceSnapshot: ArchiveSourceSnapshot?, layout: ZipUpdateLayout, reader: ArchiveReader?,
@@ -139,26 +142,50 @@ public final class ArchiveUpdater: ArchiveEditing {
                               sourceSnapshot: snapshot, layout: layout, reader: reader, directory: directory)
     }
 
+    public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?,
+                    progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try performAddition {
+            try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs, progress: progress)
+        }
+    }
+
+    public func finishAdditions(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try perform {
+            additionsClosed = true
+            if let writer { try writer.finishAdditions(progress: progress) }
+            else {
+                let meter = CommitProgressMeter(total: 0, progress: progress)
+                try meter.start()
+                try meter.finish()
+            }
+        }
+    }
+
+    private func performAddition(_ body: () throws -> Void) throws {
+        guard !additionsClosed else { throw UpdaterError.invalidState }
+        try perform(body)
+    }
+
     public func add(contentsOf url: URL, as path: String) throws {
-        try perform { try preparedWriter().add(contentsOf: url, as: path) }
+        try performAddition { try preparedWriter().add(contentsOf: url, as: path) }
     }
 
     public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform { try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs) }
+        try performAddition { try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs) }
     }
 
     public func add(data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil) throws {
-        try perform {
+        try performAddition {
             try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions)
         }
     }
 
     public func addDirectory(_ path: String) throws {
-        try perform { try preparedWriter().addDirectory(path) }
+        try performAddition { try preparedWriter().addDirectory(path) }
     }
 
     public func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform { try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: ownerIDs) }
+        try performAddition { try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: ownerIDs) }
     }
 
     /// commit 時に既存 entry の暗号化を options にそろえる。圧縮データは作り直さない。

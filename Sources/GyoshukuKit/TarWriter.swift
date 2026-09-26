@@ -26,6 +26,12 @@ final class TarWriter {
 
     deinit { abort() }
 
+    var pendingInputBytes: UInt64 { compressor?.pendingInputBytes ?? 0 }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
+        try compressor?.finishAdditions(didEmit: didEmit, emit: emit)
+    }
+
     func hardLinkTarget(device: Int64, inode: UInt64, signature: [Int64]) throws -> String? {
         guard let previous = hardLinks[FileID(device: device, inode: inode)] else { return nil }
         guard previous.signature == signature else { throw WriterError.sourceChanged(previous.path) }

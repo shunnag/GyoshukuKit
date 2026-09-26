@@ -81,6 +81,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     private var destination: CompressedTarSpliceWriter?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
+    private var additionsClosed = false
     private var result: CompressedTarCommitResult?
 
     private init(snapshot: TarEditingSnapshot, entries: [ArchiveEntry], output: URL, format: ArchiveFormat,
@@ -139,16 +140,37 @@ public final class CompressedTarUpdater: ArchiveEditing {
         switch container { case .gzip: .tarGzip; case .bzip2: .tarBzip2; case .xz: .tarXZ; default: nil }
     }
 
+    public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?,
+                    progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try performAddition {
+            try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs, progress: progress)
+        }
+    }
+
+    public func finishAdditions(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try perform {
+            additionsClosed = true
+            let meter = CommitProgressMeter(total: 0, progress: progress)
+            try meter.start()
+            try meter.finish()
+        }
+    }
+
+    private func performAddition(_ body: () throws -> Void) throws {
+        guard !additionsClosed else { throw UpdaterError.invalidState }
+        try perform(body)
+    }
+
     public func add(contentsOf url: URL, as path: String) throws { try add(contentsOf: url, as: path, ownerIDs: nil) }
     public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform { try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs) }
+        try performAddition { try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs) }
     }
     public func add(data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil) throws {
-        try perform { try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions) }
+        try performAddition { try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions) }
     }
     public func addDirectory(_ path: String) throws { try addDirectory(path, modificationDate: nil, ownerIDs: nil) }
     public func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform { try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: ownerIDs) }
+        try performAddition { try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: ownerIDs) }
     }
     public func remove(entriesAt indices: [Int]) throws {
         try perform {

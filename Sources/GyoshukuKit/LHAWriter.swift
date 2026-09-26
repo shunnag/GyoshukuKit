@@ -8,7 +8,7 @@ final class LHAWriter {
     private var finished = false
     private var aborted = false
     private static let chunkSize = 256 * 1024
-    private static let compressionChunkSize = 1 * 1024 * 1024
+    static let compressionChunkSize = 1 * 1024 * 1024
     private let threads: Int
     private let encoder: @Sendable (Data) throws -> Data
     private struct Pending {
@@ -44,6 +44,12 @@ final class LHAWriter {
 
     deinit { abort() }
 
+    var pendingInputBytes: UInt64 { pipeline?.pendingInputBytes ?? 0 }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
+        try pipeline?.drain(didEmit: didEmit, emit: emit)
+    }
+
     func add(name: String, mode: UInt16, size: UInt64, date: Date, read: (Int) throws -> Data) throws {
         guard !finished, !aborted else { throw WriterError.invalidState }
         try Task.checkCancellation()
@@ -73,7 +79,7 @@ final class LHAWriter {
         if let pipeline {
             let directory = mode & 0xF000 == 0x4000
             try pipeline.submit(directory ? nil : input,
-                tag: Pending(entry: entry, crc: crc, input: input, directory: directory), emit: emit)
+                tag: Pending(entry: entry, crc: crc, input: input, directory: directory), weight: UInt64(input.count), emit: emit)
             return
         }
         let compressed = try encoder(input)

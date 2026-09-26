@@ -12,6 +12,12 @@ final class ParallelXZCompressor: TarCompressor {
     private var blockCount: UInt64 = 0
     private var started = false
     private var finished = false
+    var pendingInputBytes: UInt64 { UInt64(input.count) + pipeline.pendingInputBytes }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {
+        if !input.isEmpty { try submit(didEmit: didEmit, emit: emit) }
+        try pipeline.drain(didEmit: didEmit) { _, result in try self.emitBlock(result!, emit: emit) }
+    }
 
     init(threads: Int = WriterOptions().resolvedCompressionThreads,
          chunkSize: Int = ParallelXZCompressor.defaultBlockSize,
@@ -75,10 +81,10 @@ final class ParallelXZCompressor: TarCompressor {
         finished = true
     }
 
-    private func submit(emit: (Data) throws -> Void) throws {
+    private func submit(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Data) throws -> Void) throws {
         let block = input
         input = Data()
-        try pipeline.submit(block, tag: (), weight: UInt64(block.count)) { _, result in try self.emitBlock(result!, emit: emit) }
+        try pipeline.submit(block, tag: (), weight: UInt64(block.count), didEmit: didEmit) { _, result in try self.emitBlock(result!, emit: emit) }
     }
 
     private func emitBlock(_ result: LZMA2ChunkPipeline<Void>.Output, emit: (Data) throws -> Void) throws {

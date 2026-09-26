@@ -49,6 +49,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     private var destinationHandle: FileHandle?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
+    private var additionsClosed = false
     private static let chunkSize = 256 * 1024
 
     public let sourceFormat: KaitoKit.ArchiveFormat
@@ -56,6 +57,20 @@ public final class ArchiveRewriter: ArchiveEditing {
 
     /// 予約済みの削除・改名や追加を反映せず、常に open 時の名前を返す。
     public var entryNames: [String] { reader.entries.map(\.name) }
+
+    public var readsAdditionsDuringCommit: Bool { options.additionPlacement == .end }
+    var pendingInputBytes: UInt64 { writer?.pendingInputBytes ?? 0 }
+
+    /// 自身の追加の入口だけを閉じる。carry との間で圧縮 block を区切らない。
+    public func finishAdditions(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try perform {
+            additionsClosed = true
+            let meter = CommitProgressMeter(total: 0, progress: progress)
+            try meter.start()
+            try Task.checkCancellation()
+            try meter.finish()
+        }
+    }
 
     /// open 時に内部の reader が組み立てた分割巻と同一性を返す。単一ファイルは nil。
     /// checkUnchanged は open に渡した URL 自身のファイルだけを検査する。
@@ -220,20 +235,28 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform {
+        try add(contentsOf: url, as: path, ownerIDs: ownerIDs, progress: nil)
+    }
+
+    public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?,
+                    progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        try performAddition {
             try validateOwnerIDs(ownerIDs)
             if options.additionPlacement == .beginning {
-                try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs)
+                try preparedWriter().add(contentsOf: url, as: path, ownerIDs: ownerIDs, progress: progress)
             } else {
+                let meter = progress.map { CommitProgressMeter(total: 0, progress: $0) }
+                try meter?.start()
                 let signature = try DiskSignature.capture(url)
                 let name = try reserveAddition(path, directory: signature.isDirectory)
                 additions.append(.disk(url, name, ownerIDs, signature))
+                try meter?.finish()
             }
         }
     }
 
     public func add(data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil) throws {
-        try perform {
+        try performAddition {
             if options.additionPlacement == .beginning {
                 try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions)
             } else {
@@ -248,7 +271,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     public func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
-        try perform {
+        try performAddition {
             try validateOwnerIDs(ownerIDs)
             if options.additionPlacement == .beginning {
                 try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: ownerIDs)
@@ -309,8 +332,16 @@ public final class ArchiveRewriter: ArchiveEditing {
     /// didCarry は各 entry の完了後に呼び、throw は取消と同じく部分出力を削除する。
     /// 置換後の metadata 復元でエラーになった場合、内容の置換は既に完了している。
     public func commit(didCarry: ((Int, Int) throws -> Void)? = nil) throws {
+        try commit(progress: nil, didCarry: didCarry)
+    }
+
+    /// total = carry と退避の読取 + 記録した追加の読取 + 有界の圧縮待ち予算。
+    /// 同期 callback は公開前に完了し、throw は元の error のまま操作を失敗させる。
+    public func commit(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?,
+                       didCarry: ((Int, Int) throws -> Void)? = nil) throws {
         if state == .committed { return }
-        try perform {
+        var progressError: Error?
+        do { try perform {
             // didCarry からの再入で、確定した carry 順序や名前集合を変更させない。
             state = .committing
             try checkUnchanged()
@@ -322,6 +353,28 @@ public final class ArchiveRewriter: ArchiveEditing {
                 guard let target = hardLinkTargets[entry.index], !isTar || removed.contains(target) else { return nil }
                 return dataTargets[entry.index]
             })
+            let meter: CommitProgressMeter?
+            if let progress {
+                var reads: UInt64 = 0
+                for entry in survivors { reads = try checkedAdd(reads, carryInputByteCount(entry)) }
+                for index in neededTargets { reads = try checkedAdd(reads, reader.entries[index].uncompressedSize ?? 0) }
+                for addition in additions {
+                    let count: UInt64
+                    switch addition {
+                    case let .disk(url, _, _, signature):
+                        count = signature.isDirectory ? try ArchiveWriter.inputByteCount(url) : signature.inputByteCount
+                    case let .data(data, _, _, _): count = UInt64(data.count)
+                    case .directory: count = 0
+                    }
+                    reads = try checkedAdd(reads, count)
+                }
+                let drain = min(try checkedAdd(reads, writer.pendingInputBytes), options.maximumPendingInputBytes(for: format))
+                meter = CommitProgressMeter(total: try checkedAdd(reads, drain), progress: { update in
+                    do { try progress(update) } catch { progressError = error; throw error }
+                    guard self.state == .committing else { throw RewriterError.invalidState }
+                })
+                try meter?.start()
+            } else { meter = nil }
             var buffered: [Int: BufferedEntry] = [:]
             var done = 0
             for entry in reader.entries.sorted(by: { $0.index < $1.index }) {
@@ -330,9 +383,9 @@ public final class ArchiveRewriter: ArchiveEditing {
                     try Task.checkCancellation()
                     do {
                         if entry.isEncrypted, reader.password == nil { throw KaitoError.passwordRequired }
-                        if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry) }
+                        if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry, meter: meter) }
                         if !survives(entry.index) { return }
-                        try carry(entry, writer: writer, buffered: buffered)
+                        try carry(entry, writer: writer, buffered: buffered, meter: meter)
                     } catch let error as KaitoError {
                         throw Self.map(error, entry: entry.name)
                     } catch WriterError.sourceChanged(let name) {
@@ -346,9 +399,9 @@ public final class ArchiveRewriter: ArchiveEditing {
                 try Task.checkCancellation()
                 switch addition {
                 case let .disk(url, path, ids, signature):
-                    try writer.add(contentsOf: url, as: path, ownerIDs: ids, expected: signature)
+                    try writer.add(contentsOf: url, as: path, ownerIDs: ids, expected: signature, meter: meter)
                 case let .data(data, path, date, mode):
-                    try writer.add(data: data, as: path, modificationDate: date, permissions: mode)
+                    try writer.add(data: data, as: path, modificationDate: date, permissions: mode, meter: meter)
                 case let .directory(path, date, ids):
                     try writer.addDirectory(path, modificationDate: date, ownerIDs: ids)
                 }
@@ -357,10 +410,14 @@ public final class ArchiveRewriter: ArchiveEditing {
             let quarantine = output == nil ? try readQuarantine() : nil
             try checkUnchanged()
             try Task.checkCancellation()
+            try writer.finishAdditions(meter: meter)
             try writer.finish()
             self.writer = nil
             try Task.checkCancellation()
             try checkUnchanged()
+            try meter?.finish()
+            try Task.checkCancellation()
+            if meter != nil { try checkUnchanged() }
             if output == nil {
                 _ = try FileManager.default.replaceItemAt(url, withItemAt: destination!)
                 try FileManager.default.setAttributes([.posixPermissions: source.mode], ofItemAtPath: url.path)
@@ -373,7 +430,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             }
             state = .committed
             cleanup()
-        }
+        } } catch { throw progressError ?? error }
     }
 
     private var isTar: Bool { format.isTar }
@@ -400,13 +457,34 @@ public final class ArchiveRewriter: ArchiveEditing {
         return type | ((entry.posixPermissions ?? (entry.kind == .directory ? 0o755 : 0o644)) & 0o7777)
     }
 
-    private func carry(_ entry: ArchiveEntry, writer: ArchiveWriter, buffered: [Int: BufferedEntry]) throws {
+    private func carryInputByteCount(_ entry: ArchiveEntry) -> UInt64 {
+        if entry.kind == .directory { return 0 }
+        if let target = hardLinkTargets[entry.index] {
+            if isTar, !removed.contains(target) { return 0 }
+            return reader.entries[dataTargets[entry.index]!].uncompressedSize ?? 0
+        }
+        if entry.kind == .symlink, entry.formatSpecific["linkPath"] != nil { return 0 }
+        return entry.uncompressedSize ?? 0
+    }
+
+    private func carry(_ entry: ArchiveEntry, writer: ArchiveWriter, buffered: [Int: BufferedEntry],
+                       meter: CommitProgressMeter?) throws {
         let owners: (UInt32, UInt32)? = options.carriedTarOwnerIDs == .keep && isTar
             ? (UInt32(entry.formatSpecific["uid"] ?? "") ?? 0, UInt32(entry.formatSpecific["gid"] ?? "") ?? 0) : nil
         func add(size: UInt64, hardLink: String? = nil, read: (Int) throws -> Data) throws {
-            try writer.addEntry(path: finalName(entry.index), mode: Self.mode(for: entry), size: size,
-                                date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
-                                hardLink: hardLink, read: read)
+            if let meter, carryInputByteCount(entry) > 0 {
+                try writer.addEntry(path: finalName(entry.index), mode: Self.mode(for: entry), size: size,
+                                    date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
+                                    hardLink: hardLink) { count in
+                    let bytes = try read(count)
+                    try meter.advance(UInt64(bytes.count))
+                    return bytes
+                }
+            } else {
+                try writer.addEntry(path: finalName(entry.index), mode: Self.mode(for: entry), size: size,
+                                    date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
+                                    hardLink: hardLink, read: read)
+            }
         }
         if entry.kind == .directory {
             try add(size: 0) { _ in Data() }
@@ -447,7 +525,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     private struct BufferedEntry { let url: URL; let size: UInt64 }
 
     // 不明サイズと hard link の参照先だけをディスクへ退避し、通常ファイルを readAll しない。
-    private func buffer(_ entry: ArchiveEntry) throws -> BufferedEntry {
+    private func buffer(_ entry: ArchiveEntry, meter: CommitProgressMeter? = nil) throws -> BufferedEntry {
         let url = workDirectory!.appendingPathComponent("entry-\(entry.index)-\(UUID().uuidString)")
         let fd = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw WriterError.io(operation: "create entry buffer", code: errno) }
@@ -460,6 +538,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             if chunk.isEmpty { break }
             size = try checkedAdd(size, UInt64(chunk.count))
             try file.write(contentsOf: chunk)
+            if entry.uncompressedSize != nil { try meter?.advance(UInt64(chunk.count)) }
         }
         if let expected = entry.uncompressedSize, size != expected { throw WriterError.sourceChanged(entry.name) }
         return BufferedEntry(url: url, size: size)
@@ -541,6 +620,11 @@ public final class ArchiveRewriter: ArchiveEditing {
         case .passwordRequired, .wrongPassword: .password(entry: entry)
         default: .invalidArchive(String(describing: error))
         }
+    }
+
+    private func performAddition(_ body: () throws -> Void) throws {
+        guard !additionsClosed else { throw RewriterError.invalidState }
+        try perform(body)
     }
 
     private func perform(_ body: () throws -> Void) throws {

@@ -11,6 +11,12 @@ final class GzipCompressor: TarCompressor {
     private var size: UInt32 = 0
     private var started = false
     private var finished = false
+    var pendingInputBytes: UInt64 { UInt64(input.count) + pipeline.pendingInputBytes }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {
+        if !input.isEmpty { try submit(final: false, didEmit: didEmit, emit: emit) }
+        try pipeline.drain(didEmit: didEmit) { _, result in try emit(result!) }
+    }
 
     init(level: Int, threads: Int = WriterOptions().resolvedCompressionThreads,
          blockSize: Int = DeflateBlock.size, encoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode) throws {
@@ -79,7 +85,7 @@ final class GzipCompressor: TarCompressor {
         finished = true
     }
 
-    private func submit(final: Bool, emit: (Data) throws -> Void) throws {
+    private func submit(final: Bool, didEmit: ((UInt64) throws -> Void)? = nil, emit: (Data) throws -> Void) throws {
         let block = DeflateBlock(input: input, dictionary: dictionary, final: final)
         if final {
             dictionary = Data()
@@ -91,6 +97,6 @@ final class GzipCompressor: TarCompressor {
             dictionary = DeflateBlock.dictionary(from: input)
         }
         input = Data()
-        try pipeline.submit(block, tag: ()) { _, result in try emit(result!) }
+        try pipeline.submit(block, tag: (), weight: UInt64(block.input.count), didEmit: didEmit) { _, result in try emit(result!) }
     }
 }

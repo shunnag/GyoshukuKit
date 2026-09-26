@@ -10,6 +10,12 @@ final class ParallelBzip2Compressor: TarCompressor {
     private var input = Data()
     private var submitted = false
     private var finished = false
+    var pendingInputBytes: UInt64 { UInt64(input.count) + pipeline.pendingInputBytes }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {
+        if !input.isEmpty { try submit(didEmit: didEmit, emit: emit) }
+        try pipeline.drain(didEmit: didEmit) { _, result in try emit(result!) }
+    }
 
     init(level: Int, threads: Int, encoder: @escaping Encoder = ParallelBzip2Compressor.encode) throws {
         guard (1...9).contains(level) else { throw WriterError.invalidOption("bzip2Level") }
@@ -66,10 +72,10 @@ final class ParallelBzip2Compressor: TarCompressor {
         finished = true
     }
 
-    private func submit(emit: (Data) throws -> Void) throws {
+    private func submit(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Data) throws -> Void) throws {
         let block = input
         input = Data()
         submitted = true
-        try pipeline.submit(block, tag: ()) { _, result in try emit(result!) }
+        try pipeline.submit(block, tag: (), weight: UInt64(block.count), didEmit: didEmit) { _, result in try emit(result!) }
     }
 }

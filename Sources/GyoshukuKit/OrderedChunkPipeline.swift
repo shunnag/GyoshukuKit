@@ -56,8 +56,9 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private let encoder: Encoder
     private let queue: DispatchQueue
     private let state = State()
-    private var items: [(id: UInt64, tag: Tag, isHeavy: Bool)] = []
+    private var items: [(id: UInt64, tag: Tag, isHeavy: Bool, weight: UInt64)] = []
     private var heavyCount = 0
+    private(set) var pendingInputBytes: UInt64 = 0
     private var nextID: UInt64 = 0
     private var finished = false
 
@@ -71,15 +72,17 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
 
     deinit { abandon() }
 
-    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0, emit: (Tag, Output?) throws -> Void) throws {
+    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0,
+                didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
-            try waitForCapacity(emit: emit)
+            try waitForCapacity(didEmit: didEmit, emit: emit)
             let id = nextID
             nextID = try checkedAdd(nextID, 1)
             let isHeavy = lightWeightLimit == 0 || weight == 0 || weight > lightWeightLimit
-            items.append((id, tag, isHeavy))
+            pendingInputBytes = try checkedAdd(pendingInputBytes, weight)
+            items.append((id, tag, isHeavy, weight))
             if isHeavy { heavyCount += 1 }
             if let input {
                 let state = state, encoder = encoder
@@ -96,22 +99,22 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     }
 
     // 入力を確保する前に待ち、呼出側の組立中 block も並列数の枠に含める。
-    func waitForCapacity(emit: (Tag, Output?) throws -> Void) throws {
+    func waitForCapacity(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
-            while heavyCount >= threads || items.count >= 2 * threads + 1 { try emitNext(emit) }
+            while heavyCount >= threads || items.count >= 2 * threads + 1 { try emitNext(emit, didEmit: didEmit) }
         } catch {
             abandon()
             throw error
         }
     }
 
-    func drain(emit: (Tag, Output?) throws -> Void) throws {
+    func drain(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
-            while !items.isEmpty { try emitNext(emit) }
+            while !items.isEmpty { try emitNext(emit, didEmit: didEmit) }
         } catch {
             abandon()
             throw error
@@ -127,15 +130,18 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         state.abandon()
         items.removeAll()
         heavyCount = 0
+        pendingInputBytes = 0
         finished = true
     }
 
-    private func emitNext(_ emit: (Tag, Output?) throws -> Void) throws {
+    private func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)?) throws {
         let item = items[0]
         let result = try state.take(item.id)
         try emit(item.tag, result)
         items.removeFirst()
         if item.isHeavy { heavyCount -= 1 }
+        pendingInputBytes -= item.weight
+        try didEmit?(item.weight)
     }
 
     private static var currentQoS: DispatchQoS {

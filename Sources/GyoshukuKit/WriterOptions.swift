@@ -118,6 +118,26 @@ public struct WriterOptions: Sendable {
                                         Int(ProcessInfo.processInfo.physicalMemory / (1 << 30))))
     }
 
+    /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
+    /// tar.xz は 16 MiB の通常枠、64 KiB 以下の軽い block と、4 MiB の組立中 block を含む。
+    public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
+        let threads = UInt64(max(1, min(64, resolvedCompressionThreads)))
+        switch format {
+        case .zip:
+            return compressionMethod == .stored || (password != nil && zipEncryption == .zipCrypto)
+                ? 0 : threads * UInt64(DeflateBlock.size)
+        case .tar: return 0
+        case .tarGzip: return (threads + 1) * UInt64(DeflateBlock.size)
+        case .tarBzip2: return (threads + 1) * UInt64(ParallelBzip2Compressor.chunkSize(level: max(1, min(9, bzip2Level))))
+        case .tarXZ:
+            // 未出力は通常枠 t 個、合計 2t + 1 個以下。member の終了時の組立中は packing 以下。
+            let light = threads > 1 ? (threads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
+            return threads * UInt64(ParallelXZCompressor.defaultBlockSize) + light + UInt64(ParallelXZCompressor.memberPackingSize)
+        case .sevenZip: return threads * UInt64(LZMA2ChunkPipeline<Void>.chunkSize)
+        case .lha: return threads == 1 ? 0 : threads * UInt64(LHAWriter.compressionChunkSize)
+        }
+    }
+
     // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
     func validate(for format: ArchiveFormat) throws {
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
