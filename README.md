@@ -119,10 +119,17 @@ ZIP / tar.gz は固定 1 MiB ごとに raw deflate を圧縮し、直前 block �
 ZIP の小さい member は個別の `add(contentsOf:as:)` 呼出し間でも並列化し、出力は追加順です。
 tar.gz は従来の header を持つ単一 gzip member、tar.bz2 は `5 × bzip2Level × 100,000` byte ごとの
 完全な bzip2 stream の連結です。thread 数を変えても payload の byte 列は変わりません。
+tar.xz は header 群・本文・詰め物を合わせて4 MiB以下の member を最大4 MiBの block に詰めます。
+4 MiBを越える member は header 群と本文を別の block にし、本文と大きな header 群は最大16 MiBの片に分けます。
+tar の終端は独立した block です。既存書庫の編集では、変更した区間だけにこの規則を使います。
 ZIP の暗号化では salt が毎回変わります。圧縮失敗は後続の `add` / `finish` で通知されることがあります。
 deflate / bzip2 の未出力 chunk と組立中の入力は合計で最大 `compressionThreads` 個に抑えます。
+tar.xz の未出力 block は、並列数が2以上のとき64 KiB以下を並列数に数えず、合計で最大
+`2 × compressionThreads + 1` 個です。並列数1は同時に一つだけを符号化します。
 deflate / bzip2 の主なメモリは thread ごとに入力と出力（約2 × chunk size）と codec state、
-LZMA2 は thread ごとに約130 MiBです。待機中の取消しは50 msごとに確認します。
+LZMA2 は16 MiBの片を使うと thread ごとに約130 MiBです。待機中の取消しは50 msごとに確認します。
+tar.xz の待機中の入力と組立中の入力の上界は `(compressionThreads + 1) × (16 MiBの片 + 64 KiB)` です。
+この入力の上界は codec state と出力を含みません。小さなファイルの多い tar.xz は従来より5–12%大きくなります。
 bzip2 の chunk は内部 block size の5倍です。level 9 は4,500,000 byteごとの独立streamとなり、
 thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB（約15.8 MiB）を使います。
 
@@ -203,7 +210,7 @@ ZipCrypto の `unzip -P ... -t` と `7zz t` です。誤パスワード・AES �
 更新時の旧 record の byte 一致も検査します。300 MiB の入力を ZIP AES / 7z AES / ZipCrypto
 で stream 処理し、読取中と終了後の一時ファイルも検査します。40 MiB の固定 seed テキストでは
 平文・暗号 7z の往復と、Apple の全体圧縮から packed size が ±5% に収まることを検査します。
-5 / 16 MiB の圧縮 payload の byte 一致も検査します。2026-09-15 はsandboxの
+7z の5 / 16 MiBの片の圧縮 payload の byte 一致も検査します。2026-09-15 はsandboxの
 module cache制限で未確認でしたが、2026-09-16には標準のSwiftPM実行環境で全件成功を確認しました。
 実行件数と大規模編集の測定は[追加の検証記録](Documentation/verification/2026-09-16-edit-review.md)にあります。
 

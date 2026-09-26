@@ -212,17 +212,22 @@ pax/sparse header 群の変更、comment の global header、所有者と未変�
 
 運ぶ chunk は新 image の一つの連続する source 区間に収まるものだけとする。
 gzip はさらに直前 32 KiB も同じ source 区間に収め、BFINAL を途中へ運ばない。
-残りの橋を G1 の `TarChunkLayout` で切る。上限は gzip 1 MiB、bzip2 は
-5 × level × 100,000 B、xz は `ParallelXZCompressor.defaultBlockSize`（16 MiB）。
-大きい member は header 群と本文を分け、終端は独立する。橋に隣接する S/16 未満の
+残りの橋を `TarChunkLayout(limits:)` で切る。`TarChunkLimits` は詰める上限 packing と片の上限 piece を持つ。
+gzip は両方1 MiB、bzip2 は両方5 × level × 100,000 B。xz は packing が
+`ParallelXZCompressor.memberPackingSize`（4 MiB）、piece が `defaultBlockSize`（16 MiBの片）。
+header 群・本文・詰め物を合わせて packing を越える member は header 群と本文を分け、
+それぞれ piece ごとに切る。小さな member は packing まで詰め、終端は独立する。
+橋が member の途中から始まる場合は残りの長さで判定する。橋に隣接する packing/16 未満の
 chunk を片側一つ吸収し、間が小さい chunk だけの橋同士も併合する。
+xz の吸収のしきい値は256 KiB。`nextEditReencodesEverything` の判定は piece のまま保つ。
 gzip の CRC は libz の `crc32_combine`、xz の block/Index/footer は G1 の `XZFraming` を使う。
 bzip2 は運ぶ stream の元の level を維持する。CRC64 の xz、地図の無い容器、
 運べる chunk の無い計画は fullEncode になる。
 
 進捗の total は橋の image byte、運ぶ圧縮 byte、自己照合の圧縮/framing 読取 byte の合計。
-圧縮長を先に求めて total を固定し、その後に出力を作る。並列数 × chunk 上限の定数倍の
+圧縮長を先に求めて total を固定し、その後に出力を作る。並列数 × piece × 2 の
 cache に符号化結果を残し、収まらない fullEncode の chunk は書出し時に再符号化する。
+xz の cache 上限は8 threadsで256 MiBのまま。事前符号化と書出しの両方に下記の軽い block の枠を使う。
 追加の圧縮 spool は作らない。この事前符号化中も Task の取消しを確認するが、
 最初の進捗通知は total が確定した後になる。callback の throw・再入も失敗として扱う。
 
@@ -250,6 +255,23 @@ GK の自己照合だけでは、書いた後の運ぶ payload の破損を検�
 超える場合がある。検証記録では byte 差と比率を両方示す。
 
 試験・互換性・AC9 の TSV は [G2 検証記録](verification/2026-09-26-p3g2-compressed-tar-updater.md) に記す。
+
+### tar.xz の並列圧縮（P14-G）
+
+writer と updater は同じ二つの上限で区切る。hint の無い入力は16 MiBの固定幅のまま、
+組立の予約も16 MiBの片のままとする。hint の無い経路に packing を使うと固定幅へ届かず停止する。
+`OrderedChunkPipeline` の `weight` は入力 byte 数。`lightWeightLimit > 0` かつ
+`0 < weight <= lightWeightLimit` の item だけを軽いものとする。
+未出力の重い item が threads 以上、または全 item が `2 × threads + 1` 以上の間、
+先頭を順に書き出してから次を投入する。次の item の重みは待機条件に使わない。
+既定の limit と weight は0で、従来の枠を保つ。取消し・失敗・abandon の扱いも共通。
+
+tar.xz だけが threads > 1 のとき `lightChunkLimit`（64 KiB）を指定する。
+writer は block の入力長、updater の事前符号化と書出しは part の image 長を weight にする。
+運ぶ part と cache 済みの part は入力が無いので weight 0。threads == 1 は同時に一つだけを符号化する。
+待機中の入力と組立中の入力の上界は `(threads + 1) × (piece + lightChunkLimit)`。
+codec state と圧縮出力は別で、P9 の `30 + 135 × t` MiB は実測に合わせた見積りであり上界ではない。
+試験と計測の引継ぎは [P14 検証記録](verification/2026-09-26-p14-xz-packing.md) に記す。
 
 ### 非圧縮 tar の最小書き換え（P2-G）
 
@@ -521,7 +543,7 @@ header byte・AE-1/AE-2 境界・誤パスワード・HMAC 改変・spool の成
 40 MiB の固定 seed の擬似ソースコードを平文・暗号 7z の両方で KaitoKit / 7zz に往復させ、
 同じ入力を Compression framework の `compression_encode_buffer` で一括圧縮した結果に対して
 packed size が ±5% に収まることを確認する。参照圧縮は製品 compressor を呼ばない。
-5 / 16 MiB では short read を混ぜても一括圧縮と payload が byte 単位で一致することを確認する。
+7z の5 / 16 MiBの片では short read を混ぜても一括圧縮と payload が byte 単位で一致することを確認する。
 実行済みの範囲と sandbox 制限は[検証記録](verification/2026-09-15-encryption.md)へ分けて記録する。
 
 参照: [WinZip AES 仕様](https://www.winzip.com/en/support/aes-encryption/)、

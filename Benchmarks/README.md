@@ -52,8 +52,13 @@ bin_dir=$(swift build -c release --package-path Benchmarks --show-bin-path)
 は source の basename で追加し、directory は名前順に再帰します。出力は入力の外にある新規 file に限ります。
 `--level` は元の harness と同じ `deflateLevel`（0...9、既定6）で、ZIP / tar.gz に適用します。
 bzip2 は library 既定の9、XZ / 7z / LHA は library 固有の設定です。
+P14以降のtar.xzは4 MiB以下のmemberを最大4 MiBのblockに詰め、これを越えるmemberの
+header群と本文を分けます。本文と大きなheader群の片は最大16 MiBです。
+P14より前のtar.xzの結果とはサイズ・時間をそのまま比べないでください。
+P14の受入比較は同じcorpusを親commitと変更後で交互に作り、配置の変更を含む差として記録します。
 `--threads` は `compressionThreads`（1...64）へ渡し、省略時は nil のまま library に委ねます。
-表示する `threads` は圧縮 worker 数の上限で、実際に同時稼働した thread 数ではありません。
+表示する `threads` は圧縮の並列数の設定です。tar.xzは2以上で64 KiB以下のblockを枠に数えず、
+未出力blockを合計 `2 × threads + 1` まで許すため、同時に動くencoderの総数とは一致しません。
 自動値の表示は library の現行規則（CPU 数・物理メモリ GiB・8 の最小値、最低1）と揃えています。
 非圧縮 tar は常に1です。単独実行の `elapsed_s` は `ContinuousClock` で create から finish までを
 測り、runner の wall 秒はプロセス起動・終了も含みます。`--level` / `--threads` は reference には適用しません。

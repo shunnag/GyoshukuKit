@@ -2,6 +2,8 @@ import Foundation
 
 final class ParallelXZCompressor: TarCompressor {
     static let defaultBlockSize = 16 * 1024 * 1024
+    static let memberPackingSize = 4 * 1024 * 1024
+    static let lightChunkLimit = 64 * 1024
     private let chunkSize: Int
     private var layout: TarChunkLayout
     private let pipeline: LZMA2ChunkPipeline<Void>
@@ -13,12 +15,16 @@ final class ParallelXZCompressor: TarCompressor {
 
     init(threads: Int = WriterOptions().resolvedCompressionThreads,
          chunkSize: Int = ParallelXZCompressor.defaultBlockSize,
+         packingSize: Int? = nil,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) throws {
         guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
-        precondition((1...Self.defaultBlockSize).contains(chunkSize))
+        precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))
+        let packing = min(packingSize ?? Self.memberPackingSize, chunkSize)
+        precondition((1...chunkSize).contains(packing))
         self.chunkSize = chunkSize
-        layout = TarChunkLayout(limit: chunkSize)
-        pipeline = LZMA2ChunkPipeline(threads: threads, checksum: true, encoder: encoder)
+        layout = TarChunkLayout(limits: .init(packing: packing, piece: chunkSize))
+        pipeline = LZMA2ChunkPipeline(threads: threads, checksum: true,
+                                     lightWeightLimit: threads > 1 ? UInt64(Self.lightChunkLimit) : 0, encoder: encoder)
     }
 
     deinit { abandon() }
@@ -72,7 +78,7 @@ final class ParallelXZCompressor: TarCompressor {
     private func submit(emit: (Data) throws -> Void) throws {
         let block = input
         input = Data()
-        try pipeline.submit(block, tag: ()) { _, result in try self.emitBlock(result!, emit: emit) }
+        try pipeline.submit(block, tag: (), weight: UInt64(block.count)) { _, result in try self.emitBlock(result!, emit: emit) }
     }
 
     private func emitBlock(_ result: LZMA2ChunkPipeline<Void>.Output, emit: (Data) throws -> Void) throws {

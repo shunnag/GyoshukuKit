@@ -1,5 +1,6 @@
 import Foundation
 import KaitoKit
+import Synchronization
 import XCTest
 @testable import GyoshukuKit
 
@@ -103,6 +104,31 @@ final class ParallelLZMA2WriterTests: XCTestCase {
             if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
             try verify(url, items: Self.tarItems)
         }
+    }
+
+    func testSingleThreadXZKeepsHeaderAndBodyEncodingSerial() throws {
+        let directory = try ZipTestSupport.directory("xz-one-worker")
+        let url = directory.appendingPathComponent("archive.tar.xz")
+        let activity = Mutex((running: 0, maximum: 0, sizes: [Int]()))
+        let writer = try ArchiveWriter.create(url: url, format: .tarXZ,
+            options: WriterOptions(compressionThreads: 1), lzmaChunkSize: 262_144, xzPackingSize: 65_536,
+            lzmaEncoder: { input in
+                activity.withLock {
+                    $0.running += 1
+                    $0.maximum = max($0.maximum, $0.running)
+                    $0.sizes.append(input.count)
+                }
+                defer { activity.withLock { $0.running -= 1 } }
+                Thread.sleep(forTimeInterval: 0.01)
+                return try LZMA2Compressor.encode(input)
+            })
+        let items = (0..<3).map { SevenZipTestSupport.Expected(name: "file-\($0)", data: Data(repeating: 65, count: 100_000)) }
+        for item in items { try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
+        try writer.finish()
+        XCTAssertEqual(activity.withLock { $0.maximum }, 1)
+        XCTAssertEqual(activity.withLock { $0.running }, 0)
+        XCTAssertEqual(activity.withLock { $0.sizes.filter { $0 == 512 }.count }, 3)
+        try verify(url, items: items)
     }
 
     func testTarXZBlockCountAndChecksWithXZ() throws {

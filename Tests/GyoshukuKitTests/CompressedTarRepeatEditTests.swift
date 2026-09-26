@@ -36,7 +36,7 @@ final class CompressedTarRepeatEditTests: XCTestCase {
                 try mutate(editor)
                 let result = try editor.commit(progress: nil)
                 reader = try CompressedTarTestSupport.verify(output, base: base, result: result, oracle: plainOutput)
-                let limit = UInt64(CompressedTarSplicePlan.limit(format, options: WriterOptions()) / 16)
+                let limit = UInt64(CompressedTarSplicePlan.limits(format, options: WriterOptions()).packing / 16)
                 let small = reader.tarEditingSnapshot()!.chunkMap!.chunks.filter { $0.imageRange.upperBound - $0.imageRange.lowerBound < limit }.count
                 largestSmallCount = max(largestSmallCount, small)
                 XCTAssertLessThanOrEqual(small, 8, "\(format) step \(step)")

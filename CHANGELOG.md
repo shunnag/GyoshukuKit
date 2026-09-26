@@ -74,6 +74,14 @@
 
 ### 変更
 
+- tar.xz は4 MiB以下のmemberを最大4 MiBのblockに詰め、4 MiBを越えるmemberはheader群と本文を分ける。
+  本文と大きなheader群の片は最大16 MiBのまま。小さなファイルの多い書庫は5–12%、
+  4 MiB前後のtextファイルが並ぶ書庫は約5%大きくなる。
+  仕様の実測では小さな1件の削除・改名が16 MiBの再圧縮（約3.7–4.5秒）から4 MiB（約0.7–0.9秒）になる。
+  大きなファイルだけの書庫は従来と同じbyte。既存書庫も編集でき、変更した区間だけを新しい規則で切る。
+  並列数が2以上のとき64 KiB以下のblockは並列数に数えず、未出力の合計を `2 × threads + 1` に抑える。
+  [P14-G 検証記録](Documentation/verification/2026-09-26-p14-xz-packing.md) に実行結果と受入計測の引継ぎを記載する。
+
 - LHA の LH5 符号化に `compressionThreads` を適用する。1 MiB 以下は member ごと、
   大きい file は 1 MiB の区切りと 8 KiB の履歴で並列に符号化し、bit 単位で継ぐ。
   直列時の出力 byte・header・圧縮方式の選択は保つ。並列数 1 は同期のまま、2 以上では

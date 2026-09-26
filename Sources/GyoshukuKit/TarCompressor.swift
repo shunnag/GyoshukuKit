@@ -14,8 +14,21 @@ extension TarCompressor {
     func abandon() {}
 }
 
+struct TarChunkLimits: Sendable, Equatable {
+    let packing: Int
+    let piece: Int
+
+    init(packing: Int, piece: Int) {
+        precondition(1 <= packing && packing <= piece)
+        self.packing = packing
+        self.piece = piece
+    }
+
+    init(uniform: Int) { self.init(packing: uniform, piece: uniform) }
+}
+
 struct TarChunkLayout {
-    let limit: Int
+    let limits: TarChunkLimits
     private(set) var hasHints = false
     private var position: UInt64 = 0
     private var pendingEnds: [UInt64] = []
@@ -23,13 +36,20 @@ struct TarChunkLayout {
     private var cutBeforeInput = false
     private var ending = false
 
+    init(limits: TarChunkLimits) { self.limits = limits }
+    init(limit: Int) { self.init(limits: .init(uniform: limit)) }
+
+    private var currentLimit: Int {
+        !hasHints || !pendingEnds.isEmpty ? limits.piece : limits.packing
+    }
+
     mutating func beginMember(headerLength: UInt64, bodyLength: UInt64, bufferedCount: Int) {
         precondition(pendingEnds.isEmpty && !ending)
         hasHints = true
         let length = headerLength + bodyLength
-        cutBeforeInput = bufferedCount > 0 && length > UInt64(limit - bufferedCount)
-        if length > UInt64(limit) {
-            // S ごとの位置は入力時に求め、巨大な member でも境界表を増やさない。
+        cutBeforeInput = bufferedCount > 0 && length > UInt64(limits.packing - bufferedCount)
+        if length > UInt64(limits.packing) {
+            // 片ごとの位置は入力時に求め、巨大な member でも境界表を増やさない。
             if headerLength > 0 { pendingEnds.append(position + headerLength) }
             if bodyLength > 0 { pendingEnds.append(position + length) }
         }
@@ -50,12 +70,13 @@ struct TarChunkLayout {
     func nextCount(available: Int, bufferedCount: Int) -> Int {
         // 終端と record の詰め物は、小さい試験用 S でも一つに保つ。
         var count = min(available, 256 * 1024)
-        if !ending { count = min(count, limit - bufferedCount) }
+        if !ending { count = min(count, currentLimit - bufferedCount) }
         if let end = pendingEnds.first { count = Int(min(UInt64(count), end - position)) }
         return count
     }
 
     mutating func appended(_ count: Int, bufferedCount: Int) -> Bool {
+        let limit = currentLimit
         position += UInt64(count)
         var reachedEnd = false
         if pendingEnds.first == position {

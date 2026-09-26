@@ -20,19 +20,23 @@ enum TarChunkLayoutTestSupport {
         return result
     }
 
-    // hdrsplit.py の参照規則。header 群が S を超える場合も各範囲を分割する。
     static func ranges(members: [Member], total: Int, limit: Int) -> [Range<Int>] {
+        ranges(members: members, total: total, limits: .init(uniform: limit))
+    }
+
+    // 実装の状態機械を使わず、member の範囲から境界を求める。
+    static func ranges(members: [Member], total: Int, limits: TarChunkLimits) -> [Range<Int>] {
         var result: [Range<Int>] = []
         var start = 0
         func cut(_ end: Int) {
             if end > start { result.append(start..<end); start = end }
         }
         for member in members {
-            if member.end - start <= limit { continue }
+            if member.end - start <= limits.packing { continue }
             cut(member.groupStart)
-            if member.end - start > limit {
+            if member.end - start > limits.packing {
                 for end in [member.dataStart, member.end] {
-                    while end - start > limit { cut(start + limit) }
+                    while end - start > limits.piece { cut(start + limits.piece) }
                     cut(end)
                 }
             }
@@ -43,8 +47,12 @@ enum TarChunkLayoutTestSupport {
     }
 
     static func expectedLengths(_ url: URL, format: GyoshukuKit.ArchiveFormat, limit: Int) throws -> [Int] {
+        try expectedLengths(url, format: format, limits: .init(uniform: limit))
+    }
+
+    static func expectedLengths(_ url: URL, format: GyoshukuKit.ArchiveFormat, limits: TarChunkLimits) throws -> [Int] {
         let decoded = try decode(url, format: format)
-        return ranges(members: try members(in: decoded.raw), total: decoded.raw.count, limit: limit).map(\.count)
+        return ranges(members: try members(in: decoded.raw), total: decoded.raw.count, limits: limits).map(\.count)
     }
 
     static func decode(_ url: URL, format: GyoshukuKit.ArchiveFormat) throws -> (raw: Data, lengths: [Int]) {
@@ -134,17 +142,19 @@ final class TarChunkLayoutTests: XCTestCase {
     }
     private let formats: [GyoshukuKit.ArchiveFormat] = [.tarGzip, .tarBzip2, .tarXZ]
 
-    private func limit(_ format: GyoshukuKit.ArchiveFormat) -> Int {
+    private func limits(_ format: GyoshukuKit.ArchiveFormat) -> TarChunkLimits {
         switch format {
-        case .tarGzip: 8192
-        case .tarBzip2: 500_000
-        default: 65_536
+        case .tarGzip: .init(uniform: 8192)
+        case .tarBzip2: .init(uniform: 500_000)
+        default: .init(packing: 65_536, piece: 262_144)
         }
     }
 
-    private func items(limit: Int) -> [Item] {
+    private func items(limits: TarChunkLimits) -> [Item] {
+        let limit = limits.packing
         let lengths = [1, limit - 512, limit - 511, 2 * limit - 512, 5 * limit / 2 - 512,
-                       limit / 2, limit / 2, 0]
+                       limit / 2, limit / 2, 0, limit + 1, 3 * limit,
+                       limits.piece - 512, limits.piece - 511, 2 * limits.piece + 7]
         let seed = LHATestSupport.random(8192)
         var result = lengths.enumerated().map { index, size in
             var data = Data()
@@ -162,7 +172,7 @@ final class TarChunkLayoutTests: XCTestCase {
                        threads: Int = 4, shortReads: Bool = false) throws {
         let writer = try ArchiveWriter.create(url: url, format: format,
             options: WriterOptions(bzip2Level: 1, compressionThreads: threads),
-            deflateBlockSize: 8192, lzmaChunkSize: 65_536)
+            deflateBlockSize: 8192, lzmaChunkSize: 262_144, xzPackingSize: 65_536)
         for item in items {
             var offset = 0
             try writer.addEntry(path: item.name, mode: item.mode, size: UInt64(item.data.count),
@@ -176,11 +186,15 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     private func verifyLayout(_ url: URL, format: GyoshukuKit.ArchiveFormat, limit: Int) throws -> Data {
+        try verifyLayout(url, format: format, limits: .init(uniform: limit))
+    }
+
+    private func verifyLayout(_ url: URL, format: GyoshukuKit.ArchiveFormat, limits: TarChunkLimits) throws -> Data {
         let decoded = try TarChunkLayoutTestSupport.decode(url, format: format)
         let members = try TarChunkLayoutTestSupport.members(in: decoded.raw)
-        let expected = TarChunkLayoutTestSupport.ranges(members: members, total: decoded.raw.count, limit: limit)
+        let expected = TarChunkLayoutTestSupport.ranges(members: members, total: decoded.raw.count, limits: limits)
         XCTAssertEqual(decoded.lengths, expected.map(\.count))
-        XCTAssertTrue(expected.dropLast().allSatisfy { $0.count <= limit })
+        XCTAssertTrue(expected.dropLast().allSatisfy { $0.count <= limits.piece })
         let eof = members.last?.end ?? 0
         XCTAssertEqual(expected.last, eof..<decoded.raw.count)
         XCTAssertEqual(decoded.lengths.last, 1024 + (10_240 - (eof + 1024) % 10_240) % 10_240)
@@ -191,16 +205,16 @@ final class TarChunkLayoutTests: XCTestCase {
     func testMemberBoundariesEOFThreadCountsAndShortReads() throws {
         let directory = try ZipTestSupport.directory("tar-chunk-layout")
         for format in formats {
-            let items = items(limit: limit(format))
+            let items = items(limits: limits(format))
             let plain = directory.appendingPathComponent("\(format).tar")
             try write(items, to: plain, format: .tar)
             let raw = try Data(contentsOf: plain)
             var expected: Data?
-            for threads in [1, 4, 8] {
+            for threads in [1, 2, 4, 8] {
                 for short in [false, true] {
                     let url = directory.appendingPathComponent("\(format)-\(threads)-\(short)")
                     try write(items, to: url, format: format, threads: threads, shortReads: short)
-                    XCTAssertEqual(try verifyLayout(url, format: format, limit: limit(format)), raw)
+                    XCTAssertEqual(try verifyLayout(url, format: format, limits: limits(format)), raw)
                     let bytes = try Data(contentsOf: url)
                     if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
                 }
@@ -213,14 +227,14 @@ final class TarChunkLayoutTests: XCTestCase {
         for format in formats {
             let url = directory.appendingPathComponent("\(format)")
             try write([], to: url, format: format)
-            XCTAssertEqual(try verifyLayout(url, format: format, limit: limit(format)), Data(count: 10_240))
+            XCTAssertEqual(try verifyLayout(url, format: format, limits: limits(format)), Data(count: 10_240))
         }
     }
 
     func testExactUnpaddedHintLengthsAndRollingGzipDictionary() throws {
         let directory = try ZipTestSupport.directory("tar-chunk-hints")
         for format in formats {
-            let size = limit(format)
+            let size = limits(format).packing
             let lengths = [(511, size - 511), (512, size - 511), (513, 2 * size - 513),
                            (size + 1, 7), (512, 5 * size / 2 - 512), (512, 0)]
             var raw = Data(), members: [TarChunkLayoutTestSupport.Member] = []
@@ -234,7 +248,7 @@ final class TarChunkLayoutTests: XCTestCase {
             }
             let eof = raw.count
             raw.append(Data(count: 10_240))
-            let ranges = TarChunkLayoutTestSupport.ranges(members: members, total: raw.count, limit: size)
+            let ranges = TarChunkLayoutTestSupport.ranges(members: members, total: raw.count, limits: limits(format))
             let compressor = try compressor(format, small: true)
             var actual = Data()
             for member in members {
@@ -289,9 +303,8 @@ final class TarChunkLayoutTests: XCTestCase {
             let url = directory.appendingPathComponent("archive.tar.\(suffix)")
             try ArchiveRewriter.open(url: source, output: url, format: format,
                                      options: WriterOptions(compressionThreads: 4)).commit()
-            let size = format == .tarGzip ? DeflateBlock.size :
-                (format == .tarBzip2 ? 4_500_000 : ParallelXZCompressor.defaultBlockSize)
-            XCTAssertEqual(try verifyLayout(url, format: format, limit: size), try Data(contentsOf: source))
+            let limits = CompressedTarSplicePlan.limits(format, options: WriterOptions())
+            XCTAssertEqual(try verifyLayout(url, format: format, limits: limits), try Data(contentsOf: source))
             let reader = try ArchiveReader.open(url: url)
             XCTAssertEqual(reader.entries.map(\.name), items.map(\.name))
             for (entry, item) in zip(reader.entries, items) { XCTAssertEqual(try reader.read(entry), item.data) }
@@ -335,7 +348,7 @@ final class TarChunkLayoutTests: XCTestCase {
             let writer = TarWriter(output: FileHandle(fileDescriptor: fd, closeOnDealloc: true), url: url,
                                    identity: (info.st_dev, info.st_ino), compressor: nil)
             writer.recordsMemberLayout = enabled
-            for item in items(limit: 8192) {
+            for item in items(limits: .init(uniform: 8192)) {
                 var offset = 0
                 try writer.add(name: item.name, mode: item.mode, size: UInt64(item.data.count),
                                date: ZipTestSupport.date, owners: nil, hardLink: nil) { count in
@@ -351,11 +364,40 @@ final class TarChunkLayoutTests: XCTestCase {
         }
     }
 
+    func testXZHeaderGroupLargerThanPieceLimit() throws {
+        let directory = try ZipTestSupport.directory("xz-large-pax")
+        let limits = limits(.tarXZ)
+        var expected: Data?
+        for threads in [1, 4, 8] {
+            let url = directory.appendingPathComponent("\(threads).tar.xz")
+            let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            XCTAssertGreaterThanOrEqual(fd, 0)
+            var info = stat()
+            XCTAssertEqual(fstat(fd, &info), 0)
+            let writer = TarWriter(output: FileHandle(fileDescriptor: fd, closeOnDealloc: true), url: url,
+                identity: (info.st_dev, info.st_ino), compressor: try ParallelXZCompressor(
+                    threads: threads, chunkSize: limits.piece, packingSize: limits.packing))
+            var read = false
+            try writer.add(name: String(repeating: "p", count: limits.piece + 53), mode: 0o100644, size: 1,
+                           date: ZipTestSupport.date, owners: nil, hardLink: nil) { _ in
+                defer { read = true }
+                return read ? Data() : Data([7])
+            }
+            try writer.finish()
+            let raw = try verifyLayout(url, format: .tarXZ, limits: limits)
+            let member = try XCTUnwrap(TarChunkLayoutTestSupport.members(in: raw).first)
+            XCTAssertGreaterThan(member.dataStart - member.groupStart, limits.piece)
+            let bytes = try Data(contentsOf: url)
+            if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
+        }
+    }
+
     private func compressor(_ format: GyoshukuKit.ArchiveFormat, small: Bool) throws -> any TarCompressor {
         switch format {
         case .tarGzip: try GzipCompressor(level: 6, threads: 4, blockSize: small ? 8192 : DeflateBlock.size)
         case .tarBzip2: try ParallelBzip2Compressor(level: small ? 1 : 9, threads: 4)
-        default: try ParallelXZCompressor(threads: 4, chunkSize: small ? 65_536 : ParallelXZCompressor.defaultBlockSize)
+        default: try ParallelXZCompressor(threads: 4, chunkSize: small ? 262_144 : ParallelXZCompressor.defaultBlockSize,
+                                          packingSize: small ? 65_536 : nil)
         }
     }
 

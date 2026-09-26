@@ -113,9 +113,11 @@ final class CompressedTarSpliceWriter {
         let format = self.format, options = self.options
         var metadata: [Int: Metadata] = [:], cache: [Int: Encoded] = [:]
         var cachedBytes = 0
-        let cacheLimit = options.resolvedCompressionThreads * CompressedTarSplicePlan.limit(format, options: options) * 2
+        let threads = options.resolvedCompressionThreads
+        let cacheLimit = threads * CompressedTarSplicePlan.limits(format, options: options).piece * 2
+        let lightWeightLimit = format == .tarXZ && threads > 1 ? UInt64(ParallelXZCompressor.lightChunkLimit) : 0
         // 圧縮長を先に確定して total を固定する。cache は並列数 × 上限サイズの定数倍で、大きい fullEncode も平らに保存しない。
-        let preflight = OrderedChunkPipeline<Input, Encoded, Int>(threads: options.resolvedCompressionThreads) {
+        let preflight = OrderedChunkPipeline<Input, Encoded, Int>(threads: threads, lightWeightLimit: lightWeightLimit) {
             try Self.encode($0, format: format, options: options)
         }
         let collect: (Int, Encoded?) throws -> Void = { index, encoded in
@@ -127,7 +129,7 @@ final class CompressedTarSpliceWriter {
         for (index, part) in plan.parts.enumerated() where part.reused == nil {
             try CompressedTarUpdater.testingStage?(.encoding)
             try preflight.waitForCapacity(emit: collect)
-            try preflight.submit(input(part, image: image), tag: index, emit: collect)
+            try preflight.submit(input(part, image: image), tag: index, weight: part.image.spliceLength, emit: collect)
         }
         try preflight.finish(emit: collect)
         var reencoded: UInt64 = 0, old: UInt64 = 0, carried: UInt64 = 0
@@ -172,7 +174,7 @@ final class CompressedTarSpliceWriter {
         var cursor: UInt64 = 0
         let header = format == .tarGzip ? Self.gzipHeader(level: options.deflateLevel) : format == .tarXZ ? XZFraming.streamHeader : Data()
         try engine.append(header, at: cursor, progress: nil); cursor += UInt64(header.count)
-        let pipeline = OrderedChunkPipeline<Input, Encoded, Int>(threads: options.resolvedCompressionThreads) {
+        let pipeline = OrderedChunkPipeline<Input, Encoded, Int>(threads: threads, lightWeightLimit: lightWeightLimit) {
             try Self.encode($0, format: format, options: options)
         }
         var dropped = false
@@ -209,7 +211,7 @@ final class CompressedTarSpliceWriter {
             try Task.checkCancellation()
             try pipeline.waitForCapacity(emit: emit)
             let block = part.reused != nil || cache[index] != nil ? nil : try input(part, image: image)
-            try pipeline.submit(block, tag: index, emit: emit)
+            try pipeline.submit(block, tag: index, weight: block == nil ? 0 : part.image.spliceLength, emit: emit)
         }
         try pipeline.finish(emit: emit)
         payloadEnd = cursor

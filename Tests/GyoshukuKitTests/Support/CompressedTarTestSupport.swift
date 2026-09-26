@@ -21,7 +21,7 @@ enum CompressedTarTestSupport {
     static func fixture(_ root: URL, _ format: Format, large: Bool = true, aligned: Bool = true) throws -> URL {
         let raw = root.appendingPathComponent("input.tar")
         let writer = try ArchiveWriter.create(url: raw, format: .tar)
-        let size = large ? CompressedTarSplicePlan.limit(format, options: WriterOptions()) + 129 : 8192
+        let size = large ? CompressedTarSplicePlan.limits(format, options: WriterOptions()).piece + 129 : 8192
         for name in ["large-A", "large-B"] {
             var body = Data(repeating: 37, count: size)
             var state: UInt64 = name == "large-A" ? 17 : 31
@@ -42,13 +42,14 @@ enum CompressedTarTestSupport {
         try compress(raw, to: output, format: format, aligned: aligned)
         return output
     }
-    static func compress(_ raw: URL, to output: URL, format: Format, aligned: Bool = true, options: WriterOptions = WriterOptions()) throws {
+    static func compress(_ raw: URL, to output: URL, format: Format, aligned: Bool = true,
+                         options: WriterOptions = WriterOptions(), packingSize: Int? = nil) throws {
         let source = try ZipUpdateSource(url: raw)
         let codec: any TarCompressor
         switch format {
         case .tarGzip: codec = try GzipCompressor(level: options.deflateLevel, threads: options.resolvedCompressionThreads)
         case .tarBzip2: codec = try ParallelBzip2Compressor(level: options.bzip2Level, threads: options.resolvedCompressionThreads)
-        default: codec = try ParallelXZCompressor(threads: options.resolvedCompressionThreads)
+        default: codec = try ParallelXZCompressor(threads: options.resolvedCompressionThreads, packingSize: packingSize)
         }
         FileManager.default.createFile(atPath: output.path, contents: nil)
         let handle = try FileHandle(forWritingTo: output)
@@ -72,6 +73,27 @@ enum CompressedTarTestSupport {
             try feed(layout.membersEnd..<source.length)
         } else { try feed(0..<source.length) }
         try codec.write(Data(), finish: true, emit: emit)
+    }
+
+    static func packingFixture(_ root: URL, oldPacking: Bool = false, bodyExcess: Int = 100_000) throws -> URL {
+        let raw = root.appendingPathComponent("input.tar"), output = root.appendingPathComponent("packing.tar.xz")
+        let plain = try ArchiveWriter.create(url: raw, format: .tar)
+        let writer = try oldPacking ? nil : ArchiveWriter.create(url: output, format: .tarXZ)
+        let size = CompressedTarSplicePlan.limits(.tarXZ, options: WriterOptions()).packing + bodyExcess
+        let seed = LHATestSupport.random(65_536)
+        func add(_ name: String, size: Int) throws {
+            var body = Data(repeating: 37, count: size)
+            body.replaceSubrange(0..<min(size, seed.count), with: seed.prefix(size))
+            try plain.add(data: body, as: name, modificationDate: ZipTestSupport.date)
+            try writer?.add(data: body, as: name, modificationDate: ZipTestSupport.date)
+        }
+        for index in 0..<12 { try add("before-\(index)", size: 128 * 1024) }
+        try add("medium", size: size)
+        for index in 0..<12 { try add("after-\(index)", size: 128 * 1024) }
+        try plain.finish()
+        if let writer { try writer.finish() }
+        else { try compress(raw, to: output, format: .tarXZ, packingSize: ParallelXZCompressor.defaultBlockSize) }
+        return output
     }
     static func splice(_ result: CompressedTarCommitResult) -> CompressedTarSplice {
         CompressedTarSplice(segments: result.segments.map {

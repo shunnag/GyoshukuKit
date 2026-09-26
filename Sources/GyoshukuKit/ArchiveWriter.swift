@@ -100,6 +100,7 @@ public final class ArchiveWriter {
         bzip2Encoder: @escaping ParallelBzip2Compressor.Encoder = ParallelBzip2Compressor.encode,
         zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) },
         lzmaChunkSize: Int,
+        xzPackingSize: Int? = nil,
         lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode,
         lh5Encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode
     ) throws -> ArchiveWriter {
@@ -116,7 +117,7 @@ public final class ArchiveWriter {
                                                      encoder: bzip2Encoder)
         case .tarXZ:
             compressor = try ParallelXZCompressor(threads: options.resolvedCompressionThreads,
-                                                  chunkSize: lzmaChunkSize, encoder: lzmaEncoder)
+                                                  chunkSize: lzmaChunkSize, packingSize: xzPackingSize, encoder: lzmaEncoder)
         default: compressor = nil
         }
         let fd = url.withUnsafeFileSystemRepresentation { path in

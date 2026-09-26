@@ -52,30 +52,35 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     }
 
     private let threads: Int
+    private let lightWeightLimit: UInt64
     private let encoder: Encoder
     private let queue: DispatchQueue
     private let state = State()
-    private var items: [(id: UInt64, tag: Tag)] = []
+    private var items: [(id: UInt64, tag: Tag, isHeavy: Bool)] = []
+    private var heavyCount = 0
     private var nextID: UInt64 = 0
     private var finished = false
 
-    init(threads: Int, encoder: @escaping Encoder) {
+    init(threads: Int, lightWeightLimit: UInt64 = 0, encoder: @escaping Encoder) {
         precondition((1...64).contains(threads))
         self.threads = threads
+        self.lightWeightLimit = lightWeightLimit
         self.encoder = encoder
         queue = DispatchQueue(label: "GyoshukuKit.Compression", qos: Self.currentQoS, attributes: .concurrent)
     }
 
     deinit { abandon() }
 
-    func submit(_ input: Input?, tag: Tag, emit: (Tag, Output?) throws -> Void) throws {
+    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
             try waitForCapacity(emit: emit)
             let id = nextID
             nextID = try checkedAdd(nextID, 1)
-            items.append((id, tag))
+            let isHeavy = lightWeightLimit == 0 || weight == 0 || weight > lightWeightLimit
+            items.append((id, tag, isHeavy))
+            if isHeavy { heavyCount += 1 }
             if let input {
                 let state = state, encoder = encoder
                 queue.async(qos: Self.currentQoS, flags: .enforceQoS) {
@@ -95,7 +100,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
-            if items.count == threads { try emitNext(emit) }
+            while heavyCount >= threads || items.count >= 2 * threads + 1 { try emitNext(emit) }
         } catch {
             abandon()
             throw error
@@ -121,6 +126,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     func abandon() {
         state.abandon()
         items.removeAll()
+        heavyCount = 0
         finished = true
     }
 
@@ -129,6 +135,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         let result = try state.take(item.id)
         try emit(item.tag, result)
         items.removeFirst()
+        if item.isHeavy { heavyCount -= 1 }
     }
 
     private static var currentQoS: DispatchQoS {

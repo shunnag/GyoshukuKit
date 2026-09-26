@@ -3,6 +3,32 @@ import XCTest
 @testable import GyoshukuKit
 
 final class LZMA2ChunkPipelineTests: XCTestCase {
+    func testLightWeightsAreForwardedWithChecksumsAndOrderedMarkers() async throws {
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let task = Task.detached {
+            let pipeline = LZMA2ChunkPipeline<Int>(threads: 2, checksum: true, lightWeightLimit: 64) { input in
+                started.signal()
+                XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+                return Self.result(input)
+            }
+            var emitted: [Int] = []
+            let emit: (Int, LZMA2ChunkPipeline<Int>.Output?) -> Void = { tag, output in
+                if tag == 4 { XCTAssertNil(output) }
+                else { XCTAssertEqual(output?.crc, updateCRC(0, Data([UInt8(tag)]))) }
+                emitted.append(tag)
+            }
+            for index in 0..<4 { try pipeline.submit(Data([UInt8(index)]), tag: index, weight: 1, emit: emit) }
+            try pipeline.submit(nil, tag: 4, emit: emit)
+            try pipeline.finish(emit: emit)
+            return emitted
+        }
+        defer { for _ in 0..<4 { release.signal() } }
+        for _ in 0..<4 { try await Self.wait(started) }
+        for _ in 0..<4 { release.signal() }
+        let emitted = try await task.value
+        XCTAssertEqual(emitted, Array(0..<5))
+    }
+
     func testCompletedJobsRemainBoundedAndMarkersKeepSubmissionOrder() async throws {
         let started = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)

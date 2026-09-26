@@ -18,11 +18,11 @@ struct CompressedTarSplicePlan {
         return nil
     }
 
-    static func limit(_ format: ArchiveFormat, options: WriterOptions) -> Int {
+    static func limits(_ format: ArchiveFormat, options: WriterOptions) -> TarChunkLimits {
         switch format {
-        case .tarGzip: DeflateBlock.size
-        case .tarBzip2: ParallelBzip2Compressor.chunkSize(level: options.bzip2Level)
-        default: ParallelXZCompressor.defaultBlockSize
+        case .tarGzip: .init(uniform: DeflateBlock.size)
+        case .tarBzip2: .init(uniform: ParallelBzip2Compressor.chunkSize(level: options.bzip2Level))
+        default: .init(packing: ParallelXZCompressor.memberPackingSize, piece: ParallelXZCompressor.defaultBlockSize)
         }
     }
 
@@ -51,14 +51,14 @@ struct CompressedTarSplicePlan {
                 }
             }
         }
-        let limit = limit(format, options: options)
+        let limits = limits(format, options: options)
         var absorbed = Set<Int>(), start = 0
         while start < selected.count {
             var end = start + 1
             while end < selected.count, selected[end - 1].image.upperBound == selected[end].image.lowerBound { end += 1 }
             let left = selected[start].image.lowerBound > 0
             let right = selected[end - 1].image.upperBound < image.length
-            let small: (Int) -> Bool = { selected[$0].image.spliceLength < UInt64(limit / 16) }
+            let small: (Int) -> Bool = { selected[$0].image.spliceLength < UInt64(limits.packing / 16) }
             if left && right && (start..<end).allSatisfy(small) { absorbed.formUnion(start..<end) }
             else {
                 if left && small(start) { absorbed.insert(start) }
@@ -71,19 +71,19 @@ struct CompressedTarSplicePlan {
         for part in selected {
             try Task.checkCancellation()
             if cursor < part.image.lowerBound {
-                parts += cuts(cursor..<part.image.lowerBound, image: image, limit: limit).map { Part(image: $0, reused: nil) }
+                parts += cuts(cursor..<part.image.lowerBound, image: image, limits: limits).map { Part(image: $0, reused: nil) }
             }
             parts.append(part)
             cursor = part.image.upperBound
         }
-        if cursor < image.length { parts += cuts(cursor..<image.length, image: image, limit: limit).map { Part(image: $0, reused: nil) } }
+        if cursor < image.length { parts += cuts(cursor..<image.length, image: image, limits: limits).map { Part(image: $0, reused: nil) } }
         return CompressedTarSplicePlan(parts: parts, chunks: chunks,
                                       reason: selected.isEmpty ? reason ?? .noReusableChunk : nil)
     }
 
     // G1 の境界機械を byte 数だけで進める。橋の先頭が header/本文の途中でも同じ規則を使う。
-    static func cuts(_ range: Range<UInt64>, image: TarImageSource, limit: Int) -> [Range<UInt64>] {
-        var layout = TarChunkLayout(limit: limit), buffered = 0
+    static func cuts(_ range: Range<UInt64>, image: TarImageSource, limits: TarChunkLimits) -> [Range<UInt64>] {
+        var layout = TarChunkLayout(limits: limits), buffered = 0
         var cursor = range.lowerBound, start = cursor
         var result: [Range<UInt64>] = []
         func cut() {
