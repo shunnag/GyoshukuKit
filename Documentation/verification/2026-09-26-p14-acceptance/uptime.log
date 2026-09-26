@@ -1,0 +1,554 @@
+18:55  up 4 days, 12:53, 4 users, load averages: 3.75 3.89 4.91 | R4 txz text t8 r0 start
+18:56  up 4 days, 12:53, 4 users, load averages: 5.13 4.19 5.00 | R4 txz text t8 r0 end rc=0
+18:56  up 4 days, 12:53, 4 users, load averages: 5.13 4.19 5.00 | R4 txz random t8 r0 start
+18:56  up 4 days, 12:53, 4 users, load averages: 5.28 4.23 5.01 | R4 txz random t8 r0 end rc=0
+18:56  up 4 days, 12:53, 4 users, load averages: 5.28 4.23 5.01 | R4 txz small t8 r0 start
+18:56  up 4 days, 12:54, 4 users, load averages: 5.81 4.36 5.05 | R4 txz small t8 r0 end rc=0
+18:56  up 4 days, 12:54, 4 users, load averages: 5.81 4.36 5.05 | R4 txz headers t8 r0 start
+18:56  up 4 days, 12:54, 4 users, load averages: 5.81 4.36 5.05 | R4 txz headers t8 r0 end rc=0
+18:56  up 4 days, 12:54, 4 users, load averages: 5.81 4.36 5.05 | R4 txz mixed t8 r0 start
+18:56  up 4 days, 12:54, 4 users, load averages: 7.77 4.89 5.22 | R4 txz mixed t8 r0 end rc=0
+18:56  up 4 days, 12:54, 4 users, load averages: 7.77 4.89 5.22 | R4 txz payload t8 r0 start
+18:57  up 4 days, 12:54, 4 users, load averages: 7.15 4.93 5.23 | R4 txz payload t8 r0 end rc=0
+18:57  up 4 days, 12:54, 4 users, load averages: 7.15 4.93 5.23 | B txz text t8 r0 start
+18:57  up 4 days, 12:55, 4 users, load averages: 8.30 5.34 5.37 | B txz text t8 r0 end rc=0
+18:57  up 4 days, 12:55, 4 users, load averages: 8.30 5.34 5.37 | N txz text t8 r0 start
+18:57  up 4 days, 12:55, 4 users, load averages: 8.71 5.65 5.48 | N txz text t8 r0 end rc=0
+18:57  up 4 days, 12:55, 4 users, load averages: 8.71 5.65 5.48 | B txz random t8 r0 start
+18:57  up 4 days, 12:55, 4 users, load averages: 9.06 5.77 5.52 | B txz random t8 r0 end rc=0
+18:57  up 4 days, 12:55, 4 users, load averages: 9.06 5.77 5.52 | N txz random t8 r0 start
+18:58  up 4 days, 12:55, 4 users, load averages: 9.20 5.91 5.57 | N txz random t8 r0 end rc=0
+18:58  up 4 days, 12:55, 4 users, load averages: 9.20 5.91 5.57 | B txz small t8 r0 start
+18:58  up 4 days, 12:55, 4 users, load averages: 8.91 5.96 5.59 | B txz small t8 r0 end rc=0
+18:58  up 4 days, 12:55, 4 users, load averages: 8.91 5.96 5.59 | N txz small t8 r0 start
+18:58  up 4 days, 12:55, 4 users, load averages: 8.75 6.03 5.62 | N txz small t8 r0 end rc=0
+18:58  up 4 days, 12:55, 4 users, load averages: 8.75 6.03 5.62 | B txz headers t8 r0 start
+18:58  up 4 days, 12:56, 4 users, load averages: 8.75 6.03 5.62 | B txz headers t8 r0 end rc=0
+18:58  up 4 days, 12:56, 4 users, load averages: 8.75 6.03 5.62 | N txz headers t8 r0 start
+18:58  up 4 days, 12:56, 4 users, load averages: 8.75 6.03 5.62 | N txz headers t8 r0 end rc=0
+18:58  up 4 days, 12:56, 4 users, load averages: 8.75 6.03 5.62 | B txz mixed t8 r0 start
+18:59  up 4 days, 12:56, 4 users, load averages: 8.32 6.24 5.72 | B txz mixed t8 r0 end rc=0
+18:59  up 4 days, 12:56, 4 users, load averages: 8.32 6.24 5.72 | N txz mixed t8 r0 start
+18:59  up 4 days, 12:57, 4 users, load averages: 8.51 6.50 5.83 | N txz mixed t8 r0 end rc=0
+18:59  up 4 days, 12:57, 4 users, load averages: 8.51 6.50 5.83 | B txz payload t8 r0 start
+18:59  up 4 days, 12:57, 4 users, load averages: 8.97 6.70 5.91 | B txz payload t8 r0 end rc=0
+18:59  up 4 days, 12:57, 4 users, load averages: 8.97 6.70 5.91 | N txz payload t8 r0 start
+18:59  up 4 days, 12:57, 4 users, load averages: 11.63 7.36 6.16 | N txz payload t8 r0 end rc=0
+18:59  up 4 days, 12:57, 4 users, load averages: 11.63 7.36 6.16 | B txz mid t8 r0 start
+19:00  up 4 days, 12:57, 4 users, load averages: 11.49 7.54 6.24 | B txz mid t8 r0 end rc=0
+19:00  up 4 days, 12:57, 4 users, load averages: 11.49 7.54 6.24 | N txz mid t8 r0 start
+19:00  up 4 days, 12:58, 4 users, load averages: 11.09 7.64 6.30 | N txz mid t8 r0 end rc=0
+19:00  up 4 days, 12:58, 4 users, load averages: 11.09 7.64 6.30 | B txz text t8 r1 start
+19:00  up 4 days, 12:58, 4 users, load averages: 10.85 7.81 6.39 | B txz text t8 r1 end rc=0
+19:00  up 4 days, 12:58, 4 users, load averages: 10.85 7.81 6.39 | N txz text t8 r1 start
+19:01  up 4 days, 12:58, 4 users, load averages: 10.68 7.97 6.48 | N txz text t8 r1 end rc=0
+19:01  up 4 days, 12:58, 4 users, load averages: 10.68 7.97 6.48 | B txz random t8 r1 start
+19:01  up 4 days, 12:58, 4 users, load averages: 10.47 7.97 6.49 | B txz random t8 r1 end rc=0
+19:01  up 4 days, 12:58, 4 users, load averages: 10.47 7.97 6.49 | N txz random t8 r1 start
+19:01  up 4 days, 12:58, 4 users, load averages: 10.09 7.97 6.51 | N txz random t8 r1 end rc=0
+19:01  up 4 days, 12:58, 4 users, load averages: 10.09 7.97 6.51 | B txz small t8 r1 start
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.92 6.51 | B txz small t8 r1 end rc=0
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.92 6.51 | N txz small t8 r1 start
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.97 6.54 | N txz small t8 r1 end rc=0
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.97 6.54 | B txz headers t8 r1 start
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.97 6.54 | B txz headers t8 r1 end rc=0
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.97 6.54 | N txz headers t8 r1 start
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.97 6.54 | N txz headers t8 r1 end rc=0
+19:01  up 4 days, 12:59, 4 users, load averages: 9.52 7.97 6.54 | B txz mixed t8 r1 start
+19:02  up 4 days, 12:59, 4 users, load averages: 9.42 8.12 6.65 | B txz mixed t8 r1 end rc=0
+19:02  up 4 days, 12:59, 4 users, load averages: 9.42 8.12 6.65 | N txz mixed t8 r1 start
+19:02  up 4 days, 13 hrs, 4 users, load averages: 9.64 8.28 6.76 | N txz mixed t8 r1 end rc=0
+19:02  up 4 days, 13 hrs, 4 users, load averages: 9.64 8.28 6.76 | B txz payload t8 r1 start
+19:03  up 4 days, 13 hrs, 4 users, load averages: 9.66 8.35 6.81 | B txz payload t8 r1 end rc=0
+19:03  up 4 days, 13 hrs, 4 users, load averages: 9.66 8.35 6.81 | N txz payload t8 r1 start
+19:03  up 4 days, 13 hrs, 4 users, load averages: 10.10 8.51 6.89 | N txz payload t8 r1 end rc=0
+19:03  up 4 days, 13 hrs, 4 users, load averages: 10.10 8.51 6.89 | B txz mid t8 r1 start
+19:03  up 4 days, 13:01, 4 users, load averages: 10.14 8.60 6.95 | B txz mid t8 r1 end rc=0
+19:03  up 4 days, 13:01, 4 users, load averages: 10.14 8.60 6.95 | N txz mid t8 r1 start
+19:03  up 4 days, 13:01, 4 users, load averages: 10.42 8.73 7.03 | N txz mid t8 r1 end rc=0
+19:03  up 4 days, 13:01, 4 users, load averages: 10.42 8.73 7.03 | B txz text t8 r2 start
+19:04  up 4 days, 13:01, 4 users, load averages: 10.71 8.91 7.13 | B txz text t8 r2 end rc=0
+19:04  up 4 days, 13:01, 4 users, load averages: 10.71 8.91 7.13 | N txz text t8 r2 start
+19:04  up 4 days, 13:02, 4 users, load averages: 10.01 8.87 7.16 | N txz text t8 r2 end rc=0
+19:04  up 4 days, 13:02, 4 users, load averages: 10.01 8.87 7.16 | B txz random t8 r2 start
+19:04  up 4 days, 13:02, 4 users, load averages: 9.85 8.85 7.16 | B txz random t8 r2 end rc=0
+19:04  up 4 days, 13:02, 4 users, load averages: 9.85 8.85 7.16 | N txz random t8 r2 start
+19:04  up 4 days, 13:02, 4 users, load averages: 9.87 8.89 7.19 | N txz random t8 r2 end rc=0
+19:04  up 4 days, 13:02, 4 users, load averages: 9.87 8.89 7.19 | B txz small t8 r2 start
+19:04  up 4 days, 13:02, 4 users, load averages: 9.65 8.88 7.21 | B txz small t8 r2 end rc=0
+19:04  up 4 days, 13:02, 4 users, load averages: 9.65 8.88 7.21 | N txz small t8 r2 start
+19:05  up 4 days, 13:02, 4 users, load averages: 9.19 8.80 7.20 | N txz small t8 r2 end rc=0
+19:05  up 4 days, 13:02, 4 users, load averages: 9.19 8.80 7.20 | B txz headers t8 r2 start
+19:05  up 4 days, 13:02, 4 users, load averages: 9.19 8.80 7.20 | B txz headers t8 r2 end rc=0
+19:05  up 4 days, 13:02, 4 users, load averages: 9.19 8.80 7.20 | N txz headers t8 r2 start
+19:05  up 4 days, 13:02, 4 users, load averages: 9.01 8.77 7.20 | N txz headers t8 r2 end rc=0
+19:05  up 4 days, 13:02, 4 users, load averages: 9.01 8.77 7.20 | B txz mixed t8 r2 start
+19:05  up 4 days, 13:03, 4 users, load averages: 11.06 9.25 7.43 | B txz mixed t8 r2 end rc=0
+19:05  up 4 days, 13:03, 4 users, load averages: 11.06 9.25 7.43 | N txz mixed t8 r2 start
+19:06  up 4 days, 13:03, 4 users, load averages: 10.18 9.22 7.48 | N txz mixed t8 r2 end rc=0
+19:06  up 4 days, 13:03, 4 users, load averages: 10.18 9.22 7.48 | B txz payload t8 r2 start
+19:06  up 4 days, 13:04, 4 users, load averages: 9.92 9.21 7.51 | B txz payload t8 r2 end rc=0
+19:06  up 4 days, 13:04, 4 users, load averages: 9.92 9.21 7.51 | N txz payload t8 r2 start
+19:06  up 4 days, 13:04, 4 users, load averages: 9.98 9.26 7.56 | N txz payload t8 r2 end rc=0
+19:06  up 4 days, 13:04, 4 users, load averages: 9.98 9.26 7.56 | B txz mid t8 r2 start
+19:06  up 4 days, 13:04, 4 users, load averages: 10.07 9.31 7.61 | B txz mid t8 r2 end rc=0
+19:06  up 4 days, 13:04, 4 users, load averages: 10.07 9.31 7.61 | N txz mid t8 r2 start
+19:07  up 4 days, 13:04, 4 users, load averages: 9.75 9.27 7.61 | N txz mid t8 r2 end rc=0
+19:07  up 4 days, 13:04, 4 users, load averages: 9.75 9.27 7.61 | B txz text t8 r3 start
+19:07  up 4 days, 13:05, 4 users, load averages: 9.60 9.27 7.65 | B txz text t8 r3 end rc=0
+19:07  up 4 days, 13:05, 4 users, load averages: 9.60 9.27 7.65 | N txz text t8 r3 start
+19:07  up 4 days, 13:05, 4 users, load averages: 9.51 9.26 7.69 | N txz text t8 r3 end rc=0
+19:07  up 4 days, 13:05, 4 users, load averages: 9.51 9.26 7.69 | B txz random t8 r3 start
+19:08  up 4 days, 13:05, 4 users, load averages: 9.28 9.22 7.69 | B txz random t8 r3 end rc=0
+19:08  up 4 days, 13:05, 4 users, load averages: 9.28 9.22 7.69 | N txz random t8 r3 start
+19:08  up 4 days, 13:05, 4 users, load averages: 9.41 9.25 7.71 | N txz random t8 r3 end rc=0
+19:08  up 4 days, 13:05, 4 users, load averages: 9.41 9.25 7.71 | B txz small t8 r3 start
+19:08  up 4 days, 13:05, 4 users, load averages: 8.91 9.16 7.70 | B txz small t8 r3 end rc=0
+19:08  up 4 days, 13:05, 4 users, load averages: 8.91 9.16 7.70 | N txz small t8 r3 start
+19:08  up 4 days, 13:06, 4 users, load averages: 8.84 9.14 7.70 | N txz small t8 r3 end rc=0
+19:08  up 4 days, 13:06, 4 users, load averages: 8.84 9.14 7.70 | B txz headers t8 r3 start
+19:08  up 4 days, 13:06, 4 users, load averages: 8.29 9.02 7.67 | B txz headers t8 r3 end rc=0
+19:08  up 4 days, 13:06, 4 users, load averages: 8.29 9.02 7.67 | N txz headers t8 r3 start
+19:08  up 4 days, 13:06, 4 users, load averages: 8.29 9.02 7.67 | N txz headers t8 r3 end rc=0
+19:08  up 4 days, 13:06, 4 users, load averages: 8.29 9.02 7.67 | B txz mixed t8 r3 start
+19:09  up 4 days, 13:06, 4 users, load averages: 8.34 8.95 7.70 | B txz mixed t8 r3 end rc=0
+19:09  up 4 days, 13:06, 4 users, load averages: 8.34 8.95 7.70 | N txz mixed t8 r3 start
+19:09  up 4 days, 13:07, 4 users, load averages: 10.73 9.46 7.92 | N txz mixed t8 r3 end rc=0
+19:09  up 4 days, 13:07, 4 users, load averages: 10.73 9.46 7.92 | B txz payload t8 r3 start
+19:09  up 4 days, 13:07, 4 users, load averages: 10.71 9.52 7.97 | B txz payload t8 r3 end rc=0
+19:09  up 4 days, 13:07, 4 users, load averages: 10.71 9.52 7.97 | N txz payload t8 r3 start
+19:10  up 4 days, 13:07, 4 users, load averages: 10.55 9.55 8.01 | N txz payload t8 r3 end rc=0
+19:10  up 4 days, 13:07, 4 users, load averages: 10.55 9.55 8.01 | B txz mid t8 r3 start
+19:10  up 4 days, 13:07, 4 users, load averages: 10.50 9.58 8.05 | B txz mid t8 r3 end rc=0
+19:10  up 4 days, 13:07, 4 users, load averages: 10.50 9.58 8.05 | N txz mid t8 r3 start
+19:10  up 4 days, 13:08, 4 users, load averages: 9.88 9.49 8.04 | N txz mid t8 r3 end rc=0
+19:10  up 4 days, 13:08, 4 users, load averages: 9.88 9.49 8.04 | B txz text t1 r0 start
+19:12  up 4 days, 13:09, 4 users, load averages: 6.94 8.40 7.76 | B txz text t1 r0 end rc=0
+19:12  up 4 days, 13:09, 4 users, load averages: 6.94 8.40 7.76 | N txz text t1 r0 start
+19:13  up 4 days, 13:11, 4 users, load averages: 4.81 7.15 7.33 | N txz text t1 r0 end rc=0
+19:13  up 4 days, 13:11, 4 users, load averages: 4.81 7.15 7.33 | B txz random t1 r0 start
+19:14  up 4 days, 13:12, 4 users, load averages: 4.05 6.64 7.14 | B txz random t1 r0 end rc=0
+19:14  up 4 days, 13:12, 4 users, load averages: 4.05 6.64 7.14 | N txz random t1 r0 start
+19:15  up 4 days, 13:12, 4 users, load averages: 3.50 6.16 6.93 | N txz random t1 r0 end rc=0
+19:15  up 4 days, 13:12, 4 users, load averages: 3.50 6.16 6.93 | B txz small t1 r0 start
+19:15  up 4 days, 13:13, 4 users, load averages: 3.27 5.73 6.74 | B txz small t1 r0 end rc=0
+19:15  up 4 days, 13:13, 4 users, load averages: 3.27 5.73 6.74 | N txz small t1 r0 start
+19:16  up 4 days, 13:14, 4 users, load averages: 3.09 5.48 6.61 | N txz small t1 r0 end rc=0
+19:16  up 4 days, 13:14, 4 users, load averages: 3.09 5.48 6.61 | B txz mixed t1 r0 start
+19:18  up 4 days, 13:16, 4 users, load averages: 2.85 4.42 6.00 | B txz mixed t1 r0 end rc=0
+19:18  up 4 days, 13:16, 4 users, load averages: 2.85 4.42 6.00 | N txz mixed t1 r0 start
+19:21  up 4 days, 13:18, 4 users, load averages: 2.19 3.61 5.45 | N txz mixed t1 r0 end rc=0
+19:21  up 4 days, 13:18, 4 users, load averages: 2.19 3.61 5.45 | B txz text t1 r1 start
+19:22  up 4 days, 13:20, 4 users, load averages: 2.66 3.39 5.18 | B txz text t1 r1 end rc=0
+19:22  up 4 days, 13:20, 4 users, load averages: 2.66 3.39 5.18 | N txz text t1 r1 start
+19:24  up 4 days, 13:21, 4 users, load averages: 5.74 4.62 5.46 | N txz text t1 r1 end rc=0
+19:24  up 4 days, 13:21, 4 users, load averages: 5.74 4.62 5.46 | B txz random t1 r1 start
+19:25  up 4 days, 13:22, 4 users, load averages: 4.35 4.41 5.34 | B txz random t1 r1 end rc=0
+19:25  up 4 days, 13:22, 4 users, load averages: 4.35 4.41 5.34 | N txz random t1 r1 start
+19:25  up 4 days, 13:23, 4 users, load averages: 4.48 4.50 5.33 | N txz random t1 r1 end rc=0
+19:25  up 4 days, 13:23, 4 users, load averages: 4.48 4.50 5.33 | B txz small t1 r1 start
+19:26  up 4 days, 13:24, 4 users, load averages: 4.08 4.39 5.24 | B txz small t1 r1 end rc=0
+19:26  up 4 days, 13:24, 4 users, load averages: 4.08 4.39 5.24 | N txz small t1 r1 start
+19:27  up 4 days, 13:24, 4 users, load averages: 3.33 4.17 5.13 | N txz small t1 r1 end rc=0
+19:27  up 4 days, 13:24, 4 users, load averages: 3.33 4.17 5.13 | B txz mixed t1 r1 start
+19:29  up 4 days, 13:27, 4 users, load averages: 3.24 3.71 4.77 | B txz mixed t1 r1 end rc=0
+19:29  up 4 days, 13:27, 4 users, load averages: 3.24 3.71 4.77 | N txz mixed t1 r1 start
+19:32  up 4 days, 13:29, 4 users, load averages: 4.64 4.05 4.73 | N txz mixed t1 r1 end rc=0
+19:32  up 4 days, 13:29, 4 users, load averages: 4.64 4.05 4.73 | B txz text t1 r2 start
+19:33  up 4 days, 13:31, 4 users, load averages: 6.12 4.80 4.94 | B txz text t1 r2 end rc=0
+19:33  up 4 days, 13:31, 4 users, load averages: 6.12 4.80 4.94 | N txz text t1 r2 start
+19:35  up 4 days, 13:33, 4 users, load averages: 4.48 4.58 4.83 | N txz text t1 r2 end rc=0
+19:35  up 4 days, 13:33, 4 users, load averages: 4.48 4.58 4.83 | B txz random t1 r2 start
+19:36  up 4 days, 13:34, 4 users, load averages: 4.32 4.53 4.79 | B txz random t1 r2 end rc=0
+19:36  up 4 days, 13:34, 4 users, load averages: 4.32 4.53 4.79 | N txz random t1 r2 start
+19:37  up 4 days, 13:35, 4 users, load averages: 4.55 4.58 4.80 | N txz random t1 r2 end rc=0
+19:37  up 4 days, 13:35, 4 users, load averages: 4.55 4.58 4.80 | B txz small t1 r2 start
+19:38  up 4 days, 13:36, 4 users, load averages: 3.42 4.27 4.67 | B txz small t1 r2 end rc=0
+19:38  up 4 days, 13:36, 4 users, load averages: 3.42 4.27 4.67 | N txz small t1 r2 start
+19:39  up 4 days, 13:36, 4 users, load averages: 3.65 4.24 4.64 | N txz small t1 r2 end rc=0
+19:39  up 4 days, 13:36, 4 users, load averages: 3.65 4.24 4.64 | B txz mixed t1 r2 start
+19:41  up 4 days, 13:39, 4 users, load averages: 2.36 3.48 4.26 | B txz mixed t1 r2 end rc=0
+19:41  up 4 days, 13:39, 4 users, load averages: 2.36 3.48 4.26 | N txz mixed t1 r2 start
+19:44  up 4 days, 13:41, 4 users, load averages: 2.45 3.10 3.98 | N txz mixed t1 r2 end rc=0
+19:44  up 4 days, 13:41, 4 users, load averages: 2.45 3.10 3.98 | B txz text t1 r3 start
+19:45  up 4 days, 13:43, 4 users, load averages: 2.82 3.07 3.87 | B txz text t1 r3 end rc=0
+19:45  up 4 days, 13:43, 4 users, load averages: 2.82 3.07 3.87 | N txz text t1 r3 start
+19:47  up 4 days, 13:45, 4 users, load averages: 2.83 2.99 3.73 | N txz text t1 r3 end rc=0
+19:47  up 4 days, 13:45, 4 users, load averages: 2.83 2.99 3.73 | B txz random t1 r3 start
+19:48  up 4 days, 13:45, 4 users, load averages: 3.05 3.03 3.71 | B txz random t1 r3 end rc=0
+19:48  up 4 days, 13:45, 4 users, load averages: 3.05 3.03 3.71 | N txz random t1 r3 start
+19:49  up 4 days, 13:46, 4 users, load averages: 3.58 3.14 3.71 | N txz random t1 r3 end rc=0
+19:49  up 4 days, 13:46, 4 users, load averages: 3.58 3.14 3.71 | B txz small t1 r3 start
+19:50  up 4 days, 13:47, 4 users, load averages: 3.82 3.30 3.74 | B txz small t1 r3 end rc=0
+19:50  up 4 days, 13:47, 4 users, load averages: 3.82 3.30 3.74 | N txz small t1 r3 start
+19:50  up 4 days, 13:48, 4 users, load averages: 3.21 3.19 3.68 | N txz small t1 r3 end rc=0
+19:50  up 4 days, 13:48, 4 users, load averages: 3.21 3.19 3.68 | B txz mixed t1 r3 start
+19:53  up 4 days, 13:51, 4 users, load averages: 2.67 2.94 3.48 | B txz mixed t1 r3 end rc=0
+19:53  up 4 days, 13:51, 4 users, load averages: 2.67 2.94 3.48 | N txz mixed t1 r3 start
+19:55  up 4 days, 13:53, 4 users, load averages: 2.80 2.90 3.38 | N txz mixed t1 r3 end rc=0
+19:55  up 4 days, 13:53, 4 users, load averages: 2.80 2.90 3.38 | N txz payload t1 r1 start
+19:56  up 4 days, 13:54, 4 users, load averages: 2.70 2.88 3.34 | N txz payload t1 r1 end rc=0
+19:56  up 4 days, 13:54, 4 users, load averages: 2.70 2.88 3.34 | N txz mid t1 r1 start
+19:58  up 4 days, 13:55, 4 users, load averages: 6.85 4.06 3.74 | N txz mid t1 r1 end rc=0
+19:58  up 4 days, 13:55, 4 users, load averages: 6.85 4.06 3.74 | N txz headers t1 r1 start
+19:58  up 4 days, 13:55, 4 users, load averages: 6.54 4.04 3.74 | N txz headers t1 r1 end rc=0
+19:58  up 4 days, 13:55, 4 users, load averages: 6.54 4.04 3.74 | B tgz text t1 r1 start
+19:58  up 4 days, 13:55, 4 users, load averages: 6.22 4.06 3.74 | B tgz text t1 r1 end rc=0
+19:58  up 4 days, 13:55, 4 users, load averages: 6.22 4.06 3.74 | N tgz text t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 7.15 4.33 3.85 | N tgz text t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 7.15 4.33 3.85 | B tgz text t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 7.15 4.33 3.85 | B tgz text t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 7.15 4.33 3.85 | N tgz text t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 7.15 4.33 3.85 | N tgz text t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 7.15 4.33 3.85 | B tgz random t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 6.74 4.29 3.84 | B tgz random t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 6.74 4.29 3.84 | N tgz random t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 6.76 4.34 3.85 | N tgz random t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 6.76 4.34 3.85 | B tgz random t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 6.76 4.34 3.85 | B tgz random t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 6.76 4.34 3.85 | N tgz random t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 6.76 4.34 3.85 | N tgz random t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 6.76 4.34 3.85 | B tgz small t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 6.46 4.32 3.85 | B tgz small t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 6.46 4.32 3.85 | N tgz small t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 6.10 4.28 3.84 | N tgz small t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 6.10 4.28 3.84 | B tgz small t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | B tgz small t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | N tgz small t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | N tgz small t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | B tgz headers t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | B tgz headers t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | N tgz headers t1 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | N tgz headers t1 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | B tgz headers t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | B tgz headers t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | N tgz headers t8 r1 start
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | N tgz headers t8 r1 end rc=0
+19:58  up 4 days, 13:56, 4 users, load averages: 5.93 4.27 3.84 | B tgz mixed t1 r1 start
+19:59  up 4 days, 13:56, 4 users, load averages: 5.22 4.22 3.83 | B tgz mixed t1 r1 end rc=0
+19:59  up 4 days, 13:56, 4 users, load averages: 5.22 4.22 3.83 | N tgz mixed t1 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 4.88 4.19 3.83 | N tgz mixed t1 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 4.88 4.19 3.83 | B tgz mixed t8 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 4.88 4.19 3.83 | B tgz mixed t8 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 4.88 4.19 3.83 | N tgz mixed t8 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 5.45 4.32 3.87 | N tgz mixed t8 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 5.45 4.32 3.87 | B tgz payload t1 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 4.84 4.23 3.84 | B tgz payload t1 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 4.84 4.23 3.84 | N tgz payload t1 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 4.69 4.21 3.84 | N tgz payload t1 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 4.69 4.21 3.84 | B tgz payload t8 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 4.69 4.21 3.84 | B tgz payload t8 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 4.69 4.21 3.84 | N tgz payload t8 r1 start
+19:59  up 4 days, 13:57, 4 users, load averages: 4.79 4.24 3.85 | N tgz payload t8 r1 end rc=0
+19:59  up 4 days, 13:57, 4 users, load averages: 4.79 4.24 3.85 | B tbz text t1 r1 start
+20:00  up 4 days, 13:57, 4 users, load averages: 5.49 4.40 3.91 | B tbz text t1 r1 end rc=0
+20:00  up 4 days, 13:57, 4 users, load averages: 5.49 4.40 3.91 | N tbz text t1 r1 start
+20:00  up 4 days, 13:57, 4 users, load averages: 5.00 4.34 3.90 | N tbz text t1 r1 end rc=0
+20:00  up 4 days, 13:57, 4 users, load averages: 5.00 4.34 3.90 | B tbz text t8 r1 start
+20:00  up 4 days, 13:57, 4 users, load averages: 5.00 4.34 3.90 | B tbz text t8 r1 end rc=0
+20:00  up 4 days, 13:57, 4 users, load averages: 5.00 4.34 3.90 | N tbz text t8 r1 start
+20:00  up 4 days, 13:57, 4 users, load averages: 5.00 4.34 3.90 | N tbz text t8 r1 end rc=0
+20:00  up 4 days, 13:57, 4 users, load averages: 5.00 4.34 3.90 | B tbz random t1 r1 start
+20:00  up 4 days, 13:58, 4 users, load averages: 4.42 4.25 3.88 | B tbz random t1 r1 end rc=0
+20:00  up 4 days, 13:58, 4 users, load averages: 4.42 4.25 3.88 | N tbz random t1 r1 start
+20:00  up 4 days, 13:58, 4 users, load averages: 3.88 4.14 3.85 | N tbz random t1 r1 end rc=0
+20:00  up 4 days, 13:58, 4 users, load averages: 3.88 4.14 3.85 | B tbz random t8 r1 start
+20:00  up 4 days, 13:58, 4 users, load averages: 4.53 4.27 3.89 | B tbz random t8 r1 end rc=0
+20:00  up 4 days, 13:58, 4 users, load averages: 4.53 4.27 3.89 | N tbz random t8 r1 start
+20:01  up 4 days, 13:58, 4 users, load averages: 4.53 4.27 3.89 | N tbz random t8 r1 end rc=0
+20:01  up 4 days, 13:58, 4 users, load averages: 4.53 4.27 3.89 | B tbz small t1 r1 start
+20:01  up 4 days, 13:58, 4 users, load averages: 4.52 4.28 3.90 | B tbz small t1 r1 end rc=0
+20:01  up 4 days, 13:58, 4 users, load averages: 4.52 4.28 3.90 | N tbz small t1 r1 start
+20:01  up 4 days, 13:58, 4 users, load averages: 4.14 4.21 3.88 | N tbz small t1 r1 end rc=0
+20:01  up 4 days, 13:58, 4 users, load averages: 4.14 4.21 3.88 | B tbz small t8 r1 start
+20:01  up 4 days, 13:58, 4 users, load averages: 4.14 4.21 3.88 | B tbz small t8 r1 end rc=0
+20:01  up 4 days, 13:58, 4 users, load averages: 4.14 4.21 3.88 | N tbz small t8 r1 start
+20:01  up 4 days, 13:58, 4 users, load averages: 4.14 4.21 3.88 | N tbz small t8 r1 end rc=0
+20:01  up 4 days, 13:58, 4 users, load averages: 4.14 4.21 3.88 | B tbz headers t1 r1 start
+20:01  up 4 days, 13:58, 4 users, load averages: 3.88 4.15 3.86 | B tbz headers t1 r1 end rc=0
+20:01  up 4 days, 13:58, 4 users, load averages: 3.88 4.15 3.86 | N tbz headers t1 r1 start
+20:01  up 4 days, 13:59, 4 users, load averages: 3.88 4.15 3.86 | N tbz headers t1 r1 end rc=0
+20:01  up 4 days, 13:59, 4 users, load averages: 3.88 4.15 3.86 | B tbz headers t8 r1 start
+20:01  up 4 days, 13:59, 4 users, load averages: 3.88 4.15 3.86 | B tbz headers t8 r1 end rc=0
+20:01  up 4 days, 13:59, 4 users, load averages: 3.88 4.15 3.86 | N tbz headers t8 r1 start
+20:01  up 4 days, 13:59, 4 users, load averages: 3.88 4.15 3.86 | N tbz headers t8 r1 end rc=0
+20:01  up 4 days, 13:59, 4 users, load averages: 3.88 4.15 3.86 | B tbz mixed t1 r1 start
+20:01  up 4 days, 13:59, 4 users, load averages: 3.89 4.12 3.86 | B tbz mixed t1 r1 end rc=0
+20:01  up 4 days, 13:59, 4 users, load averages: 3.89 4.12 3.86 | N tbz mixed t1 r1 start
+20:02  up 4 days, 13:59, 4 users, load averages: 3.54 4.02 3.83 | N tbz mixed t1 r1 end rc=0
+20:02  up 4 days, 13:59, 4 users, load averages: 3.54 4.02 3.83 | B tbz mixed t8 r1 start
+20:02  up 4 days, 13:59, 4 users, load averages: 3.57 4.02 3.83 | B tbz mixed t8 r1 end rc=0
+20:02  up 4 days, 13:59, 4 users, load averages: 3.57 4.02 3.83 | N tbz mixed t8 r1 start
+20:02  up 4 days, 13:59, 4 users, load averages: 3.69 4.03 3.83 | N tbz mixed t8 r1 end rc=0
+20:02  up 4 days, 13:59, 4 users, load averages: 3.69 4.03 3.83 | B tbz payload t1 r1 start
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.31 3.93 3.80 | B tbz payload t1 r1 end rc=0
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.31 3.93 3.80 | N tbz payload t1 r1 start
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.18 3.88 3.79 | N tbz payload t1 r1 end rc=0
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.18 3.88 3.79 | B tbz payload t8 r1 start
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.57 3.95 3.81 | B tbz payload t8 r1 end rc=0
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.57 3.95 3.81 | N tbz payload t8 r1 start
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.57 3.95 3.81 | N tbz payload t8 r1 end rc=0
+20:02  up 4 days, 14 hrs, 4 users, load averages: 3.57 3.95 3.81 | B 7z text t1 r1 start
+20:04  up 4 days, 14:02, 4 users, load averages: 2.46 3.47 3.64 | B 7z text t1 r1 end rc=0
+20:04  up 4 days, 14:02, 4 users, load averages: 2.46 3.47 3.64 | N 7z text t1 r1 start
+20:06  up 4 days, 14:04, 4 users, load averages: 2.42 3.15 3.49 | N 7z text t1 r1 end rc=0
+20:06  up 4 days, 14:04, 4 users, load averages: 2.42 3.15 3.49 | B 7z text t8 r1 start
+20:06  up 4 days, 14:04, 4 users, load averages: 5.15 3.73 3.69 | B 7z text t8 r1 end rc=0
+20:06  up 4 days, 14:04, 4 users, load averages: 5.15 3.73 3.69 | N 7z text t8 r1 start
+20:07  up 4 days, 14:04, 4 users, load averages: 6.44 4.16 3.85 | N 7z text t8 r1 end rc=0
+20:07  up 4 days, 14:04, 4 users, load averages: 6.44 4.16 3.85 | B 7z random t1 r1 start
+20:08  up 4 days, 14:05, 4 users, load averages: 4.67 4.01 3.81 | B 7z random t1 r1 end rc=0
+20:08  up 4 days, 14:05, 4 users, load averages: 4.67 4.01 3.81 | N 7z random t1 r1 start
+20:08  up 4 days, 14:06, 4 users, load averages: 5.61 4.29 3.92 | N 7z random t1 r1 end rc=0
+20:08  up 4 days, 14:06, 4 users, load averages: 5.61 4.29 3.92 | B 7z random t8 r1 start
+20:08  up 4 days, 14:06, 4 users, load averages: 6.12 4.42 3.96 | B 7z random t8 r1 end rc=0
+20:08  up 4 days, 14:06, 4 users, load averages: 6.12 4.42 3.96 | N 7z random t8 r1 start
+20:09  up 4 days, 14:06, 4 users, load averages: 6.91 4.61 4.03 | N 7z random t8 r1 end rc=0
+20:09  up 4 days, 14:06, 4 users, load averages: 6.91 4.61 4.03 | B 7z small t1 r1 start
+20:09  up 4 days, 14:06, 4 users, load averages: 6.34 4.59 4.04 | B 7z small t1 r1 end rc=0
+20:09  up 4 days, 14:06, 4 users, load averages: 6.34 4.59 4.04 | N 7z small t1 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.61 4.52 4.02 | N 7z small t1 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.61 4.52 4.02 | B 7z small t8 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.64 4.54 4.03 | B 7z small t8 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.64 4.54 4.03 | N 7z small t8 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.64 4.54 4.03 | N 7z small t8 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.64 4.54 4.03 | B 7z headers t1 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.27 4.48 4.01 | B 7z headers t1 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.27 4.48 4.01 | N 7z headers t1 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.33 4.51 4.02 | N 7z headers t1 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.33 4.51 4.02 | B 7z headers t8 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.33 4.51 4.02 | B 7z headers t8 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.33 4.51 4.02 | N 7z headers t8 r1 start
+20:09  up 4 days, 14:07, 4 users, load averages: 5.33 4.51 4.02 | N 7z headers t8 r1 end rc=0
+20:09  up 4 days, 14:07, 4 users, load averages: 5.33 4.51 4.02 | B 7z mixed t1 r1 start
+20:12  up 4 days, 14:09, 4 users, load averages: 4.12 4.25 3.99 | B 7z mixed t1 r1 end rc=0
+20:12  up 4 days, 14:09, 4 users, load averages: 4.12 4.25 3.99 | N 7z mixed t1 r1 start
+20:14  up 4 days, 14:12, 4 users, load averages: 6.30 5.97 4.80 | N 7z mixed t1 r1 end rc=0
+20:14  up 4 days, 14:12, 4 users, load averages: 6.30 5.97 4.80 | B 7z mixed t8 r1 start
+20:15  up 4 days, 14:12, 4 users, load averages: 8.00 6.42 5.00 | B 7z mixed t8 r1 end rc=0
+20:15  up 4 days, 14:12, 4 users, load averages: 8.00 6.42 5.00 | N 7z mixed t8 r1 start
+20:15  up 4 days, 14:13, 4 users, load averages: 7.69 6.53 5.09 | N 7z mixed t8 r1 end rc=0
+20:15  up 4 days, 14:13, 4 users, load averages: 7.69 6.53 5.09 | B 7z payload t1 r1 start
+20:16  up 4 days, 14:14, 4 users, load averages: 5.74 6.28 5.11 | B 7z payload t1 r1 end rc=0
+20:16  up 4 days, 14:14, 4 users, load averages: 5.74 6.28 5.11 | N 7z payload t1 r1 start
+20:17  up 4 days, 14:15, 4 users, load averages: 4.34 5.79 5.01 | N 7z payload t1 r1 end rc=0
+20:17  up 4 days, 14:15, 4 users, load averages: 4.34 5.79 5.01 | B 7z payload t8 r1 start
+20:17  up 4 days, 14:15, 4 users, load averages: 5.30 5.93 5.07 | B 7z payload t8 r1 end rc=0
+20:17  up 4 days, 14:15, 4 users, load averages: 5.30 5.93 5.07 | N 7z payload t8 r1 start
+20:18  up 4 days, 14:15, 4 users, load averages: 6.10 6.08 5.13 | N 7z payload t8 r1 end rc=0
+20:18  up 4 days, 14:15, 4 users, load averages: 6.10 6.08 5.13 | B zip text t1 r1 start
+20:18  up 4 days, 14:15, 4 users, load averages: 5.70 5.99 5.11 | B zip text t1 r1 end rc=0
+20:18  up 4 days, 14:15, 4 users, load averages: 5.70 5.99 5.11 | N zip text t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.52 5.94 5.11 | N zip text t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.52 5.94 5.11 | B zip text t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.52 5.94 5.11 | B zip text t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.52 5.94 5.11 | N zip text t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.52 5.94 5.11 | N zip text t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.52 5.94 5.11 | B zip random t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.24 5.88 5.09 | B zip random t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.24 5.88 5.09 | N zip random t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.14 5.84 5.08 | N zip random t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.14 5.84 5.08 | B zip random t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.14 5.84 5.08 | B zip random t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.14 5.84 5.08 | N zip random t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.14 5.84 5.08 | N zip random t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.14 5.84 5.08 | B zip small t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.93 6.00 5.14 | B zip small t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.93 6.00 5.14 | N zip small t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.93 6.00 5.14 | N zip small t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.93 6.00 5.14 | B zip small t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.77 5.96 5.13 | B zip small t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.77 5.96 5.13 | N zip small t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.77 5.96 5.13 | N zip small t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.77 5.96 5.13 | B zip headers t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | B zip headers t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | N zip headers t1 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | N zip headers t1 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | B zip headers t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | B zip headers t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | N zip headers t8 r1 start
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | N zip headers t8 r1 end rc=0
+20:18  up 4 days, 14:16, 4 users, load averages: 5.47 5.90 5.11 | B zip mixed t1 r1 start
+20:19  up 4 days, 14:16, 4 users, load averages: 5.51 5.89 5.12 | B zip mixed t1 r1 end rc=0
+20:19  up 4 days, 14:16, 4 users, load averages: 5.51 5.89 5.12 | N zip mixed t1 r1 start
+20:19  up 4 days, 14:16, 4 users, load averages: 5.22 5.81 5.10 | N zip mixed t1 r1 end rc=0
+20:19  up 4 days, 14:16, 4 users, load averages: 5.22 5.81 5.10 | B zip mixed t8 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 5.52 5.86 5.13 | B zip mixed t8 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 5.52 5.86 5.13 | N zip mixed t8 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 5.48 5.84 5.12 | N zip mixed t8 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 5.48 5.84 5.12 | B zip payload t1 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 5.28 5.80 5.11 | B zip payload t1 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 5.28 5.80 5.11 | N zip payload t1 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.85 5.69 5.08 | N zip payload t1 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.85 5.69 5.08 | B zip payload t8 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.85 5.69 5.08 | B zip payload t8 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.85 5.69 5.08 | N zip payload t8 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.85 5.69 5.08 | N zip payload t8 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.85 5.69 5.08 | B lha text t1 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.70 5.64 5.07 | B lha text t1 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.70 5.64 5.07 | N lha text t1 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.48 5.58 5.05 | N lha text t1 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.48 5.58 5.05 | B lha text t8 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.61 5.59 5.06 | B lha text t8 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.61 5.59 5.06 | N lha text t8 r1 start
+20:19  up 4 days, 14:17, 4 users, load averages: 4.61 5.59 5.06 | N lha text t8 r1 end rc=0
+20:19  up 4 days, 14:17, 4 users, load averages: 4.61 5.59 5.06 | B lha random t1 r1 start
+20:20  up 4 days, 14:17, 4 users, load averages: 4.48 5.55 5.04 | B lha random t1 r1 end rc=0
+20:20  up 4 days, 14:17, 4 users, load averages: 4.48 5.55 5.04 | N lha random t1 r1 start
+20:20  up 4 days, 14:17, 4 users, load averages: 4.48 5.55 5.04 | N lha random t1 r1 end rc=0
+20:20  up 4 days, 14:17, 4 users, load averages: 4.48 5.55 5.04 | B lha random t8 r1 start
+20:20  up 4 days, 14:17, 4 users, load averages: 4.76 5.59 5.06 | B lha random t8 r1 end rc=0
+20:20  up 4 days, 14:17, 4 users, load averages: 4.76 5.59 5.06 | N lha random t8 r1 start
+20:20  up 4 days, 14:17, 4 users, load averages: 4.76 5.59 5.06 | N lha random t8 r1 end rc=0
+20:20  up 4 days, 14:17, 4 users, load averages: 4.76 5.59 5.06 | B lha small t1 r1 start
+20:20  up 4 days, 14:17, 4 users, load averages: 4.46 5.51 5.04 | B lha small t1 r1 end rc=0
+20:20  up 4 days, 14:17, 4 users, load averages: 4.46 5.51 5.04 | N lha small t1 r1 start
+20:20  up 4 days, 14:17, 4 users, load averages: 4.50 5.50 5.04 | N lha small t1 r1 end rc=0
+20:20  up 4 days, 14:17, 4 users, load averages: 4.50 5.50 5.04 | B lha small t8 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.62 5.51 5.04 | B lha small t8 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.62 5.51 5.04 | N lha small t8 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.62 5.51 5.04 | N lha small t8 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.62 5.51 5.04 | B lha headers t1 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.62 5.51 5.04 | B lha headers t1 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.62 5.51 5.04 | N lha headers t1 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.65 5.50 5.04 | N lha headers t1 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.65 5.50 5.04 | B lha headers t8 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.65 5.50 5.04 | B lha headers t8 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.65 5.50 5.04 | N lha headers t8 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.65 5.50 5.04 | N lha headers t8 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.65 5.50 5.04 | B lha mixed t1 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.24 5.38 5.00 | B lha mixed t1 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.24 5.38 5.00 | N lha mixed t1 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 3.90 5.27 4.97 | N lha mixed t1 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 3.90 5.27 4.97 | B lha mixed t8 r1 start
+20:20  up 4 days, 14:18, 4 users, load averages: 4.07 5.28 4.98 | B lha mixed t8 r1 end rc=0
+20:20  up 4 days, 14:18, 4 users, load averages: 4.07 5.28 4.98 | N lha mixed t8 r1 start
+20:21  up 4 days, 14:18, 4 users, load averages: 4.46 5.35 5.00 | N lha mixed t8 r1 end rc=0
+20:21  up 4 days, 14:18, 4 users, load averages: 4.46 5.35 5.00 | B lha payload t1 r1 start
+20:21  up 4 days, 14:18, 4 users, load averages: 4.34 5.31 4.99 | B lha payload t1 r1 end rc=0
+20:21  up 4 days, 14:18, 4 users, load averages: 4.34 5.31 4.99 | N lha payload t1 r1 start
+20:21  up 4 days, 14:18, 4 users, load averages: 6.64 5.77 5.15 | N lha payload t1 r1 end rc=0
+20:21  up 4 days, 14:18, 4 users, load averages: 6.64 5.77 5.15 | B lha payload t8 r1 start
+20:21  up 4 days, 14:18, 4 users, load averages: 6.64 5.77 5.15 | B lha payload t8 r1 end rc=0
+20:21  up 4 days, 14:18, 4 users, load averages: 6.64 5.77 5.15 | N lha payload t8 r1 start
+20:21  up 4 days, 14:18, 4 users, load averages: 6.51 5.75 5.15 | N lha payload t8 r1 end rc=0
+20:22  up 4 days, 14:20, 4 users, load averages: 4.77 5.38 5.06 | edit r0 start
+20:37  up 4 days, 14:34, 4 users, load averages: 3.57 4.29 4.53 | edit r0 end
+20:37  up 4 days, 14:34, 4 users, load averages: 3.57 4.29 4.53 | edit r1 start
+20:45  up 4 days, 14:43, 4 users, load averages: 7.15 5.56 4.91 | edit r1 end
+20:45  up 4 days, 14:43, 4 users, load averages: 7.15 5.56 4.91 | edit r2 start
+20:54  up 4 days, 14:51, 4 users, load averages: 3.59 4.19 4.58 | edit r2 end
+20:54  up 4 days, 14:51, 4 users, load averages: 3.59 4.19 4.58 | edit r3 start
+21:04  up 4 days, 15:01, 4 users, load averages: 3.90 4.39 4.57 | edit r3 end
+21:09  up 4 days, 15:07, 4 users, load averages: 5.80 5.66 5.15 | read B small r0
+21:09  up 4 days, 15:07, 4 users, load averages: 5.65 5.63 5.15 | read N small r0
+21:09  up 4 days, 15:07, 4 users, load averages: 5.48 5.59 5.14 | read B payload r0
+21:09  up 4 days, 15:07, 4 users, load averages: 5.10 5.51 5.11 | read N payload r0
+21:10  up 4 days, 15:07, 4 users, load averages: 5.09 5.50 5.11 | read B mixed r0
+21:10  up 4 days, 15:07, 4 users, load averages: 4.70 5.38 5.08 | read N mixed r0
+21:10  up 4 days, 15:08, 4 users, load averages: 4.54 5.31 5.06 | read B headers r0
+21:10  up 4 days, 15:08, 4 users, load averages: 4.54 5.31 5.06 | read N headers r0
+21:10  up 4 days, 15:08, 4 users, load averages: 4.54 5.31 5.06 | read B text r0
+21:10  up 4 days, 15:08, 4 users, load averages: 4.54 5.28 5.05 | read N text r0
+21:11  up 4 days, 15:08, 4 users, load averages: 4.23 5.19 5.02 | read B random r0
+21:11  up 4 days, 15:08, 4 users, load averages: 4.23 5.19 5.02 | read N random r0
+21:11  up 4 days, 15:08, 4 users, load averages: 4.21 5.17 5.02 | read B small r1
+21:11  up 4 days, 15:08, 4 users, load averages: 4.11 5.13 5.00 | read N small r1
+21:11  up 4 days, 15:08, 4 users, load averages: 4.09 5.09 4.99 | read B payload r1
+21:11  up 4 days, 15:09, 4 users, load averages: 4.01 5.06 4.98 | read N payload r1
+21:11  up 4 days, 15:09, 4 users, load averages: 4.33 5.09 4.99 | read B mixed r1
+21:11  up 4 days, 15:09, 4 users, load averages: 4.56 5.10 5.00 | read N mixed r1
+21:12  up 4 days, 15:09, 4 users, load averages: 4.73 5.11 5.00 | read B headers r1
+21:12  up 4 days, 15:09, 4 users, load averages: 4.73 5.11 5.00 | read N headers r1
+21:12  up 4 days, 15:09, 4 users, load averages: 4.59 5.07 4.99 | read B text r1
+21:12  up 4 days, 15:10, 4 users, load averages: 4.58 5.05 4.98 | read N text r1
+21:12  up 4 days, 15:10, 4 users, load averages: 4.87 5.10 5.00 | read B random r1
+21:12  up 4 days, 15:10, 4 users, load averages: 4.87 5.10 5.00 | read N random r1
+21:12  up 4 days, 15:10, 4 users, load averages: 4.87 5.10 5.00 | read B small r2
+21:12  up 4 days, 15:10, 4 users, load averages: 5.12 5.15 5.02 | read N small r2
+21:12  up 4 days, 15:10, 4 users, load averages: 5.17 5.16 5.02 | read B payload r2
+21:13  up 4 days, 15:10, 4 users, load averages: 5.06 5.14 5.02 | read N payload r2
+21:13  up 4 days, 15:10, 4 users, load averages: 5.06 5.14 5.02 | read B mixed r2
+21:13  up 4 days, 15:11, 4 users, load averages: 5.21 5.16 5.03 | read N mixed r2
+21:13  up 4 days, 15:11, 4 users, load averages: 5.30 5.18 5.04 | read B headers r2
+21:13  up 4 days, 15:11, 4 users, load averages: 5.30 5.18 5.04 | read N headers r2
+21:13  up 4 days, 15:11, 4 users, load averages: 5.30 5.18 5.04 | read B text r2
+21:13  up 4 days, 15:11, 4 users, load averages: 5.17 5.16 5.03 | read N text r2
+21:14  up 4 days, 15:11, 4 users, load averages: 5.45 5.22 5.05 | read B random r2
+21:14  up 4 days, 15:11, 4 users, load averages: 5.45 5.22 5.05 | read N random r2
+21:14  up 4 days, 15:11, 4 users, load averages: 5.25 5.18 5.04 | read B small r3
+21:14  up 4 days, 15:11, 4 users, load averages: 5.15 5.16 5.03 | read N small r3
+21:14  up 4 days, 15:12, 4 users, load averages: 5.06 5.14 5.03 | read B payload r3
+21:14  up 4 days, 15:12, 4 users, load averages: 5.28 5.19 5.04 | read N payload r3
+21:14  up 4 days, 15:12, 4 users, load averages: 5.31 5.19 5.05 | read B mixed r3
+21:15  up 4 days, 15:12, 4 users, load averages: 5.50 5.23 5.06 | read N mixed r3
+21:15  up 4 days, 15:12, 4 users, load averages: 5.31 5.22 5.06 | read B headers r3
+21:15  up 4 days, 15:12, 4 users, load averages: 5.31 5.22 5.06 | read N headers r3
+21:15  up 4 days, 15:12, 4 users, load averages: 5.31 5.22 5.06 | read B text r3
+21:15  up 4 days, 15:13, 4 users, load averages: 5.09 5.17 5.05 | read N text r3
+21:15  up 4 days, 15:13, 4 users, load averages: 4.84 5.12 5.03 | read B random r3
+21:15  up 4 days, 15:13, 4 users, load averages: 4.84 5.12 5.03 | read N random r3
+22:12  up 4 days, 16:09, 4 users, load averages: 7.72 5.41 4.85 | kf B r0 start
+22:21  up 4 days, 16:19, 4 users, load averages: 6.27 7.64 6.39 | kf B r0 end
+22:21  up 4 days, 16:19, 4 users, load averages: 6.27 7.64 6.39 | kf N r0 start
+22:30  up 4 days, 16:27, 4 users, load averages: 7.33 7.79 6.95 | kf N r0 end
+22:30  up 4 days, 16:27, 4 users, load averages: 7.33 7.79 6.95 | kf B r1 start
+22:39  up 4 days, 16:36, 4 users, load averages: 9.15 7.97 7.25 | kf B r1 end
+22:39  up 4 days, 16:36, 4 users, load averages: 9.15 7.97 7.25 | kf N r1 start
+22:47  up 4 days, 16:45, 4 users, load averages: 5.40 6.75 6.90 | kf N r1 end
+22:47  up 4 days, 16:45, 4 users, load averages: 5.40 6.75 6.90 | kf B r2 start
+22:56  up 4 days, 16:54, 4 users, load averages: 6.28 7.29 7.01 | kf B r2 end
+22:56  up 4 days, 16:54, 4 users, load averages: 6.28 7.29 7.01 | kf N r2 start
+23:05  up 4 days, 17:02, 4 users, load averages: 8.77 8.56 7.76 | kf N r2 end
+23:05  up 4 days, 17:02, 4 users, load averages: 8.77 8.56 7.76 | kf B r3 start
+23:14  up 4 days, 17:11, 4 users, load averages: 9.44 7.14 7.22 | kf B r3 end
+23:14  up 4 days, 17:11, 4 users, load averages: 9.44 7.14 7.22 | kf N r3 start
+23:23  up 4 days, 17:20, 4 users, load averages: 38.02 35.76 23.58 | kf N r3 end
+23:23  up 4 days, 17:20, 4 users, load averages: 39.08 36.06 23.83 | N txz text t1 r4 start
+23:26  up 4 days, 17:23, 4 users, load averages: 16.76 27.92 22.66 | N txz text t1 r4 end rc=0
+23:26  up 4 days, 17:23, 4 users, load averages: 16.76 27.92 22.66 | B txz text t1 r4 start
+23:28  up 4 days, 17:26, 4 users, load averages: 14.51 22.19 21.21 | B txz text t1 r4 end rc=0
+23:28  up 4 days, 17:26, 4 users, load averages: 14.51 22.19 21.21 | N txz random t1 r4 start
+23:29  up 4 days, 17:27, 4 users, load averages: 14.18 20.76 20.73 | N txz random t1 r4 end rc=0
+23:29  up 4 days, 17:27, 4 users, load averages: 14.18 20.76 20.73 | B txz random t1 r4 start
+23:30  up 4 days, 17:28, 4 users, load averages: 10.61 19.01 20.09 | B txz random t1 r4 end rc=0
+23:30  up 4 days, 17:28, 4 users, load averages: 10.61 19.01 20.09 | B txz text t1 r5 start
+23:32  up 4 days, 17:29, 4 users, load averages: 3.72 14.37 18.18 | B txz text t1 r5 end rc=0
+23:32  up 4 days, 17:29, 4 users, load averages: 3.72 14.37 18.18 | N txz text t1 r5 start
+23:33  up 4 days, 17:31, 4 users, load averages: 2.38 11.29 16.63 | N txz text t1 r5 end rc=0
+23:33  up 4 days, 17:31, 4 users, load averages: 2.38 11.29 16.63 | B txz random t1 r5 start
+23:34  up 4 days, 17:31, 4 users, load averages: 2.13 10.23 16.03 | B txz random t1 r5 end rc=0
+23:34  up 4 days, 17:31, 4 users, load averages: 2.13 10.23 16.03 | N txz random t1 r5 start
+23:34  up 4 days, 17:32, 4 users, load averages: 1.75 9.24 15.43 | N txz random t1 r5 end rc=0
+23:34  up 4 days, 17:32, 4 users, load averages: 1.75 9.24 15.43 | N txz text t1 r6 start
+23:36  up 4 days, 17:33, 4 users, load averages: 2.08 7.60 14.22 | N txz text t1 r6 end rc=0
+23:36  up 4 days, 17:33, 4 users, load averages: 2.08 7.60 14.22 | B txz text t1 r6 start
+23:37  up 4 days, 17:35, 4 users, load averages: 1.65 6.09 13.01 | B txz text t1 r6 end rc=0
+23:37  up 4 days, 17:35, 4 users, load averages: 1.65 6.09 13.01 | N txz random t1 r6 start
+23:38  up 4 days, 17:35, 4 users, load averages: 1.50 5.57 12.54 | N txz random t1 r6 end rc=0
+23:38  up 4 days, 17:35, 4 users, load averages: 1.50 5.57 12.54 | B txz random t1 r6 start
+23:38  up 4 days, 17:36, 4 users, load averages: 1.44 5.10 12.08 | B txz random t1 r6 end rc=0
+23:38  up 4 days, 17:36, 4 users, load averages: 1.44 5.10 12.08 | B txz text t1 r7 start
+23:40  up 4 days, 17:37, 4 users, load averages: 1.65 4.29 11.11 | B txz text t1 r7 end rc=0
+23:40  up 4 days, 17:37, 4 users, load averages: 1.65 4.29 11.11 | N txz text t1 r7 start
+23:41  up 4 days, 17:39, 4 users, load averages: 1.54 3.64 10.25 | N txz text t1 r7 end rc=0
+23:41  up 4 days, 17:39, 4 users, load averages: 1.54 3.64 10.25 | B txz random t1 r7 start
+23:42  up 4 days, 17:39, 4 users, load averages: 1.79 3.46 9.91 | B txz random t1 r7 end rc=0
+23:42  up 4 days, 17:39, 4 users, load averages: 1.79 3.46 9.91 | N txz random t1 r7 start
+23:42  up 4 days, 17:40, 4 users, load averages: 1.55 3.22 9.56 | N txz random t1 r7 end rc=0
+23:42  up 4 days, 17:40, 4 users, load averages: 1.55 3.22 9.56 | N txz text t1 r8 start
+23:44  up 4 days, 17:41, 4 users, load averages: 1.37 2.74 8.77 | N txz text t1 r8 end rc=0
+23:44  up 4 days, 17:41, 4 users, load averages: 1.37 2.74 8.77 | B txz text t1 r8 start
+23:45  up 4 days, 17:43, 4 users, load averages: 2.02 2.71 8.19 | B txz text t1 r8 end rc=0
+23:45  up 4 days, 17:43, 4 users, load averages: 2.02 2.71 8.19 | N txz random t1 r8 start
+23:46  up 4 days, 17:43, 4 users, load averages: 2.39 2.71 7.97 | N txz random t1 r8 end rc=0
+23:46  up 4 days, 17:43, 4 users, load averages: 2.39 2.71 7.97 | B txz random t1 r8 start
+23:46  up 4 days, 17:44, 4 users, load averages: 1.90 2.55 7.70 | B txz random t1 r8 end rc=0
+23:46  up 4 days, 17:44, 4 users, load averages: 1.90 2.55 7.70 | B txz text t1 r9 start
+23:48  up 4 days, 17:45, 4 users, load averages: 3.01 2.85 7.33 | B txz text t1 r9 end rc=0
+23:48  up 4 days, 17:45, 4 users, load averages: 3.01 2.85 7.33 | N txz text t1 r9 start
+23:49  up 4 days, 17:47, 4 users, load averages: 2.70 2.75 6.86 | N txz text t1 r9 end rc=0
+23:49  up 4 days, 17:47, 4 users, load averages: 2.70 2.75 6.86 | B txz random t1 r9 start
+23:50  up 4 days, 17:47, 4 users, load averages: 2.98 2.83 6.73 | B txz random t1 r9 end rc=0
+23:50  up 4 days, 17:47, 4 users, load averages: 2.98 2.83 6.73 | N txz random t1 r9 start
+23:50  up 4 days, 17:48, 4 users, load averages: 2.28 2.68 6.51 | N txz random t1 r9 end rc=0

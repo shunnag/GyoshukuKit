@@ -1,0 +1,124 @@
+$A/out/text.expected.tar.xz	bytes=84145252	blocks=18	ranges=2
+AC3 text t1 OK
+AC3 text t8 OK
+$A/out/random.expected.tar.xz	bytes=268448504	blocks=18	ranges=2
+AC3 random t1 OK
+AC3 random t8 OK
+$A/out/small.expected.tar.xz	bytes=47383288	blocks=41	ranges=1
+AC3 small t1 OK
+AC3 small t8 OK
+$A/out/headers.expected.tar.xz	bytes=3754860	blocks=10	ranges=1
+AC3 headers t1 OK
+AC3 headers t8 OK
+$A/out/mixed.expected.tar.xz	bytes=156255864	blocks=70	ranges=3
+AC3 mixed t1 OK
+AC3 mixed t8 OK
+$A/out/payload.expected.tar.xz	bytes=137184500	blocks=130	ranges=1
+AC3 payload t1 OK
+AC3 payload t8 OK
+ad913a1e99500a3280c1be4ab99df1f22b3308a5a9063ab1a1f424079333e2f3  $A/out/headers.expected.tar.xz
+284117a1dab272465a47d252c7f98a70612f487a0e8638df12031d6088f484f5  $A/out/mixed.expected.tar.xz
+3bf7d4810b885c030baf9a8aeec2a7e8b2a190cc6b959e920bc1a4f2cd0b179f  $A/out/payload.expected.tar.xz
+c38804bc8a8929651ceeacb197ed37069f8ba977651a0119bb13094690b5a41a  $A/out/random.expected.tar.xz
+c6b2463d8193066c0b80cb41aa0b0c1904016facc31b76e0c132e2d4ac5ab520  $A/out/small.expected.tar.xz
+c81d9d390f657c5ba704edc6963b24d4c0d8ced3628ac3500d05399fccf6c89a  $A/out/text.expected.tar.xz
+-rw-r--r--  1 nagash  wheel    3754860  9月 26 20:21 $A/out/headers.expected.tar.xz
+-rw-r--r--  1 nagash  wheel  156255864  9月 26 20:21 $A/out/mixed.expected.tar.xz
+-rw-r--r--  1 nagash  wheel  137184500  9月 26 20:21 $A/out/payload.expected.tar.xz
+-rw-r--r--  1 nagash  wheel  268448504  9月 26 20:21 $A/out/random.expected.tar.xz
+-rw-r--r--  1 nagash  wheel   47383288  9月 26 20:21 $A/out/small.expected.tar.xz
+-rw-r--r--  1 nagash  wheel   84145252  9月 26 20:21 $A/out/text.expected.tar.xz
+AC4 tar.gz text t1 same
+AC4 tar.gz text t8 same
+AC4 tar.gz random t1 same
+AC4 tar.gz random t8 same
+AC4 tar.gz small t1 same
+AC4 tar.gz small t8 same
+AC4 tar.gz headers t1 same
+AC4 tar.gz headers t8 same
+AC4 tar.gz mixed t1 same
+AC4 tar.gz mixed t8 same
+AC4 tar.gz payload t1 same
+AC4 tar.gz payload t8 same
+AC4 tar.bz2 text t1 same
+AC4 tar.bz2 text t8 same
+AC4 tar.bz2 random t1 same
+AC4 tar.bz2 random t8 same
+AC4 tar.bz2 small t1 same
+AC4 tar.bz2 small t8 same
+AC4 tar.bz2 headers t1 same
+AC4 tar.bz2 headers t8 same
+AC4 tar.bz2 mixed t1 same
+AC4 tar.bz2 mixed t8 same
+AC4 tar.bz2 payload t1 same
+AC4 tar.bz2 payload t8 same
+AC4 7z text t1 same
+AC4 7z text t8 same
+AC4 7z random t1 same
+AC4 7z random t8 same
+AC4 7z small t1 same
+AC4 7z small t8 same
+AC4 7z headers t1 same
+AC4 7z headers t8 same
+AC4 7z mixed t1 same
+AC4 7z mixed t8 same
+AC4 7z payload t1 same
+AC4 7z payload t8 same
+AC4 zip text t1 same
+AC4 zip text t8 same
+AC4 zip random t1 same
+AC4 zip random t8 same
+AC4 zip small t1 same
+AC4 zip small t8 same
+AC4 zip headers t1 same
+AC4 zip headers t8 same
+AC4 zip mixed t1 same
+AC4 zip mixed t8 same
+AC4 zip payload t1 same
+AC4 zip payload t8 same
+AC4 lzh text t1 same
+AC4 lzh text t8 same
+AC4 lzh random t1 same
+AC4 lzh random t8 same
+AC4 lzh small t1 same
+AC4 lzh small t8 same
+AC4 lzh headers t1 same
+AC4 lzh headers t8 same
+AC4 lzh mixed t1 same
+AC4 lzh mixed t8 same
+AC4 lzh payload t1 same
+AC4 lzh payload t8 same
+AC3 mid blocks:
+  33 512
+   1 9728
+  32 8388608
+-rw-r--r--  1 nagash  wheel  132887692  9月 26 19:03 $A/out/B/mid-t8-r1.tar.xz
+-rw-r--r--  1 nagash  wheel  132888256  9月 26 19:03 $A/out/N/mid-t8-r1.tar.xz
+AC6 text xz/7zz ok
+AC6 text bsdtar ok
+AC6 text kaito sha ok
+AC6 text tarfile ok
+AC6 random xz/7zz ok
+AC6 random bsdtar ok
+AC6 random kaito sha ok
+AC6 random tarfile ok
+AC6 small xz/7zz ok
+AC6 small bsdtar ok
+AC6 small kaito sha ok
+AC6 small tarfile ok
+AC6 headers xz/7zz ok
+AC6 headers bsdtar ok
+AC6 headers kaito sha ok
+AC6 headers tarfile ok
+AC6 mixed xz/7zz ok
+AC6 mixed bsdtar ok
+AC6 mixed kaito sha ok
+AC6 mixed tarfile ok
+AC6 payload xz/7zz ok
+AC6 payload bsdtar ok
+AC6 payload kaito sha ok
+AC6 payload tarfile ok
+AC6 mid xz/7zz ok
+AC6 mid bsdtar ok
+AC6 mid kaito sha ok
+AC6 mid tarfile ok

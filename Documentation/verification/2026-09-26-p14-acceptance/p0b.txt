@@ -1,0 +1,42 @@
+payload immediate delete_start commit                B    2628.0 N      20.9 PASS
+payload immediate replace_file commit                B    2636.4 N      21.2 PASS
+payload immediate rename_same_length commit          B    4341.4 N      20.9 PASS
+payload immediate rename_different_length commit     B    4301.4 N      21.7 PASS
+payload immediate delete_start total                 B    2738.2 N      70.5 PASS
+payload immediate replace_file total                 B    2750.9 N      73.1 PASS
+payload immediate rename_same_length total           B    4481.7 N      72.6 PASS
+payload immediate rename_different_length total      B    4441.4 N      72.9 PASS
+payload immediate rename_folder commit               B   16911.8 N      30.0 PASS
+payload immediate rename_folder total                B   18492.7 N      89.1 PASS
+payload immediate delete_end commit                  B     417.4 N      63.2 PASS
+payload deferred save_five_changes commit            B     382.2 N      20.5 PASS
+payload deferred save_rename_only commit             B    4447.7 N      21.6 PASS
+payload deferred save_rename_only total              B    4928.5 N     126.2 PASS
+payload direct delete_start commit                   B    2636.3 N      20.6 PASS
+payload direct delete_end commit                     B     408.3 N      58.9 PASS
+payload immediate add_file total                     B      70.8 N      72.3 PASS
+payload immediate new_folder total                   B      70.0 N      73.0 PASS
+payload immediate open total                         B    1696.7 N    1936.1 PASS
+entries immediate delete_start commit                B     627.9 N     163.4 PASS
+entries immediate rename_same_length commit          B     638.6 N     172.1 PASS
+entries immediate rename_different_length commit     B     640.1 N     163.6 PASS
+entries immediate replace_file commit                B     627.6 N     167.1 PASS
+entries immediate rename_folder commit               B     676.2 N     190.9 PASS
+entries deferred save_five_changes commit            B     597.3 N     131.9 PASS
+entries deferred save_rename_only commit             B     632.0 N     163.8 PASS
+entries immediate delete_end commit                  B      70.8 N      71.1 PASS
+entries immediate add_file commit                    B       6.1 N       6.2 PASS
+entries immediate new_folder commit                  B       6.2 N       6.2 PASS
+entries immediate open total                         B     922.4 N     956.7 PASS
+verification_open max N (('tar.xz', 'entries', 'immediate', 'replace_file', 'verification_open'), 377.799, 390.013)
+payload fixture B [('16686.794', '131119408'), ('16750.901', '131120172'), ('16474.807', '131122704')] N [('11321.948', '137187468'), ('10932.081', '137187468'), ('11491.665', '137187616')]
+entries fixture B [('1193.554', '203496'), ('1180.306', '200824'), ('1167.856', '204796')] N [('728.446', '214364'), ('716.434', '215516'), ('704.381', '211808')]
+stages N tar.xz {'fixture_build': 2, 'commit': 24, 'remove': 4, 'total': 38, 'updater_open': 24, 'capability_probe': 20, 'display': 32, 'entry_comparison': 20, 'filter_compute': 32, 'mutate': 16, 'password_verification': 32, 'plan_build': 18, 'plan_validation': 16, 'publish': 20, 'reader_adoption': 20, 'reload': 20, 'tree_build': 32, 'verification_open': 20, 'name_index_advance': 16, 'name_index_build': 12, 'editing_install': 4, 'editing_prepare': 4, 'replay': 4, 'replay_plan': 4, 'representability_differential': 4, 'save_sheet': 4}
+others rows 156 geomean 1.022 outside 6
+   tar/payload/deferred/save_five_changes/total 52.9 61.2 1.16
+   tar/payload/direct/delete_end/total 16.9 28.1 1.66
+   tar/payload/immediate/replace_file/total 157.5 175.1 1.11
+   tar.gz/payload/deferred/save_five_changes/total 99.9 112.0 1.12
+   zip/payload/deferred/save_rename_only/total 99.8 120.5 1.21
+   zip/payload/direct/delete_start/total 64.1 72.4 1.13
+written delete_start N [(135741440, 135726500)]
