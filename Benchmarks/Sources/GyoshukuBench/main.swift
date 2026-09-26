@@ -3,11 +3,11 @@ import GyoshukuKit
 private import Darwin
 
 private let usage = """
-Usage: gyoshuku-bench <zip|tar|tgz|tbz|txz|7z|lha> <output> <source>... [--level N] [--threads N] [--progress] [--mode recursive|items]
+Usage: gyoshuku-bench <zip|tar|tgz|tbz|txz|7z|lha> <output> <source>... [--level N] [--threads N] [--progress] [--mode recursive|items|batch]
   --level N    deflateLevel, 0...9 (ZIP / tar.gz; default 6)
   --threads N  compressionThreads, 1...64 (default: library auto selection)
   --progress   Observe add and finishAdditions byte progress
-  --mode MODE  recursive (default) or sorted preorder items; enumeration is timed
+  --mode MODE  recursive (default), sorted preorder items, or batch; enumeration is timed
   --           Treat remaining arguments as source paths
 Output must be a new file. Directories are added recursively under their basename.
 """
@@ -44,8 +44,8 @@ private func benchmark(_ arguments: [String]) throws {
         } else if parseOptions && argument == "--progress" {
             reportsProgress = true
         } else if parseOptions && argument == "--mode" {
-            guard index + 1 < arguments.count, ["recursive", "items"].contains(arguments[index + 1]) else {
-                throw ArgumentError(description: "--mode requires recursive or items.")
+            guard index + 1 < arguments.count, ["recursive", "items", "batch"].contains(arguments[index + 1]) else {
+                throw ArgumentError(description: "--mode requires recursive, items or batch.")
             }
             index += 1
             mode = arguments[index]
@@ -94,7 +94,7 @@ private func benchmark(_ arguments: [String]) throws {
         if reportsProgress { try writer.add(contentsOf: source, as: path, progress: { _ in }) }
         else { try writer.add(contentsOf: source, as: path) }
     }
-    if mode == "items" {
+    if mode != "recursive" {
         var items: [(url: URL, path: String, directory: Bool)] = []
         func walk(_ url: URL, path: String) throws {
             var info = stat()
@@ -108,9 +108,15 @@ private func benchmark(_ arguments: [String]) throws {
             }
         }
         for source in sources { try walk(source, path: source.lastPathComponent) }
-        for item in items {
-            if item.directory { try writer.addDirectory(item.path) }
-            else { try add(item.url, as: item.path) }
+        if mode == "batch" {
+            let additions = items.map { ArchiveAddition(path: $0.path,
+                source: $0.directory ? .directory(modificationDate: nil) : .contents(of: $0.url)) }
+            try writer.add(additions, events: reportsProgress ? { _ in } : nil)
+        } else {
+            for item in items {
+                if item.directory { try writer.addDirectory(item.path) }
+                else { try add(item.url, as: item.path) }
+            }
         }
     } else {
         for source in sources { try add(source, as: source.lastPathComponent) }

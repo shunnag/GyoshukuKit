@@ -20,6 +20,13 @@
 
 ### 追加
 
+- `ArchiveAddition`・`ArchiveAdditionEvent`・`ArchiveAdditionError` と `add(_:events:)` による一括追加。
+  小さな通常ファイルを有界に先読みし、出力 byte と項目ごとの API の動作を保つ。
+  一括の名前の検査は open の前に行い、複数の失敗では最小の index に原因を帰属させる。
+  events と取消しの例外は包まず返し、失敗時には source descriptor の close を待つ。
+  ZIP の単一 block を一度の write で出力し、bench に `--mode batch` を追加する。
+  [P7-G 検証記録](Documentation/verification/2026-09-27-p7g-batch.md) に試験と残る受入計測を記載する。
+
 - ディスク追加の byte 進捗、`finishAdditions(progress:)`、`readsAdditionsDuringCommit`、
   `ArchiveRewriter.commit(progress:didCarry:)` と `WriterOptions.maximumPendingInputBytes(for:)`。
   追加の読取と圧縮待ちを分けて同期通知し、既存の出力 byte と updater の commit 進捗を保つ。

@@ -3,6 +3,29 @@ import XCTest
 @testable import GyoshukuKit
 
 final class DeflateBlockTests: XCTestCase {
+    func testReusedStreamMatchesFreshWithEveryLevelAndDictionaryTransition() throws {
+        let random = LHATestSupport.random(128 * 1024)
+        let small = DeflateBlock(input: Data([1, 2, 3]), dictionary: Data(), final: true)
+        let valid = try DeflateBlock.encode(small, level: 6)
+        XCTAssertThrowsError(try DeflateBlock.encode(small, level: 100)) {
+            XCTAssertEqual($0 as? WriterError, .compression(-2))
+        }
+        XCTAssertThrowsError(try DeflateBlock.encodeFresh(small, level: 100)) {
+            XCTAssertEqual($0 as? WriterError, .compression(-2))
+        }
+        XCTAssertEqual(try DeflateBlock.encode(small, level: 6), valid)
+        for level in [0, 1, 6, 9, 6, 0] {
+            for count in [0, 1, 65536, 65537] {
+                for dictionary in [Data(), Data(random.prefix(32768)), Data()] {
+                    for final in [false, true] {
+                        let block = DeflateBlock(input: Data(random.suffix(count)), dictionary: dictionary, final: final)
+                        XCTAssertEqual(try DeflateBlock.encode(block, level: level), try DeflateBlock.encodeFresh(block, level: level))
+                    }
+                }
+            }
+        }
+    }
+
     func testRandomBlocksFitBoundAtEveryLevelAndDictionarySize() throws {
         let random = LHATestSupport.random(DeflateBlock.size + 32 * 1024)
         for level in 0...9 {

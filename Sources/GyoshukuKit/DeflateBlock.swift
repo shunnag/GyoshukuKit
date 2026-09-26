@@ -1,5 +1,6 @@
 import Foundation
 private import zlib
+private import Darwin
 
 struct DeflateBlock: Sendable {
     static let size = 1024 * 1024
@@ -9,15 +10,61 @@ struct DeflateBlock: Sendable {
     let dictionary: Data
     let final: Bool
 
+    private final class Stream {
+        let pointer: UnsafeMutablePointer<z_stream>
+        let level: Int
+        init(level: Int) throws {
+            // 初期化が失敗した pointer を self に所有させず、throw 時の二重解放を避ける。
+            let stream = UnsafeMutablePointer<z_stream>.allocate(capacity: 1)
+            stream.initialize(to: z_stream())
+            let status = deflateInit2_(stream, Int32(level), Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY,
+                                      ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+            guard status == Z_OK else {
+                stream.deinitialize(count: 1); stream.deallocate()
+                throw WriterError.compression(status)
+            }
+            self.pointer = stream
+            self.level = level
+        }
+        deinit { _ = deflateEnd(pointer); pointer.deinitialize(count: 1); pointer.deallocate() }
+    }
+
+    // Swift の thread dictionary に依存せず、worker 終了時に deflateEnd する。
+    nonisolated(unsafe) private static var streamKey: pthread_key_t = {
+        var key = pthread_key_t()
+        precondition(pthread_key_create(&key, { value in
+            Unmanaged<Stream>.fromOpaque(value).release()
+        }) == 0)
+        return key
+    }()
+
     static func encode(_ block: DeflateBlock, level: Int) throws -> Data {
+        let cached = pthread_getspecific(streamKey).map { Unmanaged<Stream>.fromOpaque($0).takeUnretainedValue() }
+        let owner: Stream
+        if let cached, cached.level == level {
+            owner = cached
+            let status = deflateReset(owner.pointer)
+            guard status == Z_OK else { throw WriterError.compression(status) }
+        } else {
+            owner = try Stream(level: level)
+            let retained = Unmanaged.passRetained(owner).toOpaque()
+            let status = pthread_setspecific(streamKey, retained)
+            guard status == 0 else {
+                Unmanaged<Stream>.fromOpaque(retained).release()
+                throw WriterError.compression(Int32(status))
+            }
+            if let cached { Unmanaged.passUnretained(cached).release() }
+        }
+        return try encode(block, stream: owner.pointer)
+    }
+
+    static func encodeFresh(_ block: DeflateBlock, level: Int) throws -> Data {
+        let owner = try Stream(level: level)
+        return try withExtendedLifetime(owner) { try encode(block, stream: owner.pointer) }
+    }
+
+    private static func encode(_ block: DeflateBlock, stream: UnsafeMutablePointer<z_stream>) throws -> Data {
         precondition(block.input.count <= size && block.dictionary.count <= 32 * 1024)
-        let stream = UnsafeMutablePointer<z_stream>.allocate(capacity: 1)
-        stream.initialize(to: z_stream())
-        defer { stream.deinitialize(count: 1); stream.deallocate() }
-        let initialized = deflateInit2_(stream, Int32(level), Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY,
-                                   ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-        guard initialized == Z_OK else { throw WriterError.compression(initialized) }
-        defer { _ = deflateEnd(stream) }
         if !block.dictionary.isEmpty {
             let status = block.dictionary.withUnsafeBytes {
                 deflateSetDictionary(stream, $0.baseAddress!.assumingMemoryBound(to: Bytef.self), uInt($0.count))

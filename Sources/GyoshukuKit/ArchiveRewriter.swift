@@ -230,6 +230,16 @@ public final class ArchiveRewriter: ArchiveEditing {
         return (names, hardLinkTargets, dataTargets)
     }
 
+    public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        try performAddition {
+            if options.additionPlacement == .beginning {
+                try preparedWriter().add(additions, events: events)
+            } else {
+                try addSequentially(additions, events: events)
+            }
+        }
+    }
+
     public func add(contentsOf url: URL, as path: String) throws {
         try add(contentsOf: url, as: path, ownerIDs: nil)
     }
@@ -395,17 +405,31 @@ public final class ArchiveRewriter: ArchiveEditing {
                     try didCarry?(done, survivors.count)
                 }
             }
+            var batch: [ArchiveAddition] = []
+            var signatures: [DiskSignature?] = []
+            func flush() throws {
+                guard !batch.isEmpty else { return }
+                // commit の既存のエラー契約は項目別の原因をそのまま返す。
+                do { try writer.add(batch, expected: signatures, meter: meter, events: nil) }
+                catch let error as ArchiveAdditionError { throw error.underlying }
+                batch.removeAll(keepingCapacity: true)
+                signatures.removeAll(keepingCapacity: true)
+            }
             for addition in additions {
                 try Task.checkCancellation()
                 switch addition {
                 case let .disk(url, path, ids, signature):
-                    try writer.add(contentsOf: url, as: path, ownerIDs: ids, expected: signature, meter: meter)
+                    batch.append(.init(path: path, source: .contents(of: url), ownerIDs: ids))
+                    signatures.append(signature)
                 case let .data(data, path, date, mode):
+                    try flush()
                     try writer.add(data: data, as: path, modificationDate: date, permissions: mode, meter: meter)
                 case let .directory(path, date, ids):
-                    try writer.addDirectory(path, modificationDate: date, ownerIDs: ids)
+                    batch.append(.init(path: path, source: .directory(modificationDate: date), ownerIDs: ids))
+                    signatures.append(nil)
                 }
             }
+            try flush()
             additions.removeAll()
             let quarantine = output == nil ? try readQuarantine() : nil
             try checkUnchanged()

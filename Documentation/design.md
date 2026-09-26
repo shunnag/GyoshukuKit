@@ -427,6 +427,30 @@ directory は progress があるときだけ、追加と同じ名前順・symlin
 回数は `ceil(total / 4 MiB) + 2` 以下。callback は呼出側の thread で同期実行し、保持しない。
 throw は元の error のまま失敗し、既存の cleanup 契約に従う（単体 ZIP writer の部分出力は呼出側が削除する）。
 
+`ArchiveAddition` の配列を `add(_:events:)` に渡すと、小さな通常ファイルを並列に先読みする。
+項目別 API の同期性は変えず、同じ項目・日時・乱数を使う列と出力 byte を一致させる。
+`ArchiveAdditionEvent` は呼出しの thread だけで同期通知し、保持しない。`willStart(index:)` は
+その項目の lstat より前、progress の session と `didFinish(index:)` は index の昇順になる。
+先読みした項目は受取時に (0, T) と (T, T) を通知する。directory の再帰と大きなファイルは
+既存の読取経路へ戻り、tar の圧縮 buffer は途中で drain しない。
+
+窓は `resolvedCompressionThreads` 件以下。open から close の並列数は Step 0-P7 で採った
+`min(threads, 4)` とし、ZIP deflate は `deflateBlockSize`、他は 1 MiB 以下だけを先読みする。
+worker は O_NOFOLLOW の open、dev/ino/mode/size/mtime の fstat 照合、厳密な長さと EOF、
+読後の fstat を経てから内容を返す。hook は仕事の作成時に capture する。取消し・失敗では
+未着手の仕事を放棄し、着手済みの仕事が descriptor を閉じるまで合流してから戻る。
+ZIP は block と file を同じ順序付き pipeline に入れ、完成した単一 block の local header と
+payload を一度に書く。deflate の stream は pthread ごとに reset して使い、destructor で解放する。
+
+名前の検査は `reserveEntryName` 一か所のまま、一括では open の前に予約する。
+同じ項目に名前と読取の二つの問題がある場合、項目別 API と原因の優先順が変わりうる。
+ZIP updater の走査 budget と回数は保ち、表への切替え時には窓内の予約名も取り込む。
+`ArchiveAdditionError` は最小の失敗 index、path、sourceURL（再帰では失敗した子孫）、underlying を持つ。
+呼出側の準備で失敗しても先行する結果を順に確かめ、より小さい index の失敗を優先する。
+取消しと events の throw は包まず返し、writer/editor を failed にする。
+rewriter の `.end` は add では記録して二つの (0, 0) を通知し、commit で期待 signature 付きの
+内部 batch に渡す。commit の byte meter と既存の error は保つ。
+
 `finishAdditions(progress:)` は受取済みで未出力の入力を drain し、追加口を閉じる。終端は finish / commit が書く。
 total は開始時の組立中 buffer と pipeline の未出力重みの和。tar の入力重みには header と padding も含む。
 出力ごとに重みを進め、tar の組立中 buffer は終端前と同じ境界で送る。gzip の辞書も維持するので、

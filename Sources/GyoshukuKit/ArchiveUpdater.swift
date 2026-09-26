@@ -142,6 +142,10 @@ public final class ArchiveUpdater: ArchiveEditing {
                               sourceSnapshot: snapshot, layout: layout, reader: reader, directory: directory)
     }
 
+    public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        try performAddition { try preparedWriter().add(additions, events: events) }
+    }
+
     public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?,
                     progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         try performAddition {

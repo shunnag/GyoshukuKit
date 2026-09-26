@@ -335,9 +335,13 @@ final class CompressedTarSpliceWriter {
         default: return
         }
         guard let part = parts.first(where: { ($0.baseIndex != nil) == reused }) else { return }
-        let offset = part.output.lowerBound + part.output.spliceLength / 2
+        // gzip の途中の bit は未使用の符号や padding に当たり、復号結果を変えないことがある。
+        // encoded の注入は先頭 block の予約済み BTYPE=3 にし、V1 の拒否を確実に検証する。
+        let invalidDeflate = format == .tarGzip && !reused
+        let offset = part.output.lowerBound + (invalidDeflate ? 0 : part.output.spliceLength / 2)
         var byte = try SplicedArchiveOutput.read(handle!.fileDescriptor, at: offset, count: 1)
-        byte[0] ^= 1
+        if invalidDeflate { byte[0] = (byte[0] & ~UInt8(6)) | 6 }
+        else { byte[0] ^= 1 }
         try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(handle!.fileDescriptor, bytes: $0, at: offset) }
     }
 

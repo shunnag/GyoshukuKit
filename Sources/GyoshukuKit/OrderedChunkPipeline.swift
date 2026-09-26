@@ -7,10 +7,12 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
 
     private final class State: @unchecked Sendable {
         let condition = NSCondition()
+        let workers = DispatchGroup()
         var abandoned = false
         var results: [UInt64: Result<Output?, Error>] = [:]
 
         func encode(_ input: Input, id: UInt64, encoder: Encoder) {
+            defer { workers.leave() }
             condition.lock()
             let shouldRun = !abandoned
             condition.unlock()
@@ -86,6 +88,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
             if isHeavy { heavyCount += 1 }
             if let input {
                 let state = state, encoder = encoder
+                state.workers.enter()
                 queue.async(qos: Self.currentQoS, flags: .enforceQoS) {
                     state.encode(input, id: id, encoder: encoder)
                 }
@@ -132,6 +135,12 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         heavyCount = 0
         pendingInputBytes = 0
         finished = true
+    }
+
+    // 失敗で戻る前に、着手済みの source descriptor を必ず閉じる。
+    func abandonAndWait() {
+        abandon()
+        state.workers.wait()
     }
 
     private func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)?) throws {

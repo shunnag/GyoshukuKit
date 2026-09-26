@@ -5,14 +5,14 @@ export COPYFILE_DISABLE=1
 
 usage() {
     cat <<'USAGE'
-Usage: run.sh <corpora-dir> [formats] [corpora] [--references] [--level N] [--threads N] [--progress] [--mode recursive|items]
+Usage: run.sh <corpora-dir> [formats] [corpora] [--references] [--level N] [--threads N] [--progress] [--mode recursive|items|batch]
   formats: comma- or space-separated; default "zip tar tgz tbz txz 7z lha"
   corpora: comma- or space-separated; default "text random headers small"
   --references  Also measure zip -r -6, tar | xz -6 -T0, and 7zz a -mx6 when present
   --level N     Forward deflateLevel (0...9) to gyoshuku-bench only
   --threads N   Forward compressionThreads (1...64) to gyoshuku-bench only
   --progress    Observe byte progress in gyoshuku-bench only
-  --mode MODE   recursive (default) or items; gyoshuku-bench only
+  --mode MODE   recursive (default), items or batch; gyoshuku-bench only
 USAGE
 }
 
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
         --references) references=true; shift ;;
         --progress) writer_options+=("$1"); shift ;;
         --mode)
-            [[ $# -ge 2 && ( $2 == recursive || $2 == items ) ]] || fail '--mode requires recursive or items'
+            [[ $# -ge 2 && ( $2 == recursive || $2 == items || $2 == batch ) ]] || fail '--mode requires recursive, items or batch'
             writer_options+=("$1" "$2"); shift 2 ;;
         --level)
             [[ $# -ge 2 && $2 =~ ^[0-9]$ ]] || fail '--level requires 0...9'

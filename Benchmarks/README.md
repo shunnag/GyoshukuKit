@@ -33,6 +33,13 @@ thread 設定を TSV で表示します。コマンド、標準出力、生の t
 `results.tsv` は `Benchmarks/.build/results/run.XXXXXX/` に残し、成功した書庫は測定ごとに削除します。
 失敗時は非ゼロで終了し、ログと残った出力を保持します。
 
+`--mode recursive|items|batch` は GyoshukuKit の追加経路を選ぶ。既定の recursive は directory を
+そのまま writer に渡す。items と batch は同じ名前順の前順走査（計時に含む）で項目列を作り、
+items は項目別 API、batch は一回の `add(_:events:)` を使う。`--progress` は byte 進捗を観測し、
+finish の前に `finishAdditions` を呼ぶ。directory の日時は現在時刻なので、この bench の mode 間の
+比較では書庫 byte の一致を要求しない。P7 の受入計測には、オーケストレータが固定した三階層の
+small corpus と manifest を使う（make-corpora.sh の平坦な small とは別）。
+
 `--references` は選択した `zip` / `txz` / `7z` に対して、PATH 上にある
 `zip -r -6` / `tar | xz -6 -T0` / `7zz a -mx6` を追加します。欠けたツールは理由付きで skip。
 `tar+xz` は tar 作成も計時し、RSS は `/usr/bin/time` の子プロセス群の最大値です

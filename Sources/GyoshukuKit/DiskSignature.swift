@@ -1,7 +1,7 @@
 import Foundation
 internal import Darwin
 
-struct DiskSignature {
+struct DiskSignature: Sendable {
     private let identity: ZipFileIdentity
     var isDirectory: Bool { identity.mode & S_IFMT == S_IFDIR }
     var inputByteCount: UInt64 { identity.mode & S_IFMT == S_IFREG ? UInt64(max(0, identity.size)) : 0 }

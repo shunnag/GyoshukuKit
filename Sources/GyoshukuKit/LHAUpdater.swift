@@ -82,6 +82,10 @@ public final class LHAUpdater: ArchiveEditing {
     /// reader を変えず、終端の後ろを最大 64 KiB 読む。設定・分割巻名・独立した walk は判定しない。
     public static func rewriteReason(reader: ArchiveReader) -> String? { LHALayout.rewriteReason(reader: reader) }
 
+    public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        try performAddition { try preparedWriter().add(additions, events: events) }
+    }
+
     public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?,
                     progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         try performAddition {
