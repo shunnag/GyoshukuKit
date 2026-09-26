@@ -20,6 +20,15 @@
 
 ### 追加
 
+- `LHAUpdater.open(url:output:options:)`。既存 member を再圧縮せずに追加・削除・改名し、
+  clone 上で header と移動範囲だけを書く。追加は並列 LH5、照合・進捗・取消し・FAT/exFAT の cleanup は
+  共通の出力部品を使う。構造上の fallback は `rewriteReason(reader:)` で照会できる。
+  改名した member は level 2 / OS U となり、comment・所有者・code page・未知の拡張を落とし、
+  時刻は秒へ切り捨てる。改名しない member の byte は保つ。
+- `TarUpdaterError` を形式共通の `UpdaterRouteError` に改名する。同じ二つの case と
+  `public typealias TarUpdaterError = UpdaterRouteError` により既存の生成・catch の source 互換性を保つ。
+  [P4-G-b 検証記録](Documentation/verification/2026-09-26-p4gb-lha-updater.md) に試験・計測を記載する。
+
 - `CompressedTarUpdater.open(reader:output:format:options:)`。session reader の tar image と
   地図を使い、gzip / bzip2 / xz の変更を含む区切りだけを再符号化する。
   P2 の編集規則・追加 factory・予約を共有し、従来の設定は open で `requiresRewrite` にする。

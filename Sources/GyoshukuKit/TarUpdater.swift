@@ -2,12 +2,6 @@ import Foundation
 private import Darwin
 internal import KaitoKit
 
-/// open 時の書き直し要求と、commit 時の出力照合失敗を区別する。
-public enum TarUpdaterError: Error, Sendable, Equatable {
-    case requiresRewrite(reason: String)
-    case outputVerificationFailed(reason: String)
-}
-
 /// 非圧縮 tar を別の新規ファイルへ編集する。原本と運ぶ member の byte を保つ。
 /// 名前の衝突は正規化して検査するが、改名しない member の名前の byte は変えない。
 /// thread-safe ではない。同じ instance の操作は呼出側で直列化する。

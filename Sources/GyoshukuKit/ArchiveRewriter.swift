@@ -395,7 +395,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
     }
 
-    private static func mode(for entry: ArchiveEntry) -> UInt16 {
+    static func mode(for entry: ArchiveEntry) -> UInt16 {
         let type: UInt16 = entry.kind == .directory ? 0o40000 : entry.kind == .symlink ? 0o120000 : 0o100000
         return type | ((entry.posixPermissions ?? (entry.kind == .directory ? 0o755 : 0o644)) & 0o7777)
     }

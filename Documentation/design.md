@@ -85,7 +85,7 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
 | 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | 作り直し | 作り直し |
-| 4 | LHA / LZH | ○(`-lh5-`) | ○ | ○ |
+| 4 | LHA / LZH | ○(`-lh5-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
 
@@ -111,7 +111,68 @@ rewriter もこの経路を使う。1 は従来の同期処理、2 以上では 
 internal の `endLHAMembers()` は終端・fsync・close なしで追加の終わりを返す。
 `recordsMembers` を有効にしたときだけ、実際の出力時点の header 絶対位置・header/data 長・method と
 canonical な名前の byte（directory の 0xFF を `/` に変換し filename を連結）を保存する。
-後続の LHAUpdater はこの追加 writer を既存の `SplicedArchiveOutput` と組み合わせる。
+LHAUpdater はこの追加 writer を既存の `SplicedArchiveOutput` と組み合わせる。
+
+### LHA の更新（P4-G-b）
+
+`LHAUpdater.open(url:output:options:)` は原本を readonly で開き、descriptor から clone した snapshot を
+KaitoKit で読む。clone 非対応時は原本を直接読み、新規 output を先頭から書く。公開・属性の復元は呼出側が行う。
+KaitoKit の全件解析、共有 `validateRepresentability`、独立した level 0/1/2 の header walk と
+`LHARawLayout` SPI の照合、原本の identity 検査を行う。walk は 4 KiB の窓で読み、payload を読み切らずに飛ばす。
+境界の表を二重に保持せず、照合後の計画では SPI を使う。取消しは 1,024 member ごとに検査する。
+
+| 条件 | open の経路 |
+|---|---|
+| R0 `.beginning` | `requiresRewrite("additionPlacement")`。LHA は `carriedTarOwnerIDs` を見ない |
+| R7 分割巻名 | `requiresRewrite("split volume name")` |
+| R8 SPI 不在、walk 不可（OS-9 `K` の不足宣言長を含む）、SPI/公開 entry との不一致 | `requiresRewrite` |
+| R10(a) nameEncoding が nil/shiftJIS 以外 | `requiresRewrite` |
+| R10(b) nameEncoding が nil で rawName に非 ASCII byte がある（宣言付きも含む） | `requiresRewrite` |
+| L1 SFX、L2 0 byte 以外の終端 | `requiresRewrite` |
+| L3 終端の後ろに非 0 byte、または後続が 64 KiB 超 | `requiresRewrite` |
+| L4 非公開 member、L5 level 3、L6 incomplete entry | `requiresRewrite` |
+| L7 directory が lhd 以外、packed/original size が 0 以外 | `requiresRewrite` |
+| L8 lh7 + OS 0x20（LHArk）、L9 packed size が UInt32 超 | `requiresRewrite` |
+
+`rewriteReason(reader:)` は SPI と公開値による構造判定だけを共有し、設定・分割巻名・独立した walk は判定しない。
+MacBinary envelope のある `m` member、symlink、pm2、表せない名前などの門番は rewriter と同じで、
+`RewriterError.unrepresentable` のまま返す。KaitoError と非 LHA の `UpdaterError.invalidArchive` も経路変更に使わない。
+`UpdaterRouteError` は `requiresRewrite` と `outputVerificationFailed` の二つだけを持ち、
+`TarUpdaterError` はその typealias として既存の catch を保つ。
+
+予約は `EditPathReservations` を使う。index と entryNames は open 時のままで、削除後に同名の追加ができる。
+root `.` は予約名が空でも運び、正規化後に同じ名前へ改名した member の byte は保つ。
+違う名前への改名時点で `LHARecords.Entry` の header を作り、失敗は transaction 全体を失敗にする。
+改名しない member は header・payload・名前の raw byte・時刻・拡張をそのまま運ぶ。
+
+改名した member は level 2、OS `U`、attribute 0x20、拡張 0x00/01/02/50/54 になる。
+comment、DOS 属性、Windows 時刻、64 bit size、code page、uid/gid、所有者名、未知の拡張は落ちる。
+時刻は KaitoKit が解いた modificationDate の Unix 秒へ切り捨て、欠ければ現在時刻を使う。
+level 0/1 の DOS 時刻は現在 timezone の解釈、0x41 の秒未満は失う。
+permission は OS `U` の値、その他は 0644/0755。method・payload・data CRC16・元サイズは保つ。
+
+追加・改名は宣言なし CP932 で書く。R10(b) は、追加した名前だけが文字コード推定の入力となる場合を避ける。
+`SP/p4rev/enc` の実験では、単独の第 2 水準漢字名 12 件のうち 9 件が別 encoding と推定された。
+既存の CP932 名があれば同じ 12 件は正しく読めた。宣言付き非 ASCII 名も R10(b) の対象になる。
+既存 CP932 名の削除によって、編集後の書庫が次回 R10(b) に当たる場合はある。
+
+変更時は生存 member、追加 block、0 の 1 byte の順に並べ、後続の 0 も落とす。全削除は `[0]`。
+KaitoKit がこの空書庫を識別するには、読取 URL の拡張子を `.lha` / `.lzh` にする。
+無変更 commit は後続の 0 も含め全 byte を保つ。位置が同じ source segment は clone のままにし、
+移動範囲だけ copy する。追加後の予約で位置が変われば共有部品の scratch へ退避して再配置する。
+出力、spool、dup descriptor の所有と削除は既存の FAT/exFAT の fresh fstat/lstat 規則を使う。
+
+commit の照合は V1（改名 header の byte・CRC・解釈）、V2（source segment 境界の header）、
+V3（追加 block の独立 walk と記録、dup descriptor 上の KaitoKit 全復号/CRC16）、V4（長さと終端）、
+V5（共有部品による、書いた source 範囲の 4 MiB ごとの memcmp）。追加だけでは既存 prefix を読み戻さない。
+運んだ payload は復号しない。呼出側の公開前の全 header 解析・projection 照合は別に残す。
+進捗 total は書込み（再配置の往復を含む）+ V2/V5 読取 + 追加 block 長で、計画後は固定する。
+V2/V5 は `SplicedArchiveOutput.verificationReadObserver` 一つに報告する。V1/V4 と V3 の実読取量は足さない。
+callback の throw・取消し・再入は失敗とし、自分の出力だけを削除する。
+
+tl-S11 の危険は残る。level 2 の長さの下位 byte が 0 だと KaitoKit は終端と見る。
+非 0 の後続を L3 で拒否できるが、rewriter も見えなかった後ろの member は復元しない。
+新しい header は `LHARecords` の既存の padding 規則でこの形を作らない。
 
 ## 5. 既定値の方針
 
