@@ -127,7 +127,7 @@ final class BatchAdditionEventsTests: XCTestCase {
         let root = try ZipTestSupport.directory("p7-cancel")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.small(root, count: 1000)
-        for format in [ArchiveFormat.zip, .tarGzip] {
+        for format in [ArchiveFormat.zip, .tarGzip, .sevenZip] {
             let task = Task.detached {
                 let before = Self.descriptors()
                 XCTAssertGreaterThan(before, 0)

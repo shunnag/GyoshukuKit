@@ -92,6 +92,29 @@ final class SevenZipWriter {
         try Task.checkCancellation()
     }
 
+    // 検証済みの単一 chunk は、読み直し・コピー・CRC の再計算をせず既存の encoder へ渡す。
+    func add(name: String, mode: UInt16, date: Date, prefetched: Prefetched) throws {
+        let data = prefetched.data
+        guard data.count <= lzmaChunkSize else {
+            var offset = data.startIndex
+            try add(name: name, mode: mode, size: UInt64(data.count), date: date) { count in
+                let end = min(offset + count, data.endIndex)
+                defer { offset = end }
+                return data[offset..<end]
+            }
+            return
+        }
+        try Task.checkCancellation()
+        var record = SevenZipRecords.Entry(name: name, mode: mode, size: UInt64(data.count),
+                                           mtime: try SevenZipRecords.timestamp(date))
+        record.crc = prefetched.crc
+        try reserveSignature()
+        let entry = PendingEntry(record: record, aes: data.isEmpty ? nil : try makeEncryptor())
+        try pipeline.submit(data.isEmpty ? nil : data, tag: ChunkTag(entry: entry, isLast: true),
+                            weight: UInt64(data.count), emit: emit)
+        try Task.checkCancellation()
+    }
+
     func finish() throws {
         try Task.checkCancellation()
         try reserveSignature()

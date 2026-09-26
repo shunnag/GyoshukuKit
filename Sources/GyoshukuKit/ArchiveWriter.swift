@@ -30,6 +30,8 @@ public final class ArchiveWriter {
     private var emittingStart: UInt64 = 0
     private var emittingAES: ZipAESEncryptor?
     private var position: UInt64 = 0
+    private var zipOutputBuffer = Data()
+    private var zipBufferedAddition: BatchEntry?
     private var appendStart: UInt64 = 0
     private var recordBase: UInt64 = 0
     private var entries: [ZipRecords.Entry] = []
@@ -263,6 +265,7 @@ public final class ArchiveWriter {
 
     // updater も同じ追加処理を使う。既存名は衝突検査にだけ使い、保存 byte は変更しない。
     func prepareAppend(at offset: UInt64, existingPaths: [(String, Bool)], recordBase: UInt64? = nil) throws {
+        try flushZipOutput()
         try output.seek(toOffset: offset)
         position = offset
         appendStart = offset
@@ -375,6 +378,7 @@ public final class ArchiveWriter {
                 let offset = position
                 try write(bytes)
                 if let progress {
+                    try flushZipOutput()
                     ZipCopyEngine.writeObserver?(offset, bytes.count)
                     try progress(offset, bytes.count)
                 }
@@ -390,6 +394,7 @@ public final class ArchiveWriter {
             }
             try emit(ZipRecords.end(count: checkedAdd(existingCount, UInt64(entries.count)),
                                      centralSize: position - start, centralOffset: start, comment: comment))
+            try flushZipOutput()
             try output.truncate(atOffset: position)
             try output.synchronize()
             try output.close()
@@ -402,11 +407,14 @@ public final class ArchiveWriter {
         do {
             try Task.checkCancellation()
             try autoreleasepool { try body() }
+            try flushZipOutput()
         } catch {
             state = .failed
             zipPipeline?.abandon()
             emittingEntry = nil
             emittingAES = nil
+            zipOutputBuffer.removeAll()
+            zipBufferedAddition = nil
             tarWriter?.abort()
             sevenZipWriter?.abort()
             lhaWriter?.abort()
@@ -643,6 +651,7 @@ public final class ArchiveWriter {
         entry.compressedSize = position - start
         let patched = entry.local()
         guard patched.count == header.count else { throw WriterError.sizeOverflow }
+        try flushZipOutput()
         try output.seek(toOffset: checkedAdd(appendStart, entry.offset - recordBase))
         try output.write(contentsOf: patched)
         try output.seek(toOffset: position)
@@ -707,6 +716,7 @@ public final class ArchiveWriter {
             entry.compressedSize = position - emittingStart
             let patched = entry.local()
             guard patched.count == emittingHeaderSize else { throw WriterError.sizeOverflow }
+            try flushZipOutput()
             try output.seek(toOffset: checkedAdd(appendStart, entry.offset - recordBase))
             try output.write(contentsOf: patched)
             try output.seek(toOffset: position)
@@ -728,7 +738,7 @@ public final class ArchiveWriter {
     }
 
     // 完成済みの単一 block は、既存と同じ header/data を一度の write で出力する。
-    private func emitCompleteZip(_ source: ZipRecords.Entry, data: Data, crc: UInt32) throws {
+    private func emitCompleteZip(_ source: ZipRecords.Entry, data: Data, crc: UInt32, addition: BatchEntry? = nil) throws {
         var entry = source
         entry.offset = try checkedAdd(recordBase, position - appendStart)
         entry.crc = crc
@@ -742,7 +752,7 @@ public final class ArchiveWriter {
         entry.compressedSize = UInt64(payload.count)
         var record = entry.local()
         record.append(payload)
-        try write(record)
+        try write(record, addition: addition)
         entries.append(entry)
     }
 
@@ -791,10 +801,35 @@ public final class ArchiveWriter {
     }
 
     private func write(_ data: Data) throws {
+        try write(data, addition: nil)
+    }
+
+    private func write(_ data: Data, addition: BatchEntry?) throws {
         try Task.checkCancellation()
         let next = try checkedAdd(position, UInt64(data.count))
-        try output.write(contentsOf: data)
+        if data.count >= Self.chunkSize {
+            try flushZipOutput()
+            try output.write(contentsOf: data)
+        } else {
+            if zipOutputBuffer.count + data.count > Self.chunkSize { try flushZipOutput() }
+            if zipOutputBuffer.isEmpty { zipBufferedAddition = addition }
+            zipOutputBuffer.append(data)
+        }
         position = next
+    }
+
+    // position は論理 offset。seek、外部への引渡し、公開操作の完了前には実際に書き出す。
+    private func flushZipOutput() throws {
+        guard !zipOutputBuffer.isEmpty else { return }
+        try Task.checkCancellation()
+        do { try output.write(contentsOf: zipOutputBuffer) }
+        catch {
+            // 一括 write の失敗は、まだ書き終えていない最初の項目へ帰属させる。
+            if let entry = zipBufferedAddition { throw additionFailure(error, index: entry.index, addition: entry.addition) }
+            throw error
+        }
+        zipOutputBuffer.removeAll(keepingCapacity: true)
+        zipBufferedAddition = nil
     }
 
     private static func linkSignature(_ info: stat) -> [Int64] {
@@ -853,16 +888,19 @@ extension ArchiveWriter {
     /// ownerIDs と directory の日時を指定できる公開の入口。
     /// 名前の予約は open より前。失敗は最小の index に帰属し、events の throw と取消しは包まない。
     /// events は呼出しの thread で同期通知し、保持しない。
+    /// 空配列は状態や取消しにかかわらず何もせず、events を通知せず、待ち入力も出力しない。
+    /// finishAdditions / finish の動作と出力 byte は呼ばなかった場合と同じ。
     public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
         try add(additions, expected: nil, meter: nil, events: events)
     }
 
     func add(_ additions: [ArchiveAddition], expected: [DiskSignature?]?, meter: CommitProgressMeter?,
              events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        guard !additions.isEmpty else { return }
         guard !additionsClosed else { throw WriterError.invalidState }
         precondition(expected == nil || expected!.count == additions.count)
         let limiter = SourcePrefetchLimiter(threads: options.resolvedCompressionThreads)
-        let prefetch = format == .zip ? nil : OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>(
+        let prefetch = format == .zip || format == .sevenZip ? nil : OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>(
             threads: options.resolvedCompressionThreads) { try $0.run { _ in throw WriterError.invalidState } }
         func receive(_ entry: BatchEntry, _ result: Prefetched?) throws {
             do {
@@ -871,7 +909,11 @@ extension ArchiveWriter {
                 guard state == .writing, !additionsClosed else { throw WriterError.invalidState }
                 let data = result?.data ?? entry.inline
                 if let zip = entry.zip {
-                    try emitCompleteZip(zip, data: data, crc: result?.crc ?? updateCRC(0, data))
+                    try emitCompleteZip(zip, data: data, crc: result?.crc ?? updateCRC(0, data), addition: entry)
+                    appendedPaths.append((entry.name, entry.mode & 0xF000 == 0x4000))
+                } else if let sevenZipWriter {
+                    try sevenZipWriter.add(name: entry.name, mode: entry.mode, date: entry.date,
+                                           prefetched: result ?? Prefetched(data: data, crc: updateCRC(0, data)))
                     appendedPaths.append((entry.name, entry.mode & 0xF000 == 0x4000))
                 } else {
                     var offset = 0
@@ -879,8 +921,13 @@ extension ArchiveWriter {
                                          atime: entry.atime, owners: entry.owners, hardLink: entry.hardLink) { requested in
                         let count = min(requested, data.count - offset)
                         defer { offset += count }
+                        if offset == 0, count == data.count { return data }
                         return data.subdata(in: offset..<(offset + count))
                     }
+                }
+                // 通知の時点と add の戻りでは実際の出力が揃っている。
+                if events != nil || entry.index == additions.count - 1 {
+                    try flushZipOutput()
                 }
                 pendingBatchPaths.removeFirst()
                 do { try meter?.advance(entry.hardLink == nil ? entry.inputBytes : 0) }
@@ -944,8 +991,9 @@ extension ArchiveWriter {
                                     owners = addition.ownerIDs.map { ($0.user, $0.group) }
                                         ?? (options.preserveOwnerIDs ? (info.st_uid, info.st_gid) : nil)
                                     let kind = info.st_mode & S_IFMT
-                                    let method = compression(name: addition.path, mode: mode, size: UInt64(max(0, info.st_size)))
-                                    let threshold = format == .zip && method == .deflate ? deflateBlockSize : DeflateBlock.size
+                                    let threshold = format == .zip &&
+                                        compression(name: addition.path, mode: mode, size: UInt64(max(0, info.st_size))) == .deflate
+                                        ? deflateBlockSize : DeflateBlock.size
                                     if kind == S_IFDIR || (kind == S_IFREG && (info.st_size > threshold ||
                                         (format == .zip && options.password != nil && options.zipEncryption == .zipCrypto))) {
                                         try drain()
@@ -959,6 +1007,7 @@ extension ArchiveWriter {
                                             }
                                             // ZIP の遅延 block の失敗も、この fallback 項目へ帰属させる。
                                             try zipPipeline?.drain(emit: emit)
+                                            try flushZipOutput()
                                         } catch { throw additionFailure(error, index: index, addition: addition, sourceURL: failedSource) }
                                         try additionEvent(.didFinish(index: index), events)
                                         return
@@ -999,6 +1048,9 @@ extension ArchiveWriter {
                                 if let zipPipeline {
                                     try zipPipeline.submit(job.map { .file($0) }, tag: .init(entry: nil, crc: nil, addition: entry),
                                                            weight: entry.inputBytes, emit: emit)
+                                } else if sevenZipWriter != nil {
+                                    // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
+                                    try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
                                 } else {
                                     try prefetch!.submit(job, tag: entry, weight: entry.inputBytes, emit: receive)
                                 }
@@ -1018,6 +1070,11 @@ extension ArchiveWriter {
                     zipPipeline?.abandonAndWait()
                     prefetch?.abandonAndWait()
                     pendingBatchPaths.removeAll()
+                    // 検証済みの前方の項目の write 失敗も、後方の source 失敗より優先する。
+                    if let failed = error as? ArchiveAdditionError,
+                       let buffered = zipBufferedAddition, buffered.index < failed.index {
+                        try flushZipOutput()
+                    }
                     throw error
                 }
             }

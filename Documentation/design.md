@@ -429,6 +429,10 @@ throw は元の error のまま失敗し、既存の cleanup 契約に従う（�
 
 `ArchiveAddition` の配列を `add(_:events:)` に渡すと、小さな通常ファイルを並列に先読みする。
 項目別 API の同期性は変えず、同じ項目・日時・乱数を使う列と出力 byte を一致させる。
+空配列は writer、全 updater、rewriter、protocol の既定実装のいずれでも完全な no-op。
+状態・取消しの検査より前に戻り、writer や一時出力を準備せず、待ち入力を drain せず、events も通知しない。
+追加を閉じた後や commit / finish・失敗の後も同じで、追加口や失敗状態を変えない。
+`finishAdditions` / `commit` / `finish` の動作・commit strategy・出力 byte は呼ばなかった場合と一致する。
 `ArchiveAdditionEvent` は呼出しの thread だけで同期通知し、保持しない。`willStart(index:)` は
 その項目の lstat より前、progress の session と `didFinish(index:)` は index の昇順になる。
 先読みした項目は受取時に (0, T) と (T, T) を通知する。directory の再帰と大きなファイルは
@@ -455,7 +459,7 @@ rewriter の `.end` は add では記録して二つの (0, 0) を通知し、co
 total は開始時の組立中 buffer と pipeline の未出力重みの和。tar の入力重みには header と padding も含む。
 出力ごとに重みを進め、tar の組立中 buffer は終端前と同じ境界で送る。gzip の辞書も維持するので、
 呼ぶ場合と呼ばない場合で出力 byte は一致する。二度目は `(0, 0)` を二回通知する。
-閉じた後の add・add(data:)・addDirectory は perform の catch の外で invalidState を返し、instance を失敗にしない。
+閉じた後の add（空配列を除く）・add(data:)・addDirectory は perform の catch の外で invalidState を返し、instance を失敗にしない。
 writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より前に閉鎖を検査する。
 削除・改名・commit は引き続き可能。既存 updater の commit の total・通知・strategy は変えない。
 

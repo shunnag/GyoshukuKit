@@ -231,6 +231,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        guard !additions.isEmpty else { return }
         try performAddition {
             if options.additionPlacement == .beginning {
                 try preparedWriter().add(additions, events: events)

@@ -67,6 +67,8 @@ public protocol ArchiveEditing: AnyObject {
     /// 同じ項目を項目別 API で追加した場合と byte 一致する。events は呼出しの thread で同期通知する。
     /// 有界の willStart の先行を許すが、progress と didFinish は index の昇順。
     /// 失敗は editor を failed にし、最小の失敗 index を返す。events の throw と取消しは包まない。
+    /// 空配列は状態や取消しにかかわらず何もせず、events を通知しない。
+    /// writer の準備や待ち入力の出力を行わず、finishAdditions / commit の動作・strategy・出力 byte を変えない。
     func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws
     func add(contentsOf url: URL, as path: String) throws
     /// nil でなければ設定より優先し、directory の全子孫にも同じ ID を使う。
@@ -77,7 +79,7 @@ public protocol ArchiveEditing: AnyObject {
     func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?,
              progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws
     /// 追加を閉じ、受取済みの入力を終端を書かずに出力する。total は待ちの入力 byte。
-    /// 以後の追加は invalidState（instance は失敗にしない）。削除・改名・commit は可能。
+    /// 以後の追加は空配列を除き invalidState（instance は失敗にしない）。削除・改名・commit は可能。
     /// 呼ばずに commit しても出力は同じ。二度目は (0, 0) を二度通知する。
     func finishAdditions(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws
     /// true は追加元を add 時には読まず、commit で読む editor。
@@ -102,6 +104,7 @@ extension ArchiveEditing {
     }
 
     func addSequentially(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        guard !additions.isEmpty else { return }
         do {
             for (index, addition) in additions.enumerated() {
                 do {

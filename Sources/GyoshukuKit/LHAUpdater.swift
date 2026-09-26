@@ -83,6 +83,7 @@ public final class LHAUpdater: ArchiveEditing {
     public static func rewriteReason(reader: ArchiveReader) -> String? { LHALayout.rewriteReason(reader: reader) }
 
     public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        guard !additions.isEmpty else { return }
         try performAddition { try preparedWriter().add(additions, events: events) }
     }
 

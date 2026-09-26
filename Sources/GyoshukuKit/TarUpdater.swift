@@ -81,6 +81,7 @@ public final class TarUpdater: ArchiveEditing {
     }
 
     public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
+        guard !additions.isEmpty else { return }
         try performAddition { try preparedWriter().add(additions, events: events) }
     }
 
