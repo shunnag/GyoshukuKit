@@ -257,3 +257,36 @@ orchestrator gate after S39/S38 commit coordination; this run does not start P7.
 | AC-G8 | `git diff -U0 -- Sources` の新しい `public` は §0.5 の宣言（進捗付きの `add(contentsOf:as:ownerIDs:…)`、`finishAdditions(progress:)`、`readsAdditionsDuringCommit`、`commit(progress:…)`、`maximumPendingInputBytes(for:)`）だけ |
 
 AC-G7 の速度の計測は、仕様の「S24 の commit」ではなく S38 の親の 67a22e8（S24 と P14 を含む）を B-P6G にして、この節の後に追記する（P14 が tar.xz の区切りを変えたため）。
+
+## AC-G7 の速度（オーケストレータ、2026-09-27 01:10–04:20）
+
+B-P6G は、仕様の「S24 の commit」ではなく S38 の親 67a22e8（S24 と P14 を含む）。N = b9da4bc。KaitoKit 823ad46。
+データは [2026-09-27-p6g-acceptance/](2026-09-27-p6g-acceptance/)。負荷の平均は 1 回目の計測で 4.4〜16.9、測り直しで 3.2〜34（S39・S40 の Codex と並走）。
+
+### 1 回目（`run.sh`、7 形式 × 4 corpus、B と N を交互に 1 + 3 回）
+
+中央値の比 N / B が 1.03 を越えた行: zip small 2.096、zip headers 1.670、tbz text 1.074、tbz random 1.058、lha random 1.059、lha text 1.040、
+tar small 1.045、tgz headers 1.040、tgz small 1.032。zip small は B でも 2.49 / 5.01 / 2.45 s と二つの値に分かれ（N は 5.07–5.28 s）、
+corpus の順に zip が小さなファイルを最初に読むので、キャッシュの状態の揺れと見た。各回とも B → N の順だった。
+
+### 測り直し（キャッシュを温め、B と N の順を回ごとに入れ替える ABBA × 4、`gyoshuku-bench` を直接）
+
+zip small 1.019、zip headers 1.006、tbz text 1.000、tbz random 1.002、tar small 1.002、tgz small 1.003、tgz headers 1.000。
+lha だけは同じ向きに残った: random 1.36 → 1.42–1.44 s（1.048）、text 1.01 → 1.04 s（1.030）。user 時間はほぼ同じ（4.52–4.55 → 4.55–4.60 s）。
+thread 数を変えると、1 thread 0.992・1.001、2 thread 1.008・1.027、8 thread 1.043・1.044 で、並列の受け渡しの差だった。
+S40（244a9c2）では lha の 8 thread が random 1.36 s（B 1.37–1.38、S38 1.42）、text 1.01 s（B 1.01–1.09、S38 1.03–1.04）に戻った。
+S38 の lha の +4.5 % は S38 だけの逸脱として記録し、S40 の commit で解消したので修正はしていない。
+
+### `--progress`（S38 の同じ build で、付けない回と付けた回を ABBA × 4、キャッシュを温める）
+
+text: 7z 1.002、txz 0.986（± 2 % の範囲）。small と headers（≤ 1.25、比を報告する）: lha headers 1.146、tar headers 1.116、tbz small 1.182、
+tgz headers **1.252**、tgz small **1.381**、zip headers 1.160、zip small 1.208。tgz の二行が上限を越えた。事前の走査（5 万件の lstat）に加えて、
+tgz は細かい読取ごとの進捗の通知の費用が大きい。KaitoFinder の小さなファイルの経路は S40 の一括の追加（`add(_:events:)`）に移るので、
+この比は一件ずつの `add(contentsOf:progress:)` の経路の値として報告する。
+
+### scale probe（× 1.05 以下）
+
+1 回目は B の 4 つを流してから N の 4 つを流したので、rewriter の commit が N で 3–15 % 遅く出た。ABBA で採り直すと
+tar の commit の 11 行の幾何平均 0.992（1.05 を越える行無し）、lha の 9 行 1.003（無し）、7z の `z_k100/first`・`g_k100/first`（× 2、各 5 回）は
+0.989–1.015。zip の scale probe は 1 回目から 0.708–1.057（commit の 7 行のうち 1.05 を越えたのは new_folder 11.4 → 12.1 ms だけ）。
+1 回目の rewriter の差は順番の偏りだった。

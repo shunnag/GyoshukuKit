@@ -1,0 +1,8 @@
+/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/p6acc/N/GyoshukuKit/Tests/GyoshukuKitTests/SevenZipUpdaterScaleProbeTests.swift:10: -[GyoshukuKitTests.SevenZipUpdaterScaleProbeTests testReleaseScale] : Test skipped - Set GYOSHUKU_7Z_SCALE_DIR; use -c release -Xswiftc -enable-testing
+ZIP-SCALE entries=100000 operation=delete_start open_ms=103.712 remove_ms=0.020 mutate_ms=0.020 commit_ms=14.764
+ZIP-SCALE entries=100000 operation=delete_end open_ms=96.743 remove_ms=0.012 mutate_ms=0.012 commit_ms=10.322
+ZIP-SCALE entries=100000 operation=rename_same_length open_ms=97.490 remove_ms=0.000 mutate_ms=2.060 commit_ms=7.026
+ZIP-SCALE entries=100000 operation=replace_file open_ms=100.002 remove_ms=0.007 mutate_ms=3.389 commit_ms=14.801
+ZIP-SCALE entries=100000 operation=add_file open_ms=97.665 remove_ms=0.000 mutate_ms=2.963 commit_ms=12.105
+ZIP-SCALE entries=100000 operation=new_folder open_ms=97.966 remove_ms=0.000 mutate_ms=2.432 commit_ms=12.054
+ZIP-SCALE entries=100000 operation=rename_1000 open_ms=97.608 remove_ms=0.000 mutate_ms=45.257 commit_ms=12.446
