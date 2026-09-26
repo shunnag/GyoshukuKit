@@ -84,7 +84,7 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
-| 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | 作り直し | 作り直し |
+| 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
 | 4 | LHA / LZH | ○(`-lh5-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
@@ -654,3 +654,92 @@ total は計画時に固定し、完了時の一致を確認してから公開�
 > would be killed by Gatekeeper on the recipient's Mac; and sparse-file detection,
 > which roughly doubles writer complexity for a case a GUI archiver's users
 > essentially never hit.
+
+### P5-G: 共有出力の scratch segment（S24-c1）
+
+2026-09-26 のオーケストレータ修正により、`SplicedSegment.scratch(SplicedScratchFile, Range<UInt64>)` を追加する。
+`makeScratch` の append-only な同じ object（`===`）と同じ範囲は同じ byte を表す。
+sequential mode の `beginAppend` が既に書いた prefix は、その組が同じなら commit で再利用する。
+範囲外・別の出力部品に属する scratch は `outputVerificationFailed`。scratch は snapshot の範囲ではないので
+clone による省略や V5 の対象ではなく、形式側の検証が担う。`generated` の closure は比較できないため、従来どおり
+変更ありとして保守的に再配置する。tar / LHA の source・literal の意味は変えない。
+
+### P5-G: SevenZipUpdater
+
+`SevenZipUpdater.open(url:password:output:options:)` は `ArchiveReencrypting` に適合する。
+この protocol は `ArchiveEditing` と `reencryptExistingEntries(currentPassword:)` の契約をまとめる。
+ZIP の `ArchiveUpdater` は既存のメソッドで適合し、処理は変えない。7z の ownerIDs は nil だけを受け付ける。
+公開する前の KaitoKit による全体の検査・計画との照合、原本の mode / xattr / 作成日の復元、公開は呼出側の責務。
+
+open は P1-G の descriptor 起点の `ArchiveSourceSnapshot` を使い、KaitoKit の
+`@_spi(SevenZipEditLayout)` を有効にして同じ snapshot を解析する。共有の表現可能性検査に加え、
+追加位置 `.beginning`、分割巻名、SPI snapshot 不在、SFX、表現できない header property、
+非 0 の main packPosition、entry / file / folder / substream / pack の不一致を、変更前に
+`UpdaterRouteError.requiresRewrite` で返す。`assess(reader:)` は既存 reader の構造だけを判定する。
+KaitoKit の P5-K SPI（検証 commit `0cbd809`、release 要求版 0.14.0）が必要。
+Package.swift の release 版指定の変更は S26 で行う。
+
+生存 file は元の順、追加は呼出し順で末尾へ置く。運ぶ folder の圧縮 byte、coder と props、bind、
+packed input、unpack size、CRC、AES の IV を保ち、file の UTF-16LE の生の名前、FILETIME、属性、
+empty / anti / StartPos も保つ。改名だけは NFC と directory の末尾 `/` を適用し、同じ正規化名への
+改名は元の byte のままにする。予約と衝突判定は既存の共通部品を使う。
+
+全部を削除した folder は落とし、solid の一部だけを削除した場合は、その folder 全体を順に復号して
+CRC を照合し、生存 file を元の順の一つの LZMA2 folder に作り直す。他の folder は復号しない。
+AES の folder は暗号化の予約が無ければ AES のまま。作り直しの出力は `makeScratch` に先に書いて長さを
+確定し、S24-c1 の `.scratch` で写す。後続 pack は新しい位置へ写す。生存 stream が 0 byte だけの場合も
+LZMA2 の `00` と各 substream の CRC を持つ folder を書く。
+`SevenZipFolderEncoder` は既存 writer の連結規則を共用し、本文 16 MiB / header 1 MiB の片を
+`resolvedCompressionThreads` で並列化する。通常の writer の出力 byte は変えない。
+
+最初の add は共有部品の `beginAppend` の dup descriptor へ直接書く。追加専用 writer は
+`endEntries` で記録を返し、header を書いたり output を閉じたりしない。sequential の場合は先に prefix を
+書く。予約が変わらなければ同じ scratch object / range を再利用する。後から予約が変わった場合は、
+共有部品が追加済み pack を spool に退避して再配置する。output の作成、clone、copy、fsync、開始 header
+の finalPatch、切詰め、進捗、V5、cleanup は `SplicedArchiveOutput` だけが行う。空 file の仮 inode は記録せず、
+FAT32 / exFAT でも現在の fd と path の同一性で自分のファイルだけを消す。
+
+暗号化の予約では圧縮済み stream に AES を付与・解除・掛け直しし、再圧縮しない。packed input が 1 本で、
+AES があればそれを直接読む 1 入力 / 1 出力である folder に対応する。複数 pack の BCJ2 は運べるが変換できず、
+`assess.canReencrypt` で分かる。暗号化の予約が無ければ部分的な暗号化はそのまま保つ。
+入力の header は open の password、その後の変換・solid 再圧縮は予約の currentPassword、出力は options.password を使う。
+変換する AES folder はそれぞれ先頭 64 KiB まで復号して password を確かめる。
+7z AES は認証を持たず、64 KiB を越える AES + Copy の entry では誤った currentPassword をこの確認だけでは検出できない。
+短い entry は最後まで読むので CRC が照合される。同じ UTF-16 password の carry は復号しない。
+呼出側の全件検査を省略してよいという意味ではない。
+
+header は元が平文 / Copy なら平文、元が圧縮されていれば LZMA2 にし、AES の有無は
+`encryptsSevenZipHeaders` に従う。ただし暗号化の予約なしに元の暗号化 header を平文にする設定は
+`invalidOption("encryptsSevenZipHeaders")` で失敗する。property の相対順、元に kDummy がある場合の整列、
+定義されている digest の bit を維持する。平文 header は 16 MiB まで。開始 header は version 0.4。
+file 0 件の平文 header は `01 05 00 00 00`（7zz / bsdtar / KaitoKit が受理）。既存 writer / rewriter の
+空出力 `01 00` を bsdtar が拒否すること、7zz の 32 B 空出力を KaitoKit が拒否することは、この変更では直さない。
+
+属性の追加規則は 2026-09-26 のオーケストレータ追補に従う。元の file が 1 件以上あり、全件の WinAttributes
+（0x15）が未定義なら、追加・置換 entry も属性を未定義にする。判定は削除前の元の file vector に対して行う。
+元が空、または 1 件でも属性が定義されていれば、追加には従来の mode 由来の属性を付ける。運ぶ file の属性は
+未定義のものもそのまま。directory は属性が無くても emptyStream / emptyFile で表す。
+7-Zip 26.03 の参照実行では、属性・mtime が無い `solid_zero.7z` の一部削除後の追加、および `zero_lzma2.7z`
+への追加は、0755 の file でも Attributes と Modified が無い。空の `empty_7zz.7z` への追加では両方がある。
+この updater は属性の規則だけを合わせ、追加の mtime は保持する（7zz との意図した違い）。
+libarchive 3.7.4 は一部だけが定義された 0x15 を "Damaged 7-Zip archive" として拒否する。この規則により、
+bsdtar が読める属性無しの元から、その形を新たに作らない。元が既に一部定義なら、その形は保持する。
+P5 前の全体の書き直しは `SevenZipRecords.swift` で mode から全件定義の属性を合成していた。
+その writer / rewriter は変更しない。属性無しの元に追加する file の Unix mode は、7zz と同様に保存されなくなる。
+
+自己照合は V0 の帳簿、V1 の保持中 descriptor を dup した KaitoKit の独立した構造解析、V2 = 共通部品の
+V5（動かした source 範囲の byte 比較）、V3 の追加・再圧縮 folder の全 substream 復号、V3a の変換した
+圧縮済み平文の長さと CRC を行う。失敗は `outputVerificationFailed` で後始末する。
+進捗の total は固定し、再圧縮があれば入力・出力と header の上界を使い、最後の finish で残りを完了にする。
+再圧縮も再配置も無ければ共有部品の正確な units を使う。変更しない clone commit の total は 0。
+
+S24 の AC-G13 について、オーケストレータは frozen `startpos.7z` だけの基準非互換を承認した。
+7-Zip 26.03 は編集前から `7zz t` を受理し、`7zz x` は exit 2 / Unsupported Method になる。
+StartPos を持つ entry が残る間だけ同じ失敗を求め、StartPos の生値・byte、KaitoKit の全件の内容と CRC、
+bsdtar の展開、7zz t を検査する。該当 entry の削除後は 7zz x も成功しなければならない。
+他の fixture にこの例外は適用しない。
+
+未検証の実用範囲は、実際に使われる anti / StartPos の書庫（合成 fixture は検査）、4 GiB 超の圧縮 entry
+（大きな offset の probe は Copy の sparse folder）、SFX stub の保持、BCJ2 の暗号化変換、古い 7-Zip と
+Archive Utility による LZMA2 header。試験と計測、sandbox で実行できなかった項目は
+[検証記録](verification/2026-09-26-p5g-sevenzip-updater.md) に記載する。

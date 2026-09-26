@@ -80,7 +80,7 @@ struct TarImageSource: ByteSource {
                 guard UInt64(data.count) == length else { throw TarUpdaterError.outputVerificationFailed(reason: "literal length") }
                 let range = try storage.append(data)
                 pieces.append((false, range.lowerBound, length))
-            case .generated: throw WriterError.invalidState
+            case .generated, .scratch: throw WriterError.invalidState
             }
         }
         if additionLength > 0 { pieces.append((false, 0, additionLength)) }

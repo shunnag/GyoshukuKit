@@ -277,6 +277,28 @@ public final class ArchiveWriter {
         return end
     }
 
+    static func sevenZipAppend(output: FileHandle, url: URL, at offset: UInt64,
+                               options: WriterOptions, existingPaths: [(String, Bool)]) throws -> ArchiveWriter {
+        var info = stat()
+        guard fstat(output.fileDescriptor, &info) == 0 else { throw WriterError.io(operation: "fstat append", code: errno) }
+        let identity = (info.st_dev, info.st_ino)
+        let sevenZip = SevenZipWriter(output: output, url: url, identity: identity, options: options, startPosition: offset)
+        let writer = ArchiveWriter(output: output, url: url, identity: identity, format: .sevenZip,
+                                   options: options, sevenZipWriter: sevenZip)
+        try writer.prepareAppend(at: offset, existingPaths: existingPaths)
+        return writer
+    }
+
+    func endSevenZipEntries() throws -> [SevenZipWriter.AppendedEntry] {
+        var records: [SevenZipWriter.AppendedEntry] = []
+        try perform {
+            guard let sevenZipWriter else { throw WriterError.invalidState }
+            records = try sevenZipWriter.endEntries()
+            state = .finished
+        }
+        return records
+    }
+
     func finish(existingCount: UInt64, comment: Data,
                 progress: ((UInt64, Int) throws -> Void)? = nil,
                 copyCentral: (_ emit: (Data) throws -> Void) throws -> Void) throws {

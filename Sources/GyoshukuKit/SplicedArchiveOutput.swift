@@ -5,10 +5,12 @@ enum SplicedSegment {
     case source(Range<UInt64>)
     case literal(length: UInt64, bytes: () throws -> Data)
     case generated(length: UInt64, write: (SplicedSink) throws -> Void)
+    case scratch(SplicedScratchFile, Range<UInt64>)
 
     var length: UInt64 {
         switch self {
         case .source(let range): range.upperBound - range.lowerBound
+        case .scratch(_, let range): range.upperBound - range.lowerBound
         case .literal(let length, _), .generated(let length, _): length
         }
     }
@@ -87,6 +89,7 @@ final class SplicedScratchFile {
     private let url: URL
     fileprivate let handle: FileHandle
     fileprivate(set) var length: UInt64 = 0
+    fileprivate(set) var copySeconds = 0.0
     private var discarded = false
 
     fileprivate init(url: URL) throws {
@@ -174,6 +177,7 @@ final class SplicedArchiveOutput {
 
     func beginAppend(at offset: UInt64, prefix: [SplicedSegment]) throws -> FileHandle {
         do {
+            try validateScratch(prefix)
             try create()
             guard prefix.reduce(UInt64(0), { $0 + $1.length }) == offset else { throw WriterError.invalidState }
             if !isCloneMode { try execute(prefix, meter: nil) }
@@ -204,10 +208,21 @@ final class SplicedArchiveOutput {
             case let (.source(a), .source(b)): if a != b { return false }
             case let (.literal(a, x), .literal(b, y)):
                 guard a == b, let first = try? x(), let second = try? y(), first == second else { return false }
+            case let (.scratch(a, x), .scratch(b, y)):
+                if a !== b || x != y { return false }
             default: return false
             }
         }
         return true
+    }
+
+    private func validateScratch(_ segments: [SplicedSegment]) throws {
+        let owned = Set(scratch.map(ObjectIdentifier.init))
+        for case let .scratch(file, range) in segments {
+            guard owned.contains(ObjectIdentifier(file)), range.upperBound <= file.length else {
+                throw UpdaterRouteError.outputVerificationFailed(reason: "scratch range")
+            }
+        }
     }
 
     private func relocated(_ plan: SplicedCommitPlan) -> Bool {
@@ -249,6 +264,10 @@ final class SplicedArchiveOutput {
                 } else { try writer.copy(range, from: snapshot.source) }
             case .literal(_, let bytes): try writer.write(bytes())
             case .generated(_, let generate): try generate(SplicedSink(writer: writer))
+            case .scratch(let file, let range):
+                let start = ProcessInfo.processInfo.systemUptime
+                try writer.copy(range, from: file.source())
+                file.copySeconds += ProcessInfo.processInfo.systemUptime - start
             }
             guard writer.position == end else { throw TarUpdaterError.outputVerificationFailed(reason: "segment length") }
         }
@@ -258,6 +277,7 @@ final class SplicedArchiveOutput {
     func commit(_ plan: SplicedCommitPlan, meter: CommitProgressMeter,
                 verify: (_ output: Int32, _ advance: (UInt64) throws -> Void) throws -> Void) throws -> SplicedCommitStrategy {
         do {
+            try validateScratch(plan.prefix)
             try create()
             try checkOutput()
             let relocate = relocated(plan)

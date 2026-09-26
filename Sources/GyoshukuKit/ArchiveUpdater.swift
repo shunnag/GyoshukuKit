@@ -509,3 +509,5 @@ public final class ArchiveUpdater: ArchiveEditing {
         replacement = nil
     }
 }
+
+extension ArchiveUpdater: ArchiveReencrypting {}

@@ -20,6 +20,18 @@
 
 ### 追加
 
+- `SevenZipUpdater.open(url:password:output:options:)` と `ArchiveReencrypting`。
+  7z の運ぶ pack・coder・IV・CRC と file の生の名前・時刻・属性・anti・StartPos を保ち、
+  改名は header、削除は移動範囲、追加は末尾だけを書く。solid の一部削除はその folder だけを
+  一つの solid LZMA2 に作り直す。暗号化の設定・変更・解除は再圧縮せず、通常の編集では部分的な暗号化を保つ。
+  header の圧縮の有無は元に合わせ、暗号化の予約なしに暗号化 header を平文にしない。
+  属性が全件未定義の空でない元への追加は、7zz と同じく属性（Unix mode を含む）を保存せず、mtime は保つ。
+  0 件の header は `01 05 00 00 00`。ZIP updater の protocol 適合による挙動変更はない。
+  KaitoKit の P5-K SPI（0cbd809、release 要求版 0.14.0）が必要。
+  currentPassword は AES folder ごとに先頭 64 KiB まで確認するため、64 KiB を越える AES + Copy の
+  誤った鍵を検出できない場合がある。公開前の全件照合は呼出側の責務。
+  [P5-G 検証記録](Documentation/verification/2026-09-26-p5g-sevenzip-updater.md) に試験・計測と既知の非互換を記載する。
+
 - `LHAUpdater.open(url:output:options:)`。既存 member を再圧縮せずに追加・削除・改名し、
   clone 上で header と移動範囲だけを書く。追加は並列 LH5、照合・進捗・取消し・FAT/exFAT の cleanup は
   共通の出力部品を使う。構造上の fallback は `rewriteReason(reader:)` で照会できる。

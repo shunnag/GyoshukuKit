@@ -6,7 +6,13 @@ final class SevenZipWriter {
     private let url: URL
     private let options: WriterOptions
     private var encryptionKey: Data?
+    struct AppendedEntry {
+        let record: SevenZipRecords.Entry
+        let packRange: Range<UInt64>
+    }
     private var entries: [SevenZipRecords.Entry] = []
+    private var appendedEntries: [AppendedEntry] = []
+    private let isAppend: Bool
     private var position: UInt64 = 0
     private var finished = false
     private var aborted = false
@@ -16,12 +22,12 @@ final class SevenZipWriter {
 
     private final class PendingEntry {
         var record: SevenZipRecords.Entry
-        let aes: SevenZipAESEncryptor?
+        let encoder: SevenZipFolderEncoder
         var start: UInt64?
 
         init(record: SevenZipRecords.Entry, aes: SevenZipAESEncryptor?) {
             self.record = record
-            self.aes = aes
+            encoder = SevenZipFolderEncoder(aes: aes)
             self.record.aesProperties = aes?.properties
         }
     }
@@ -32,12 +38,14 @@ final class SevenZipWriter {
     }
 
     init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), options: WriterOptions,
-         chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
+         startPosition: UInt64? = nil, chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) {
         precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))
         self.output = output
         self.url = url
         self.options = options
+        isAppend = startPosition != nil
+        position = startPosition ?? 0
         lzmaChunkSize = chunkSize
         pipeline = LZMA2ChunkPipeline(threads: options.resolvedCompressionThreads, encoder: encoder)
     }
@@ -136,31 +144,25 @@ final class SevenZipWriter {
         try Task.checkCancellation()
         let entry = tag.entry
         if entry.start == nil { entry.start = position }
-        if let compressed = result?.compressed {
-            // 各片の辞書 reset を維持し、LZMA2 終端は entry の最後に一度だけ置く。
-            guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
-                  compressed.payload.last == 0 else { throw WriterError.compression(-1) }
-            entry.record.properties = max(entry.record.properties, compressed.properties)
-            try emit(compressed.payload.dropLast(), to: entry)
-        }
+        if let compressed = result?.compressed { try entry.encoder.consume(compressed, write: write) }
         if tag.isLast {
             if entry.record.size > 0 {
-                try emit(Data([0]), to: entry)
-                if let aes = entry.aes { try write(aes.finish()) }
+                try entry.encoder.finish(write: write)
+                entry.record.properties = entry.encoder.properties
+                entry.record.compressedSize = entry.encoder.compressedSize
                 entry.record.packedSize = position - entry.start!
             }
             entries.append(entry.record)
+            if isAppend { appendedEntries.append(AppendedEntry(record: entry.record, packRange: entry.start!..<position)) }
         }
     }
 
-    private func emit(_ data: Data, to entry: PendingEntry) throws {
-        entry.record.compressedSize = try checkedAdd(entry.record.compressedSize, UInt64(data.count))
-        for offset in stride(from: 0, to: data.count, by: Self.chunkSize) {
-            try Task.checkCancellation()
-            let start = data.startIndex + offset
-            let chunk = data[start..<min(start + Self.chunkSize, data.endIndex)]
-            try write(entry.aes.map { try $0.encrypt(chunk) } ?? chunk)
-        }
+    func endEntries() throws -> [AppendedEntry] {
+        guard !finished, !aborted, isAppend else { throw WriterError.invalidState }
+        try Task.checkCancellation()
+        try pipeline.finish(emit: emit)
+        finished = true
+        return appendedEntries
     }
 
     private func write(_ data: Data) throws {
@@ -170,6 +172,7 @@ final class SevenZipWriter {
             let chunk = data[start..<min(start + Self.chunkSize, data.endIndex)]
             let next = try checkedAdd(position, UInt64(chunk.count))
             try output.write(contentsOf: chunk)
+            if isAppend { ZipCopyEngine.writeObserver?(position, chunk.count) }
             position = next
         }
     }

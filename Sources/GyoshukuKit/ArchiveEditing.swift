@@ -23,6 +23,11 @@ public protocol ArchiveEditing: AnyObject {
     func commit() throws
 }
 
+/// 既存項目の暗号化を open 時の出力設定へそろえる予約を持つ editor。
+public protocol ArchiveReencrypting: ArchiveEditing {
+    func reencryptExistingEntries(currentPassword: String?) throws
+}
+
 extension ArchiveEditing {
     public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?) throws {
         guard ownerIDs == nil else { throw WriterError.unsupportedOption("ownerIDs") }

@@ -161,13 +161,15 @@ final class ZipAESEncryptor {
 
 /// 7z AES-256-CBC。CommonCrypto が block の端数を保持し、最後だけ明示的に zero pad する。
 final class SevenZipAESEncryptor {
+    @TaskLocal static var testingIV: (@Sendable () -> Data)?
     let properties: Data
     private var cryptor: CCCryptorRef?
     private var remainder = 0
     private var finished = false
 
     init(key: Data) throws {
-        let iv = try EncryptionPrimitives.random(count: 16)
+        let iv = try Self.testingIV?() ?? EncryptionPrimitives.random(count: 16)
+        guard iv.count == 16 else { throw WriterError.invalidOption("IV") }
         // cycles=19、salt なし、IV=16 byte。saltSize=0 の上位 nibble は 0。
         properties = Data([0x53, 0x0F]) + iv
         let status: CCCryptorStatus = key.withUnsafeBytes { keyBytes in

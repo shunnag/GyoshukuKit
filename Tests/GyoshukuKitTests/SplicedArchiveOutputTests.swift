@@ -81,6 +81,62 @@ final class SplicedArchiveOutputTests: XCTestCase {
         }
     }
 
+    func testScratchPrefixIdentityAndRange() throws {
+        for change in 0..<3 {
+            let (root, path, output) = try setup("scratch-prefix-\(change)", sequential: true)
+            let first = try output.makeScratch(tag: "first")
+            try first.append(Data([1, 2, 3, 4, 5]))
+            let second = try output.makeScratch(tag: "second")
+            try second.append(Data([1, 2, 3, 4, 5]))
+            let handle = try output.beginAppend(at: 4, prefix: [.scratch(first, 0..<4)])
+            try handle.write(contentsOf: Data([6]))
+            try handle.close()
+            // 追記は既存の範囲の byte を変えない。
+            try first.append(Data([7]))
+            let range: Range<UInt64> = change == 1 ? 1..<5 : 0..<4
+            let plan = SplicedCommitPlan(prefix: [.scratch(change == 2 ? second : first, range)], appended: 4..<5,
+                                         terminal: Data([8]), finalLength: 6, formatVerificationUnits: 0)
+            XCTAssertEqual(output.units(for: plan), change == 0 ? 1 : 7)
+            XCTAssertEqual(try commit(output, plan), change == 0 ? .sequential : .relocatedAppend)
+            XCTAssertEqual(try Data(contentsOf: path), Data(change == 1 ? [2, 3, 4, 5, 6, 8] : [1, 2, 3, 4, 6, 8]))
+            XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)), ["source.bin", "output.bin"])
+        }
+    }
+
+    func testInvalidScratchRangeFailsAndCleansUp() throws {
+        for atAppend in [true, false] {
+            let (root, _, output) = try setup("scratch-range-\(atAppend)", sequential: true)
+            let scratch = try output.makeScratch(tag: "invalid")
+            try scratch.append(Data([1, 2]))
+            let prefix: [SplicedSegment] = [.scratch(scratch, 1..<3)]
+            XCTAssertThrowsError(try {
+                if atAppend { _ = try output.beginAppend(at: 2, prefix: prefix) }
+                else {
+                    _ = try commit(output, .init(prefix: prefix, appended: nil, terminal: Data(), finalLength: 2,
+                                                  formatVerificationUnits: 0))
+                }
+            }()) { XCTAssertEqual($0 as? UpdaterRouteError, .outputVerificationFailed(reason: "scratch range")) }
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["source.bin"])
+        }
+    }
+
+    func testGeneratedPrefixRemainsConservative() throws {
+        let (_, path, output) = try setup("generated-conservative", sequential: true)
+        var calls = 0
+        let prefix: [SplicedSegment] = [.generated(length: 2, write: { sink in
+            calls += 1
+            try sink.write(Data([3, 4]))
+        })]
+        let handle = try output.beginAppend(at: 2, prefix: prefix)
+        try handle.write(contentsOf: Data([5]))
+        try handle.close()
+        let plan = SplicedCommitPlan(prefix: prefix, appended: 2..<3, terminal: Data(), finalLength: 3,
+                                     formatVerificationUnits: 0)
+        XCTAssertEqual(try commit(output, plan), .relocatedAppend)
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(try Data(contentsOf: path), Data([3, 4, 5]))
+    }
+
     func testFinalPatchAfterFirstSyncAndGeneratedCopy() throws {
         let (_, path, output) = try setup("patch", sequential: true)
         let scratch = try output.makeScratch(tag: "generated")

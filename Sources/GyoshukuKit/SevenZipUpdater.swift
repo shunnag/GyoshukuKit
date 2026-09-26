@@ -1,0 +1,235 @@
+import Foundation
+public import KaitoKit
+
+/// 7z の更新。原本を変更せず、運ぶ folder の圧縮 byte と file の生値を保つ。
+/// thread-safe ではない。失敗後は再利用できず、自分の作業ファイルだけを削除する。
+/// 公開前の KaitoKit による再解析・計画照合と、出力属性の復元は呼出側の責務。
+public final class SevenZipUpdater: ArchiveReencrypting {
+    @_spi(Testing) public enum CommitStrategy: Sendable, Equatable {
+        case unchanged, headerOnly, appendOnly, compacted, reencoded, reencrypted, sequential, relocatedAppend
+    }
+    @_spi(Testing) public private(set) var lastCommitStrategy: CommitStrategy?
+    @_spi(Testing) public private(set) var lastCommitStatistics: SevenZipCommitStatistics?
+    @_spi(Testing) @TaskLocal public static var testingDisablesClone = false
+    enum Fault: Sendable {
+        case flipMovedPackByte, flipAppendedPackByte, flipReencodedPackByte, flipConvertedPackByte
+        case corruptSerializedName, dropLastPackFromModel
+    }
+    @TaskLocal static var testingFault: Fault?
+    @TaskLocal static var testingLayoutMismatch = false
+
+    let snapshot: ArchiveSourceSnapshot
+    let output: URL
+    let options: WriterOptions
+    let reader: ArchiveReader
+    let model: SevenZipEditModel
+    let names: [String]
+    let filesByFolder: [[Int]]
+    let destination: SplicedArchiveOutput
+    let headerPassword: String?
+    var reencrypt = false
+    var currentPassword: String?
+    var encryptionKey: Data?
+    var removed: Set<Int> = []
+    var renamed: [Int: String] = [:]
+    private lazy var reservations = EditPathReservations(existingPaths)
+    private var indexedAppendCount = 0
+    private var writerPathsNeedRefresh = false
+    var writer: ArchiveWriter?
+    var appendStart: UInt64?
+    var reencoded: [Int: SevenZipReencodedFolder] = [:]
+    var conversions: [Int: SevenZipReencryption] = [:]
+    var passwordChecked: Set<Int> = []
+    enum State { case adding, committing, committed, failed }
+    var state = State.adding
+
+    public var entryNames: [String] { reader.entries.map(\.name) }
+
+    private init(snapshot: ArchiveSourceSnapshot, output: URL, options: WriterOptions, reader: ArchiveReader,
+                 model: SevenZipEditModel, names: [String], password: String?) {
+        self.snapshot = snapshot; self.output = output; self.options = options; self.reader = reader
+        self.model = model; self.names = names; filesByFolder = model.filesByFolder; headerPassword = password
+        destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "7z", sequential: Self.testingDisablesClone)
+    }
+    deinit { if state != .committed { cleanup() } }
+
+    public static func assess(reader: ArchiveReader) -> SevenZipAssessment? {
+        guard let model = SevenZipEditModel.read(reader) else { return nil }
+        let reason = model.rewriteReason(entries: reader.entries) ?? (testingLayoutMismatch ? "layout mismatch" : nil)
+        return SevenZipAssessment(updatable: reason == nil, reason: reason,
+            hasSolidFolders: model.folders.contains { $0.substreamIndices.count > 1 },
+            canReencrypt: reason == nil && model.folders.allSatisfy(\.canReencrypt))
+    }
+
+    public static func open(url: URL, password: String? = nil, output: URL,
+                            options: WriterOptions = WriterOptions()) throws -> SevenZipUpdater {
+        try options.validate(for: .sevenZip)
+        guard options.additionPlacement == .end else { throw UpdaterRouteError.requiresRewrite(reason: "additionPlacement") }
+        guard ArchiveVolumeSet.parse(fileName: url.lastPathComponent) == nil else {
+            throw UpdaterRouteError.requiresRewrite(reason: "split volume name")
+        }
+        try ArchiveSourceSnapshot.validateOutput(output)
+        try Task.checkCancellation()
+        let snapshot = try ArchiveSourceSnapshot(url: url, directory: output.deletingLastPathComponent(),
+                                                 pathExtension: "7z", disablesClone: testingDisablesClone)
+        let reader = try ArchiveReader.open(source: snapshot.source, sourceURL: url,
+                                           options: SevenZipEditModel.readerOptions(password: password))
+        guard reader.format == .sevenZip else { throw UpdaterError.invalidArchive("7z ではありません") }
+        let representable = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: .sevenZip, reader: reader)
+        guard let model = SevenZipEditModel.read(reader) else { throw UpdaterRouteError.requiresRewrite(reason: "no 7z editing snapshot") }
+        if let reason = model.rewriteReason(entries: reader.entries) { throw UpdaterRouteError.requiresRewrite(reason: reason) }
+        if testingLayoutMismatch { throw UpdaterRouteError.requiresRewrite(reason: "layout mismatch") }
+        try snapshot.checkUnchanged()
+        return SevenZipUpdater(snapshot: snapshot, output: output, options: options, reader: reader,
+                               model: model, names: representable.names, password: password)
+    }
+
+    public func add(contentsOf url: URL, as path: String) throws { try add(contentsOf: url, as: path, ownerIDs: nil) }
+    public func add(contentsOf url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?) throws {
+        guard ownerIDs == nil else { throw WriterError.unsupportedOption("ownerIDs") }
+        try perform { try preparedWriter().add(contentsOf: url, as: path) }
+    }
+    public func add(data: Data, as path: String, modificationDate: Date? = nil, permissions: UInt16? = nil) throws {
+        try perform { try preparedWriter().add(data: data, as: path, modificationDate: modificationDate, permissions: permissions) }
+    }
+    public func addDirectory(_ path: String) throws { try addDirectory(path, modificationDate: nil, ownerIDs: nil) }
+    public func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
+        guard ownerIDs == nil else { throw WriterError.unsupportedOption("ownerIDs") }
+        try perform { try preparedWriter().addDirectory(path, modificationDate: modificationDate, ownerIDs: nil) }
+    }
+    public func remove(entriesAt indices: [Int]) throws {
+        try perform {
+            for index in indices { try validateIndex(index) }
+            indexAppendedPaths()
+            for index in indices where !removed.contains(index) {
+                let name = renamed[index] ?? names[index]
+                if !name.isEmpty { reservations.remove(name, directory: reader.entries[index].kind == .directory) }
+                removed.insert(index); renamed.removeValue(forKey: index)
+            }
+            writerPathsNeedRefresh = true
+        }
+    }
+    public func rename(entryAt index: Int, to path: String) throws {
+        try perform {
+            try validateIndex(index)
+            guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
+            let directory = reader.entries[index].kind == .directory
+            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .sevenZip)
+            indexAppendedPaths()
+            let old = renamed[index] ?? names[index]
+            if !old.isEmpty { reservations.remove(old, directory: directory) }
+            try reservations.validate(name, directory: directory)
+            reservations.insert(name, directory: directory)
+            renamed[index] = name
+            writerPathsNeedRefresh = true
+        }
+    }
+    public func reencryptExistingEntries(currentPassword: String?) throws {
+        try perform {
+            guard !reencrypt else { throw UpdaterError.invalidState }
+            for (index, folder) in model.folders.enumerated() where !folder.canReencrypt {
+                let file = filesByFolder[index].first ?? 0
+                throw UpdaterError.reencryptionFailed(index: file, name: reader.entries.indices.contains(file) ? reader.entries[file].name : "",
+                                                      reason: "7z の folder の形のため暗号化を変更できません")
+            }
+            reencrypt = true; self.currentPassword = currentPassword; reader.password = currentPassword
+            reencoded.removeAll(); conversions.removeAll(); passwordChecked.removeAll()
+        }
+    }
+    public func commit() throws { try commit(progress: nil) }
+    public func commit(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
+        if state == .committed { return }
+        try perform {
+            state = .committing
+            let result = try executeCommit(progress: progress)
+            lastCommitStrategy = result.strategy
+            lastCommitStatistics = result
+            state = .committed
+        }
+    }
+
+    func makePlan(additions: Int = 0) -> SevenZipUpdatePlan {
+        SevenZipUpdatePlan.make(model: model, filesByFolder: filesByFolder, names: names, removed: removed, renamed: renamed,
+            additions: additions, reencrypt: reencrypt, currentPassword: currentPassword, headerPassword: headerPassword, options: options)
+    }
+    private var existingPaths: [(String, Bool)] {
+        reader.entries.compactMap { entry in
+            let name = renamed[entry.index] ?? names[entry.index]
+            return removed.contains(entry.index) || name.isEmpty ? nil : (name, entry.kind == .directory)
+        }
+    }
+    private func indexAppendedPaths() {
+        for (name, directory) in (writer?.appendedPaths ?? []).dropFirst(indexedAppendCount) { reservations.insert(name, directory: directory) }
+        indexedAppendCount = writer?.appendedPaths.count ?? indexedAppendCount
+    }
+    private func validateIndex(_ index: Int) throws {
+        guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
+    }
+    private func preparedWriter() throws -> ArchiveWriter {
+        if let writer {
+            if writerPathsNeedRefresh { writer.replaceExistingPaths(existingPaths); writerPathsNeedRefresh = false }
+            return writer
+        }
+        let plan = makePlan()
+        let prefix: [SplicedSegment]
+        if destination.isCloneMode { prefix = try preliminaryPrefix(plan) }
+        else {
+            try prepareConversions(plan, toScratch: true)
+            try prepareReencodings(plan, advance: { _ in })
+            prefix = try makePrefix(plan)
+        }
+        let offset = prefix.reduce(UInt64(0)) { $0 + $1.length }
+        let handle = try destination.beginAppend(at: offset, prefix: prefix)
+        let writer = try ArchiveWriter.sevenZipAppend(output: handle, url: output, at: offset,
+                                                     options: options, existingPaths: existingPaths)
+        self.writer = writer; appendStart = offset; writerPathsNeedRefresh = false
+        return writer
+    }
+    func makeEncryptor(enabled: Bool) throws -> SevenZipAESEncryptor? {
+        guard enabled else { return nil }
+        guard let password = options.password else { throw WriterError.invalidOption("password") }
+        if encryptionKey == nil { encryptionKey = try EncryptionPrimitives.sevenZipKey(password: password) }
+        return try SevenZipAESEncryptor(key: encryptionKey!)
+    }
+    private func perform(_ body: () throws -> Void) throws {
+        guard state == .adding else {
+            if state == .committing { state = .failed }
+            throw UpdaterError.invalidState
+        }
+        do { try Task.checkCancellation(); try body() }
+        catch { state = .failed; cleanup(); throw error }
+    }
+    private func cleanup() { writer = nil; destination.discard(); snapshot.cleanup() }
+}
+
+public struct SevenZipAssessment: Sendable, Equatable {
+    public let updatable: Bool
+    public let reason: String?
+    public let hasSolidFolders: Bool
+    public let canReencrypt: Bool
+}
+
+@_spi(Testing) public struct SevenZipCommitStatistics: Sendable {
+    public internal(set) var strategy: SevenZipUpdater.CommitStrategy = .unchanged
+    public internal(set) var writtenCarriedPackBytes: UInt64 = 0
+    public internal(set) var appendedPackBytes: UInt64 = 0
+    public internal(set) var convertedPackBytes: UInt64 = 0
+    public internal(set) var reencodedFolderCount = 0
+    public internal(set) var reencodedInputBytes: UInt64 = 0
+    public internal(set) var reencodedPackBytes: UInt64 = 0
+    public internal(set) var reencodeScratchWrittenBytes: UInt64 = 0
+    public internal(set) var plainHeaderBytes: UInt64 = 0
+    public internal(set) var storedHeaderBytes: UInt64 = 0
+    public internal(set) var verificationReadBytes: UInt64 = 0
+    public internal(set) var planSeconds = 0.0
+    public internal(set) var reencodeScratchSeconds = 0.0
+    public internal(set) var scratchCopySeconds = 0.0
+    public internal(set) var passwordVerificationSeconds = 0.0
+    public internal(set) var packsSeconds = 0.0
+    public internal(set) var headerSeconds = 0.0
+    public internal(set) var selfCheckSeconds = 0.0
+    public internal(set) var v1Seconds = 0.0
+    public internal(set) var v2Seconds = 0.0
+    public internal(set) var v3Seconds = 0.0
+    public internal(set) var v3aSeconds = 0.0
+}
