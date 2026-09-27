@@ -21,7 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
-        run: brew install sevenzip xz lhasa
+        # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
+        run: brew install sevenzip xz lhasa gnu-tar
       - name: Show toolchain versions
         run: |
           sw_vers
