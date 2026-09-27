@@ -1,0 +1,33 @@
+name: CI
+
+# 利用側と同じ tag 参照（隣に KaitoKit の checkout がない）で build と試験を行う。
+# 手元は最新の Xcode だけのことが多いので、macos-26（Xcode 26 / Swift 6.3）で
+# コンパイルの差と macOS 26 の Foundation の差を検出する（2026-09-27 に両方が実際に起きた）。
+# PR ブランチへの push でも起動すると pull_request と合わせて同じ commit に 2 回走るため、push は main と tag だけにする。
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, xcode-27]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install differential-test oracles
+        # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
+        run: brew install sevenzip xz lhasa gnu-tar
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          swift --version
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
