@@ -113,6 +113,9 @@ public final class ArchiveRewriter: ArchiveEditing {
             try source.checkUnchanged(at: url)
         } catch let error as KaitoError {
             throw map(error, entry: nil)
+        } catch let error as CancellationError {
+            // KaitoKit 0.11 の open は取消し済みの Task で CancellationError を投げる。不正な書庫とは区別する。
+            throw error
         } catch {
             throw RewriterError.invalidArchive(String(describing: error))
         }

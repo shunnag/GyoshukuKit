@@ -151,6 +151,9 @@ enum ZipCentralDirectory {
         private var fixed = Data()
         private var variableRemaining = 0
 
+        // Swift 6.3 は private の stored property を持つ struct の memberwise init を private にする。
+        init(expectedCount: UInt64) { self.expectedCount = expectedCount }
+
         mutating func consume(_ bytes: Data) throws {
             var cursor = bytes.startIndex
             while cursor < bytes.endIndex {

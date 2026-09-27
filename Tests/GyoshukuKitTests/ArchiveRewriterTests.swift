@@ -320,6 +320,24 @@ final class ArchiveRewriterTests: XCTestCase {
         try run("7zz", ["t", output.path], in: directory)
     }
 
+    // KaitoKit 0.11 の open は取消し済みの Task で CancellationError を投げる。不正な書庫の誤りに包まない。
+    func testOpenInsideCancelledTaskThrowsCancellationError() async throws {
+        let directory = try directory("cancelled-open")
+        let source = try archive(in: directory)
+        let before = try Data(contentsOf: source)
+        let task = Task<Void, any Error> {
+            withUnsafeCurrentTask { $0?.cancel() }
+            _ = try ArchiveRewriter.open(url: source, format: .zip)
+        }
+        do {
+            try await task.value
+            XCTFail("取消し済みの Task では open が CancellationError を投げる")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        XCTAssertEqual(try Data(contentsOf: source), before)
+    }
+
     func testCancellationOnSecondCarryRemovesOutputAndInvalidatesInstance() throws {
         for format in formats {
             for inPlace in [false, true] {

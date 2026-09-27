@@ -54,13 +54,15 @@ public struct CompressedTarCommitResult: Sendable {
 /// 全体の open による検証へ戻してよいのは K5 が baseNotSpliceable を返した場合だけ。
 /// thread-safe ではない。失敗後は再利用できず、deinit は未完了の出力を削除する。
 public final class CompressedTarUpdater: ArchiveEditing {
-    @_spi(Testing) public enum Fault: Sendable {
+    // Swift 6.3 の @TaskLocal は展開した `$` の宣言に @_spi を付けないため、SPI の型を使う試験用の値は
+    // 他の updater と同じく internal にする（試験は @testable import で使う）。
+    enum Fault: Sendable {
         case trailerCRC, missingDictionaryProtection, dropBzip2Stream, xzIndexLength, dropXZBlock,
              flipEncodedByte, shiftLedger, flipReusedByte
     }
-    @_spi(Testing) @TaskLocal public static var testingFault: Fault?
-    @_spi(Testing) @TaskLocal public static var testingSkipsSelfCheck = false
-    @_spi(Testing) @TaskLocal public static var testingForcesFullEncode = false
+    @TaskLocal static var testingFault: Fault?
+    @TaskLocal static var testingSkipsSelfCheck = false
+    @TaskLocal static var testingForcesFullEncode = false
     @_spi(Testing) public private(set) var lastCommitStatistics: CompressedTarCommitStatistics?
     enum Stage: Sendable { case planned, encoding, copying, selfCheck }
     @TaskLocal static var testingStage: (@Sendable (Stage) throws -> Void)?

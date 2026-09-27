@@ -8,6 +8,11 @@
 
 ### 修正
 
+- Swift 6.3（Xcode 26）でコンパイルできなかった 2 点を直す。`ZipCentralDirectory.CopyValidator` に明示の
+  init を設け、`CompressedTarUpdater` の試験用の `Fault` と task-local を他の updater と同じく internal にする。
+- `ArchiveRewriter.open` は、KaitoKit 0.11 の open が取消し済みの Task で投げる `CancellationError` を
+  `RewriterError.invalidArchive` に包まずそのまま投げる。
+
 - 書込み側の読取を共通の POSIX read にし、再帰追加と rewriter の項目ごとに autoreleasepool を設ける。
   ZIP の deflate stream も entry 間で再利用し、大量の小さなファイルや大きな入力でのメモリ増加を抑える。
   この最適化自体は出力 byte を変えない。
