@@ -49,7 +49,7 @@ Swift 6.4、macOS 26 deployment target、隣接する `../KaitoKit` を使用。
 通常の `swift build` は sandbox 外の module cache 書込で失敗するため、cache を worktree 内へ移した。
 
 ```sh
-cd /Users/nagash/Github/GyoshukuKit-m8
+cd ~/Github/GyoshukuKit-m8
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swift-cache"
 
@@ -108,7 +108,7 @@ Release、8 thread、deflate level 6 / 9、bzip2 level 9、既定 heuristic を�
 テストやビルドと並行していたため、所要時間は速度比較として報告しない。
 
 使用した既存 corpus:
-`/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/corpus`。
+`$SP/corpus`。
 
 | corpus | 通常ファイル数 | 入力 byte |
 |---|---:|---:|
@@ -244,13 +244,13 @@ codec stateの概算は [bzip2 manual §2.5](https://www.sourceware.org/bzip2/ma
 ### コマンドと結果
 
 ```sh
-cd /Users/nagash/Github/GyoshukuKit-m8
+cd ~/Github/GyoshukuKit-m8
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swift-cache"
 
 .build/m8-bench/baseline/.build/out/Products/Release/m8bench tbz \
   .build/m8-bench/correction-1/m2-small.tar.bz2 9 8 \
-  /private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/corpus/small
+  $SP/corpus/small
 python3 .build/m8-bench/correction-1/screen_multiples.py
 
 swift build -c release -debug-info-format none \

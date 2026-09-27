@@ -1,6 +1,6 @@
-import pathlib, subprocess, tempfile
+import os, pathlib, subprocess, tempfile
 root = pathlib.Path.cwd()
-corpus = pathlib.Path('/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/corpus')
+corpus = pathlib.Path(os.environ['SP']) / 'corpus'
 bench = root / '.build/p6g-layout/GyoshukuKit/Benchmarks/.build/out/Products/Debug/gyoshuku-bench'
 verify = root / '.build/p6g-layout/VerifyBench/.build/out/Products/Debug/VerifyBench'
 formats = {'zip': 'zip', 'tar': 'tar', 'tgz': 'tar.gz', 'tbz': 'tar.bz2', 'txz': 'tar.xz', '7z': '7z', 'lha': 'lha'}

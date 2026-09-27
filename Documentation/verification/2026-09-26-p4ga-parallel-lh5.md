@@ -34,7 +34,7 @@
 
 ```sh
 P4GA_ROOT=/private/tmp/gyoshuku-p3g2.WYR2p1
-P4GA_REPO=/Users/nagash/Github/GyoshukuKit
+P4GA_REPO=~/Github/GyoshukuKit
 P4GA_PACKAGE=$P4GA_ROOT/GyoshukuKit
 export CLANG_MODULE_CACHE_PATH=$P4GA_ROOT/cache
 P4GA_COMMON=(--build-system native --disable-sandbox --cache-path "$P4GA_ROOT/cache")
@@ -107,7 +107,7 @@ python3 "$P4GA_ROOT/s18-p4ga/compare-bench.py"
 # $P4GA_PACKAGE/Benchmarks/.build/release/gyoshuku-bench lha \
 #   $P4GA_ROOT/s18-p4ga/bytes-$corpus-$threads.lzh $SP/corpus/$corpus --threads $threads
 # /usr/bin/cmp $SP/p4bench/base/p4base-$corpus.lzh $P4GA_ROOT/s18-p4ga/bytes-$corpus-$threads.lzh
-# SP=/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad
+# $SP は当時の scratchpad の root。
 ```
 
 最初の `/usr/bin/time -l ... gyoshuku-bench lha ... small --threads 1` は、benchmark 自体は

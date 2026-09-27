@@ -6,8 +6,21 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
 - 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib)
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
-- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.10.0 以上。更新時の読取と往復検証に使用。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照（`from: "0.10.0"`）を選ぶ。SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させる（`.build` の削除では manifest cache が残る）
+- 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
+- 一括追加と進捗: `ArchiveAddition` と `add(_:events:)`、ディスク読取の byte 進捗、`finishAdditions(progress:)`、updater / rewriter の commit 進捗
+- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.11.x（0.11.0 以上、0.12.0 未満）。更新時の読取と往復検証に使用。`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.11.0")` に限定する。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照を選ぶ。SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させる（`.build` の削除では manifest cache が残る）
 - ライセンス: MIT
+
+## インストール
+
+GyoshukuKit 0.6.0 を Swift Package Manager で追加します。
+
+```swift
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.6.0"))
+```
+
+利用側の target の dependencies に `.product(name: "GyoshukuKit", package: "GyoshukuKit")` を追加してください。
+KaitoKit 0.11.0 → GyoshukuKit 0.6.0 → KaitoFinder 0.4.0 の順にリリースします。
 
 ## 使用例
 
@@ -49,8 +62,8 @@ try updater.commit()
 削除・改名の index は open 時の KaitoKit の一覧と同じゼロ始まりで、予約しても変化しません。
 directory の子孫は呼出側で個別に指定します。追加済みの新 entry は index 操作の対象外です。
 生き残る entry の圧縮 payload と descriptor はそのまま運び、再圧縮しません。
-offset が変わらない record は clone 上で読み書きせず、同長改名では local header だけを patch
-します。末尾削除も残存 payload を書き直しません。移動が必要な範囲だけ 256 KiB の buffer で
+offset が変わらない record は clone 上で読み書きせず、条件を満たす同長改名では local header と CD だけを patch
+します。末尾削除も残存 payload を書き直しません。移動が必要な範囲だけ 4 MiB の buffer で
 コピーし、最後に central directory を再出力・truncate します。
 未変更名は元の byte / flag を保持し、改名だけ UTF-8 / NFC / bit 11 を使います。
 移動できない entry、危険な名前、予約済み名との衝突、範囲外 index は理由付きで拒否します。
@@ -72,7 +85,8 @@ probe だけでは entry の正当性は保証しないため、自身の検証�
 
 `ArchiveUpdater.open(url:options:)` の `options.password` は新規追加する通常ファイルに適用します。
 既存 entry の暗号化方式・パスワードは保持するため、平文と暗号文の混在も可能です。
-全体を復号・再暗号化する場合は `ArchiveRewriter` を使います。入力の `password` と出力の
+既存 entry も変える場合は `reencryptExistingEntries(currentPassword:)` を予約します。
+`SevenZipUpdater` も同じ `ArchiveReencrypting` に適合します。再圧縮や形式変換には `ArchiveRewriter` を使い、入力の `password` と出力の
 `options.password` は独立しており、後者が nil なら平文を出力します。
 
 ```swift
@@ -109,16 +123,20 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
-| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz の並列数 `1...64`。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz / LHA の並列数 `1...64`。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
+| `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
 
 ZIP の空ファイル・ディレクトリ・symlink は常に stored です。通常ファイルの payload は
 256 KiB 単位で読み書きし、作業メモリをファイルサイズに比例させません。central directory 用の
 メタデータは entry 数と名前長に比例します。
 
-ZIP / tar.gz は固定 1 MiB ごとに raw deflate を圧縮し、直前 block の末尾 32 KiB を辞書に使います。
+ZIP deflate（ZipCrypto を除く）/ tar.gz は最大 1 MiB ごとに raw deflate を圧縮し、直前の末尾 32 KiB を辞書に使います。
 ZIP の小さい member は個別の `add(contentsOf:as:)` 呼出し間でも並列化し、出力は追加順です。
-tar.gz は従来の header を持つ単一 gzip member、tar.bz2 は `5 × bzip2Level × 100,000` byte ごとの
-完全な bzip2 stream の連結です。thread 数を変えても payload の byte 列は変わりません。
+tar.gz は従来の header を持つ単一 gzip member、tar.bz2 は最大 `5 × bzip2Level × 100,000` byte の
+完全な bzip2 stream の連結です。通常の tar member は途中で切らず、先頭で gzip の同期点・bzip2 stream を区切り、
+上限を越える member は header 群と本文を分けて片にします。tar の終端は独立した区切りです。
+thread 数を変えても圧縮 byte 列は変わりません。
 tar.xz は header 群・本文・詰め物を合わせて4 MiB以下の member を最大4 MiBの block に詰めます。
 4 MiBを越える member は header 群と本文を別の block にし、本文と大きな header 群は最大16 MiBの片に分けます。
 tar の終端は独立した block です。既存書庫の編集では、変更した区間だけにこの規則を使います。
@@ -224,8 +242,10 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > Swift 6 and Apple Silicon, paired with the read-only KaitoKit. It uses system
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
-> `Package.swift` depends on KaitoKit 0.10.0 or later for update reading and round-trip verification: it uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
+> GyoshukuKit 0.6.0 depends on KaitoKit 0.11.x through `.upToNextMinor(from: "0.11.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
 > Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, non-solid 7z and LHA.
+> `TarUpdater`, `CompressedTarUpdater`, `LHAUpdater` and `SevenZipUpdater` edit existing archives while carrying unchanged members or compressed regions. Changed compressed-tar regions and partially deleted solid 7z folders are recompressed. ZIP and 7z updaters also support password changes without recompression.
+> `ArchiveAddition` batches use `add(_:events:)`; byte progress covers disk reads, `finishAdditions(progress:)` and updater/rewriter commits.
 >
 > Create an `ArchiveWriter`, add files, recursively add directories, add symlinks
 > without following them, or supply `Data`, then call `finish()`. Existing output
@@ -234,7 +254,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > for the caller to remove. Deinitialization closes without finalizing.
 >
 > ArchiveUpdater supports additions, deletion and renaming in one atomic commit.
-> Unmoved records remain on the clone without payload I/O; same-length renames patch only local headers.
+> Unmoved records remain on the clone without payload I/O; eligible same-length renames patch local headers and the CD.
 > `ArchiveUpdater.probe(url:)` checks ZIP end records and editing gatekeepers without creating a reader.
 > Ambiguous EOCD candidates are refused; only `open` walks the full CD and validates local record ranges.
 > Before trusting it, compare `Probe.entryCount` with the entry count of your own validated reader.
@@ -262,8 +282,8 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > the anonymous spool is closed on success or failure. AES uses no spool. 7z optionally
 > encrypts file names with `encryptsSevenZipHeaders`; empty streams stay empty.
 > ZIP passwords use UTF-8, 7z passwords UTF-16LE. Empty passwords, unsupported
-> formats and header encryption without a password are rejected. The updater
-> encrypts additions only; the rewriter takes independent source and output
+> formats and header encryption without a password are rejected. Updaters
+> encrypt additions by default; `reencryptExistingEntries(currentPassword:)` also converts existing entries. The rewriter takes independent source and output
 > passwords. Source checks exclude ctime so tag and xattr updates are allowed.
 > LZMA2 encodes at most 16 MiB at a time using Apple's 8 MiB dictionary; reads,
 > encryption and writes stay at 256 KiB. Files up to 16 MiB retain the previous

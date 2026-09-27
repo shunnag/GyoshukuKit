@@ -189,7 +189,7 @@ z_real_default の一部削除は 81,364,701 B → 85,088,977 B（+3,724,276 B�
 ```sh
 TASK_ROOT=$(mktemp -d /private/tmp/gyoshuku-p5g-attrs.XXXXXXXX)
 mkdir "$TASK_ROOT/KaitoKit" "$TASK_ROOT/GyoshukuKit" "$TASK_ROOT/cache"
-git -C /Users/nagash/GitHub/KaitoKit archive 0cbd809 | tar -x -C "$TASK_ROOT/KaitoKit"
+git -C ~/GitHub/KaitoKit archive 0cbd809 | tar -x -C "$TASK_ROOT/KaitoKit"
 rsync -a --exclude='.git' --exclude='.build' --exclude='.agents' --exclude='.codex' ./ "$TASK_ROOT/GyoshukuKit/"
 printf '%s\n' "$TASK_ROOT" > /private/tmp/gyoshuku-p5g-attrs-root
 CLANG_MODULE_CACHE_PATH="$TASK_ROOT/cache" swift build --package-path "$TASK_ROOT/GyoshukuKit" --build-system native --disable-sandbox --cache-path "$TASK_ROOT/cache" > "$TASK_ROOT/attributes-build.log" 2>&1

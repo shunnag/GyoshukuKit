@@ -12,7 +12,7 @@ repositories are outside this change. No commit, tag, or release was made.
   `feature/2026-09-24-review`.
 - KaitoKit dependency: committed `73c1b9f89978f51e6bdfaebec01b28755f39341b`.
   This was exported with `git archive`, not read from the changing sibling tree.
-- Workspace: `/Users/nagash/Github/GyoshukuKit`.
+- Workspace: `~/Github/GyoshukuKit`.
 - Isolated root: `/private/tmp/gyoshuku-p2g.HazIgb`. The candidate package is
   `GyoshukuKit/`, next to the exported `KaitoKit/`. All builds and tests below
   used this layout. Live KaitoKit and KaitoFinder were not edited or built.
@@ -36,7 +36,7 @@ The variables below abbreviate the exact paths in the commands that follow:
 
 ```sh
 P2_RUN=/private/tmp/gyoshuku-p2g.HazIgb
-P2_SPEC=/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad
+P2_SPEC=$SP
 ```
 
 ## Final validation
@@ -60,7 +60,7 @@ CLANG_MODULE_CACHE_PATH="$P2_RUN/cache" swift build \
   --package-path "$P2_RUN/GyoshukuKit" --build-system native --disable-sandbox \
   --cache-path "$P2_RUN/cache" > "$P2_RUN/build-final.log" 2>&1
 
-GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit \
+GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit \
 GYOSHUKU_P2_COMPAT_OUTPUT="$P2_RUN/full-compat-clean" \
 GYOSHUKU_P2_COMPAT_BASELINE="$P2_RUN/baseline-bytes" \
 CLANG_MODULE_CACHE_PATH="$P2_RUN/cache" swift test \
@@ -250,7 +250,7 @@ The final full run passed the APFS assertion with 0 B consumed and finished all
 byte comparisons also passed.
 
 The broad focused selection used for `focused-final.log`, with the same debug
-flags above and `GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit`, was:
+flags above and `GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit`, was:
 
 ```text
 TarLayoutTests|TarEditPlanTests|TarHeaderRewriteTests|TarAppendWriterTests|TarUpdater|SplicedArchiveOutputTests|ArchiveRewriterPlacementTests|ArchiveOwnerIDsTests|ArchiveRewriterTests|TarWriterTests|CompressedTarWriterTests|TarChunkLayoutTests|AppleDoubleSidecarEditingTests|ArchiveRewriterCollisionTests|EmptyArchiveTests|ZipUpdaterTests|ZipDeleteRenameTests|ZipUpdaterOutputModeTests|ArchiveFormatPathTests|ZipRenamePrivacyTests
@@ -398,7 +398,7 @@ host without another opt-in variable.
 Commands below use `P2_FAT=/private/tmp/gyoshuku-p2g-fat.wL5yRz`:
 
 ```sh
-git -C /Users/nagash/Github/KaitoKit archive 73c1b9f | tar -x -C "$P2_FAT/KaitoKit"
+git -C ~/Github/KaitoKit archive 73c1b9f | tar -x -C "$P2_FAT/KaitoKit"
 rsync -a --exclude .git --exclude .build --exclude .agents --exclude .codex ./ "$P2_FAT/GyoshukuKit/"
 
 CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
@@ -421,7 +421,7 @@ CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift build \
   --package-path "$P2_FAT/GyoshukuKit" --build-system native --disable-sandbox \
   --cache-path "$P2_FAT/cache" > "$P2_FAT/build-final.log" 2>&1
 
-GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit \
+GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit \
 GYOSHUKU_P2_COMPAT_OUTPUT="$P2_FAT/compat-bytes" \
 GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p2g.HazIgb/baseline-bytes \
 CLANG_MODULE_CACHE_PATH="$P2_FAT/cache" swift test \
@@ -511,7 +511,7 @@ image attachment is unavailable.
 ### Commands and results for correction 2
 
 Reused `/private/tmp/gyoshuku-p2g-fat.wL5yRz/{GyoshukuKit,KaitoKit}`. A read-only
-byte comparison against `git -C /Users/nagash/Github/KaitoKit archive 73c1b9f`
+byte comparison against `git -C ~/Github/KaitoKit archive 73c1b9f`
 confirmed all 1,379 committed KaitoKit files in the isolated export. Its full
 commit is `73c1b9f89978f51e6bdfaebec01b28755f39341b`. All 123 GyoshukuKit
 Sources/Tests files matched the isolated build/test copy. No live sibling was

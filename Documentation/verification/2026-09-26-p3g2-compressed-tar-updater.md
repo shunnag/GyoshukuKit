@@ -36,8 +36,8 @@ live の KaitoKit / KaitoFinder、Package.swift、Benchmarks、既存テスト�
 GyoshukuKit は次の形で同期した（.git/.build/.agents/.codex は持ち込まない）。
 
 ```sh
-git -C /Users/nagash/Github/KaitoKit archive d35f2da | tar -x -C /private/tmp/gyoshuku-p3g2.WYR2p1/KaitoKit
-rsync -a --exclude .git --exclude .build --exclude .agents --exclude .codex /Users/nagash/Github/GyoshukuKit/ /private/tmp/gyoshuku-p3g2.WYR2p1/GyoshukuKit/
+git -C ~/Github/KaitoKit archive d35f2da | tar -x -C /private/tmp/gyoshuku-p3g2.WYR2p1/KaitoKit
+rsync -a --exclude .git --exclude .build --exclude .agents --exclude .codex ~/Github/GyoshukuKit/ /private/tmp/gyoshuku-p3g2.WYR2p1/GyoshukuKit/
 ```
 
 以下は実行したコマンドの共通引数をまとめた表記。debug と release の scratch を分離した。
@@ -52,7 +52,7 @@ P3_RELEASE=(-c release -Xswiftc -enable-testing --scratch-path "$P3_ROOT/release
 swift build "${P3_ARGS[@]}"
 swift build "${P3_ARGS[@]}" "${P3_RELEASE[@]}" --build-tests
 
-GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit \
+GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit \
 GYOSHUKU_P2_COMPAT_OUTPUT=$P3_ROOT/compat-bytes \
 GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p2g.HazIgb/baseline-bytes \
 swift test "${P3_ARGS[@]}"
@@ -75,7 +75,7 @@ GYOSHUKU_P3_REPETITIVE_FIXTURE=1 swift test "${P3_ARGS[@]}" "${P3_RELEASE[@]}" -
   --filter CompressedTarRepeatEditTests
 
 GYOSHUKU_SCALE_PROBES=1 \
-GYOSHUKU_SCALE_CORPUS=/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/p3val \
+GYOSHUKU_SCALE_CORPUS=$SP/p3val \
 GYOSHUKU_SCALE_NEW_ARCHIVES=/private/tmp/gyoshuku-g1.eHMEll/results/revised \
 swift test "${P3_ARGS[@]}" "${P3_RELEASE[@]}" --skip-build --filter CompressedTarScaleProbeTests
 ```
@@ -414,7 +414,7 @@ workspace の同期は毎回次のコマンドで行い、以降の build/test �
 
 ```sh
 rsync -a --exclude .git --exclude .build --exclude .agents --exclude .codex \
-  /Users/nagash/Github/GyoshukuKit/ /private/tmp/gyoshuku-p3g2.WYR2p1/GyoshukuKit/
+  ~/Github/GyoshukuKit/ /private/tmp/gyoshuku-p3g2.WYR2p1/GyoshukuKit/
 
 # hook 移動前の意図した失敗（新規テストを追加した時点）
 CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p3g2.WYR2p1/cache \

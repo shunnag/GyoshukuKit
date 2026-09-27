@@ -28,7 +28,7 @@ XZ framing の参照は [XZ file format specification 1.2.1](https://tukaani.org
 既存の検証手順と同じく cache を workspace 内に置いた。隣接する `../KaitoKit` を使用。
 
 ```sh
-cd /Users/nagash/Github/GyoshukuKit
+cd ~/Github/GyoshukuKit
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swift-module-cache"
 

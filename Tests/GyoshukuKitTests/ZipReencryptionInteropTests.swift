@@ -197,7 +197,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
     func testModernFixturesAndSamePasswordMethodChanges() throws {
         let directory = try directory("modern")
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("KaitoKit/Tests/Fixtures/zip-modern")
+            .appendingPathComponent("Fixtures/zip-modern")
         for name in ["xz", "xz-aes", "xz-zipcrypto", "zstd20", "zstd93", "zstd-aes20", "zstd-aes93"] {
             let encoded = try Data(contentsOf: root.appendingPathComponent(name + ".zip.b64"))
             let source = directory.appendingPathComponent(name + ".zip")

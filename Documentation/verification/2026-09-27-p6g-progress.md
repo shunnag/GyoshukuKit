@@ -4,7 +4,7 @@
 
 This change implements only P6-G (AC-G1–G10), on `feature/2026-09-24-review`, starting at
 `67a22e850ae100e35fe7d76edcd61e9f05f6764d`. No commit was made. S39, Step 0-P7, S40 and S41 were not started.
-The canonical checkout is `/Users/nagash/Github/GyoshukuKit` (the supplied `/Users/nagash/GitHub/GyoshukuKit`
+The canonical checkout is `~/Github/GyoshukuKit` (the supplied `~/GitHub/GyoshukuKit`
 resolves to the same checkout on this volume).
 
 Read the P6 sections of `../KaitoFinder/Documentation/pending/specs-2026-09-26/P6-P7.md`,
@@ -86,7 +86,7 @@ release-note text for the orchestrator; CHANGELOG.md only updates Unreleased.
 
 ## Commands and results
 
-All paths below are relative to `/Users/nagash/Github/GyoshukuKit`. Swift commands use
+All paths below are relative to `~/Github/GyoshukuKit`. Swift commands use
 `CLANG_MODULE_CACHE_PATH="$PWD/.build/p6g-module-cache"`, `--disable-sandbox` and
 `--cache-path .build/p6g-cache` to keep compiler/cache writes inside the repository. SwiftPM emits
 warnings that the user-level configuration/security cache is not writable; those caches are disabled.
@@ -157,9 +157,10 @@ The names were read through KaitoKit `ArchiveReader`, not a shell listing. Every
 text256.txt / random256.bin = 1 entry each, headers = 10,907 entries, small = 50,551 entries.
 
 - Exact driver run: `python3 .build/p6g-bench-modes.py > .build/p6g-bench-modes.tsv 2> .build/p6g-bench-modes-errors.log`.
-  Its unchanged source is saved as [2026-09-27-p6g-bench-modes.py](2026-09-27-p6g-bench-modes.py).
+  Its source is saved as [2026-09-27-p6g-bench-modes.py](2026-09-27-p6g-bench-modes.py).
+  The published copy reads the scratchpad root from the `SP` environment variable in place of the local absolute path.
 - Results: [2026-09-27-p6g-bench-modes.tsv](2026-09-27-p6g-bench-modes.tsv); error log empty.
-- Corpus: `/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/corpus`.
+- Corpus: `$SP/corpus`.
 - Bench built in Debug with `swift build --package-path .build/p6g-layout/GyoshukuKit/Benchmarks --disable-sandbox --cache-path .build/p6g-cache`
   and the same CLANG_MODULE_CACHE_PATH. Log: `.build/p6g-bench-build.log`.
 - The verification executable was built in `.build/p6g-layout/VerifyBench`, depending only on the committed

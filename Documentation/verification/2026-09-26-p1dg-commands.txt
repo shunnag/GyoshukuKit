@@ -19,7 +19,7 @@ swift build --build-system native --disable-sandbox --cache-path /private/tmp/gy
 
 2026-09-26 05:12:26 test-full
 cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
-GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit-p1d CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
 swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache
 
 2026-09-26 05:12:26 build-after-release
@@ -207,7 +207,7 @@ xctest_exit=0 sample_exit=255
 
 2026-09-26 05:32:46 test-full-final
 cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
-GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit-p1d CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
 swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache
 
 2026-09-26 05:32:46 build-paths-release
@@ -225,7 +225,7 @@ exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-full-final.log
 
 2026-09-26 05:43:32 test-full-release-final
 cwd=/private/tmp/gyoshuku-p1dg.hi5u5g5f/after/GyoshukuKit
-GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d GYOSHUKU_P2_COMPAT_OUTPUT=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-final GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-baseline CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
+GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit-p1d GYOSHUKU_P2_COMPAT_OUTPUT=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-final GYOSHUKU_P2_COMPAT_BASELINE=/private/tmp/gyoshuku-p1dg.hi5u5g5f/compat-baseline CLANG_MODULE_CACHE_PATH=/private/tmp/gyoshuku-p1dg.hi5u5g5f/module-cache
 swift test --build-system native --disable-sandbox --cache-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/cache -c release -Xswiftc -enable-testing --skip-build --scratch-path /private/tmp/gyoshuku-p1dg.hi5u5g5f/after-release
 exit=0 log=/private/tmp/gyoshuku-p1dg.hi5u5g5f/logs/test-full-release-final.log
 

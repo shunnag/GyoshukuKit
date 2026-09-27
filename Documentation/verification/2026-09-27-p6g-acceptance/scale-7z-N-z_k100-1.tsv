@@ -1,4 +1,4 @@
-7Z-SCALE-PROCESS	pid=5874	outputs=/private/tmp/claude-501/-Users-nagash-Github-KaitoFinder/3d80b8d3-15ce-4c2d-bf52-2944c9d6e58c/scratchpad/p6acc/N/GyoshukuKit/.build/verification/7z-scale
+7Z-SCALE-PROCESS	pid=5874	outputs=$SP/p6acc/N/GyoshukuKit/.build/verification/7z-scale
 7Z-SCALE	fixture	operation	engine	repeat	open_ms	mutate_ms	commit_ms	plan_ms	password_ms	scratch_encode_ms	scratch_copy_ms	packs_ms	header_ms	V1_ms	V2_ms	V3_ms	V3a_ms	output_bytes	load1	load5	load15
 7Z-SCALE	z_k100	first	updater	0	360.249	46.594	929.849	30.837	0.009	133.556	0.006	2.674	186.964	179.200	0.005	383.375	0.000	242042	7.22	17.46	17.52
 7Z-SCALE	z_k100	first	updater	1	357.803	47.038	936.063	30.145	0.000	131.390	0.011	2.692	185.605	178.984	0.005	395.360	0.000	242042	6.80	17.20	17.43

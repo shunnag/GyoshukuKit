@@ -4,13 +4,13 @@
 
 ## 対象と隔離
 
-- 作業ツリー: `/Users/nagash/Github/GyoshukuKit-p1d`、branch `feature/2026-09-26-p1d-names`。
+- 作業ツリー: `~/Github/GyoshukuKit-p1d`、branch `feature/2026-09-26-p1d-names`。
 - 開始 commit: `d5c51b3cd7a45347592cb20abe05519fbe2d6951`（S15 / P3-G G2）。開始時の差分なし。commit はしていない。
 - 仕様: `final-p613/P12-P13-P1d.md` の P1d 共通前提・P1d-G、`ORDER-P6-P13.md` §2 の「ArchiveWriter の名前の検査」。
   指定された関数はすべて名前で確認できた。
 - ビルド・試験の root: `/private/tmp/gyoshuku-p1dg.hi5u5g5f`。
   `after/GyoshukuKit` は専用 worktree のコピー、`baseline/GyoshukuKit` は `git archive d5c51b3`。
-  両方の隣の `KaitoKit` は `git -C /Users/nagash/Github/KaitoKit archive d35f2da` の展開先。
+  両方の隣の `KaitoKit` は `git -C ~/Github/KaitoKit archive d35f2da` の展開先。
   KaitoKit の固定 commit は `d35f2da23ba2c213453aa36353eda7a0184b7fc1`。
   baseline への変更は `ZipUpdaterScaleProbeTests.swift` の操作追加だけ（全 tracked file を比較）。
   KaitoKit は両コピー各1,393ファイルを commit と照合し、差分0を確認した。
@@ -72,7 +72,7 @@ P1DG_AFTER=(--scratch-path "$P1DG_ROOT/after-release")
 | test-live-initial / after | `swift test --filter LiveNameCheck` | 9 件、1 skip、0 failure、8.865 s |
 | build-baseline-release / baseline | `swift build --build-tests "${P1DG_RELEASE[@]}"` | 成功、build 114.85 s |
 | build-after-release / after | `swift build --build-tests "${P1DG_RELEASE[@]}" "${P1DG_AFTER[@]}"` | 成功、build 118.85 s |
-| test-full / after | `GYOSHUKU_TAR_GIT_REPO=/Users/nagash/Github/GyoshukuKit-p1d swift test` | **439 件、17 skip、0 failure、636.049 s** |
+| test-full / after | `GYOSHUKU_TAR_GIT_REPO=~/Github/GyoshukuKit-p1d swift test` | **439 件、17 skip、0 failure、636.049 s** |
 | compat-baseline / baseline | `GYOSHUKU_P2_COMPAT_OUTPUT=$P1DG_ROOT/compat-baseline swift test "${P1DG_RELEASE[@]}" --skip-build --filter ArchiveWriterP2CompatibilityTests` | 1 件、0 failure、20 出力を生成 |
 | compat-after / after | `GYOSHUKU_P2_COMPAT_OUTPUT=$P1DG_ROOT/compat-after GYOSHUKU_P2_COMPAT_BASELINE=$P1DG_ROOT/compat-baseline swift test "${P1DG_RELEASE[@]}" "${P1DG_AFTER[@]}" --skip-build --filter ArchiveWriterP2CompatibilityTests` | 1 件、0 failure、20 出力すべて S15 と byte 一致 |
 | test-live-release / after | `swift test "${P1DG_RELEASE[@]}" "${P1DG_AFTER[@]}" --skip-build --filter 'LiveNameCheck\|ArchiveEditingScale\|EditPathReservations'` | 12 件、1 skip、0 failure、3.666 s |
