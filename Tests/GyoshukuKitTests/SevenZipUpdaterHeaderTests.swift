@@ -108,7 +108,7 @@ final class SevenZipUpdaterHeaderTests: XCTestCase {
     }
 
     func testFrozenEmptySevenZipAdditionHeaderModel() throws {
-        // KaitoKit 0cbd809 rejects this valid 32 B empty input (P5 risk 11). Exercise its
+        // KaitoKit 4eaf915 rejects this valid 32 B empty input (P5 risk 11). Exercise its
         // empty model's addition/serialization here; the public open refusal stays covered.
         let input = try Data(contentsOf: SevenZipEditSupport.fixture("empty_7zz"))
         XCTAssertEqual(input, SevenZipRecords.signature(packedSize: 0, header: Data()))

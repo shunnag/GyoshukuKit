@@ -3,14 +3,14 @@
 ## Scope and start gate
 
 This change implements only P6-G (AC-G1–G10), on `feature/2026-09-24-review`, starting at
-`67a22e850ae100e35fe7d76edcd61e9f05f6764d`. No commit was made. S39, Step 0-P7, S40 and S41 were not started.
+`85706a2293bed015e3d17ced77fb69868b4c3818`. No commit was made. S39, Step 0-P7, S40 and S41 were not started.
 The canonical checkout is `~/Github/GyoshukuKit` (the supplied `~/GitHub/GyoshukuKit`
 resolves to the same checkout on this volume).
 
 Read the P6 sections of `../KaitoFinder/Documentation/pending/specs-2026-09-26/P6-P7.md`,
 ORDER-P6-P13 §2 / §3.4 / §3.7 and the named functions before editing. No AGENTS.md was present at the
-checkout or its parent paths. `git status --short` was empty. S24 `52655cb`, S31 `bfb2980` and P14 `b132551`
-are ancestors of `67a22e8` (`git merge-base --is-ancestor` succeeded for each).
+checkout or its parent paths. `git status --short` was empty. S24 `20d8165`, S31 `bfb2980` and P14 `0470cb8`
+are ancestors of `85706a2` (`git merge-base --is-ancestor` succeeded for each).
 
 The S38 start gate passed; all required parts existed at the starting HEAD:
 
@@ -35,7 +35,7 @@ No public CommitProgress initializer, WriterError case, P7 batch API, defaults k
 
 ## Isolation and bounds
 
-KaitoKit `823ad460faab055b6b7051da10583480785e8f68` and GyoshukuKit HEAD were exported using `git archive`
+KaitoKit `aca39dc37df546c5d3d340c940b4ca4d9110c29a` and GyoshukuKit HEAD were exported using `git archive`
 into `.build/p6g-layout/{KaitoKit,GyoshukuKit}`. Modified Sources / Tests / Benchmarks were copied from the
 canonical tree into that isolated GyoshukuKit. Debug builds / focused tests use that layout. A second independent export at
 `.build/p6g-full-layout/{KaitoKit,GyoshukuKit}` uses the same committed heads with the final Sources / Tests
@@ -95,7 +95,7 @@ Setup:
 
 ```sh
 mkdir -p .build/p6g-layout/{KaitoKit,GyoshukuKit} .build/p6g-module-cache .build/p6g-home
-git -C ../KaitoKit archive 823ad46 | tar -xf - -C .build/p6g-layout/KaitoKit
+git -C ../KaitoKit archive aca39dc | tar -xf - -C .build/p6g-layout/KaitoKit
 git archive HEAD | tar -xf - -C .build/p6g-layout/GyoshukuKit
 rsync -a Sources/ .build/p6g-layout/GyoshukuKit/Sources/
 rsync -a Tests/ .build/p6g-layout/GyoshukuKit/Tests/
@@ -125,7 +125,7 @@ Static checks completed:
 - `git diff --check`: clean.
 - `git diff -U0 -- Sources | rg '^\+.*\bpublic\b|@_spi|^\+.*@TaskLocal'`:
   only the specified P6 public APIs / their conforming implementations and the one prewalk TaskLocal.
-- Compared complete existing function bodies against `git show 67a22e8:...`: `reserveEntryName` and
+- Compared complete existing function bodies against `git show 85706a2:...`: `reserveEntryName` and
   all five `commit(progress:)` implementations are identical. Entire SplicedArchiveOutput.swift,
   ZipCopyEngine.swift and EncryptionPrimitives.swift are byte-identical to the starting HEAD.
 - `bash -n Benchmarks/run.sh`: passed. `Benchmarks/run.sh --mode bogus`: exit 1 with
@@ -224,7 +224,7 @@ Acceptance evidence:
 | AC-G10 | Passed: 112 functional creations and 56 entry-order comparisons; both mode parsers reject an unknown value |
 
 Final working-tree checks: `git diff --check` passed; HEAD remained
-`67a22e850ae100e35fe7d76edcd61e9f05f6764d`, with no commit. Changes are confined to Sources, Tests,
+`85706a2293bed015e3d17ced77fb69868b4c3818`, with no commit. Changes are confined to Sources, Tests,
 Benchmarks, Documentation/design.md, Documentation/verification and CHANGELOG.md. No published
 Documentation/releases file changed. Both live sibling checkouts still report an empty `git status --short`.
 
@@ -249,7 +249,7 @@ orchestrator gate after S39/S38 commit coordination; this run does not start P7.
 
 ## オーケストレータの検証（2026-09-27 01:00–01:30）
 
-作業ツリーを rsync した GyoshukuKit と、KaitoKit 823ad46 の `git archive` を並べた隔離の配置（sandbox 無し、hdiutil あり）。
+作業ツリーを rsync した GyoshukuKit と、KaitoKit aca39dc の `git archive` を並べた隔離の配置（sandbox 無し、hdiutil あり）。
 
 | 実行 | 結果 |
 |---|---|
@@ -257,11 +257,11 @@ orchestrator gate after S39/S38 commit coordination; this run does not start P7.
 | `swift test`（全件） | 553 件、失敗 0、skip 18（すべて環境変数で有効にする大きな書庫・計測・oracle の試験）。hdiutil の実 volume の試験はここで成功 |
 | AC-G8 | `git diff -U0 -- Sources` の新しい `public` は §0.5 の宣言（進捗付きの `add(contentsOf:as:ownerIDs:…)`、`finishAdditions(progress:)`、`readsAdditionsDuringCommit`、`commit(progress:…)`、`maximumPendingInputBytes(for:)`）だけ |
 
-AC-G7 の速度の計測は、仕様の「S24 の commit」ではなく S38 の親の 67a22e8（S24 と P14 を含む）を B-P6G にして、この節の後に追記する（P14 が tar.xz の区切りを変えたため）。
+AC-G7 の速度の計測は、仕様の「S24 の commit」ではなく S38 の親の 85706a2（S24 と P14 を含む）を B-P6G にして、この節の後に追記する（P14 が tar.xz の区切りを変えたため）。
 
 ## AC-G7 の速度（オーケストレータ、2026-09-27 01:10–04:20）
 
-B-P6G は、仕様の「S24 の commit」ではなく S38 の親 67a22e8（S24 と P14 を含む）。N = b9da4bc。KaitoKit 823ad46。
+B-P6G は、仕様の「S24 の commit」ではなく S38 の親 85706a2（S24 と P14 を含む）。N = 6586ed5。KaitoKit aca39dc。
 データは [2026-09-27-p6g-acceptance/](2026-09-27-p6g-acceptance/)。負荷の平均は 1 回目の計測で 4.4〜16.9、測り直しで 3.2〜34（S39・S40 の Codex と並走）。
 
 ### 1 回目（`run.sh`、7 形式 × 4 corpus、B と N を交互に 1 + 3 回）
@@ -275,7 +275,7 @@ corpus の順に zip が小さなファイルを最初に読むので、キャ�
 zip small 1.019、zip headers 1.006、tbz text 1.000、tbz random 1.002、tar small 1.002、tgz small 1.003、tgz headers 1.000。
 lha だけは同じ向きに残った: random 1.36 → 1.42–1.44 s（1.048）、text 1.01 → 1.04 s（1.030）。user 時間はほぼ同じ（4.52–4.55 → 4.55–4.60 s）。
 thread 数を変えると、1 thread 0.992・1.001、2 thread 1.008・1.027、8 thread 1.043・1.044 で、並列の受け渡しの差だった。
-S40（244a9c2）では lha の 8 thread が random 1.36 s（B 1.37–1.38、S38 1.42）、text 1.01 s（B 1.01–1.09、S38 1.03–1.04）に戻った。
+S40（04ccb5d）では lha の 8 thread が random 1.36 s（B 1.37–1.38、S38 1.42）、text 1.01 s（B 1.01–1.09、S38 1.03–1.04）に戻った。
 S38 の lha の +4.5 % は S38 だけの逸脱として記録し、S40 の commit で解消したので修正はしていない。
 
 ### `--progress`（S38 の同じ build で、付けない回と付けた回を ABBA × 4、キャッシュを温める）

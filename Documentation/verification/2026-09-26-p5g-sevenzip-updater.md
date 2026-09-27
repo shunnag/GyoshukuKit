@@ -1,6 +1,6 @@
 # P5-G（S24）の検証記録
 
-GyoshukuKit 基準 6e7cd9b、KaitoKit は `git archive 0cbd809592cad139ea430dd75cc15af37f8ca2c1` の隔離 export。
+GyoshukuKit 基準 6e7cd9b、KaitoKit は `git archive 4eaf9158a78a5b8812c9522e9742688c227c1eaa` の隔離 export。
 隔離 root: `/private/tmp/gyoshuku-p5g-gate.qxvrkzo7`。live sibling は build/test に使わない。commit は行わない。
 
 最終結果: build 成功、full suite **523 tests / 28 skipped / 0 failures、1,604.864 s**。
@@ -79,7 +79,7 @@ P5 前の全体の書き直しは `SevenZipRecords.swift` で mode から全件�
 
 `SevenZipUpdaterHeaderTests` は solid_zero の一部削除と 0755 の file + directory の追加、zero_lzma2 への同じ追加を検査する。
 0x15 不在、mtime 保持、emptyStream / emptyFile と KaitoKit / 7zz の directory 判定、4 oracle の内容 SHA-256 を検査する。
-empty_fi0 / g_plain への追加は属性と mode を持つ。frozen empty_7zz の 32 B は KaitoKit 0cbd809 が open を拒否する
+empty_fi0 / g_plain への追加は属性と mode を持つ。frozen empty_7zz の 32 B は KaitoKit 4eaf915 が open を拒否する
 という元仕様の risk 11 を維持し、その正確な 32 B を照合した空 model に対する追加・直列化で属性を検査する。
 この fixture を public updater が open できるとは報告しない。`SevenZipUpdatePlanTests` は一部定義の保持と、
 全件削除・置換後にも元の vector が追加属性の判断に使われることを検査する。
@@ -189,7 +189,7 @@ z_real_default の一部削除は 81,364,701 B → 85,088,977 B（+3,724,276 B�
 ```sh
 TASK_ROOT=$(mktemp -d /private/tmp/gyoshuku-p5g-attrs.XXXXXXXX)
 mkdir "$TASK_ROOT/KaitoKit" "$TASK_ROOT/GyoshukuKit" "$TASK_ROOT/cache"
-git -C ~/GitHub/KaitoKit archive 0cbd809 | tar -x -C "$TASK_ROOT/KaitoKit"
+git -C ~/GitHub/KaitoKit archive 4eaf915 | tar -x -C "$TASK_ROOT/KaitoKit"
 rsync -a --exclude='.git' --exclude='.build' --exclude='.agents' --exclude='.codex' ./ "$TASK_ROOT/GyoshukuKit/"
 printf '%s\n' "$TASK_ROOT" > /private/tmp/gyoshuku-p5g-attrs-root
 CLANG_MODULE_CACHE_PATH="$TASK_ROOT/cache" swift build --package-path "$TASK_ROOT/GyoshukuKit" --build-system native --disable-sandbox --cache-path "$TASK_ROOT/cache" > "$TASK_ROOT/attributes-build.log" 2>&1
@@ -224,7 +224,7 @@ GYOSHUKU_7Z_DIFF_ITERATIONS=200 CLANG_MODULE_CACHE_PATH="$TASK_ROOT/cache" swift
 
 `attributes-final-build.log`: exit 0、0.67 s。
 `full-final.log`: **523 tests、28 skipped、0 failures（0 unexpected）、1,604.864 s、exit 0**。
-2026-09-26 15:37:40 JST 終了。KaitoKit は上記の 0cbd809 export。full-1 の既知の属性由来の失敗は解消した。
+2026-09-26 15:37:40 JST 終了。KaitoKit は上記の 4eaf915 export。full-1 の既知の属性由来の失敗は解消した。
 最終 full suite 内の 200-case differential は 486.746 s、失敗 0（seed 0x5A24BEEF）。
 
 最終 full suite 内の regression（prefix で class を集計）:
@@ -323,7 +323,7 @@ Unreleased / このファイルと 2 つの scale TSV。
 
 ## オーケストレータの検証（2026-09-26 15:40–17:29）
 
-作業ツリーを rsync した GyoshukuKit と、KaitoKit 0cbd809 の `git archive` を並べた隔離の配置で実行した（sandbox 無し、hdiutil あり）。
+作業ツリーを rsync した GyoshukuKit と、KaitoKit 4eaf915 の `git archive` を並べた隔離の配置で実行した（sandbox 無し、hdiutil あり）。
 
 | 実行 | 結果 |
 |---|---|

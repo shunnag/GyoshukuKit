@@ -133,7 +133,7 @@ sudo や権限変更は行っていない。
 
 ## オーケストレータの検証（2026-09-26）
 
-隔離した `$SCR/v4`（KaitoKit ef06e22 は `git archive`、この作業ツリーは rsync）。
+隔離した `$SCR/v4`（KaitoKit 6a51d7a は `git archive`、この作業ツリーは rsync）。
 
 | 実行 | 結果 |
 |---|---|
@@ -144,7 +144,7 @@ AC-Ga4（release の `gyoshuku-bench lha --threads 8` の時間と常駐メモ�
 
 ### AC-Ga4 の計測（オーケストレータ、2026-09-26 08:15–08:19）
 
-`gyoshuku-bench lha`（release）。新しい側は 5faab4b（KaitoKit ef06e22）を `git archive` して build、基準は d5c51b3 の直列（threads 1）。
+`gyoshuku-bench lha`（release）。新しい側は 5faab4b（KaitoKit 6a51d7a）を `git archive` して build、基準は d5c51b3 の直列（threads 1）。
 corpus は `Benchmarks/make-corpora.sh` の出力（`SP/bcorp`。仕様の「今」の値と同じ corpus）。負荷の平均（1 分）は 4.3〜4.9。
 
 | corpus | 基準（直列）s（3 回） | 8 threads s（3 回） | 条件 | 最大常駐メモリ（8 threads） |

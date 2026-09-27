@@ -5,7 +5,7 @@
 - GyoshukuKit: `5faab4b9499fa75a6a51d23f976113692e1420d0` に対する作業差分。commit していない。
   作業中に外部の commit `a03833e`（S18 の受入計測の文書だけ）が加わった。
   その変更を保ち、Source / Tests / Package.swift が実際に試験した隔離 copy と同じことを再確認した。
-- KaitoKit: **`ef06e226b409a92d41a9ca12e99d011a4dbceb71` の git archive**。
+- KaitoKit: **`6a51d7a5b8402d10d207b0ddc57d21f589bd3c45` の git archive**。
   P4-K `d171f27` の SPI と P5-K を含む。live sibling の source/build artifact は使わない。
 - 隔離 root: `/private/tmp/gyoshuku-p4gb.3uv7t7y0`。その中の `GyoshukuKit` と `KaitoKit` を隣接させた。
   `rsync -a --delete --exclude .git --exclude .build --exclude .agents --exclude .codex` で GK を同期した。
@@ -30,7 +30,7 @@
 L6 は通常の open から到達しない安全網。既存の表現可能性検査と original identity は弱めていない。
 `UpdaterRouteError` の二つの case と `TarUpdaterError` typealias を追加し、両方の catch を試験する。
 
-固定 fixture は KaitoKit ef06e22 の P4-K fixture をコピーし、manifest の byte 数と SHA-256 を試験で確認する。
+固定 fixture は KaitoKit 6a51d7a の P4-K fixture をコピーし、manifest の byte 数と SHA-256 を試験で確認する。
 level 0/1/2/3 の独立 builder、大きい header、level 1 header CRC、実 lh4/lh6/lh7、MacLHA nm、
 CP932/宣言付き名前、DOS/Unix/Windows 時刻、root、tail、4 GiB 超の packed-size 拒否も使う。
 操作・byte・進捗・clone I/O・300 組 differential・worker fault・V1–V5 fault・取消し・再入・
@@ -181,7 +181,7 @@ delete_first_2.5GiB	2684356729
 
 ## オーケストレータの検証（2026-09-26）
 
-隔離した `$SCR/v4`（KaitoKit 0cbd809 = ef06e22 + 記録だけ、を `git archive`、この作業ツリーは rsync）。hdiutil が使える host。
+隔離した `$SCR/v4`（KaitoKit 4eaf915 = 6a51d7a + 記録だけ、を `git archive`、この作業ツリーは rsync）。hdiutil が使える host。
 
 | 実行 | 結果 |
 |---|---|
