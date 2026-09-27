@@ -9,7 +9,7 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             let pipeline = LZMA2ChunkPipeline<Int>(threads: 2, checksum: true, lightWeightLimit: 64) { input in
                 started.signal()
                 XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
-                return Self.result(input)
+                return LZMA2ChunkPipelineTests.result(input)
             }
             var emitted: [Int] = []
             let emit: (Int, LZMA2ChunkPipeline<Int>.Output?) -> Void = { tag, output in
@@ -23,7 +23,7 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             return emitted
         }
         defer { for _ in 0..<4 { release.signal() } }
-        for _ in 0..<4 { try await Self.wait(started) }
+        for _ in 0..<4 { try await LZMA2ChunkPipelineTests.wait(started) }
         for _ in 0..<4 { release.signal() }
         let emitted = try await task.value
         XCTAssertEqual(emitted, Array(0..<5))
@@ -39,7 +39,7 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             let pipeline = LZMA2ChunkPipeline<Int>(threads: 3) { input in
                 started.signal()
                 if input.first == 0 { release.wait() } else { laterFinished.signal() }
-                return Self.result(input)
+                return LZMA2ChunkPipelineTests.result(input)
             }
             var emitted: [Int] = []
             for index in 0..<3 {
@@ -56,9 +56,9 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             return emitted
         }
         defer { release.signal() }
-        for _ in 0..<3 { try await Self.wait(started) }
-        for _ in 0..<2 { try await Self.wait(laterFinished) }
-        try await Self.wait(submitting)
+        for _ in 0..<3 { try await LZMA2ChunkPipelineTests.wait(started) }
+        for _ in 0..<2 { try await LZMA2ChunkPipelineTests.wait(laterFinished) }
+        try await LZMA2ChunkPipelineTests.wait(submitting)
         try await Task.sleep(for: .milliseconds(75))
         XCTAssertEqual(returned.wait(timeout: .now()), .timedOut)
         XCTAssertEqual(started.wait(timeout: .now()), .timedOut)
@@ -74,7 +74,7 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             let pipeline = LZMA2ChunkPipeline<Int>(threads: 3) { input in
                 if input.first == 0 {
                     release.wait()
-                    return Self.result(input)
+                    return LZMA2ChunkPipelineTests.result(input)
                 }
                 failed.signal()
                 throw WriterError.compression(-77)
@@ -90,7 +90,7 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             return emitted
         }
         defer { release.signal() }
-        try await Self.wait(failed)
+        try await LZMA2ChunkPipelineTests.wait(failed)
         release.signal()
         let emitted = try await task.value
         XCTAssertEqual(emitted, [0])
@@ -104,19 +104,19 @@ final class LZMA2ChunkPipelineTests: XCTestCase {
             started.signal()
             release.wait()
             defer { completed.signal() }
-            return Self.result(input)
+            return LZMA2ChunkPipelineTests.result(input)
         }
         weak var weakPipeline: LZMA2ChunkPipeline<Int>?
         weakPipeline = pipeline
         try pipeline!.submit(Data([1]), tag: 1) { _, _ in XCTFail("unexpected emission") }
         defer { release.signal() }
-        try await Self.wait(started)
+        try await LZMA2ChunkPipelineTests.wait(started)
         pipeline!.abandon()
         pipeline = nil
         XCTAssertNil(weakPipeline)
         XCTAssertEqual(completed.wait(timeout: .now()), .timedOut)
         release.signal()
-        try await Self.wait(completed)
+        try await LZMA2ChunkPipelineTests.wait(completed)
     }
 
     private static func result(_ input: Data) -> XZLZMA2 {

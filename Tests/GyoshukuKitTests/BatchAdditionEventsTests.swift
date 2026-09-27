@@ -129,28 +129,26 @@ final class BatchAdditionEventsTests: XCTestCase {
         let items = try B.small(root, count: 1000)
         for format in [ArchiveFormat.zip, .tarGzip, .sevenZip] {
             let task = Task.detached {
-                let before = Self.descriptors()
+                let before = BatchAdditionEventsTests.descriptors()
                 XCTAssertGreaterThan(before, 0)
                 let writer = try ArchiveWriter.create(url: root.appendingPathComponent("\(format)"), format: format,
                                                      options: .init(compressionThreads: 8))
                 let counts = Mutex((current: 0, maximum: 0))
-                // Swift 6.3 の region-based isolation checker は、detached の closure 内で入れ子の closure が
-                // 変更する var を検査できない。回数も Mutex で数える。
-                let finishes = Mutex(0)
+                var finishes = 0
                 try FileJob.$testingDescriptorChange.withValue({ delta in
                     counts.withLock { $0.current += delta; $0.maximum = max($0.maximum, $0.current) }
                 }) {
                     XCTAssertThrowsError(try writer.add(items, events: {
                         if case .didFinish = $0 {
-                            let finished = finishes.withLock { $0 += 1; return $0 }
-                            if finished == 300 { withUnsafeCurrentTask { $0?.cancel() } }
+                            finishes += 1
+                            if finishes == 300 { withUnsafeCurrentTask { $0?.cancel() } }
                         }
                     })) { XCTAssertTrue($0 is CancellationError, "\($0)") }
                 }
-                XCTAssertEqual(finishes.withLock { $0 }, 300)
+                XCTAssertEqual(finishes, 300)
                 XCTAssertEqual(counts.withLock { $0.current }, 0)
                 XCTAssertLessThanOrEqual(counts.withLock { $0.maximum }, 4)
-                XCTAssertEqual(Self.descriptors(), before)
+                XCTAssertEqual(BatchAdditionEventsTests.descriptors(), before)
             }
             try await task.value
         }

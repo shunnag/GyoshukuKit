@@ -12,12 +12,12 @@ final class ParallelLZMA2WriterTests: XCTestCase {
 
     func testSevenZipMultiChunkBytesMatchSerialEncodingForEveryThreadCount() throws {
         let directory = try ZipTestSupport.directory("parallel-7z-chunks")
-        let items = [SevenZipTestSupport.Expected(name: "large.txt", data: Self.payload)]
+        let items = [SevenZipTestSupport.Expected(name: "large.txt", data: ParallelLZMA2WriterTests.payload)]
         let expected = try serialArchive(items)
         for (threads, drain) in [(1, false), (4, false), (8, false), (1, true), (8, true)] {
             let url = directory.appendingPathComponent("threads-\(threads)-\(drain).7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
-                                                 options: WriterOptions(compressionThreads: threads), lzmaChunkSize: Self.chunkSize)
+                                                 options: WriterOptions(compressionThreads: threads), lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize)
             try writer.add(data: items[0].data, as: items[0].name, modificationDate: ZipTestSupport.date)
             if drain { try writer.finishAdditions(progress: { _ in }) }
             try writer.finish()
@@ -63,7 +63,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
         let task = Task.detached {
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip, options: WriterOptions(compressionThreads: 4),
-                                                 lzmaChunkSize: Self.chunkSize) { input in
+                                                 lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize) { input in
                 started.signal()
                 release.wait()
                 return try LZMA2Compressor.encode(input)
@@ -81,7 +81,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     func testSevenZipAESMultiChunkAndConsecutiveEntriesWithEightThreads() throws {
         let directory = try ZipTestSupport.directory("parallel-7z-aes")
         let items: [SevenZipTestSupport.Expected] = [
-            .init(name: "large", data: Self.payload), .init(name: "empty"),
+            .init(name: "large", data: ParallelLZMA2WriterTests.payload), .init(name: "empty"),
             .init(name: "random", data: LHATestSupport.random(600_123)),
             .init(name: "last", data: Data("last encrypted entry".utf8))
         ]
@@ -89,7 +89,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
             let url = directory.appendingPathComponent("header-\(encryptHeader).7z")
             let options = WriterOptions(password: EncryptionTestSupport.password, encryptsSevenZipHeaders: encryptHeader,
                                         compressionThreads: 8)
-            let writer = try ArchiveWriter.create(url: url, format: .sevenZip, options: options, lzmaChunkSize: Self.chunkSize)
+            let writer = try ArchiveWriter.create(url: url, format: .sevenZip, options: options, lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize)
             for item in items { try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
             try writer.finish()
             try verify(url, items: items, password: EncryptionTestSupport.password)
@@ -103,7 +103,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
             let url = try tarXZ(in: directory, threads: threads)
             let bytes = try Data(contentsOf: url)
             if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
-            try verify(url, items: Self.tarItems)
+            try verify(url, items: ParallelLZMA2WriterTests.tarItems)
         }
     }
 
@@ -140,7 +140,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let listing = try ZipTestSupport.run(xz, ["-l", "--robot", url.path], in: directory, log: "xz-list")
         let fields = try XCTUnwrap(listing.split(separator: "\n").first { $0.hasPrefix("file\t") }).split(separator: "\t")
         XCTAssertEqual(fields[1], "1")
-        XCTAssertEqual(fields[2], Substring(String(try TarChunkLayoutTestSupport.expectedLengths(url, format: .tarXZ, limit: Self.chunkSize).count)))
+        XCTAssertEqual(fields[2], Substring(String(try TarChunkLayoutTestSupport.expectedLengths(url, format: .tarXZ, limit: ParallelLZMA2WriterTests.chunkSize).count)))
         XCTAssertEqual(fields[6], "CRC32")
     }
 
@@ -149,7 +149,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let directory = try ZipTestSupport.directory("parallel-xz-bsdtar")
         let url = try tarXZ(in: directory)
         let listing = try ZipTestSupport.run(tar, ["-tf", url.path], in: directory, log: "bsdtar-list")
-        XCTAssertEqual(listing.split(separator: "\n").map(String.init), Self.tarItems.map(\.name))
+        XCTAssertEqual(listing.split(separator: "\n").map(String.init), ParallelLZMA2WriterTests.tarItems.map(\.name))
     }
 
     func testTarXZChecksWithSevenZip() throws {
@@ -163,7 +163,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     func testXZWithoutInputHasZeroRecords() throws {
         let directory = try ZipTestSupport.directory("parallel-xz-zero-records")
         let url = directory.appendingPathComponent("empty.xz")
-        let compressor = try ParallelXZCompressor(threads: 4, chunkSize: Self.chunkSize)
+        let compressor = try ParallelXZCompressor(threads: 4, chunkSize: ParallelLZMA2WriterTests.chunkSize)
         var bytes = Data()
         try compressor.write(Data(), finish: true) { bytes.append($0) }
         XCTAssertEqual(bytes.count, 32)
@@ -188,7 +188,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         for useFinish in [false, true] {
             let url = directory.appendingPathComponent("\(useFinish).7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip, options: WriterOptions(compressionThreads: 1),
-                                                 lzmaChunkSize: Self.chunkSize) { _ in throw WriterError.compression(-77) }
+                                                 lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize) { _ in throw WriterError.compression(-77) }
             try writer.add(data: Data([1]), as: "first")
             XCTAssertThrowsError(try useFinish ? writer.finish() : writer.add(data: Data([2]), as: "second")) {
                 XCTAssertEqual($0 as? WriterError, .compression(-77))
@@ -224,14 +224,14 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
         let task = Task.detached {
             let writer = try ArchiveWriter.create(url: url, format: format, options: WriterOptions(compressionThreads: 1),
-                                                 lzmaChunkSize: Self.chunkSize) { input in
+                                                 lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize) { input in
                 started.signal()
                 // 取消し処理が退行してもテストを永久に待たせない。
                 XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
                 return try LZMA2Compressor.encode(input)
             }
             try FileManager.default.linkItem(at: url, to: alias)
-            let count = format == .sevenZip ? 3 * Self.chunkSize : Self.chunkSize / 2
+            let count = format == .sevenZip ? 3 * ParallelLZMA2WriterTests.chunkSize : ParallelLZMA2WriterTests.chunkSize / 2
             try writer.add(data: Data(repeating: 0x41, count: count), as: "file")
             try writer.finish()
         }
@@ -255,8 +255,8 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     private func tarXZ(in directory: URL, threads: Int = 8) throws -> URL {
         let url = directory.appendingPathComponent("threads-\(threads).tar.xz")
         let writer = try ArchiveWriter.create(url: url, format: .tarXZ,
-                                             options: WriterOptions(compressionThreads: threads), lzmaChunkSize: Self.chunkSize)
-        for item in Self.tarItems { try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
+                                             options: WriterOptions(compressionThreads: threads), lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize)
+        for item in ParallelLZMA2WriterTests.tarItems { try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
         try writer.finish()
         return url
     }
@@ -277,8 +277,8 @@ final class ParallelLZMA2WriterTests: XCTestCase {
             var entry = SevenZipRecords.Entry(name: item.name, mode: (item.kind == .directory ? 0o40000 : 0o100000) | item.mode,
                                                size: UInt64(item.data.count), mtime: try SevenZipRecords.timestamp(ZipTestSupport.date))
             let start = payload.count
-            for offset in stride(from: 0, to: item.data.count, by: Self.chunkSize) {
-                let chunk = item.data[offset..<min(offset + Self.chunkSize, item.data.count)]
+            for offset in stride(from: 0, to: item.data.count, by: ParallelLZMA2WriterTests.chunkSize) {
+                let chunk = item.data[offset..<min(offset + ParallelLZMA2WriterTests.chunkSize, item.data.count)]
                 let compressed = try LZMA2Compressor.encode(chunk)
                 payload.append(compressed.payload.dropLast())
                 entry.properties = max(entry.properties, compressed.properties)

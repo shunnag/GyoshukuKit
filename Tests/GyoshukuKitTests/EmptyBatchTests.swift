@@ -44,9 +44,9 @@ final class EmptyBatchTests: XCTestCase {
                 try FileManager.default.createDirectory(at: work, withIntermediateDirectories: false)
                 let output = work.appendingPathComponent("output")
                 let editor = try S.editor(source, output: output, format: format, options: options, rewrite: rewrite)
-                if empty { try Self.empty(editor, in: work) }
+                if empty { try EmptyBatchTests.empty(editor, in: work) }
                 try editor.rename(entryAt: 0, to: "edit")
-                if empty { try Self.empty(editor, in: work) }
+                if empty { try EmptyBatchTests.empty(editor, in: work) }
                 var progress: [ArchiveUpdater.CommitProgress] = []
                 if finish {
                     for _ in 0..<2 {
@@ -54,7 +54,7 @@ final class EmptyBatchTests: XCTestCase {
                         try editor.finishAdditions(progress: session.record)
                         session.check(total: 0)
                         progress += session.updates
-                        if empty { try Self.empty(editor, in: work) }
+                        if empty { try EmptyBatchTests.empty(editor, in: work) }
                     }
                 }
                 try editor.commit()
@@ -74,7 +74,7 @@ final class EmptyBatchTests: XCTestCase {
                 } else {
                     expected = bytes; expectedStrategy = strategy; expectedProgress = progress
                 }
-                if empty { try Self.empty(editor, in: work) }
+                if empty { try EmptyBatchTests.empty(editor, in: work) }
                 try editor.commit()
                 XCTAssertEqual(try Data(contentsOf: output), bytes)
                 XCTAssertEqual(S.strategy(editor), strategy)
@@ -114,7 +114,7 @@ final class EmptyBatchTests: XCTestCase {
                             deflateBlockSize: 64 * 1024, lzmaChunkSize: 64 * 1024)
                         func checkEmpty() throws {
                             let before = try Data(contentsOf: output), pending = writer.pendingInputBytes
-                            try writer.add([], events: Self.unexpectedEvent)
+                            try writer.add([], events: EmptyBatchTests.unexpectedEvent)
                             try writer.add([], events: nil)
                             XCTAssertEqual(writer.pendingInputBytes, pending)
                             XCTAssertEqual(try Data(contentsOf: output), before)
@@ -157,15 +157,15 @@ final class EmptyBatchTests: XCTestCase {
             let source = try S.source(root, format: format)
             let writer = try ArchiveWriter.create(url: root.appendingPathComponent("writer"), format: format)
             XCTAssertThrowsError(try writer.addDirectory("../bad"))
-            let before = try Self.snapshot(root)
-            try writer.add([], events: Self.unexpectedEvent)
-            XCTAssertEqual(try Self.snapshot(root), before)
+            let before = try EmptyBatchTests.snapshot(root)
+            try writer.add([], events: EmptyBatchTests.unexpectedEvent)
+            XCTAssertEqual(try EmptyBatchTests.snapshot(root), before)
             XCTAssertThrowsError(try writer.finish()) { XCTAssertEqual($0 as? WriterError, .invalidState) }
             for rewrite in [false, true] {
                 let editor = try S.editor(source, output: root.appendingPathComponent("editor-\(rewrite)"),
                                           format: format, rewrite: rewrite)
                 XCTAssertThrowsError(try editor.rename(entryAt: -1, to: "bad"))
-                try Self.empty(editor, in: root)
+                try EmptyBatchTests.empty(editor, in: root)
                 XCTAssertThrowsError(try editor.commit()) {
                     if rewrite { XCTAssertEqual($0 as? RewriterError, .invalidState) }
                     else { XCTAssertEqual($0 as? UpdaterError, .invalidState) }
@@ -184,11 +184,11 @@ final class EmptyBatchTests: XCTestCase {
                     let writer = try ArchiveWriter.create(url: root.appendingPathComponent("writer"), format: format)
                     let editor = try S.editor(source, output: root.appendingPathComponent("editor"),
                                               format: format, rewrite: rewrite)
-                    let before = try Self.snapshot(root)
+                    let before = try EmptyBatchTests.snapshot(root)
                     withUnsafeCurrentTask { $0?.cancel() }
-                    try writer.add([], events: Self.unexpectedEvent)
-                    try Self.empty(editor, in: root)
-                    XCTAssertEqual(try Self.snapshot(root), before)
+                    try writer.add([], events: EmptyBatchTests.unexpectedEvent)
+                    try EmptyBatchTests.empty(editor, in: root)
+                    XCTAssertEqual(try EmptyBatchTests.snapshot(root), before)
                 }.value
             }
         }
@@ -197,14 +197,14 @@ final class EmptyBatchTests: XCTestCase {
     func testDefaultImplementationIsEmptyEvenWhenCancelled() async throws {
         try await Task.detached {
             let editor = DefaultEditor()
-            try editor.add([], events: Self.unexpectedEvent)
+            try editor.add([], events: EmptyBatchTests.unexpectedEvent)
             let session = S.Session()
             try editor.finishAdditions(progress: session.record)
             session.check(total: 0)
-            try editor.add([], events: Self.unexpectedEvent)
+            try editor.add([], events: EmptyBatchTests.unexpectedEvent)
             try editor.commit()
             withUnsafeCurrentTask { $0?.cancel() }
-            try editor.add([], events: Self.unexpectedEvent)
+            try editor.add([], events: EmptyBatchTests.unexpectedEvent)
             XCTAssertEqual(editor.additions, 0)
             XCTAssertEqual(editor.commits, 1)
         }.value

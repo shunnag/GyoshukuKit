@@ -36,7 +36,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
                 let completed = DispatchSemaphore(value: 0)
                 let task = Task.detached {
                     let writer = try ArchiveWriter.create(url: url, format: format,
-                        options: WriterOptions(bzip2Level: 1, compressionThreads: 1), deflateBlockSize: Self.blockSize,
+                        options: WriterOptions(bzip2Level: 1, compressionThreads: 1), deflateBlockSize: ParallelCompressionLifecycleTests.blockSize,
                         deflateEncoder: { block, level in
                             started.signal()
                             XCTAssertEqual(release.wait(timeout: .now() + 15), .success)
@@ -49,7 +49,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
                             return try ParallelBzip2Compressor.encode(input, level: level)
                         }, lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
                     try FileManager.default.linkItem(at: url, to: alias)
-                    let chunkSize = format == .tarBzip2 ? ParallelBzip2Compressor.chunkSize(level: 1) : Self.blockSize
+                    let chunkSize = format == .tarBzip2 ? ParallelBzip2Compressor.chunkSize(level: 1) : ParallelCompressionLifecycleTests.blockSize
                     try writer.add(data: Data(repeating: 0x41, count: duringAdd ? 3 * chunkSize : 1000), as: "file")
                     if duringAdd { XCTFail("add returned while the first worker was blocked") }
                     try writer.finish()
@@ -77,12 +77,12 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
     func testBoundedInputIncludesAssemblyWhileLaterResultsWait() async throws {
         let directory = try ZipTestSupport.directory("m8-bounded-input")
         let source = directory.appendingPathComponent("source")
-        try Data(repeating: 0, count: 5 * Self.blockSize).write(to: source)
+        try Data(repeating: 0, count: 5 * ParallelCompressionLifecycleTests.blockSize).write(to: source)
         let firstStarted = DispatchSemaphore(value: 0), laterFinished = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         let task = Task.detached {
             let writer = try ArchiveWriter.create(url: directory.appendingPathComponent("archive.zip"), format: .zip,
-                options: WriterOptions(compressionThreads: 3), deflateBlockSize: Self.blockSize,
+                options: WriterOptions(compressionThreads: 3), deflateBlockSize: ParallelCompressionLifecycleTests.blockSize,
                 deflateEncoder: { block, level in
                     if block.input.first == 0 {
                         firstStarted.signal()
@@ -93,7 +93,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
             var readCount = 0
             do {
                 try writer.add(contentsOf: source, as: "file") { _, count in
-                    let result = Data(repeating: UInt8(readCount / Self.blockSize), count: count)
+                    let result = Data(repeating: UInt8(readCount / ParallelCompressionLifecycleTests.blockSize), count: count)
                     readCount += count
                     return result
                 }
@@ -106,7 +106,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
         for _ in 0..<2 { try await LZMA2ChunkPipelineTests.wait(laterFinished) }
         task.cancel()
         let readCount = try await task.value
-        XCTAssertEqual(readCount, 3 * Self.blockSize)
+        XCTAssertEqual(readCount, 3 * ParallelCompressionLifecycleTests.blockSize)
     }
 
     func testDeferredEncoderErrorsInvalidateWriterAndRemoveTarOutput() throws {
@@ -139,7 +139,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
             options: WriterOptions(password: "password", zipEncryption: .zipCrypto, compressionThreads: 8),
             deflateEncoder: { _, _ in XCTFail("ZipCrypto entered parallel encoder"); throw WriterError.invalidState },
             lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
-        try writer.add(data: Data(repeating: 0x41, count: 3 * Self.blockSize), as: "file")
+        try writer.add(data: Data(repeating: 0x41, count: 3 * ParallelCompressionLifecycleTests.blockSize), as: "file")
         try writer.finish()
     }
 }

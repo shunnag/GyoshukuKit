@@ -26,7 +26,7 @@ final class LHAWriterParallelTests: XCTestCase {
         var reference = Data()
         var memberEnds: [UInt64] = []
         for item in items {
-            reference.append(try Self.serialMember(item.data, name: item.name, directory: item.directory))
+            reference.append(try LHAWriterParallelTests.serialMember(item.data, name: item.name, directory: item.directory))
             memberEnds.append(UInt64(reference.count))
         }
         reference.append(0)
@@ -65,7 +65,7 @@ final class LHAWriterParallelTests: XCTestCase {
             let directory = try ZipTestSupport.directory("lha-parallel-fail-\(stage)")
             let url = directory.appendingPathComponent("archive.lzh")
             let alias = directory.appendingPathComponent("alias.lzh")
-            let writer = try Self.create(url, threads: 2) { _ in throw WriterError.compression(-77) }
+            let writer = try LHAWriterParallelTests.create(url, threads: 2) { _ in throw WriterError.compression(-77) }
             try FileManager.default.linkItem(at: url, to: alias)
             try writer.add(data: Data([1]), as: "first")
             try writer.addDirectory("directory", modificationDate: ZipTestSupport.date, ownerIDs: nil)
@@ -86,12 +86,12 @@ final class LHAWriterParallelTests: XCTestCase {
     func testDirectoriesDoNotRunEncoderAndWorkerCancellationRemovesOutput() throws {
         let directory = try ZipTestSupport.directory("lha-parallel-directory")
         let url = directory.appendingPathComponent("directory.lzh")
-        let writer = try Self.create(url, threads: 2) { _ in throw CancellationError() }
+        let writer = try LHAWriterParallelTests.create(url, threads: 2) { _ in throw CancellationError() }
         try writer.addDirectory("表", modificationDate: ZipTestSupport.date, ownerIDs: nil)
         try writer.finish()
         XCTAssertEqual(try LHABytes(Data(contentsOf: url)).members.map(\.method), ["-lhd-"])
         let failing = directory.appendingPathComponent("cancelled.lzh")
-        let cancelled = try Self.create(failing, threads: 2) { _ in throw CancellationError() }
+        let cancelled = try LHAWriterParallelTests.create(failing, threads: 2) { _ in throw CancellationError() }
         try cancelled.add(data: Data([0]), as: "file")
         XCTAssertThrowsError(try cancelled.finish()) { XCTAssertTrue($0 is CancellationError) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: failing.path))
@@ -106,7 +106,7 @@ final class LHAWriterParallelTests: XCTestCase {
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
         let submitting = DispatchSemaphore(value: 0), read = DispatchSemaphore(value: 0)
         let task = Task.detached {
-            let writer = try Self.create(url, threads: 2) { input in
+            let writer = try LHAWriterParallelTests.create(url, threads: 2) { input in
                 started.signal()
                 release.wait()
                 return input
@@ -142,7 +142,7 @@ final class LHAWriterParallelTests: XCTestCase {
         let input = Data(repeating: 84, count: 1024)
         try input.write(to: source)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
-        let writer = try Self.create(url, threads: 2) { data in
+        let writer = try LHAWriterParallelTests.create(url, threads: 2) { data in
             started.signal()
             release.wait()
             return try LH5Encoder.encode(data)
