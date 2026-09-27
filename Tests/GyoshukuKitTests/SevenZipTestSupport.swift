@@ -187,7 +187,7 @@ struct SevenZipBytes {
         }
         mutating func number() throws -> UInt64 {
             let first = try byte()
-            let count = (0..<8).first { first & (0x80 >> $0) == 0 } ?? 8
+            let count: Int = (0..<8).first(where: { first & (0x80 >> $0) == 0 }) ?? 8
             let low = try take(count)
             var result: UInt64 = 0
             for (index, byte) in low.enumerated() { result |= UInt64(byte) << (8 * index) }
