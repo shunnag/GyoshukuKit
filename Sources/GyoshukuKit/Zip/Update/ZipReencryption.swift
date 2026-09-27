@@ -118,7 +118,9 @@ final class ZipConversion {
             if field.id != ZipRecords.ExtraID.zip64 && field.id != ZipRecords.ExtraID.winZipAES { rest.append(original.subdata(in: field.range)) }
             consumed = field.range.upperBound
         }
-        let tail = original.dropFirst(consumed)
+        // 原本と記憶域を共有する位置 0 でない空の slice を残さない（macOS 26 の Foundation は、そこへ空の内容を
+        // 汎用の append(contentsOf:) / `+` で足すと trap する）。今は append(_: Data) の引数にしか使わないが、先に複製する。
+        let tail = Data(original.dropFirst(consumed))
         if renamed {
             // 不透明な末尾を含む extra の改名は renamedExtra と同じ規則で拒否する。
             rest.append(tail)

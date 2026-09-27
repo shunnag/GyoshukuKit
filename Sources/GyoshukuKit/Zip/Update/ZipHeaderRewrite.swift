@@ -89,7 +89,8 @@ extension ZipRebuild {
                 consumed = field.range.upperBound
             }
             // KaitoKit が許した末尾 padding も残す。新しい ZIP64 field は必ずその前に置く。
-            extras.append(extra.dropFirst(consumed))
+            // 原本と記憶域を共有する位置 0 でない空の slice を残さない（macOS 26 の Foundation の trap 予防。append(_: Data) の前に複製する）。
+            extras.append(Data(extra.dropFirst(consumed)))
             if newName != nil { extras = try renamedExtra(extras) }
             let name = newName ?? name
             guard name.count <= Int(UInt16.max), extras.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
