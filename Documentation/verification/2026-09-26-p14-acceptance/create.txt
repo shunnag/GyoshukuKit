@@ -1,0 +1,14 @@
+text     t8  wall B   20.32 N   20.13 (0.991)  user/wall N 7.94  RSS B  1104.5 N  1099.5 MiB (0.996)  n=3/3
+text     t1  wall B  103.16 N  106.79 (1.035)  user/wall N 1.00  RSS B   160.6 N   160.5 MiB (0.999)  n=3/3
+random   t8  wall B    6.96 N    6.96 (1.000)  user/wall N 7.91  RSS B  1068.0 N  1067.9 MiB (1.000)  n=3/3
+random   t1  wall B   45.03 N   47.91 (1.064)  user/wall N 0.99  RSS B   155.5 N   155.3 MiB (0.999)  n=3/3
+small    t8  wall B   13.57 N    6.75 (0.497)  user/wall N 7.30  RSS B  1015.3 N   552.4 MiB (0.544)  n=3/3
+small    t1  wall B   56.52 N   36.21 (0.641)  user/wall N 1.01  RSS B   204.7 N   118.4 MiB (0.579)  n=3/3
+headers  t8  wall B    2.48 N    0.87 (0.351)  user/wall N 5.29  RSS B   284.6 N   476.9 MiB (1.675)  n=3/3
+headers 1 {'N': [4.42, 4.44, 84.171875, 1]}
+mixed    t8  wall B   34.65 N   29.85 (0.861)  user/wall N 7.32  RSS B  1142.2 N  1177.8 MiB (1.031)  n=3/3
+mixed    t1  wall B  160.16 N  141.14 (0.881)  user/wall N 1.00  RSS B   210.5 N   206.3 MiB (0.980)  n=3/3
+payload  t8  wall B   17.25 N   11.72 (0.679)  user/wall N 7.92  RSS B  1015.5 N   544.2 MiB (0.536)  n=3/3
+payload 1 {'N': [55.43, 54.92, 82.265625, 1]}
+mid      t8  wall B   14.91 N   14.67 (0.984)  user/wall N 7.92  RSS B   895.1 N  1004.8 MiB (1.123)  n=3/3
+mid 1 {'N': [77.77, 77.31, 145.71875, 1]}

@@ -15,7 +15,10 @@ enum EncryptionPrimitives {
     }
 
     static func zipKeyMaterial(password: String, salt: Data) throws -> Data {
-        let password = Data(password.utf8)
+        try zipKeyMaterial(passwordBytes: Data(password.utf8), salt: salt)
+    }
+
+    static func zipKeyMaterial(passwordBytes password: Data, salt: Data) throws -> Data {
         var result = Data(count: 66)
         let status: Int32 = password.withUnsafeBytes { passwordBytes in
             salt.withUnsafeBytes { saltBytes in
@@ -90,9 +93,15 @@ final class ZipAESEncryptor {
     private var pending = Data()
     private var finished = false
 
-    init(password: String) throws {
-        let salt = try EncryptionPrimitives.random(count: 16)
+    convenience init(password: String, salt: Data? = nil) throws {
+        let salt = try salt ?? EncryptionPrimitives.random(count: 16)
+        precondition(salt.count == 16)
         let material = try EncryptionPrimitives.zipKeyMaterial(password: password, salt: salt)
+        try self.init(material: material, salt: salt)
+    }
+
+    init(material: Data, salt: Data) throws {
+        guard material.count == 66, salt.count == 16 else { throw WriterError.invalidOption("ZIP AES material") }
         key = Data(material.prefix(32))
         prefix = salt + material.suffix(2)
         material.subdata(in: 32..<64).withUnsafeBytes {
@@ -152,13 +161,15 @@ final class ZipAESEncryptor {
 
 /// 7z AES-256-CBC。CommonCrypto が block の端数を保持し、最後だけ明示的に zero pad する。
 final class SevenZipAESEncryptor {
+    @TaskLocal static var testingIV: (@Sendable () -> Data)?
     let properties: Data
     private var cryptor: CCCryptorRef?
     private var remainder = 0
     private var finished = false
 
     init(key: Data) throws {
-        let iv = try EncryptionPrimitives.random(count: 16)
+        let iv = try Self.testingIV?() ?? EncryptionPrimitives.random(count: 16)
+        guard iv.count == 16 else { throw WriterError.invalidOption("IV") }
         // cycles=19、salt なし、IV=16 byte。saltSize=0 の上位 nibble は 0。
         properties = Data([0x53, 0x0F]) + iv
         let status: CCCryptorStatus = key.withUnsafeBytes { keyBytes in

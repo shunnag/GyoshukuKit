@@ -2,14 +2,17 @@ import Foundation
 
 // 参照仕様: https://tukaani.org/xz/xz-file-format.txt (1.2.1)。
 // Apple の単一 block を移し替えるための framing parser。複数 block / filter は拒否する。
-struct XZLZMA2 {
+struct XZLZMA2: Sendable {
     let payload: Data
     let properties: UInt8
     let uncompressedSize: UInt64
     let payloadOffset: Int
 
     static func extract(_ container: Data) throws -> XZLZMA2 {
-        let bytes = [UInt8](container)
+        try container.withUnsafeBytes { try extract($0) }
+    }
+
+    private static func extract(_ bytes: UnsafeRawBufferPointer) throws -> XZLZMA2 {
         guard bytes.count >= 36, bytes.count % 4 == 0,
               bytes[0..<6].elementsEqual([0xFD, 0x37, 0x7A, 0x58, 0x5A, 0]),
               bytes[6] == 0, bytes[7] & 0xF0 == 0 else { throw WriterError.compression(-1) }
@@ -33,7 +36,7 @@ struct XZLZMA2 {
         }
         try verifyCRC(bytes, range: (footer + 4)..<(footer + 10), at: footer)
         let indexSize = (UInt64(uint32(bytes, at: footer + 4)) + 1) * 4
-        // 単一 record の Index は最大でも 24 byte。巨大な偽 Index を CRC 用にコピーしない。
+        // 単一 record の Index は最大でも 24 byte。
         guard indexSize >= 8, indexSize <= 24, indexSize <= UInt64(footer - 12) else { throw WriterError.compression(-1) }
         let indexStart = footer - Int(indexSize)
         try verifyCRC(bytes, range: indexStart..<(footer - 4), at: footer - 4)
@@ -76,20 +79,22 @@ struct XZLZMA2 {
             throw WriterError.compression(-1)
         }
         // check は 7z に持ち込まない。元データから計算した CRC を SubStreamsInfo へ別途保存する。
-        return XZLZMA2(payload: Data(bytes[payloadStart..<payloadEnd]), properties: properties,
+        return XZLZMA2(payload: Data(bytes: bytes.baseAddress!.advanced(by: payloadStart), count: Int(packedSize)), properties: properties,
                        uncompressedSize: unpackedSize, payloadOffset: payloadStart)
     }
 
-    private static func uint32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+    private static func uint32(_ bytes: UnsafeRawBufferPointer, at offset: Int) -> UInt32 {
         (0..<4).reduce(0) { $0 | UInt32(bytes[offset + $1]) << ($1 * 8) }
     }
 
-    private static func verifyCRC(_ bytes: [UInt8], range: Range<Int>, at offset: Int) throws {
-        guard updateCRC(0, Data(bytes[range])) == uint32(bytes, at: offset) else { throw WriterError.compression(-1) }
+    private static func verifyCRC(_ bytes: UnsafeRawBufferPointer, range: Range<Int>, at offset: Int) throws {
+        guard updateCRC(0, UnsafeRawBufferPointer(rebasing: bytes[range])) == uint32(bytes, at: offset) else {
+            throw WriterError.compression(-1)
+        }
     }
 
     private struct Cursor {
-        let bytes: [UInt8]
+        let bytes: UnsafeRawBufferPointer
         var position: Int
         let end: Int
 

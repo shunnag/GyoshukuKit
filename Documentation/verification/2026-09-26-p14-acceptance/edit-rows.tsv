@@ -1,0 +1,203 @@
+edit-B-r1	TAR-P14 archive	operation	commit_ms	k5_ms	open_ms	strategy	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	reencoded_chunks	encodingSeconds	selfCheckSeconds	load1	load5	load15	load_wait_s
+edit-B-r1	TAR-P14 mixed	append	23.637	238.016	3147.786	splice(carriedChunks: 33, reencodedChunks: 2)	14336	0	151077500	33	2	0.000265	0.000186	3.36	4.24	4.51	0
+edit-B-r1	TAR-P14 mixed	delete-middle	4404.081	331.235	3160.294	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	4.280118	0.098492	3.17	4.18	4.48	0
+edit-B-r1	TAR-P14 mixed	rename-middle	4408.258	335.843	3168.309	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146808376	32	2	4.282601	0.099931	2.76	4.04	4.43	0
+edit-B-r1	TAR-P14 mixed	rename-folder	4373.570	330.457	3182.435	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146810884	32	2	4.249958	0.098266	2.72	3.99	4.41	0
+edit-B-r1	TAR-P14 mixed	delete-small	4425.526	333.080	3182.321	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	4.301322	0.099123	2.77	3.96	4.39	0
+edit-B-r1	TAR-P14 mixed	rename-small	5682.521	362.686	3314.153	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146808376	32	2	5.546594	0.109284	2.57	3.88	4.35	0
+edit-B-r1	TAR-P14 mixed	rename-text256	26.042	246.937	3230.074	splice(carriedChunks: 32, reencodedChunks: 2)	4608	0	151077412	32	2	0.000222	0.000155	2.91	3.88	4.35	0
+edit-B-r1	TAR-P14 payload	append	19.083	31.623	1516.268	splice(carriedChunks: 22, reencodedChunks: 2)	13824	0	131116468	22	2	0.000526	0.000156	2.84	3.85	4.33	0
+edit-B-r1	TAR-P14 payload	delete-middle	2811.573	93.473	1488.581	splice(carriedChunks: 21, reencodedChunks: 2)	8399872	8389632	127118920	21	2	2.729098	0.063375	3.09	3.89	4.34	0
+edit-B-r1	TAR-P14 payload	rename-middle	4658.228	120.806	1522.687	splice(carriedChunks: 21, reencodedChunks: 2)	12588032	12583936	127118920	21	2	4.546794	0.091613	3.16	3.89	4.34	0
+edit-B-r1	TAR-P14 payload	rename-folder	4519.791	121.399	1509.448	splice(carriedChunks: 21, reencodedChunks: 2)	12588544	12584448	127116024	21	2	4.406779	0.093249	3.15	3.87	4.33	0
+edit-B-r1	TAR-P14 mid	append	19.101	31.335	1602.551	splice(carriedChunks: 32, reencodedChunks: 2)	9728	0	132887332	32	2	0.000265	0.000151	3.26	3.88	4.33	0
+edit-B-r1	TAR-P14 mid	delete-middle	20.135	31.168	1522.564	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148356	31	1	0.000748	0.000155	3.26	3.88	4.33	0
+edit-B-r1	TAR-P14 mid	rename-middle	3010.473	95.507	1598.495	splice(carriedChunks: 31, reencodedChunks: 2)	8398848	8388608	130148356	31	2	2.926297	0.064625	3.16	3.84	4.31	0
+edit-B-r1	TAR-P14 mid	rename-folder	3015.886	95.650	1590.253	splice(carriedChunks: 31, reencodedChunks: 2)	8399360	8389120	130146604	31	2	2.931087	0.065147	3.47	3.90	4.33	0
+edit-B-r1	TAR-P14 old-mixed	delete-small	5286.675	340.787	3288.154	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	5.160600	0.099994	3.32	3.85	4.31	0
+edit-B-r1	TAR-P14 old-mixed	delete-small-second	5025.161	334.593	3270.482	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16768000	146808376	32	2	4.899665	0.100757	3.19	3.81	4.29	0
+edit-B-r1	TAR-P14 old-mixed	rename-folder	4827.349	336.770	3239.379	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146810884	32	2	4.700566	0.101431	3.00	3.73	4.25	0
+edit-B-r1	TAR-P14 old-payload	delete-middle	2692.339	94.242	1488.619	splice(carriedChunks: 21, reencodedChunks: 2)	8399872	8389632	127118920	21	2	2.608400	0.064353	2.84	3.68	4.22	0
+edit-B-r1	TAR-P14 old-payload	rename-middle	4958.120	128.471	1593.745	splice(carriedChunks: 21, reencodedChunks: 2)	12588032	12583936	127118920	21	2	4.840941	0.096275	2.77	3.65	4.21	0
+edit-B-r1	TAR-P14 old-payload	rename-folder	5690.515	127.524	1586.436	splice(carriedChunks: 21, reencodedChunks: 2)	12588544	12584448	127116024	21	2	5.572583	0.096758	2.73	3.61	4.19	0
+edit-B-r1	TAR-P14 old-mid	delete-middle	19.374	31.836	1578.144	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	13014835warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+edit-B-r1	TAR-P14 old-mid	rename-middle	3359.329	99.817	1653.207	splice(carriedChunks: 31, reencodedChunks: 2)	8398848	8388608	130148356	31	2	3.271436	0.067113	2.78	3.59	4.18	0
+edit-B-r1	TAR-P14 old-mid	rename-folder	3388.371	98.233	1657.540	splice(carriedChunks: 31, reencodedChunks: 2)	8399360	8389120	130146604	31	2	3.299686	0.067290	2.71	3.56	4.16	0
+edit-B-r2	TAR-P14 archive	operation	commit_ms	k5_ms	open_ms	strategy	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	reencoded_chunks	encodingSeconds	selfCheckSeconds	load1	load5	load15	load_wait_s
+edit-B-r2	TAR-P14 mixed	append	49.962	246.600	3111.354	splice(carriedChunks: 33, reencodedChunks: 2)	14336	0	151077500	33	2	0.000370	0.000369	3.76	5.62	5.12	160
+edit-B-r2	TAR-P14 mixed	delete-middle	4970.817	335.188	3133.762	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	4.847826	0.097501	3.70	5.57	5.11	0
+edit-B-r2	TAR-P14 mixed	rename-middle	4947.619	332.122	3150.915	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146808376	32	2	4.825463	0.096303	3.44	5.45	5.07	0
+edit-B-r2	TAR-P14 mixed	rename-folder	5008.770	340.806	3326.728	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146810884	32	2	4.882623	0.100640	3.25	5.32	5.03	0
+edit-B-r2	TAR-P14 mixed	delete-small	5621.825	346.816	3325.633	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	5.491573	0.103497	3.90	5.39	5.06	0
+edit-B-r2	TAR-P14 mixed	rename-small	5616.194	344.079	3363.103	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146808376	32	2	5.488422	0.102106	3.72	5.27	5.02	0
+edit-B-r2	TAR-P14 mixed	rename-text256	26.246	247.990	3363.982	splice(carriedChunks: 32, reencodedChunks: 2)	4608	0	151077412	32	2	0.000217	0.000158	3.69	5.21	5.00	0
+edit-B-r2	TAR-P14 payload	append	19.817	32.602	1571.398	splice(carriedChunks: 22, reencodedChunks: 2)	13824	0	131116468	22	2	0.000560	0.000153	3.95	5.24	5.02	0
+edit-B-r2	TAR-P14 payload	delete-middle	3203.404	95.940	1531.963	splice(carriedChunks: 21, reencodedChunks: 2)	8399872	8389632	127118920	21	2	3.116939	0.065370	3.79	5.17	4.99	4
+edit-B-r2	TAR-P14 payload	rename-middle	5579.747	127.190	1582.404	splice(carriedChunks: 21, reencodedChunks: 2)	12588032	12583936	127118920	21	2	5.462597	0.095393	3.73	5.13	4.98	0
+edit-B-r2	TAR-P14 payload	rename-folder	4916.471	123.516	1522.563	splice(carriedChunks: 21, reencodedChunks: 2)	12588544	12584448	127116024	21	2	4.802874	0.093524	3.78	5.09	4.97	0
+edit-B-r2	TAR-P14 mid	append	19.066	30.624	1579.930	splice(carriedChunks: 32, reencodedChunks: 2)	9728	0	132887332	32	2	0.000318	0.000161	3.63	5.04	4.95	0
+edit-B-r2	TAR-P14 mid	delete-middle	18.691	29.818	1514.794	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148356	31	1	0.000109	0.000126	3.74	5.04	4.95	0
+edit-B-r2	TAR-P14 mid	rename-middle	2781.426	94.033	1569.761	splice(carriedChunks: 31, reencodedChunks: 2)	8398848	8388608	130148356	31	2	2.697639	0.063822	3.68	5.00	4.94	0
+edit-B-r2	TAR-P14 mid	rename-folder	2749.878	93.858	1570.296	splice(carriedChunks: 31, reencodedChunks: 2)	8399360	8389120	130146604	31	2	2.666319	0.063879	3.47	4.94	4.92	0
+edit-B-r2	TAR-P14 old-mixed	delete-small	4953.244	341.105	3326.523	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	4.825585	0.101079	3.51	4.92	4.91	0
+edit-B-r2	TAR-P14 old-mixed	delete-small-second	4917.032	342.802	3346.312	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16768000	146808376	32	2	4.790093	0.101275	3.26	4.79	4.86	0
+edit-B-r2	TAR-P14 old-mixed	rename-folder	5127.195	338.970	3258.619	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146810884	32	2	5.000707	0.100727	3.31	4.75	4.85	0
+edit-B-r2	TAR-P14 old-payload	delete-middle	2788.859	93.341	1488.764	splice(carriedChunks: 21, reencodedChunks: 2)	8399872	8389632	127118920	21	2	2.705658	0.064113	3.34	4.71	4.83	0
+edit-B-r2	TAR-P14 old-payload	rename-middle	4658.569	120.496	1537.064	splice(carriedChunks: 21, reencodedChunks: 2)	12588032	12583936	127118920	21	2	4.546433	0.092623	3.23	4.67	4.81	0
+edit-B-r2	TAR-P14 old-payload	rename-folder	5360.309	125.892	1571.515	splice(carriedChunks: 21, reencodedChunks: 2)	12588544	12584448	127116024	21	2	5.244851	0.095065	3.11	4.59	4.79	0
+edit-B-r2	TAR-P14 old-mid	delete-middle	19.706	31.713	1576.056	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+edit-B-r2	TAR-P14 old-mid	rename-middle	3232.930	101.034	1632.222	splice(carriedChunks: 31, reencodedChunks: 2)	8398848	8388608	130148356	31	2	3.144833	0.066465	3.10	4.54	4.77	0
+edit-B-r2	TAR-P14 old-mid	rename-folder	3246.261	96.754	1633.606	splice(carriedChunks: 31, reencodedChunks: 2)	8399360	8389120	130146604	31	2	3.160066	0.065955	3.23	4.52	4.76	0
+edit-B-r3	TAR-P14 archive	operation	commit_ms	k5_ms	open_ms	strategy	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	reencoded_chunks	encodingSeconds	selfCheckSeconds	load1	load5	load15	load_wait_s
+edit-B-r3	TAR-P14 mixed	append	24.727	244.452	3301.828	splice(carriedChunks: 33, reencodedChunks: 2)	14336	0	151077500	33	2	0.000272	0.000234	3.38	4.14	4.56	0
+edit-B-r3	TAR-P14 mixed	delete-middle	5262.391	343.197	3291.370	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	5.134710	0.102000	3.59	4.17	4.57	0
+edit-B-r3	TAR-P14 mixed	rename-middle	5510.511	350.043	3325.817	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146808376	32	2	5.379453	0.103180	3.45	4.11	4.54	0
+edit-B-r3	TAR-P14 mixed	rename-folder	5125.138	341.510	3269.167	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146810884	32	2	4.996956	0.102199	3.37	4.07	4.52	0
+edit-B-r3	TAR-P14 mixed	delete-small	5139.061	339.886	3250.695	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	5.012898	0.100792	3.66	4.10	4.52	0
+edit-B-r3	TAR-P14 mixed	rename-small	4471.253	338.002	3236.550	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146808376	32	2	4.343591	0.100310	3.32	4.01	4.49	0
+edit-B-r3	TAR-P14 mixed	rename-text256	26.043	241.296	3258.199	splice(carriedChunks: 32, reencodedChunks: 2)	4608	0	151077412	32	2	0.000451	0.000162	2.96	3.91	4.45	0
+edit-B-r3	TAR-P14 payload	append	20.036	32.158	1561.668	splice(carriedChunks: 22, reencodedChunks: 2)	13824	0	131116468	22	2	0.000583	0.000134	2.81	3.86	4.43	0
+edit-B-r3	TAR-P14 payload	delete-middle	2920.382	96.599	1537.639	splice(carriedChunks: 21, reencodedChunks: 2)	8399872	8389632	127118920	21	2	2.834586	0.065596	2.98	3.88	4.43	0
+edit-B-r3	TAR-P14 payload	rename-middle	4903.299	125.207	1568.424	splice(carriedChunks: 21, reencodedChunks: 2)	12588032	12583936	127118920	21	2	4.787987	0.094436	3.06	3.88	4.43	0
+edit-B-r3	TAR-P14 payload	rename-folder	4887.919	126.457	1572.909	splice(carriedChunks: 21, reencodedChunks: 2)	12588544	12584448	127116024	21	2	4.761341	0.094742	3.21	3.89	4.42	0
+edit-B-r3	TAR-P14 mid	append	20.192	32.561	1625.429	splice(carriedChunks: 32, reencodedChunks: 2)	9728	0	132887332	32	2	0.000375	0.000168	3.10	3.84	4.40	0
+edit-B-r3	TAR-P14 mid	delete-middle	19.178	29.818	1512.583	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148356	31	1	0.000126	0.000136	3.10	3.84	4.40	0
+edit-B-r3	TAR-P14 mid	rename-middle	2575.241	93.715	1574.880	splice(carriedChunks: 31, reencodedChunks: 2)	8398848	8388608	130148356	31	2	2.491981	0.063397	2.93	3.79	4.38	0
+edit-B-r3	TAR-P14 mid	rename-folder	2538.828	93.688	1564.544	splice(carriedChunks: 31, reencodedChunks: 2)	8399360	8389120	130146604	31	2	2.455956	0.062978	3.02	3.80	4.38	0
+edit-B-r3	TAR-P14 old-mixed	delete-small	4946.670	344.869	3348.842	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16772608	146808376	32	2	4.816264	0.104861	2.86	3.74	4.35	0
+edit-B-r3	TAR-P14 old-mixed	delete-small-second	5630.982	351.592	3427.223	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16768000	146808376	32	2	5.498872	0.105899	3.19	3.78	4.35	0
+edit-B-r3	TAR-P14 old-mixed	rename-folder	5027.590	327.441	3106.072	splice(carriedChunks: 32, reencodedChunks: 2)	16778752	16774144	146810884	32	2	4.900663	0.097639	5.49	5.04	4.83	180
+edit-B-r3	TAR-P14 old-payload	delete-middle	2925.587	91.538	1500.966	splice(carriedChunks: 21, reencodedChunks: 2)	8399872	8389632	127118920	21	2	2.845065	0.061431	5.20	4.99	4.82	0
+edit-B-r3	TAR-P14 old-payload	rename-middle	5716.008	125.098	1513.046	splice(carriedChunks: 21, reencodedChunks: 2)	12588032	12583936	127118920	21	2	5.603989	0.091973	4.87	4.93	4.79	0
+edit-B-r3	TAR-P14 old-payload	rename-folder	4953.684	119.186	1497.146	splice(carriedChunks: 21, reencodedChunks: 2)	12588544	12584448	127116024	21	2	4.842744	0.091590	4.65	4.88	4.78	0
+edit-B-r3	TAR-P14 old-mid	delete-middle	19.533	30.709	1527.982	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+edit-B-r3	TAR-P14 old-mid	rename-middle	3426.693	95.925	1615.869	splice(carriedChunks: 31, reencodedChunks: 2)	8398848	8388608	130148356	31	2	3.340670	0.064759	4.41	4.82	4.76	0
+edit-B-r3	TAR-P14 old-mid	rename-folder	3116.719	93.578	1568.510	splice(carriedChunks: 31, reencodedChunks: 2)	8399360	8389120	130146604	31	2	3.032531	0.064043	4.78	4.89	4.78	0
+edit-N-r1	TAR-P14 archive	operation	commit_ms	k5_ms	open_ms	strategy	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	reencoded_chunks	encodingSeconds	selfCheckSeconds	load1	load5	load15	load_wait_s
+edit-N-r1	TAR-P14 mixed	append	25.385	240.526	3537.375	splice(carriedChunks: 69, reencodedChunks: 2)	14336	0	156255284	69	2	0.000284	0.000253	3.00	3.59	4.17	0
+edit-N-r1	TAR-P14 mixed	delete-middle	881.005	267.124	3504.144	splice(carriedChunks: 68, reencodedChunks: 2)	4197376	4191232	155062912	68	2	0.824753	0.030559	3.08	3.59	4.16	0
+edit-N-r1	TAR-P14 mixed	rename-middle	884.657	268.391	3487.278	splice(carriedChunks: 68, reencodedChunks: 2)	4197376	4192768	155062912	68	2	0.827524	0.030189	2.92	3.54	4.13	0
+edit-N-r1	TAR-P14 mixed	rename-folder	903.776	266.324	3490.753	splice(carriedChunks: 68, reencodedChunks: 2)	4195328	4190720	155061932	68	2	0.847484	0.029901	2.76	3.49	4.11	0
+edit-N-r1	TAR-P14 mixed	delete-small	912.223	270.201	3486.471	splice(carriedChunks: 68, reencodedChunks: 2)	4198400	4192256	155060764	68	2	0.856015	0.031113	2.87	3.49	4.11	0
+edit-N-r1	TAR-P14 mixed	rename-small	878.932	268.132	3487.552	splice(carriedChunks: 68, reencodedChunks: 2)	4198400	4193792	155060764	68	2	0.822790	0.030192	2.88	3.48	4.09	0
+edit-N-r1	TAR-P14 mixed	rename-text256	26.361	237.556	3497.559	splice(carriedChunks: 68, reencodedChunks: 2)	4608	0	156255196	68	2	0.000188	0.000199	2.89	3.47	4.09	0
+edit-N-r1	TAR-P14 payload	append	20.639	31.883	1753.269	splice(carriedChunks: 129, reencodedChunks: 2)	13824	0	137183752	129	2	0.001184	0.000251	2.98	3.48	4.09	0
+edit-N-r1	TAR-P14 payload	delete-middle	20.115	30.789	1725.030	splice(carriedChunks: 127, reencodedChunks: 1)	10240	0	135724824	127	1	0.000176	0.000224	2.90	3.45	4.07	0
+edit-N-r1	TAR-P14 payload	rename-middle	20.583	33.111	1756.415	splice(carriedChunks: 128, reencodedChunks: 2)	4096	0	137183656	128	2	0.000216	0.000251	3.15	3.49	4.08	0
+edit-N-r1	TAR-P14 payload	rename-folder	21.582	31.170	1755.873	splice(carriedChunks: 127, reencodedChunks: 3)	4608	512	137183572	127	3	0.001882	0.000245	3.15	3.49	4.08	0
+edit-N-r1	TAR-P14 mid	append	19.418	31.333	1594.725	splice(carriedChunks: 65, reencodedChunks: 2)	9728	0	132887800	65	2	0.000320	0.000190	3.06	3.47	4.07	0
+edit-N-r1	TAR-P14 mid	delete-middle	19.430	30.205	1535.893	splice(carriedChunks: 63, reencodedChunks: 1)	2048	0	130148788	63	1	0.000110	0.000173	3.05	3.46	4.06	0
+edit-N-r1	TAR-P14 mid	rename-middle	20.780	32.829	1621.405	splice(carriedChunks: 64, reencodedChunks: 2)	10240	0	132887708	64	2	0.000362	0.000189	3.05	3.46	4.06	0
+edit-N-r1	TAR-P14 mid	rename-folder	40.335	35.311	1469.094	splice(carriedChunks: 63, reencodedChunks: 3)	10752	512	132887628	63	3	0.042019	0.000236	5.21	5.10	4.72	180
+edit-N-r1	TAR-P14 old-mixed	delete-small	1505.321	356.664	3332.515	splice(carriedChunks: 32, reencodedChunks: 6)	16778752	16772608	146808376	32	6	5.753173	0.032579	4.87	5.03	4.69	0
+edit-N-r1	TAR-P14 old-mixed	delete-small-second	886.314	264.523	3213.522	splice(carriedChunks: 35, reencodedChunks: 2)	4202496	4191744	150382500	35	2	0.832662	0.028903	5.67	5.19	4.75	0
+edit-N-r1	TAR-P14 old-mixed	rename-folder	1383.356	351.151	3238.383	splice(carriedChunks: 32, reencodedChunks: 6)	16778752	16774144	146810884	32	6	5.285525	0.032248	5.37	5.14	4.74	0
+edit-N-r1	TAR-P14 old-payload	delete-middle	1330.943	99.102	1479.361	splice(carriedChunks: 21, reencodedChunks: 5)	8399872	8389632	127118920	21	5	2.534265	0.035602	5.66	5.22	4.77	0
+edit-N-r1	TAR-P14 old-payload	rename-middle	1495.307	137.487	1522.413	splice(carriedChunks: 21, reencodedChunks: 7)	12588032	12583936	127118920	21	7	4.301084	0.037799	5.29	5.15	4.75	0
+edit-N-r1	TAR-P14 old-payload	rename-folder	1494.192	134.984	1522.160	splice(carriedChunks: 21, reencodedChunks: 8)	12588544	12584448	127116024	21	8	4.289324	0.037277	5.11	5.11	4.74	0
+edit-N-r1	TAR-P14 old-mid	delete-middle	19.168	29.871	1497.849	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148356	31	1	0.000099	0.000156	4.86	5.06	4.72	0
+edit-N-r1	TAR-P14 old-mid	renawarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+edit-N-r1	TAR-P14 old-mid	rename-folder	4050.140	98.914	1644.042	splice(carriedChunks: 31, reencodedChunks: 4)	8399360	8389120	130146604	31	4	3.963180	0.066455	7.51	5.60	4.92	0
+edit-N-r2	TAR-P14 archive	operation	commit_ms	k5_ms	open_ms	strategy	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	reencoded_chunks	encodingSeconds	selfCheckSeconds	load1	load5	load15	load_wait_s
+edit-N-r2	TAR-P14 mixed	append	27.441	247.818	3586.502	splice(carriedChunks: 69, reencodedChunks: 2)	14336	0	156255284	69	2	0.000287	0.000253	3.36	4.50	4.75	0
+edit-N-r2	TAR-P14 mixed	delete-middle	967.876	274.316	3599.183	splice(carriedChunks: 68, reencodedChunks: 2)	4197376	4191232	155062912	68	2	0.911082	0.031139	3.33	4.48	4.74	0
+edit-N-r2	TAR-P14 mixed	rename-middle	977.986	274.917	3587.646	splice(carriedChunks: 68, reencodedChunks: 2)	4197376	4192768	155062912	68	2	0.920032	0.030976	3.66	4.51	4.75	0
+edit-N-r2	TAR-P14 mixed	rename-folder	961.110	278.522	3548.204	splice(carriedChunks: 68, reencodedChunks: 2)	4195328	4190720	155061932	68	2	0.902456	0.031513	3.94	4.54	4.75	0
+edit-N-r2	TAR-P14 mixed	delete-small	857.161	265.801	3465.824	splice(carriedChunks: 68, reencodedChunks: 2)	4198400	4192256	155060764	68	2	0.802494	0.029657	3.71	4.48	4.73	0
+edit-N-r2	TAR-P14 mixed	rename-small	839.447	264.706	3449.817	splice(carriedChunks: 68, reencodedChunks: 2)	4198400	4193792	155060764	68	2	0.783326	0.030233	3.52	4.42	4.71	0
+edit-N-r2	TAR-P14 mixed	rename-text256	27.633	244.141	3439.284	splice(carriedChunks: 68, reencodedChunks: 2)	4608	0	156255196	68	2	0.000218	0.000184	3.42	4.37	4.68	0
+edit-N-r2	TAR-P14 payload	append	20.747	31.522	1735.865	splice(carriedChunks: 129, reencodedChunks: 2)	13824	0	137183752	129	2	0.001024	0.000258	3.39	4.35	4.67	0
+edit-N-r2	TAR-P14 payload	delete-middle	20.599	31.039	1699.221	splice(carriedChunks: 127, reencodedChunks: 1)	10240	0	135724824	127	1	0.000192	0.000252	3.39	4.35	4.67	0
+edit-N-r2	TAR-P14 payload	rename-middle	42.848	35.500	1725.034	splice(carriedChunks: 128, reencodedChunks: 2)	4096	0	137183656	128	2	0.002069	0.000310	3.91	4.43	4.70	3
+edit-N-r2	TAR-P14 payload	rename-folder	20.229	31.519	1811.341	splice(carriedChunks: 127, reencodedChunks: 3)	4608	512	137183572	127	3	0.000310	0.000268	3.91	4.43	4.70	0
+edit-N-r2	TAR-P14 mid	append	36.054	41.413	1566.588	splice(carriedChunks: 65, reencodedChunks: 2)	9728	0	132887800	65	2	0.003161	0.000264	3.98	4.43	4.70	3
+edit-N-r2	TAR-P14 mid	delete-middle	19.083	30.140	1503.562	splice(carriedChunks: 63, reencodedChunks: 1)	2048	0	130148788	63	1	0.000125	0.000172	3.98	4.43	4.70	0
+edit-N-r2	TAR-P14 mid	rename-middle	19.843	31.552	1573.298	splice(carriedChunks: 64, reencodedChunks: 2)	10240	0	132887708	64	2	0.000268	0.000178	3.82	4.39	4.68	0
+edit-N-r2	TAR-P14 mid	rename-folder	19.952	31.101	1590.438	splice(carriedChunks: 63, reencodedChunks: 3)	10752	512	132887628	63	3	0.001794	0.000180	3.83	4.39	4.68	0
+edit-N-r2	TAR-P14 old-mixed	delete-small	1165.462	355.482	3284.939	splice(carriedChunks: 32, reencodedChunks: 6)	16778752	16772608	146808376	32	6	4.416243	0.032280	3.77	4.36	4.67	0
+edit-N-r2	TAR-P14 old-mixed	delete-small-second	913.874	266.614	3289.536	splice(carriedChunks: 35, reencodedChunks: 2)	4202496	4191744	150382500	35	2	0.859025	0.029903	3.63	4.32	4.65	0
+edit-N-r2	TAR-P14 old-mixed	rename-folder	1178.258	354.473	3292.853	splice(carriedChunks: 32, reencodedChunks: 6)	16778752	16774144	146810884	32	6	4.445320	0.032210	3.52	4.28	4.63	0
+edit-N-r2	TAR-P14 old-payload	delete-middle	1296.820	100.844	1513.275	splice(carriedChunks: 21, reencodedChunks: 5)	8399872	8389632	127118920	21	5	2.478471	0.035999	3.40	4.24	4.62	0
+edit-N-r2	TAR-P14 old-payload	rename-middle	1615.567	141.012	1657.392	splice(carriedChunks: 21, reencodedChunks: 7)	12588032	12583936	127118920	21	7	4.645386	0.038525	3.21	4.19	4.59	0
+edit-N-r2	TAR-P14 old-payload	rename-folder	1531.909	142.154	1608.008	splice(carriedChunks: 21, reencodedChunks: 8)	12588544	12584448	127116024	21	8	4.405680	0.037371	3.27	4.18	4.59	0
+edit-N-r2	TAR-P14 old-mid	delete-middle	19.608	31.665	1607.378	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148356	31	1	0.000109	0.000166	3.17	4.15	4.57	0
+edit-N-r2	TAR-P14 old-mid	renamwarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+edit-N-r2	TAR-P14 old-mid	rename-folder	3058.049	96.059	1607.371	splice(carriedChunks: 31, reencodedChunks: 4)	8399360	8389120	130146604	31	4	2.973069	0.065175	3.46	4.18	4.58	0
+edit-N-r3	TAR-P14 archive	operation	commit_ms	k5_ms	open_ms	strategy	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	reencoded_chunks	encodingSeconds	selfCheckSeconds	load1	load5	load15	load_wait_s
+edit-N-r3	TAR-P14 mixed	append	75.217	250.642	3385.009	splice(carriedChunks: 69, reencodedChunks: 2)	14336	0	156255284	69	2	0.001341	0.000563	3.90	4.68	4.71	13
+edit-N-r3	TAR-P14 mixed	delete-middle	978.925	269.317	3405.447	splice(carriedChunks: 68, reencodedChunks: 2)	4197376	4191232	155062912	68	2	0.923117	0.029325	3.75	4.64	4.69	0
+edit-N-r3	TAR-P14 mixed	rename-middle	926.750	268.879	3424.094	splice(carriedChunks: 68, reencodedChunks: 2)	4197376	4192768	155062912	68	2	0.870844	0.029216	3.64	4.58	4.67	0
+edit-N-r3	TAR-P14 mixed	rename-folder	1064.024	272.913	3460.741	splice(carriedChunks: 68, reencodedChunks: 2)	4195328	4190720	155061932	68	2	1.004982	0.031202	3.67	4.58	4.67	0
+edit-N-r3	TAR-P14 mixed	delete-small	890.465	268.968	3448.488	splice(carriedChunks: 68, reencodedChunks: 2)	4198400	4192256	155060764	68	2	0.835919	0.029331	3.95	4.61	4.68	0
+edit-N-r3	TAR-P14 mixed	rename-small	943.179	273.996	3486.479	splice(carriedChunks: 68, reencodedChunks: 2)	4198400	4193792	155060764	68	2	0.885333	0.029878	3.65	4.52	4.65	0
+edit-N-r3	TAR-P14 mixed	rename-text256	27.600	242.589	3424.867	splice(carriedChunks: 68, reencodedChunks: 2)	4608	0	156255196	68	2	0.000263	0.000191	3.51	4.48	4.63	0
+edit-N-r3	TAR-P14 payload	append	22.404	32.837	1746.778	splice(carriedChunks: 129, reencodedChunks: 2)	13824	0	137183752	129	2	0.000337	0.000256	3.67	4.48	4.63	0
+edit-N-r3	TAR-P14 payload	delete-middle	20.860	32.024	1718.453	splice(carriedChunks: 127, reencodedChunks: 1)	10240	0	135724824	127	1	0.000163	0.000257	3.67	4.48	4.63	0
+edit-N-r3	TAR-P14 payload	rename-middle	21.653	33.228	1744.114	splice(carriedChunks: 128, reencodedChunks: 2)	4096	0	137183656	128	2	0.000174	0.000238	3.77	4.49	4.63	0
+edit-N-r3	TAR-P14 payload	rename-folder	21.272	32.802	1747.792	splice(carriedChunks: 127, reencodedChunks: 3)	4608	512	137183572	127	3	0.001134	0.000257	3.55	4.43	4.61	0
+edit-N-r3	TAR-P14 mid	append	19.541	31.708	1598.825	splice(carriedChunks: 65, reencodedChunks: 2)	9728	0	132887800	65	2	0.000336	0.000184	3.55	4.43	4.61	0
+edit-N-r3	TAR-P14 mid	delete-middle	19.497	31.203	1515.461	splice(carriedChunks: 63, reencodedChunks: 1)	2048	0	130148788	63	1	0.000111	0.000150	3.67	4.44	4.61	0
+edit-N-r3	TAR-P14 mid	rename-middle	20.375	32.081	1597.460	splice(carriedChunks: 64, reencodedChunks: 2)	10240	0	132887708	64	2	0.000311	0.000178	3.53	4.40	4.59	0
+edit-N-r3	TAR-P14 mid	rename-folder	21.260	34.596	1621.458	splice(carriedChunks: 63, reencodedChunks: 3)	10752	512	132887628	63	3	0.000376	0.000191	3.53	4.40	4.59	0
+edit-N-r3	TAR-P14 old-mixed	delete-small	1213.277	364.374	3300.253	splice(carriedChunks: 32, reencodedChunks: 6)	16778752	16772608	146808376	32	6	4.585452	0.032438	3.73	4.42	4.60	0
+edit-N-r3	TAR-P14 old-mixed	delete-small-second	821.976	263.194	3283.729	splice(carriedChunks: 35, reencodedChunks: 2)	4202496	4191744	150382500	35	2	0.767739	0.029588	3.68	4.39	4.59	0
+edit-N-r3	TAR-P14 old-mixed	rename-folder	1210.854	354.999	3265.323	splice(carriedChunks: 32, reencodedChunks: 6)	16778752	16774144	146810884	32	6	4.596197	0.031914	3.49	4.33	4.56	0
+edit-N-r3	TAR-P14 old-payload	delete-middle	1425.883	101.864	1518.622	splice(carriedChunks: 21, reencodedChunks: 5)	8399872	8389632	127118920	21	5	2.739152	0.036543	3.69	4.36	4.57	0
+edit-N-r3	TAR-P14 old-payload	rename-middle	1497.482	137.728	1527.444	splice(carriedChunks: 21, reencodedChunks: 7)	1warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+edit-N-r3	TAR-P14 old-payload	rename-folder	1684.118	138.273	1541.359	splice(carriedChunks: 21, reencodedChunks: 8)	12588544	12584448	127116024	21	8	4.845912	0.037333	3.93	4.43	4.59	50
+edit-N-r3	TAR-P14 old-mid	delete-middle	49.718	35.267	1475.300	splice(carriedChunks: 31, reencodedChunks: 1)	2048	0	130148356	31	1	0.000486	0.000154	3.98	4.42	4.59	20
+edit-N-r3	TAR-P14 old-mid	rename-middle	3047.739	93.864	1557.028	splice(carriedChunks: 31, reencodedChunks: 3)	8398848	8388608	130148356	31	3	2.963231	0.063274	3.98	4.42	4.59	0
+edit-N-r3	TAR-P14 old-mid	rename-folder	2782.322	92.734	1543.614	splice(carriedChunks: 31, reencodedChunks: 4)	8399360	8389120	130146604	31	4	2.701665	0.061748	3.90	4.39	4.57	0
+edit-N-scale	TAR-SCALE layout	codec	operation	stage	wall_ms	plan_ms	encode_worker_ms	copy_ms	selfcheck_ms	reencoded_bytes	reencoded_old_bytes	carried_bytes	carried_chunks	encoded_chunks	scratch_bytes	output_bytes	load1	load5	load15	limit_ms	load_wait_s
+edit-N-scale	TAR-SCALE new	tgz	append	commit	61.538	2.885	0.106	56.562	0.161	14336	0	217752671	478	2	14336	217752778	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	append	k5	251.699	2.885	0.106	56.562	0.161	14336	0	217752671	478	2	14336	217752778	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	delete-small	commit	61.083	2.899	23.274	31.495	1.457	1052160	1046016	217350154	477	2	6144	217752077	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	delete-small	k5	250.868	2.899	23.274	31.495	1.457	1052160	1046016	217350154	477	2	6144	217752077	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	rename-same	commit	59.889	3.744	23.570	29.337	1.392	1052160	1047552	217350154	477	2	4608	217752712	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	rename-same	k5	251.350	3.744	23.570	29.337	1.392	1052160	1047552	217350154	477	2	4608	217752712	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	rename-different	commit	60.814	3.851	23.409	30.520	1.330	1052160	1047552	217350154	477	3	4608	217752874	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE new	tgz	rename-different	k5	250.243	3.851	23.409	30.520	1.330	1052160	1047552	217350154	477	3	4608	217752874	3.68	4.33	4.55	600.000	0
+edit-N-scale	TAR-SCALE old	tgz	append	commit	53.619	2.681	17.474	30.550	1.046	761856	747520	217466894	469	2	14336	217756204	3.62	4.31	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	append	k5	252.881	2.681	17.474	30.550	1.046	761856	747520	217466894	469	2	14336	217756204	3.62	4.31	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	delete-small	commit	60.463	3.057	41.798	29.904	1.430	1800192	1794048	217064666	468	3	6144	217755505	3.62	4.31	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	delete-small	k5	250.249	3.057	41.798	29.904	1.430	1800192	1794048	217064666	468	3	6144	217755505	3.62	4.31	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	rename-same	commit	60.832	3.652	40.583	30.284	1.421	1800192	1795584	217064666	468	4	4608	217756178	3.62	4.31	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	rename-same	k5	254.867	3.652	40.583	30.284	1.421	1800192	1795584	217064666	468	4	4608	217756178	3.62	4.31	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	rename-different	commit	61.061	3.709	41.251	30.282	1.403	1800192	1795584	217064666	468	4	4608	217756298	3.65	4.30	4.54	900.000	0
+edit-N-scale	TAR-SCALE old	tgz	rename-different	k5	250.988	3.709	41.251	30.282	1.403	1800192	1795584	217064666	468	4	4608	217756298	3.65	4.30	4.54	900.000	0
+edit-N-scale	TAR-SCALE new	tbz	append	commit	56.765	11.868	0.200	42.043	0.404	14336	0	174055194	113	2	14336	174055352	3.75	4.30	4.53	1200.000	6
+edit-N-scale	TAR-SCALE new	tbz	append	k5	202.763	11.868	0.200	42.043	0.404	14336	0	174055194	113	2	14336	174055352	3.75	4.30	4.53	1200.000	6
+edit-N-scale	TAR-SCALE new	tbz	delete-small	commit	277.796	3.008	172.388	24.461	75.881	4504064	4497920	172735105	112	2	6144	174054874	3.75	4.30	4.53	1200.000	0
+edit-N-scale	TAR-SCALE new	tbz	delete-small	k5	278.356	3.008	172.388	24.461	75.881	4504064	4497920	172735105	112	2	6144	174054874	3.75	4.30	4.53	1200.000	0
+edit-N-scale	TAR-SCALE new	tbz	rename-same	commit	281.173	3.702	174.804	23.941	76.602	4504064	4499456	172735105	112	2	4608	174055159	3.75	4.30	4.53	1200.000	0
+edit-N-scale	TAR-SCALE new	tbz	rename-same	k5	283.563	3.702	174.804	23.941	76.602	4504064	4499456	172735105	112	2	4608	174055159	3.75	4.30	4.53	1200.000	0
+edit-N-scale	TAR-SCALE new	tbz	rename-different	commit	280.773	3.745	174.420	24.278	76.307	4504064	4499456	172735105	112	3	4608	174055502	3.93	4.33	4.54	1200.000	0
+edit-N-scale	TAR-SCALE new	tbz	rename-different	k5	281.507	3.745	174.420	24.278	76.307	4504064	4499456	172735105	112	3	4608	174055502	3.93	4.33	4.54	1200.000	0
+edit-N-scale	TAR-SCALE old	tbz	append	commit	179.172	10.295	104.072	25.493	32.911	2044000	2029664	173528815	109	2	14336	174128492	4.77	5.38	5.00	1800.000	174
+edit-N-scale	TAR-SCALE old	tbz	append	k5	238.360	10.295	104.072	25.493	32.911	2044000	2029664	173528815	109	2	14336	174128492	4.77	5.38	5.00	1800.000	174
+edit-N-scale	TAR-SCALE old	tbz	delete-small	commit	282.383	3.019	250.641	23.908	80.686	6533760	6527616	172214393	108	3	6144	174128196	4.77	5.38	5.00	1800.000	0
+edit-N-scale	TAR-SCALE old	tbz	delete-small	k5	321.946	3.019	250.641	23.908	80.686	6533760	6527616	172214393	108	3	6144	174128196	4.77	5.38	5.00	1800.000	0
+edit-N-scale	TAR-SCALE old	tbz	rename-same	commit	282.930	3.782	253.494	24.131	77.808	6533760	6529152	172214393	108	4	4608	174129246	4.63	5.34	4.98	1800.000	0
+edit-N-scale	TAR-SCALE old	tbz	rename-same	k5	318.721	3.782	253.494	24.131	77.808	6533760	6529152	172214393	108	4	4608	174129246	4.63	5.34	4.98	1800.000	0
+edit-N-scale	TAR-SCALE old	tbz	rename-different	commit	277.924	3.787	250.270	24.812	74.998	6533760	6529152	172214393	108	4	4608	174129267	4.63	5.34	4.98	1800.000	0
+edit-N-scale	TAR-SCALE old	tbz	rename-different	k5	310.772	3.787	250.270	24.812	74.998	6533760	6529152	172214393	108	4	4608	174129267	4.63	5.34	4.98	1800.000	0
+edit-N-scale	TAR-SCALE new	txz	append	commit	27.870	2.632	0.349	23.364	0.203	14336	0	156255284	69	2	14336	156255992	6.45	5.75	5.15	1000.000	0
+edit-N-scale	TAR-SCALE new	txz	append	k5	249.580	2.632	0.349	23.364	0.203	14336	0	156255284	69	2	14336	156255992	6.45	5.75	5.15	1000.000	0
+edit-N-scale	TAR-SCALE new	txz	delete-small	commit	1150.499	3.082	1089.855	24.092	31.899	4198400	4192256	155060764	68	2	6144	156255472	6.45	5.75	5.15	1500.000	0
+edit-N-scale	TAR-SCALE new	txz	delete-small	k5	283.033	3.082	1089.855	24.092	31.899	4198400	4192256	155060764	68	2	6144	156255472	6.45	5.75	5.15	1500.000	0
+edit-N-scale	TAR-SCALE new	txz	rename-same	commit	1024.659	3.674	966.759	21.888	30.636	4198400	4193792	155060764	68	2	4608	156255840	6.30	5.74	5.16	1500.000	0
+edit-N-scale	TAR-SCALE new	txz	rename-same	k5	274.283	3.674	966.759	21.888	30.636	4198400	4193792	155060764	68	2	4608	156255840	6.30	5.74	5.16	1500.000	0
+edit-N-scale	TAR-SCALE new	txz	rename-different	commit	895.704	3.723	835.816	23.311	31.489	4198400	4193792	155060764	68	3	4608	156256500	5.88	5.66	5.13	1500.000	0
+edit-N-scale	TAR-SCALE new	txz	rename-different	k5	280.854	3.723	835.816	23.311	31.489	4198400	4193792	155060764	68	3	4608	156256500	5.88	5.66	5.13	1500.000	0
+edit-N-scale	TAR-SCALE new	txz	rename-text256	commit	30.217	3.975	0.322	24.357	0.224	4608	0	156255196	68	2	4608	156255872	5.89	5.67	5.14	1000.000	0
+edit-N-scale	TAR-SCALE new	txz	rename-text256	k5	256.066	3.975	0.322	24.357	0.224	4608	0	156255196	68	2	4608	156255872	5.89	5.67	5.14	1000.000	0
+edit-N-scale	TAR-SCALE old	txz	append	commit	1103.431	2.828	1403.451	20.813	31.510	6004736	5990400	149644852	29	3	14336	151390832	5.73	5.64	5.13	inf	0
+edit-N-scale	TAR-SCALE old	txz	append	k5	288.426	2.828	1403.451	20.813	31.510	6004736	5990400	149644852	29	3	14336	151390832	5.73	5.64	5.13	inf	0
+edit-N-scale	TAR-SCALE old	txz	delete-small	commit	1320.338	3.125	6563.229	20.036	32.440	22771712	22765568	145369336	28	8	6144	151892848	5.76	5.64	5.14	inf	0
+edit-N-scale	TAR-SCALE old	txz	delete-small	k5	412.634	3.125	6563.229	20.036	32.440	22771712	22765568	145369336	28	8	6144	151892848	5.76	5.64	5.14	inf	0
+edit-N-scale	TAR-SCALE old	txz	rename-same	commit	1288.232	3.779	6428.650	20.133	32.481	22771712	22767104	145369336	28	8	4608	151893208	5.70	5.63	5.14	inf	0
+edit-N-scale	TAR-SCALE old	txz	rename-same	k5	410.726	3.779	6428.650	20.133	32.481	22771712	22767104	145369336	28	8	4608	151893208	5.70	5.63	5.14	inf	0
+edit-N-scale	TAR-SCALE old	txz	rename-different	commit	1421.263	3.692	7157.177	20.627	33.182	22771712	22767104	145369336	28	8	4608	151893284	5.40	5.57	5.12	inf	0
+edit-N-scale	TAR-SCALE old	txz	rename-different	k5	421.629	3.692	7157.177	20.627	33.182	22771712	22767104	145369336	28	8	4608	151893284	5.40	5.57	5.12	inf	0
+edit-N-scale	TAR-SCALE old	txz	rename-text256	commit	4480.389	3.760	7127.875	19.598	76.559	22771712	22767104	139187640	28	6	4608	151390400	5.77	5.65	5.15	inf	0
+edit-N-scale	TAR-SCALE old	txz	rename-text256	k5	367.861	3.760	7127.875	19.598	76.559	22771712	22767104	139187640	28	6	4608	151390400	5.77	5.65	5.15	inf	0

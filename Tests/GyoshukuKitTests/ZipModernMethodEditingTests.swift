@@ -11,8 +11,7 @@ final class ZipModernMethodEditingTests: XCTestCase {
 
     private func fixture(_ name: String, below directory: URL) throws -> URL {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("KaitoKit/Tests/Fixtures/zip-modern")
+            .appendingPathComponent("Fixtures/zip-modern")
         let encoded = try Data(contentsOf: root.appendingPathComponent(name + ".b64"))
         let url = directory.appendingPathComponent(name)
         try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)).write(to: url)

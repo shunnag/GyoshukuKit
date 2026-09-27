@@ -205,9 +205,32 @@ enum LH5Encoder {
     }
 
     struct Bits {
+        struct Remainder: Sendable {
+            let value: UInt64
+            let count: Int
+        }
+
         private var bytes: [UInt8] = []
         private var pending: UInt64 = 0
         private var available = 0
+
+        var remainder: Remainder { Remainder(value: pending, count: available) }
+
+        mutating func append(_ completeBytes: Data, remainder: Remainder) {
+            precondition((0..<8).contains(remainder.count) && remainder.value < (1 << remainder.count))
+            bytes.reserveCapacity(bytes.count + completeBytes.count + 1)
+            if available == 0 {
+                bytes.append(contentsOf: completeBytes)
+            } else {
+                // 境界に padding を入れず、前の端数 bit と次の byte を順に継ぐ。
+                let shift = 8 - available, mask = UInt64((1 << available) - 1)
+                for byte in completeBytes {
+                    bytes.append(UInt8(truncatingIfNeeded: (pending << shift) | UInt64(byte >> available)))
+                    pending = UInt64(byte) & mask
+                }
+            }
+            write(Int(remainder.value), count: remainder.count)
+        }
 
         mutating func write(_ value: Int, count: Int) {
             guard count > 0 else { return }

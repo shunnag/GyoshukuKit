@@ -1,0 +1,13 @@
+stage	repeat	warmup	encoding	entries	snapshot_ms	first_scan_ms	load_start	load_end	log
+initial	00	1	shiftJIS	500000	182.797792	184.241459	4.55,4.58,4.89	4.55,4.58,4.89	shiftjis-00-warmup.log
+initial	01	0	shiftJIS	500000	180.228292	181.822	4.55,4.58,4.89	4.55,4.58,4.89	shiftjis-01.log
+initial	02	0	shiftJIS	500000	178.635458	179.9385	4.55,4.58,4.89	4.55,4.58,4.89	shiftjis-02.log
+initial	03	0	shiftJIS	500000	179.967584	181.302584	4.55,4.58,4.89	4.34,4.54,4.88	shiftjis-03.log
+snapshot	00	1	shiftJIS	500000	180.187	181.376083	4.75,4.71,4.87	4.75,4.71,4.87	shiftjis-final-00-warmup.log
+snapshot	01	0	shiftJIS	500000	182.002209	183.190375	4.75,4.71,4.87	4.75,4.71,4.87	shiftjis-final-01.log
+snapshot	02	0	shiftJIS	500000	176.202	177.401208	4.75,4.71,4.87	4.75,4.71,4.87	shiftjis-final-02.log
+snapshot	03	0	shiftJIS	500000	180.747	181.945084	4.75,4.71,4.87	4.75,4.71,4.87	shiftjis-final-03.log
+final	00	1	shiftJIS	500000	181.962291	183.582166	7.98,8.98,7.60	7.98,8.98,7.60	shiftjis-paths-00-warmup.log
+final	01	0	shiftJIS	500000	181.451875	183.093875	7.98,8.98,7.60	8.06,8.98,7.60	shiftjis-paths-01.log
+final	02	0	shiftJIS	500000	182.355792	184.160583	8.06,8.98,7.60	8.06,8.98,7.60	shiftjis-paths-02.log
+final	03	0	shiftJIS	500000	323.108417	325.076875	8.06,8.98,7.60	8.06,8.98,7.60	shiftjis-paths-03.log

@@ -1,0 +1,8 @@
+$SP/p6acc/B/GyoshukuKit/Tests/GyoshukuKitTests/SevenZipUpdaterScaleProbeTests.swift:10: -[GyoshukuKitTests.SevenZipUpdaterScaleProbeTests testReleaseScale] : Test skipped - Set GYOSHUKU_7Z_SCALE_DIR; use -c release -Xswiftc -enable-testing
+ZIP-SCALE entries=100000 operation=delete_start open_ms=99.758 remove_ms=0.015 mutate_ms=0.015 commit_ms=14.945
+ZIP-SCALE entries=100000 operation=delete_end open_ms=95.843 remove_ms=0.017 mutate_ms=0.017 commit_ms=10.377
+ZIP-SCALE entries=100000 operation=rename_same_length open_ms=96.004 remove_ms=0.000 mutate_ms=1.794 commit_ms=7.183
+ZIP-SCALE entries=100000 operation=replace_file open_ms=99.267 remove_ms=0.009 mutate_ms=3.444 commit_ms=20.915
+ZIP-SCALE entries=100000 operation=add_file open_ms=96.929 remove_ms=0.000 mutate_ms=2.369 commit_ms=12.335
+ZIP-SCALE entries=100000 operation=new_folder open_ms=97.295 remove_ms=0.000 mutate_ms=2.362 commit_ms=11.409
+ZIP-SCALE entries=100000 operation=rename_1000 open_ms=98.724 remove_ms=0.000 mutate_ms=43.593 commit_ms=15.723

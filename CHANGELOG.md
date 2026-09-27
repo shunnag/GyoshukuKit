@@ -4,6 +4,188 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-27
+
+### 修正
+
+- Swift 6.3（Xcode 26）でコンパイルできなかった 2 点を直す。`ZipCentralDirectory.CopyValidator` に明示の
+  init を設け、`CompressedTarUpdater` の試験用の `Fault` と task-local を他の updater と同じく internal にする。
+- `ArchiveRewriter.open` は、KaitoKit 0.11 の open が取消し済みの Task で投げる `CancellationError` を
+  `RewriterError.invalidArchive` に包まずそのまま投げる。
+
+- 書込み側の読取を共通の POSIX read にし、再帰追加と rewriter の項目ごとに autoreleasepool を設ける。
+  ZIP の deflate stream も entry 間で再利用し、大量の小さなファイルや大きな入力でのメモリ増加を抑える。
+  この最適化自体は出力 byte を変えない。
+
+- ZIP updater の少数の追加・改名では、全件の名前表の構築を最初の 4 回まで生存名の走査に置き換える。
+  5 回目から従来の表を使い、2,048 件未満は初回から表を使う。衝突の判定・例外・出力 byte・公開 API は保つ。
+  [P1d-G 検証記録](Documentation/verification/2026-09-26-p1dg-live-name-check.md) に試験と計測を記載する。
+
+- ZIP 出力を最大 256 KiB の buffer にまとめ、小さな entry の header・payload・CD の write 回数を減らす。
+  seek・進捗/完了通知・API の復帰前に必要な flush を行い、出力 byte と通知順を保つ。
+  7z では先読み済みの単一 chunk と CRC を encoder へ渡し、再読取・コピー・CRC 再計算を省く。
+- ZIP XZ / Zstandard の編集・再暗号化の fixture をリポジトリ内へ複製し、テストの隣接 KaitoKit checkout への
+  ファイル参照をなくす。出自と SHA-256 は `Tests/Fixtures/NOTICE` に記載する。
+
+### 追加
+
+- 公開の `WriterOptions.compressionThreads`（1...64、nil は自動）。自動値は CPU 数・物理メモリ GiB・8 の
+  最小値（最低1）。ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz / LHA の圧縮と、
+  ZIP updater の再暗号化の鍵導出に使う。
+- `ArchiveRewriter.probe(reader:format:)`。既存の reader で `open` と同じ検査を行い、
+  一覧だけでは分からない MacLHA の MacBinary envelope も調べる。
+  `probe(entries:format:)` は一覧の検査として残す。reader は `appleDoublePolicy: .expose` で開く。
+- 独立した `Benchmarks` package。固定 seed の入力生成と、全形式の実行時間・peak RSS・出力サイズの
+  TSV 記録、`--references` による zip / xz / 7zz との比較を提供する。
+
+- `ArchiveAddition`・`ArchiveAdditionEvent`・`ArchiveAdditionError` と `add(_:events:)` による一括追加。
+  小さな通常ファイルを有界に先読みし、出力 byte と項目ごとの API の動作を保つ。
+  一括の名前の検査は open の前に行い、複数の失敗では最小の index に原因を帰属させる。
+  events と取消しの例外は包まず返し、失敗時には source descriptor の close を待つ。
+  ZIP の単一 block を一度の write で出力し、bench に `--mode batch` を追加する。
+  [P7-G 検証記録](Documentation/verification/2026-09-27-p7g-batch.md) に試験と修正後の受入計測を記載する。
+
+- ディスク追加の byte 進捗、`finishAdditions(progress:)`、`readsAdditionsDuringCommit`、
+  `ArchiveRewriter.commit(progress:didCarry:)` と `WriterOptions.maximumPendingInputBytes(for:)`。
+  追加の読取と圧縮待ちを分けて同期通知し、既存の出力 byte と updater の commit 進捗を保つ。
+  bench に `--progress` と `--mode recursive|items` を追加する。
+  [P6-G 検証記録](Documentation/verification/2026-09-27-p6g-progress.md) に上限値の導出・検証と受入計測の測り直しを記載する。
+
+- `SevenZipUpdater.open(url:password:output:options:)` と `ArchiveReencrypting`。
+  7z の運ぶ pack・coder・IV・CRC と file の生の名前・時刻・属性・anti・StartPos を保ち、
+  改名は header、削除は移動範囲、追加は末尾だけを書く。solid の一部削除はその folder だけを
+  一つの solid LZMA2 に作り直す。暗号化の設定・変更・解除は再圧縮せず、通常の編集では部分的な暗号化を保つ。
+  header の圧縮の有無は元に合わせ、暗号化の予約なしに暗号化 header を平文にしない。
+  属性が全件未定義の空でない元への追加は、7zz と同じく属性（Unix mode を含む）を保存せず、mtime は保つ。
+  0 件の header は `01 05 00 00 00`。ZIP updater の protocol 適合による挙動変更はない。
+  KaitoKit 0.11.0 の P5-K SPI が必要。
+  currentPassword は AES folder ごとに先頭 64 KiB まで確認するため、64 KiB を越える AES + Copy の
+  誤った鍵を検出できない場合がある。公開前の全件照合は呼出側の責務。
+  [P5-G 検証記録](Documentation/verification/2026-09-26-p5g-sevenzip-updater.md) に試験・計測と既知の非互換を記載する。
+
+- `LHAUpdater.open(url:output:options:)`。既存 member を再圧縮せずに追加・削除・改名し、
+  clone 上で header と移動範囲だけを書く。追加は並列 LH5、照合・進捗・取消し・FAT/exFAT の cleanup は
+  共通の出力部品を使う。構造上の fallback は `rewriteReason(reader:)` で照会できる。
+  改名した member は level 2 / OS U となり、comment・所有者・code page・未知の拡張を落とし、
+  時刻は秒へ切り捨てる。改名しない member の byte は保つ。
+- `TarUpdaterError` を形式共通の `UpdaterRouteError` に改名する。同じ二つの case と
+  `public typealias TarUpdaterError = UpdaterRouteError` により既存の生成・catch の source 互換性を保つ。
+  [P4-G-b 検証記録](Documentation/verification/2026-09-26-p4gb-lha-updater.md) に試験・計測を記載する。
+
+- `CompressedTarUpdater.open(reader:output:format:options:)`。session reader の tar image と
+  地図を使い、gzip / bzip2 / xz の変更を含む区切りだけを再符号化する。
+  P2 の編集規則・追加 factory・予約を共有し、従来の設定は open で `requiresRewrite` にする。
+  `assess(reader:)` は初回の全体符号化を見積もり、`commit(progress:)` は戦略・出力 identity・
+  segment 列・byte 統計を返す。公開前の KaitoKit K5 検証は呼出側が行う。
+  FAT/exFAT の仮 inode を保存せず、失敗・取消しでは自分の出力だけを削除する。
+  [G2 検証記録](Documentation/verification/2026-09-26-p3g2-compressed-tar-updater.md) に試験と計測を記載する。
+
+- `TarUpdater.open(url:output:options:)`。非圧縮 tar の変更 header と位置の動く範囲だけを書き、
+  運ぶ member の名前の byte・pax・sparse 表現・所有者を保つ。open での `requiresRewrite` と
+  commit での `outputVerificationFailed` を `TarUpdaterError` で区別する。
+- `ArchiveOwnerIDs` と `ArchiveEditing` の所有者指定 disk add・日付/所有者指定 directory add。
+  従来の conformer 向けの既定実装は、指定値がある場合 `unsupportedOption` を返す。
+- 後続形式でも共有する internal `SplicedArchiveOutput`、`TarLayout` / `TarEditPlan`、
+  clone/sequential・検証 fault・differential・prototype oracle・100k/9 GiB probe の試験。
+
+- `ArchiveUpdater.reencryptExistingEntries(currentPassword:)`。ZIP の暗号化を設定・変更・解除し、
+  圧縮済み payload はそのまま保つ。通常ファイルは options に従い、directory と symlink は平文にする。
+  同じ方式・同じ UTF-8 password の entry は検証せずに運ぶため、入力の全件検証は呼出側の責務。
+- ZIP updater の `open(url:output:options:)`。原本の descriptor から clone snapshot を作り、
+  指定した作業ファイルを mode 0600・flags 0・fsync・close 済みで返す。immutable / append の
+  UF/SF flags は EPERM で拒否し、clone の ENOTSUP / EXDEV だけ直接読取へ戻す。
+  snapshot helper は後続の tar updater と共有できる internal 実装にする。
+- `ArchiveUpdater.CommitProgress` と `commit(progress:)`。計画した書込み byte の進捗を同期通知し、
+  callback の throw・取消し・失敗では原本を保ち、自分の inode の作業ファイルだけを削除する。
+- `@_spi(Testing)` の commit strategy、legacy byte oracle、境界・読取量・cleanup・進捗試験、
+  `GYOSHUKU_ZIP_SCALE_ENTRIES` で有効にする ZIP-SCALE probe。
+  結果は [P1-G検証記録](Documentation/verification/2026-09-25-p1g-zip-editing.md) に記載する。
+
+### 変更
+
+- KaitoKit の tag 依存を `.upToNextMinor(from: "0.11.0")`（0.11.0 以上、0.12.0 未満）にする。
+  `@_spi` は SemVer の保証外であり、KaitoKit の型を公開 API に含むため、次の minor は再検証してから採用する。
+  隣接 checkout の path 依存と SwiftPM / Xcode の `checkouts/` 判定は維持する。
+  リリース順は KaitoKit 0.11.0 → GyoshukuKit 0.6.0 → KaitoFinder 0.4.0。
+- KaitoKit の import を `public import KaitoKit` に変更し、`ArchiveReader` / `ArchiveEntry` /
+  `ArchiveVolumeSet` などの型を公開 API に含むことを明示する。
+- `UpdaterError.reencryptionFailed(index:name:reason:)` を追加し、出力検証の失敗を入力の password エラーから分ける。
+  **source 互換性**: `UpdaterError` を網羅する switch には新しい case が必要。
+
+- 7z / tar.xz の LZMA2 を順序付きの並列 pipeline で符号化する。7z は entry をまたいで並列化し、
+  圧縮 payload は従来と byte 一致する。tar.xz は Apple の streaming encoder から独立した LZMA2 block を
+  持つ単一 XZ stream（CRC32、両 size 付き block header）へ変わり、出力 byte が変わる。
+  圧縮完了前に add が戻ることがあり、圧縮失敗・取消しは後続の add / finish で通知され得る。
+  [並列 LZMA2 検証記録](Documentation/verification/2026-09-24-parallel-lzma2.md) を参照。
+- ZIP deflate（ZipCrypto を除く）/ tar.gz を、直前の末尾 32 KiB を辞書にする最大 1 MiB の
+  並列 deflate に変更する。ZIP は小さな member を add 間でも並列化する。
+  tar.bz2 は最大 `5 × bzip2Level × 100,000` byte ごとの完全な bzip2 stream を連結する。
+  **ZIP deflate / tar.gz / tar.bz2 の出力 byte が変わる**。同じ入力・設定での圧縮 byte は並列数に依存しない。
+  圧縮失敗は後続の add / finish で通知されることがある。
+  [並列 deflate / bzip2 検証記録](Documentation/verification/2026-09-24-parallel-deflate-bzip2.md) を参照。
+- 圧縮 tar の通常 member を途中で切らず、member の先頭で gzip の同期点・bzip2 stream・XZ block を区切る。
+  上限を越える member は header 群と本文を分け、それぞれを上限以下の片にする。
+  tar の終端と record padding は独立した最後の区切りに置く。
+  **すべての tar.gz / tar.bz2 / tar.xz 出力の byte が変わる**（新規作成・全体再構築）。
+  [G1 検証記録](Documentation/verification/2026-09-25-p3-g1.md) を参照。
+
+- tar.xz は4 MiB以下のmemberを最大4 MiBのblockに詰め、4 MiBを越えるmemberはheader群と本文を分ける。
+  本文と大きなheader群の片は最大16 MiBのまま。G1 の配置に比べ、小さなファイルの多い書庫は5–12%、
+  4 MiB前後のtextファイルが並ぶ書庫は約5%大きくなる。
+  仕様の実測では小さな1件の削除・改名が16 MiBの再圧縮（約3.7–4.5秒）から4 MiB（約0.7–0.9秒）になる。
+  大きなファイルだけの書庫は G1 の配置と同じbyte。既存書庫も編集でき、変更した区間だけを新しい規則で切る。
+  並列数が2以上のとき64 KiB以下のblockは並列数に数えず、未出力の合計を `2 × threads + 1` に抑える。
+  [P14-G 検証記録](Documentation/verification/2026-09-26-p14-xz-packing.md) に実行結果と受入計測を記載する。
+
+- 名前の `\` と `:` を tar / tar.gz / tar.bz2 / tar.xz の出力で許可する。既存名の検査・改名・追加・
+  ディスクの再帰追加・hard link の参照先に適用し、ZIP / 7z / LHA では引き続き拒否する。
+  NUL・空の成分・`.` / `..`・長さの検査は全形式で保つ。
+- `ArchiveRewriter.open` と probe は未対応の LHA method / 7z coder を早期に拒否する。
+  reader 版と open は、envelope・resource fork を保持できない MacBinary 入りの MacLHA member も拒否する。
+  一覧版の probe だけでは envelope を判別できず、通常の本文を持つ MacLHA member は受理する。
+- ZIP の改名では Unicode Path extra（0x7075）を同長の padding にして旧名と CRC をゼロで消すため、
+  **改名後の出力 byte が変わる**。名前を含み得る extra（0x0008 / 0x2605 / 0x334D / 0x4F4C / 0x554E）や
+  解析できない非ゼロの末尾がある entry の改名は新たに拒否する。
+  [P0-G 検証記録](Documentation/verification/2026-09-24-p0g-editability-and-zip-names.md) を参照。
+- 空配列の `add(_:events:)` は全 writer / editor と `ArchiveEditing` の既定実装で no-op にする。
+  finished / failed・追加終了後・取消し済みでも例外も通知もなく、writer の準備や未出力入力の flush を行わない。
+  後続の `finishAdditions` / commit の動作・strategy・出力 byte を変えない。
+
+- CompressedTarUpdater の追加/literal 保存領域に 1 GiB の空き容量を要求する制約を外す。
+  出力 volume の空き容量が 1 GiB 未満でも小さな編集を行える。実際の書込み失敗時の後始末は保つ。
+- FAT32 / exFAT で空 file の最初の書込みや truncate により inode が変わっても、
+  TarUpdater の出力・再配置 spool を正しく検査し、失敗時に削除する。
+  開いている出力は現在の descriptor とパスを照合し、空 file の仮 inode を保存済み ID として使わない。
+  tar / 7z / LHA writer と ArchiveRewriter の破棄にも同じ規則を適用する。原本の同一性検査は変えない。
+
+- LHA の LH5 符号化に `compressionThreads` を適用する。1 MiB 以下は member ごと、
+  大きい file は 1 MiB の区切りと 8 KiB の履歴で並列に符号化し、bit 単位で継ぐ。
+  直列時の出力 byte・header・圧縮方式の選択は保つ。並列数 1 は同期のまま、2 以上では
+  add が出力前に戻る場合があり、符号化の失敗・取消しは後続の add / finish で通知する。
+  [P4-G-a 検証記録](Documentation/verification/2026-09-26-p4ga-parallel-lh5.md) に試験を記載する。
+
+- `ArchiveRewriter` の追加位置は既定で末尾（`additionPlacement: .end`）。追加は commit まで予約し、
+  `.beginning` は従来の先頭追加を保つ。運ぶ tar の uid/gid は既定で維持（`carriedTarOwnerIDs: .keep`）、
+  `.reset` で 0 にする。`preserveOwnerIDs` はディスクからの追加にだけ効く。
+  既定の追加順と、運ぶ tar の所有者欄の出力 byte が変わる。
+- `CommitProgress` の共通契約は計画後に固定した total、単調な completed、最後の一致（0 を含む）。
+  TarUpdater は commit の書込みと V2/V5 の照合読取を合計し、一つの観測経路へ報告する。
+
+- ZIP の password 操作を updater で行うと、元の圧縮方式・名前の byte・時刻・属性・extra・comment・
+  directory の payload が保たれる。変換 entry だけ descriptor を除き、暗号欄・CRC・サイズ・ZIP64 を再構築する。
+  AES 入力の AE-1/AE-2 は維持し、強度は AES-256 にそろえる。変換 0 件は従来の updater と同じ byte を返す。
+- 再暗号化の鍵導出は `compressionThreads` の数で並列化する。`CommitProgress` はこの経路で書込みに加え
+  pass A・V1–V3 の読取と鍵導出の仕事量を含む。公開前に KaitoKit と独立した header の検査、保存 byte・CRC・
+  password からの鍵導出の照合を行う。変換で位置が変わる追加付き commit は `.stagedRebuild` になる。
+  実行した試験とツールの制限は [P1b 検証記録](Documentation/verification/2026-09-25-p1b-reencryption.md) に記載する。
+- ZIP の CD を一括検証し、KaitoKit の検証済み raw layout とともに保持する。
+  再構築は計画と 4 MiB のコピーに分け、連続する必要範囲だけを読み、canonical CD の offset だけを patch する。
+  条件を満たす同長改名は header と CD の patch だけで完成し、削除だけでは名前予約表を作らない。
+- 削除・改名後の追加は詰めた位置へ直接書き、CD は一度だけ生成する。追加の後に位置が変わる場合だけ
+  段階 snapshot を使う。追加 record の照合は GK と KaitoKit の両方で残す。
+  この最適化自体は従来成功していた編集の出力 byte を保つ。混在時の N+M 件への段階 reader の上限はなくなり、
+  CD 側の拒否は実行時 I/O より先、取消しは計画 4,096 件ごと・直後・実行前・chunk ごとになる。
+
 ## [0.5.0] - 2026-09-24
 
 ### 修正

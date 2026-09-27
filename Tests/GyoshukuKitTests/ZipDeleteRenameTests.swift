@@ -406,10 +406,10 @@ final class ZipDeleteRenameTests: XCTestCase {
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [4])
         var called: [Int] = []
-        updater.rawRecord = { reader, original in
-            called.append(original.index)
-            if original.index == 1 { return try incomplete.rawRecord(of: entry) }
-            return try reader.rawRecord(of: original)
+        updater.recordLayout = { index in
+            called.append(index)
+            if index == 1 { return nil }
+            return updater.validatedLayout(at: index)
         }
         XCTAssertThrowsError(try updater.commit()) { error in
             guard case let UpdaterError.nonRelocatableEntry(index, name, reason) = error else { return XCTFail("\(error)") }
@@ -423,9 +423,9 @@ final class ZipDeleteRenameTests: XCTestCase {
         XCTAssertThrowsError(try updater.commit())
         let removing = try ArchiveUpdater.open(url: url)
         try removing.remove(entriesAt: [1])
-        removing.rawRecord = { reader, original in
-            XCTAssertNotEqual(original.index, 1)
-            return try reader.rawRecord(of: original)
+        removing.recordLayout = { index in
+            XCTAssertNotEqual(index, 1)
+            return removing.validatedLayout(at: index)
         }
         try removing.commit()
         try ZipTestSupport.verify(url, expected: [0, 2, 3, 4].map { items[$0] })
@@ -445,10 +445,10 @@ final class ZipDeleteRenameTests: XCTestCase {
             let updater = try ArchiveUpdater.open(url: url)
             try updater.remove(entriesAt: [4])
             var copied = 0
-            updater.rawRecord = { reader, entry in
-                if entry.index == 2 { throw failure }
+            updater.recordLayout = { index in
+                if index == 2 { throw failure }
                 copied += 1
-                return try reader.rawRecord(of: entry)
+                return updater.validatedLayout(at: index)
             }
             XCTAssertThrowsError(try updater.commit()) { XCTAssertEqual($0 as? WriterError, failure) }
             XCTAssertEqual(copied, 2)
@@ -462,9 +462,9 @@ final class ZipDeleteRenameTests: XCTestCase {
         let task = Task {
             let updater = try ArchiveUpdater.open(url: url)
             try updater.remove(entriesAt: [4])
-            updater.rawRecord = { reader, entry in
-                if entry.index == 2 { withUnsafeCurrentTask { $0?.cancel() } }
-                return try reader.rawRecord(of: entry)
+            updater.recordLayout = { index in
+                if index == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+                return updater.validatedLayout(at: index)
             }
             try updater.commit()
         }
@@ -572,18 +572,41 @@ final class ZipDeleteRenameTests: XCTestCase {
         let after = try Snapshot(url)
         XCTAssertEqual(before.records[0].payloadRange, after.records[0].payloadRange)
         XCTAssertEqual(before.bytes.count, after.bytes.count)
+        XCTAssertNil(after.bytes.range(of: Data("日本語.txt".utf8)))
+        XCTAssertNil(after.bytes.range(of: Data(before.entries[0].rawName.bytes)))
         let bytes = ZipBytes(data: after.bytes), old = ZipBytes(data: before.bytes)
         XCTAssertEqual(bytes.u16(6), 0x0800)
         XCTAssertEqual(bytes.u16(bytes.central + 8), 0x0800)
         for local in [true, false] {
             let extras = bytes.extras(local ? 0 : bytes.central, local: local)
             XCTAssertNil(extras[0x7075])
+            let oldBody = try XCTUnwrap(old.extras(local ? 0 : old.central, local: local)[0x7075])
+            XCTAssertEqual(extras[0xFFFF], Data(count: oldBody.count))
             XCTAssertEqual(extras[0xcafe], Data("xyz".utf8))
             XCTAssertEqual(extras[0x5455], old.extras(local ? 0 : old.central, local: local)[0x5455])
         }
         XCTAssertEqual(bytes.u16(bytes.central + 36), 1)
         XCTAssertEqual(bytes.u16(bytes.central + 32), UInt16("entry comment retained".utf8.count))
         XCTAssertEqual(after.bytes.subdata(in: (bytes.end - "entry comment retained".utf8.count)..<bytes.end), Data("entry comment retained".utf8))
+        var patched = before.bytes
+        for (offset, fixed, nameOffset, extraOffset, flagsOffset) in [
+            (0, 30, 26, 28, 6), (old.central, 46, 28, 30, 8)
+        ] {
+            patched.zipSet(UInt16(0x0800), at: offset + flagsOffset)
+            let nameStart = offset + fixed
+            patched.replaceSubrange(nameStart..<(nameStart + Int(old.u16(offset + nameOffset))), with: "変更.txt".utf8)
+            var cursor = nameStart + Int(old.u16(offset + nameOffset))
+            let end = cursor + Int(old.u16(offset + extraOffset))
+            while cursor < end {
+                let length = Int(old.u16(cursor + 2))
+                if old.u16(cursor) == 0x7075 {
+                    patched.zipSet(UInt16(0xFFFF), at: cursor)
+                    patched.replaceSubrange((cursor + 4)..<(cursor + 4 + length), with: Data(count: length))
+                }
+                cursor += 4 + length
+            }
+        }
+        XCTAssertEqual(after.bytes, patched)
         try assertCarried(before, to: url, indices: [0], renamed: [0])
         try ZipTestSupport.verify(url, expected: [.init(name: "変更.txt", data: Data("legacy contents\n".utf8), permissions: 0o751)])
     }

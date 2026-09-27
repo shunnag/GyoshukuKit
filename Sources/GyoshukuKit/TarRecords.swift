@@ -55,7 +55,7 @@ enum TarRecords {
             return result
         }
 
-        private func ustar() -> Data {
+        func ustar() -> Data {
             var header = Data(count: TarRecords.blockSize)
             let split = TarRecords.splitPath(name)
             header.replaceSubrange(0..<(split?.name.count ?? min(name.count, 100)),
@@ -113,7 +113,7 @@ enum TarRecords {
         Int((UInt64(blockSize) - size % UInt64(blockSize)) % UInt64(blockSize))
     }
 
-    private static func splitPath(_ path: Data) -> (name: Data, prefix: Data)? {
+    static func splitPath(_ path: Data) -> (name: Data, prefix: Data)? {
         if path.count <= 100 { return (path, Data()) }
         // prefix は区切り位置でしか分けない。directory の末尾の / は name に残す。
         for index in path.indices.reversed() where path[index] == 0x2F && index < path.count - 1 {
@@ -124,7 +124,7 @@ enum TarRecords {
         return nil
     }
 
-    private static func paxRecord(_ key: String, value: Data) -> Data {
+    static func paxRecord(_ key: String, value: Data) -> Data {
         let body = Data((" " + key + "=").utf8) + value + Data([0x0A])
         var length = body.count + 1
         // 桁数も record 長に含むので、桁が増える境界では収束するまで計算する。
@@ -134,7 +134,7 @@ enum TarRecords {
         return Data(String(length).utf8) + body
     }
 
-    private static func number(_ value: UInt64, in header: inout Data, at offset: Int, width: Int) {
+    static func number(_ value: UInt64, in header: inout Data, at offset: Int, width: Int) {
         let octal = Array(String(value, radix: 8).utf8)
         if octal.count < width {
             let field = Data(repeating: 0x30, count: width - 1 - octal.count) + Data(octal) + Data([0])
@@ -145,7 +145,7 @@ enum TarRecords {
         }
     }
 
-    private static func base256(_ value: UInt64, negative: Bool, in header: inout Data, at offset: Int, width: Int) {
+    static func base256(_ value: UInt64, negative: Bool, in header: inout Data, at offset: Int, width: Int) {
         var field = Data(repeating: negative ? 0xFF : 0, count: width)
         for index in 0..<min(width, 8) {
             field[width - index - 1] = UInt8(truncatingIfNeeded: value >> (index * 8))

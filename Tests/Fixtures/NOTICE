@@ -1,0 +1,56 @@
+
+sevenzip-edit/ (P5 Step 0, frozen 2026-09-26 in SP/p5; three filter archives replaced 2026-09-27; see that set's README.md):
+  g_plain.7z, g_aes.7z, g_aesh.7z: byte-for-byte imports of the GyoshukuKit writer prototypes at SP/p45/t7; passwords secret.
+  z_default.7z, z_plainhdr.7z, z_nonsolid.7z, z_aes.7z, z_aesh.7z: byte-for-byte imports of the 7zz prototypes at SP/p45/t7; passwords secret.
+  m.7z: byte-for-byte import from SP/p45/t7u/m.7z (7zz, solid folders with 3/3/3/1 substreams).
+  bcj.7z, bcj2.7z, ppmd.7z: byte-for-byte imports from KaitoKit/Tests/Fixtures/sevenzip-edit/, regenerated 2026-09-27 from project-authored SHAKE-256 seeded bytes, synthetic x86 E8/E9 rel32 streams and text (MIT) by KaitoKit/Tests/Fixtures/sevenzip-edit/generate-filters.py with /opt/homebrew/bin/7zz 26.03 (arm64). The upstream generator is not vendored here; its SHA-256, exact commands, archive hashes and deterministic timestamp normalization are documented in sevenzip-edit/README.md.
+  s200.7z: byte-for-byte import from SP/p45/t7s/s200.7z (7zz, 200-file solid prototype).
+  z_times.7z, z_special.7z, mix.7z, copyaes.7z, z_aesonlyh.7z, z_aeshdirs.7z, empty_7zz.7z: generated in SP/p5 with /opt/homebrew/bin/7zz 26.03 from the synthetic inputs/commands in scripts/make-fixtures.py; password secret, except mix's b.bin folder uses secret2.
+  lib.7z: generated from synthetic inputs with macOS /usr/bin/bsdtar 3.5.3 (libarchive 3.7.4), --format 7zip; version 0.3, solid LZMA and LZMA encoded header.
+  empty_gk.7z: newly emitted with the existing SP/p45/tools/p45tool release binary (GyoshukuKit ArchiveWriter.create/finish, no additions); binary hash and invocation retained in logs/recipes.json and logs/creation-commands.json.
+  empty_fi0.7z, archive_properties.7z, comment.7z, unknown_1a.7z, external_names.7z, packpos16.7z, anti.7z, startpos.7z, solid_zero.7z: synthetic layouts built with the unchanged SP/p45/sz.py prototype and the documented P5 wrappers; seed data from the P5 synthetic 7zz inputs. solid_zero's small LZMA2 pack uses Python 3.14.7 raw lzma compression.
+  zero_lzma2.7z: SP/p5review/zero_lzma2.7z parsed/reserialized with SP/p45/sz.py, byte-identical; streamed empty file with LZMA2 pack 00.
+  sfx.7z: synthetic 4096-byte Mach-O-magic/zero prefix plus the imported g_plain.7z; KaitoKit d35f2da source+URL open succeeds with the 7z signature at offset 4096; 7zz t rejects the synthetic prefix.
+  expected-structures.json, expected-decrypted.json: computed by scripts/compute-expected.py using SP/p45/sz.py (SHA-256 pinned in each JSON); AES-stage plaintext digests and lengths include encoded-header folders. The three regenerated filter records are copied from KaitoKit and independently parsed by its generate-filters.py; other records retain their original provenance. KaitoKit baseline errors are separately recorded observations.
+  The three regenerated filter archives and their structural values are reproducible with KaitoKit's generate-filters.py --check; their AES arrays remain empty. Other frozen archives are not reproducible by rerunning historical recipes (IVs, filesystem times and tool behavior can vary). No >4 GiB fixture is distributed; AC-G17 creates an APFS sparse file at test time.
+
+zip-modern/ (KaitoKit project-generated fixtures, MIT)
+  Seven byte-for-byte .zip.b64 copies from KaitoKit commit 26b84ca,
+  Tests/Fixtures/zip-modern/: xz.zip, xz-aes.zip, xz-zipcrypto.zip, zstd20.zip, zstd93.zip, zstd-aes20.zip, zstd-aes93.zip.
+  Upstream: https://github.com/shunnag/KaitoKit/tree/26b84ca/Tests/Fixtures/zip-modern
+  The upstream top-level NOTICE has no zip-modern entry. The following
+  provenance is copied from that fixture set's README.md; generate.py and
+  manifest.json below refer to the upstream files and are not vendored here.
+
+These are small, synthetic, redistributable test archives. Their UTF-8 payload is
+`"XZ and Zstandard ZIP interoperability 日本語\n"` repeated 800 times: 38,400 bytes,
+SHA-256 `16f3e0211c947966c0e1e379ac87c947174a6b227df976fe95373940be9449b4`.
+The public fixture password is `KaitoFixture`.
+
+`generate.py` uses Python 3.14.7's `zipfile`/`lzma`, 7-Zip 26.03, and macOS OpenSSL.
+It reads no third-party archive-engine implementation source. Regenerate using
+`/opt/homebrew/bin/python3 generate.py` on a host with `/opt/homebrew/bin/7zz`.
+Generated archive hashes are recorded in `manifest.json`. Encryption salts and
+ZIP timestamps may change when regenerating; payload bytes remain fixed.
+
+| Fixture | Provenance / comparison |
+| --- | --- |
+| `xz.zip`, `xz-aes.zip`, `xz-zipcrypto.zip` | 7-Zip `-tzip -mm=XZ`, with no encryption, AES256, or ZipCrypto; extracted bytes compared using 7-Zip |
+| `zstd93.zip` | Python `ZIP_ZSTANDARD`; extracted bytes compared using Python and 7-Zip |
+| `zstd20.zip` | `zstd93.zip` with only local and central compression IDs changed from 93 to 20 |
+| `zstd-aes93.zip` | The same Zstandard frame in a WinZip AE-2 wrapper made from public field layouts, Python PBKDF2/HMAC, and OpenSSL AES-CTR keystream; decrypted and decompressed bytes compared using 7-Zip |
+| `zstd-aes20.zip` | Same encrypted payload/authentication code as the AES93 fixture; only actual-method fields differ |
+
+The host's 7-Zip and Python builds reject ZIP method 20. These legacy-ID fixtures
+therefore establish routing of an independently verified Zstandard frame under
+the deprecated ID, not a direct differential test of a historical method-20 ZIP.
+The canonical method-93 AES wrapper has an independent full-archive decoder check.
+
+Decoded SHA-256 (copied from the upstream manifest.json):
+  b6bd9417116ff49fc46f9900a5a479d0ad375b04ad37195fdd888c0f10b52ebf  xz.zip
+  7bd4f2b06d7826039363735aeed7feb8c441eafd8276b4a96735325b5ea09d8d  xz-aes.zip
+  4d90a98ea20df106279af11a976de9a6dec8b3d5bef1944b54f351fe2635e2c1  xz-zipcrypto.zip
+  1ebcc48bdba94bd6069c705ff69944d6d35135836a5c5e2f60fbdaf7c455b821  zstd20.zip
+  99a7bc929b76c9559746b2dbaf3772972991ef0a346362f8c65c4da3801a1540  zstd93.zip
+  5832be605e9948776b83f184f31aea917177e1f7cf74cffadf1011966846818a  zstd-aes20.zip
+  2b87c56dfcce27c0813b294aabdd0ed2f4309597fb22b37db1ee11fe7aea1cb8  zstd-aes93.zip

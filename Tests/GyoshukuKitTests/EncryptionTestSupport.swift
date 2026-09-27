@@ -229,7 +229,7 @@ struct EncryptedSevenZipHeader {
         }
         mutating func number() throws -> UInt64 {
             let first = try byte()
-            let count = (0..<8).first { first & (0x80 >> $0) == 0 } ?? 8
+            let count: Int = (0..<8).first(where: { first & (0x80 >> $0) == 0 }) ?? 8
             var value: UInt64 = 0
             for index in 0..<count { value |= UInt64(try byte()) << (8 * index) }
             if count < 8 { value |= UInt64(first & (0x7F >> count)) << (8 * count) }

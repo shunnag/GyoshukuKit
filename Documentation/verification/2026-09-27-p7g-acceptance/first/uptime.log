@@ -1,0 +1,64 @@
+ 3:55  up 4 days, 21:53, 4 users, load averages: 2.86 2.93 4.32 | BP7 small-rec-r0 start
+ 3:57  up 4 days, 21:55, 4 users, load averages: 6.59 3.83 4.50 | BP7 small-rec-r0 end rc=0
+ 3:57  up 4 days, 21:55, 4 users, load averages: 6.59 3.83 4.50 | BP7 small-items-r0 start
+ 3:57  up 4 days, 21:55, 4 users, load averages: 6.85 4.08 4.58 | BP7 small-items-r0 end rc=0
+ 3:57  up 4 days, 21:55, 4 users, load averages: 6.85 4.08 4.58 | N7 small-batch-r0 start
+ 3:58  up 4 days, 21:55, 4 users, load averages: 7.00 4.24 4.62 | N7 small-batch-r0 end rc=0
+ 3:58  up 4 days, 21:55, 4 users, load averages: 7.00 4.24 4.62 | N7 small-items-r0 start
+ 3:58  up 4 days, 21:55, 4 users, load averages: 6.92 4.39 4.67 | N7 small-items-r0 end rc=0
+ 3:58  up 4 days, 21:55, 4 users, load averages: 6.92 4.39 4.67 | N7 small-recursive-r0 start
+ 3:58  up 4 days, 21:56, 4 users, load averages: 8.64 4.99 4.88 | N7 small-recursive-r0 end rc=0
+ 3:58  up 4 days, 21:56, 4 users, load averages: 8.64 4.99 4.88 | 7zz r0 start
+ 3:58  up 4 days, 21:56, 4 users, load averages: 8.64 4.99 4.88 | 7zz r0 end
+ 3:58  up 4 days, 21:56, 4 users, load averages: 8.64 4.99 4.88 | N7 small-batch-r1 start
+ 3:59  up 4 days, 21:56, 4 users, load averages: 7.24 4.90 4.85 | N7 small-batch-r1 end rc=0
+ 3:59  up 4 days, 21:56, 4 users, load averages: 7.24 4.90 4.85 | N7 small-items-r1 start
+ 3:59  up 4 days, 21:56, 4 users, load averages: 6.68 4.92 4.86 | N7 small-items-r1 end rc=0
+ 3:59  up 4 days, 21:56, 4 users, load averages: 6.68 4.92 4.86 | N7 small-recursive-r1 start
+ 3:59  up 4 days, 21:57, 4 users, load averages: 6.76 5.02 4.89 | N7 small-recursive-r1 end rc=0
+ 3:59  up 4 days, 21:57, 4 users, load averages: 6.76 5.02 4.89 | BP7 small-rec-r1 start
+ 4:01  up 4 days, 21:58, 4 users, load averages: 3.59 4.51 4.71 | BP7 small-rec-r1 end rc=0
+ 4:01  up 4 days, 21:58, 4 users, load averages: 3.59 4.51 4.71 | BP7 small-items-r1 start
+ 4:01  up 4 days, 21:58, 4 users, load averages: 3.20 4.36 4.65 | BP7 small-items-r1 end rc=0
+ 4:01  up 4 days, 21:58, 4 users, load averages: 3.20 4.36 4.65 | 7zz r1 start
+ 4:01  up 4 days, 21:58, 4 users, load averages: 3.20 4.36 4.65 | 7zz r1 end
+ 4:01  up 4 days, 21:58, 4 users, load averages: 3.20 4.36 4.65 | BP7 small-rec-r2 start
+ 4:02  up 4 days, 22 hrs, 4 users, load averages: 4.12 4.60 4.73 | BP7 small-rec-r2 end rc=0
+ 4:02  up 4 days, 22 hrs, 4 users, load averages: 4.12 4.60 4.73 | BP7 small-items-r2 start
+ 4:03  up 4 days, 22 hrs, 4 users, load averages: 6.84 5.13 4.91 | BP7 small-items-r2 end rc=0
+ 4:03  up 4 days, 22 hrs, 4 users, load averages: 6.84 5.13 4.91 | N7 small-batch-r2 start
+ 4:03  up 4 days, 22:01, 4 users, load averages: 7.31 5.32 4.98 | N7 small-batch-r2 end rc=0
+ 4:03  up 4 days, 22:01, 4 users, load averages: 7.31 5.32 4.98 | N7 small-items-r2 start
+ 4:03  up 4 days, 22:01, 4 users, load averages: 6.94 5.35 5.00 | N7 small-items-r2 end rc=0
+ 4:03  up 4 days, 22:01, 4 users, load averages: 6.94 5.35 5.00 | N7 small-recursive-r2 start
+ 4:04  up 4 days, 22:01, 4 users, load averages: 6.51 5.34 5.01 | N7 small-recursive-r2 end rc=0
+ 4:04  up 4 days, 22:01, 4 users, load averages: 6.51 5.34 5.01 | 7zz r2 start
+ 4:04  up 4 days, 22:01, 4 users, load averages: 6.51 5.34 5.01 | 7zz r2 end
+ 4:04  up 4 days, 22:01, 4 users, load averages: 6.51 5.34 5.01 | N7 small-batch-r3 start
+ 4:04  up 4 days, 22:02, 4 users, load averages: 5.39 5.16 4.95 | N7 small-batch-r3 end rc=0
+ 4:04  up 4 days, 22:02, 4 users, load averages: 5.39 5.16 4.95 | N7 small-items-r3 start
+ 4:04  up 4 days, 22:02, 4 users, load averages: 7.78 5.70 5.15 | N7 small-items-r3 end rc=0
+ 4:04  up 4 days, 22:02, 4 users, load averages: 7.78 5.70 5.15 | N7 small-recursive-r3 start
+ 4:05  up 4 days, 22:02, 4 users, load averages: 7.52 5.75 5.17 | N7 small-recursive-r3 end rc=0
+ 4:05  up 4 days, 22:02, 4 users, load averages: 7.52 5.75 5.17 | BP7 small-rec-r3 start
+ 4:06  up 4 days, 22:04, 4 users, load averages: 5.62 5.44 5.10 | BP7 small-rec-r3 end rc=0
+ 4:06  up 4 days, 22:04, 4 users, load averages: 5.62 5.44 5.10 | BP7 small-items-r3 start
+ 4:06  up 4 days, 22:04, 4 users, load averages: 5.68 5.46 5.11 | BP7 small-items-r3 end rc=0
+ 4:06  up 4 days, 22:04, 4 users, load averages: 5.68 5.46 5.11 | 7zz r3 start
+ 4:06  up 4 days, 22:04, 4 users, load averages: 5.87 5.50 5.13 | 7zz r3 end
+ 4:06  up 4 days, 22:04, 4 users, load averages: 5.87 5.50 5.13 | BP7 big-r0 start
+ 4:08  up 4 days, 22:05, 4 users, load averages: 8.59 6.49 5.53 | BP7 big-r0 end rc=0
+ 4:08  up 4 days, 22:05, 4 users, load averages: 8.59 6.49 5.53 | N7 big-r0 start
+ 4:09  up 4 days, 22:07, 4 users, load averages: 8.49 7.03 5.83 | N7 big-r0 end rc=0
+ 4:09  up 4 days, 22:07, 4 users, load averages: 8.49 7.03 5.83 | N7 big-r1 start
+ 4:10  up 4 days, 22:08, 4 users, load averages: 8.00 7.25 6.01 | N7 big-r1 end rc=0
+ 4:10  up 4 days, 22:08, 4 users, load averages: 8.00 7.25 6.01 | BP7 big-r1 start
+ 4:11  up 4 days, 22:09, 4 users, load averages: 8.64 7.68 6.28 | BP7 big-r1 end rc=0
+ 4:11  up 4 days, 22:09, 4 users, load averages: 8.64 7.68 6.28 | BP7 big-r2 start
+ 4:13  up 4 days, 22:10, 4 users, load averages: 7.91 7.81 6.45 | BP7 big-r2 end rc=0
+ 4:13  up 4 days, 22:10, 4 users, load averages: 7.91 7.81 6.45 | N7 big-r2 start
+ 4:14  up 4 days, 22:12, 4 users, load averages: 7.54 7.76 6.55 | N7 big-r2 end rc=0
+ 4:14  up 4 days, 22:12, 4 users, load averages: 7.54 7.76 6.55 | N7 big-r3 start
+ 4:15  up 4 days, 22:13, 4 users, load averages: 11.63 9.24 7.22 | N7 big-r3 end rc=0
+ 4:15  up 4 days, 22:13, 4 users, load averages: 11.63 9.24 7.22 | BP7 big-r3 start
+ 4:17  up 4 days, 22:14, 4 users, load averages: 9.59 9.18 7.37 | BP7 big-r3 end rc=0

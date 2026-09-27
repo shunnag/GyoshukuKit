@@ -7,14 +7,19 @@ public enum ArchiveFormat: Sendable {
     case tar
     /// restricted pax tar 全体を gzip で包む。
     /// gzip header は時刻 0、OS=Unix、ファイル名・comment なし。
+    /// member 境界で最大 1 MiB に区切り、大きい member は header 群と本文を分ける。終端は独立させる。
     case tarGzip
-    /// restricted pax tar 全体を bzip2 で包む。
+    /// restricted pax tar を member 境界で最大 5 × level × 100,000 byte の bzip2 stream に区切る。
+    /// 大きい member は header 群と本文を分け、tar 終端は独立した stream にする。
     case tarBzip2
-    /// restricted pax tar 全体を Apple Compression の固定設定 XZ で包む。
+    /// restricted pax tar の 4 MiB 以下の member を最大 4 MiB の LZMA2 block に詰め、単一 XZ stream で包む。
+    /// 4 MiB を越える member は header 群と本文を分け、本文と大きな header 群は最大 16 MiB の片に区切る。
+    /// tar 終端は独立した block にする。
     case tarXZ
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
     /// CP932 名の level-2 LHA。各ファイルは -lh5-、縮まなければ -lh0-。
+    /// 1 MiB 以下は member ごと、それ以上は 1 MiB と 8 KiB の履歴で並列に符号化する。出力は並列数によらず同一。
     case lha
 
     var isTar: Bool {
@@ -36,6 +41,12 @@ public enum ZipEncryption: Sendable {
     case aes256
     case zipCrypto
 }
+
+/// rewriter が既存項目に対して追加を置く位置。
+public enum AdditionPlacement: Sendable, Equatable { case end, beginning }
+
+/// 既存 tar 項目を rewriter で運ぶ際の所有者 ID。
+public enum CarriedOwnerIDs: Sendable, Equatable { case keep, reset }
 
 /// instance 間で共有できる書き込み設定。
 public struct WriterOptions: Sendable {
@@ -59,6 +70,20 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
+    /// ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz / LHA の圧縮並列数（1...64）。
+    /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
+    /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
+    /// （tar.xz は2以上のとき64 KiB以下の block を数えず、合計2 × この数 + 1まで）。
+    /// deflate / bzip2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB（16 MiB の片）。
+    /// chunk 上限は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が詰める block 4 MiB・片16 MiB（7z は片のみ）。
+    /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
+    /// bzip2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
+    /// LHA は thread ごとに入力1 MiB + 履歴8 KiB + 出力と表約1.1 MiB。1 は同期、2以上は出力が後続の add / finish まで遅れ得る。
+    public var compressionThreads: Int?
+    /// rewriter の追加位置。updater は末尾への追加を使う。
+    public var additionPlacement: AdditionPlacement
+    /// 運ぶ tar の uid/gid。ディスクからの追加には preserveOwnerIDs を使う。
+    public var carriedTarOwnerIDs: CarriedOwnerIDs
 
     public init(
         compressionMethod: CompressionMethod = .deflate,
@@ -69,7 +94,10 @@ public struct WriterOptions: Sendable {
         preserveMacOSMetadata: Bool = false,
         password: String? = nil,
         zipEncryption: ZipEncryption = .aes256,
-        encryptsSevenZipHeaders: Bool = false
+        encryptsSevenZipHeaders: Bool = false,
+        compressionThreads: Int? = nil,
+        additionPlacement: AdditionPlacement = .end,
+        carriedTarOwnerIDs: CarriedOwnerIDs = .keep
     ) {
         self.compressionMethod = compressionMethod
         self.deflateLevel = deflateLevel
@@ -80,12 +108,43 @@ public struct WriterOptions: Sendable {
         self.password = password
         self.zipEncryption = zipEncryption
         self.encryptsSevenZipHeaders = encryptsSevenZipHeaders
+        self.compressionThreads = compressionThreads
+        self.additionPlacement = additionPlacement
+        self.carriedTarOwnerIDs = carriedTarOwnerIDs
+    }
+
+    var resolvedCompressionThreads: Int {
+        compressionThreads ?? max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8,
+                                        Int(ProcessInfo.processInfo.physicalMemory / (1 << 30))))
+    }
+
+    /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
+    /// tar.xz は 16 MiB の通常枠、64 KiB 以下の軽い block と、4 MiB の組立中 block を含む。
+    public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
+        let threads = UInt64(max(1, min(64, resolvedCompressionThreads)))
+        switch format {
+        case .zip:
+            return compressionMethod == .stored || (password != nil && zipEncryption == .zipCrypto)
+                ? 0 : threads * UInt64(DeflateBlock.size)
+        case .tar: return 0
+        case .tarGzip: return (threads + 1) * UInt64(DeflateBlock.size)
+        case .tarBzip2: return (threads + 1) * UInt64(ParallelBzip2Compressor.chunkSize(level: max(1, min(9, bzip2Level))))
+        case .tarXZ:
+            // 未出力は通常枠 t 個、合計 2t + 1 個以下。member の終了時の組立中は packing 以下。
+            let light = threads > 1 ? (threads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
+            return threads * UInt64(ParallelXZCompressor.defaultBlockSize) + light + UInt64(ParallelXZCompressor.memberPackingSize)
+        case .sevenZip: return threads * UInt64(LZMA2ChunkPipeline<Void>.chunkSize)
+        case .lha: return threads == 1 ? 0 : threads * UInt64(LHAWriter.compressionChunkSize)
+        }
     }
 
     // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
     func validate(for format: ArchiveFormat) throws {
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
+        if let compressionThreads, !(1...64).contains(compressionThreads) {
+            throw WriterError.invalidOption("compressionThreads")
+        }
         guard !preserveMacOSMetadata else { throw WriterError.unsupportedOption("preserveMacOSMetadata") }
         if format == .sevenZip || format == .lha, preserveOwnerIDs {
             throw WriterError.unsupportedOption("preserveOwnerIDs")
