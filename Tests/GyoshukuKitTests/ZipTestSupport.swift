@@ -45,6 +45,11 @@ enum ZipTestSupport {
         process.standardError = handle
         var environment = ProcessInfo.processInfo.environment
         environment["LC_ALL"] = "en_US.UTF-8"
+        if tool == "/usr/bin/ditto" {
+            // ditto は UTF-8 の flag のない名前を利用者の既定の文字コード（~/.CFUserTextEncoding）で解釈する。
+            // CP932 の名前の試験を実行環境の言語設定に依存させないよう、日本語（MacJapanese、地域 Japan）を明示する。
+            environment["__CF_USER_TEXT_ENCODING"] = String(format: "0x%X:0x1:0xE", getuid())
+        }
         process.environment = environment
         try process.run()
         process.waitUntilExit()

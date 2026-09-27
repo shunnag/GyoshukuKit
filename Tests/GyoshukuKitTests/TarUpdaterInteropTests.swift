@@ -75,8 +75,10 @@ final class TarUpdaterInteropTests: XCTestCase {
             """
             try ZipTestSupport.run("/usr/bin/python3", ["-c", python, source.path, output.path, renamed], in: root, log: "python-\(variant)")
             for tool in ["/opt/homebrew/bin/gtar", "/opt/homebrew/bin/gnutar"] where FileManager.default.isExecutableFile(atPath: tool) {
-                try ZipTestSupport.run(tool, ["-tvf", output.path], in: root, log: "gnu-\(variant)")
-                XCTAssertEqual(try ZipTestSupport.run(tool, ["-xOf", output.path, "two"], in: root, log: "gnu-content-\(variant)"), "two-payload")
+                // GNU tar は libarchive の xattr の pax keyword を知らず、警告を出力に混ぜる。
+                try ZipTestSupport.run(tool, ["--warning=no-unknown-keyword", "-tvf", output.path], in: root, log: "gnu-\(variant)")
+                XCTAssertEqual(try ZipTestSupport.run(tool, ["--warning=no-unknown-keyword", "-xOf", output.path, "two"], in: root,
+                                                      log: "gnu-content-\(variant)"), "two-payload")
             }
             for entry in reader.entries where ["two", renamed, "added"].contains(entry.name) {
                 let content = try ZipTestSupport.run("/usr/bin/bsdtar", ["-xOf", output.path, entry.name], in: root, log: "content-\(variant)-\(entry.name)")
