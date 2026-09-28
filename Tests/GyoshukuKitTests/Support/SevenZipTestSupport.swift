@@ -86,12 +86,12 @@ struct SevenZipBytes {
 
     init(_ data: Data) throws {
         XCTAssertEqual(Array(data.prefix(8)), [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4])
-        XCTAssertEqual(data.testUInt32(at: 8), CRC32.checksum(data.subdata(in: 12..<32)))
-        let offset = 32 + Int(data.testUInt64(at: 12))
-        let size = Int(data.testUInt64(at: 20))
+        XCTAssertEqual(data.uint32LE(at: 8), CRC32.checksum(data.subdata(in: 12..<32)))
+        let offset = 32 + Int(data.uint64LE(at: 12))
+        let size = Int(data.uint64LE(at: 20))
         header = data.subdata(in: offset..<(offset + size))
         XCTAssertEqual(offset + size, data.count)
-        XCTAssertEqual(data.testUInt32(at: 28), CRC32.checksum(header))
+        XCTAssertEqual(data.uint32LE(at: 28), CRC32.checksum(header))
         var cursor = SevenZipNumberCursor(data: header)
         try cursor.expect(1)
         if cursor.peek == 4 {
@@ -114,7 +114,7 @@ struct SevenZipBytes {
             for _ in 0..<count { unpackedSizes.append(try cursor.number()) }
             // UnpackInfo に CRC が無いことも確認し、SubStreamsInfo の CRC が実際に使われる構成にする。
             for byte: UInt8 in [0, 8, 10, 1] { try cursor.expect(byte) }
-            for _ in 0..<count { crcs.append(try cursor.take(4).testUInt32(at: 0)) }
+            for _ in 0..<count { crcs.append(try cursor.take(4).uint32LE(at: 0)) }
             try cursor.expect(0)
             try cursor.expect(0)
         }
@@ -147,11 +147,11 @@ struct EncryptedSevenZipHeader {
     let folders: [Folder]
 
     init(_ archive: Data) throws {
-        let offset = Int(archive.testUInt64(at: 12)) + 32
-        let size = Int(archive.testUInt64(at: 20))
+        let offset = Int(archive.uint64LE(at: 12)) + 32
+        let size = Int(archive.uint64LE(at: 20))
         let header = archive.subdata(in: offset..<(offset + size))
-        XCTAssertEqual(CRC32.checksum(archive.subdata(in: 12..<32)), archive.testUInt32(at: 8))
-        XCTAssertEqual(CRC32.checksum(header), archive.testUInt32(at: 28))
+        XCTAssertEqual(CRC32.checksum(archive.subdata(in: 12..<32)), archive.uint32LE(at: 8))
+        XCTAssertEqual(CRC32.checksum(header), archive.uint32LE(at: 28))
         var cursor = SevenZipNumberCursor(data: header)
         let type = try cursor.byte()
         encoded = type == 0x17

@@ -111,7 +111,7 @@ struct LHABytes {
         let extensions: [UInt8: Data]
         let crcOffset: Int
         var method: String { String(decoding: header[2..<7], as: UTF8.self) }
-        var size: UInt32 { header.testUInt32(at: 11) }
+        var size: UInt32 { header.uint32LE(at: 11) }
     }
 
     let members: [Member]
@@ -121,7 +121,7 @@ struct LHABytes {
         var offset = 0
         while offset < data.count, data[offset] != 0 {
             guard data.count - offset >= 26 else { throw CocoaError(.fileReadCorruptFile) }
-            let size = Int(data.testUInt16(at: offset))
+            let size = Int(data.uint16LE(at: offset))
             guard size >= 26, size <= data.count - offset else { throw CocoaError(.fileReadCorruptFile) }
             let header = data.subdata(in: offset..<(offset + size))
             XCTAssertEqual(header[19], 0x20)
@@ -132,7 +132,7 @@ struct LHABytes {
             var crcOffset: Int?
             while true {
                 guard cursor + 2 <= size else { throw CocoaError(.fileReadCorruptFile) }
-                let length = Int(header.testUInt16(at: cursor))
+                let length = Int(header.uint16LE(at: cursor))
                 if length == 0 { cursor += 2; break }
                 guard length >= 3, length <= size - cursor else { throw CocoaError(.fileReadCorruptFile) }
                 let type = header[cursor + 2]
@@ -146,8 +146,8 @@ struct LHABytes {
             var authenticated = header
             authenticated[crc] = 0
             authenticated[crc + 1] = 0
-            XCTAssertEqual(header.testUInt16(at: crc), LHATestSupport.crc(authenticated))
-            let packedSize = Int(header.testUInt32(at: 7))
+            XCTAssertEqual(header.uint16LE(at: crc), LHATestSupport.crc(authenticated))
+            let packedSize = Int(header.uint32LE(at: 7))
             guard packedSize <= data.count - offset - size else { throw CocoaError(.fileReadCorruptFile) }
             let payload = data.subdata(in: (offset + size)..<(offset + size + packedSize))
             members.append(Member(offset: offset, header: header, payload: payload, extensions: fields, crcOffset: crc))
