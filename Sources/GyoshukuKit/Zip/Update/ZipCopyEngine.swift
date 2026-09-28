@@ -4,6 +4,7 @@ internal import KaitoKit
 
 // buffer を満たす範囲だけを読み、飛び越える範囲と patch の前に flush する。
 struct ZipCopyEngine {
+    // 出力 write の観測点。ZIP / tar / 7z の writer と updater が書いた offset と長さを通知し、試験が I/O 量を検証する。
     @TaskLocal static var writeObserver: (@Sendable (UInt64, Int) -> Void)?
     @TaskLocal static var testingBufferSize: Int = 4 * 1024 * 1024
     private let descriptor: Int32

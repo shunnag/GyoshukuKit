@@ -105,7 +105,7 @@ final class ZipReencryptionTests: XCTestCase {
                     let password = targetMode == 0 ? nil : ReencryptionSupport.new
                     let output = directory.appendingPathComponent("output-\(method)-\(inputMode)-\(targetMode).zip")
                     let events = Mutex<[ZipReencryption.Event]>([])
-                    let updater = try ZipReencryption.$observer.withValue({ event in events.withLock { $0.append(event) } }) {
+                    let updater = try ZipReencryption.$testingObserver.withValue({ event in events.withLock { $0.append(event) } }) {
                         try ReencryptionSupport.convert(source, to: output, current: current, password: password,
                             encryption: targetMode == 1 ? .zipCrypto : .aes256)
                     }
@@ -140,7 +140,7 @@ final class ZipReencryptionTests: XCTestCase {
                 ("change", aes, Optional(ReencryptionSupport.old), Optional(ReencryptionSupport.new), new, 4)
             ] {
                 let output = directory.appendingPathComponent("\(method)-\(label).zip")
-                try ArchiveUpdater.$testingRandomBytes.withValue({ Data(repeating: salt, count: $0) }) {
+                try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: salt, count: $0) }) {
                     try ReencryptionSupport.convert(source, to: output, current: current, password: password)
                 }
                 XCTAssertEqual(try Data(contentsOf: output), try Data(contentsOf: expected), "\(method) \(label)")
@@ -191,7 +191,7 @@ final class ZipReencryptionTests: XCTestCase {
         var results: [Data] = []
         for order in 0..<3 {
             let output = directory.appendingPathComponent("out-\(order).zip")
-            try ArchiveUpdater.$testingRandomBytes.withValue(ZipP1Support.salt) {
+            try EncryptionPrimitives.$testingRandomBytes.withValue(ZipP1Support.salt) {
                 let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(password: ReencryptionSupport.new))
                 if order == 0 { try updater.reencryptExistingEntries(currentPassword: nil) }
                 if order == 2 { try updater.add(data: Data([4, 5]), as: "added", modificationDate: ZipTestSupport.date) }
@@ -217,7 +217,7 @@ final class ZipReencryptionTests: XCTestCase {
             var results: [Data] = [], strategies: [ArchiveUpdater.CommitStrategy?] = []
             for reserve in [false, true] {
                 let output = directory.appendingPathComponent("\(mode)-\(reserve).zip")
-                try ArchiveUpdater.$testingRandomBytes.withValue(ZipP1Support.salt) {
+                try EncryptionPrimitives.$testingRandomBytes.withValue(ZipP1Support.salt) {
                     let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(password: "same"))
                     if reserve { try updater.reencryptExistingEntries(currentPassword: "same") }
                     if mode == 0 { try updater.rename(entryAt: 0, to: "size-X") }
@@ -302,7 +302,7 @@ final class ZipReencryptionTests: XCTestCase {
         let source = try ReencryptionSupport.fixture(directory)
         for mutation in 0..<6 {
             try ReencryptionSupport.assertFailure(source, password: "new", current: nil, modify: { updater in
-                updater.afterRebuild = { url in
+                updater.testingAfterRebuild = { url in
                     let source = try ZipUpdateSource(url: url), layout = try ZipUpdateLayout(source: source)
                     let reader = try ReencryptionSupport.reader(url)
                     let raw = try XCTUnwrap(reader.zipRawRecordLayout(at: 2))
@@ -331,7 +331,7 @@ final class ZipReencryptionTests: XCTestCase {
         let source = try ReencryptionSupport.fixture(directory, password: "old", items: [("ae2", Data(repeating: 1, count: 100))])
         for wrongSalt in [true, false] {
             let events = Mutex<[ZipReencryption.Phase]>([])
-            try ZipReencryption.$observer.withValue({ event in events.withLock { $0.append(event.phase) } }) {
+            try ZipReencryption.$testingObserver.withValue({ event in events.withLock { $0.append(event.phase) } }) {
                 try ZipReencryption.$testingKeyMaterial.withValue({ _, keys in
                     let output = keys.output!
                     var bytes = output.bytes, salt = output.salt
@@ -352,7 +352,7 @@ final class ZipReencryptionTests: XCTestCase {
         let directory = try directory("cancel")
         let aes = try ReencryptionSupport.fixture(directory, name: "aes.zip", password: "old")
         for phase in [ZipReencryption.Phase.deriveInput, .deriveOutput, .derivationWait, .passA, .convert, .v0, .v1, .v2, .v3] {
-            try ZipReencryption.$observer.withValue({ event in if event.phase == phase { throw CancellationError() } }) {
+            try ZipReencryption.$testingObserver.withValue({ event in if event.phase == phase { throw CancellationError() } }) {
                 try ReencryptionSupport.assertFailure(aes, password: phase == .passA || phase == .v2 ? nil : "new", current: "old", check: {
                     XCTAssertTrue($0 is CancellationError)
                 })
@@ -397,11 +397,11 @@ final class ZipReencryptionTests: XCTestCase {
             let counter = Mutex(0)
             let events = Mutex<[ZipReencryption.Event]>([])
             let output = directory.appendingPathComponent("out-\(threads).zip")
-            try ArchiveUpdater.$testingRandomBytes.withValue({ count in
+            try EncryptionPrimitives.$testingRandomBytes.withValue({ count in
                 let ordinal = counter.withLock { value in value += 1; return value }
                 return Data(repeating: UInt8(ordinal), count: count)
             }) {
-                try ZipReencryption.$observer.withValue({ event in
+                try ZipReencryption.$testingObserver.withValue({ event in
                     var current: UInt64 = 0
                     pthread_threadid_np(nil, &current)
                     XCTAssertEqual(current, expectedThread)
@@ -456,7 +456,7 @@ final class ZipReencryptionTests: XCTestCase {
         let output = directory.appendingPathComponent("out.zip")
         let updater = try ArchiveUpdater.open(url: source, options: .init(password: "new"))
         try updater.reencryptExistingEntries(currentPassword: "old")
-        try ZipReencryption.$observer.withValue({ event in
+        try ZipReencryption.$testingObserver.withValue({ event in
             if event.phase == .convert && event.index == 0 {
                 let handle = try FileHandle(forWritingTo: source)
                 defer { try? handle.close() }

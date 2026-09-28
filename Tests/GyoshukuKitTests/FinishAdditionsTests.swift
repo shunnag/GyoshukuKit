@@ -7,7 +7,7 @@ final class FinishAdditionsTests: XCTestCase {
     private typealias S = AdditionProgressTestSupport
 
     func testBytesAndBoundsForLargeAndSmallInputsWithEncryption() throws {
-        try ArchiveUpdater.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
+        try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
         try SevenZipAESEncryptor.$testingIV.withValue({ Data(repeating: 23, count: 16) }) {
             for format in S.formats {
                 for encryption in 0..<(format == .zip ? 3 : format == .sevenZip ? 2 : 1) {

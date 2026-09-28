@@ -23,7 +23,7 @@ final class BatchAdditionEventsTests: XCTestCase {
                 let caller = pthread_self()
                 let writer = try ArchiveWriter.create(url: root.appendingPathComponent("\(format)-\(threads)"), format: format,
                                                      options: .init(compressionThreads: threads))
-                try FileJob.$testingBeforeLstat.withValue({ index, _ in XCTAssertTrue(started.withLock { $0.contains(index) }) }) {
+                try ArchiveWriter.$testingBeforeLstat.withValue({ index, _ in XCTAssertTrue(started.withLock { $0.contains(index) }) }) {
                 try FileJob.$testingBeforeWorkerOpen.withValue({ index, _ in XCTAssertTrue(started.withLock { $0.contains(index) }) }) {
                 try FileJob.$testingDescriptorChange.withValue({ delta in
                     counts.withLock { $0.current += delta; $0.maximum = max($0.maximum, $0.current) }

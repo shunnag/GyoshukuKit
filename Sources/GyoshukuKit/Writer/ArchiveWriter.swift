@@ -45,6 +45,8 @@ public final class ArchiveWriter {
     private var state = State.writing
     private var additionsClosed = false
     @TaskLocal static var testingAfterPreWalk: (@Sendable () throws -> Void)?
+    // 一括追加が項目の lstat を呼ぶ直前。呼出しの thread で同期的に呼ぶ。
+    @TaskLocal static var testingBeforeLstat: (@Sendable (Int, URL) throws -> Void)?
     private static let compressedExtensions: Set<String> = [
         "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
     ]
@@ -756,7 +758,7 @@ public final class ArchiveWriter {
         entry.crc = try compressEntry(name: name, size: entry.size, method: entry.method, read: read, emit: spool.write)
         entry.compressedSize = try checkedAdd(spool.size, 12)
         var encryptor = ZipCryptoEncryptor(password: password)
-        var header = try ArchiveUpdater.testingRandomBytes?(11) ?? EncryptionPrimitives.random(count: 11)
+        var header = try EncryptionPrimitives.testingRandomBytes?(11) ?? EncryptionPrimitives.random(count: 11)
         header.append(UInt8(truncatingIfNeeded: entry.crc >> 24))
         try write(entry.local())
         try write(encryptor.encrypt(header))
@@ -967,7 +969,7 @@ extension ArchiveWriter {
                                     cPath = url.withUnsafeFileSystemRepresentation { pointer in
                                         pointer.map { Array(UnsafeBufferPointer(start: $0, count: strlen($0) + 1)) } ?? []
                                     }
-                                    try FileJob.testingBeforeLstat?(index, url)
+                                    try Self.testingBeforeLstat?(index, url)
                                     guard !cPath.isEmpty, cPath.withUnsafeBufferPointer({ lstat($0.baseAddress!, &info) }) == 0 else {
                                         throw WriterError.io(operation: "lstat", code: errno)
                                     }

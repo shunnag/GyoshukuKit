@@ -112,7 +112,7 @@ enum ZipP1Support {
         let old = parent.appendingPathComponent("old-\(label).zip")
         defer { try? FileManager.default.removeItem(at: old) }
         try legacy(source: source, output: old, operations: operations, options: options)
-        try ArchiveUpdater.$testingRandomBytes.withValue(salt) {
+        try EncryptionPrimitives.$testingRandomBytes.withValue(salt) {
             let updater = try ArchiveUpdater.open(url: source, output: output, options: options)
             try mutate(updater, operations)
             try updater.commit()

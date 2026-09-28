@@ -228,7 +228,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         for run in 0..<2 {
             let output = directory.appendingPathComponent("out-\(run).zip")
             let events = ZipIOEvents()
-            try ZipReencryption.$observer.withValue({ event in if event.phase == .v3 { events.write(UInt64(event.index), 0) } }) {
+            try ZipReencryption.$testingObserver.withValue({ event in if event.phase == .v3 { events.write(UInt64(event.index), 0) } }) {
                 try ReencryptionSupport.convert(source, to: output, current: nil, password: "new")
             }
             XCTAssertEqual(events.events.count, 16)

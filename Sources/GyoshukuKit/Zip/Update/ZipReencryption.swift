@@ -118,7 +118,7 @@ final class ZipConversion {
         }
         let tail = original.dropFirst(consumed)
         if renamed {
-            // 不透明な末尾を含む改名拒否は従来と同じ。
+            // 不透明な末尾を含む extra の改名は renamedExtra と同じ規則で拒否する。
             rest.append(tail)
             rest = try ZipRebuild.renamedExtra(rest)
             rest.removeLast(tail.count)
@@ -170,7 +170,7 @@ final class ZipConversion {
 final class ZipReencryption {
     enum Phase: Sendable { case deriveInput, deriveOutput, derivationWait, passA, convert, v0, v1, v2, v3 }
     struct Event: Sendable { let phase: Phase; let index: Int }
-    @TaskLocal static var observer: (@Sendable (Event) throws -> Void)?
+    @TaskLocal static var testingObserver: (@Sendable (Event) throws -> Void)?
     @TaskLocal static var testingKeyMaterial: (@Sendable (Int, inout Keys) throws -> Void)?
     struct KeyInput: Sendable { let password: Data; let salt: Data; let strength: UInt8 }
     struct Job: Sendable { let input: KeyInput?; let output: KeyInput? }
@@ -234,7 +234,7 @@ final class ZipReencryption {
 
     static func observe(_ phase: Phase, _ index: Int) throws {
         try Task.checkCancellation()
-        try observer?(Event(phase: phase, index: index))
+        try testingObserver?(Event(phase: phase, index: index))
         try Task.checkCancellation()
     }
 
@@ -281,7 +281,7 @@ final class ZipReencryption {
                     try Self.observe(.deriveInput, record.index)
                 }
                 if conversion.target.aesVersion != nil {
-                    let salt = try ArchiveUpdater.testingRandomBytes?(16) ?? EncryptionPrimitives.random(count: 16)
+                    let salt = try EncryptionPrimitives.testingRandomBytes?(16) ?? EncryptionPrimitives.random(count: 16)
                     guard salt.count == 16 else { throw conversion.failure("salt の長さが一致しません") }
                     output = KeyInput(password: Data(options.password!.utf8), salt: salt, strength: 3)
                     try Self.observe(.deriveOutput, record.index)
@@ -314,7 +314,7 @@ final class ZipReencryption {
         var prefix = Data()
         if let aes { prefix = aes.prefix }
         else if traditional != nil {
-            prefix = try ArchiveUpdater.testingRandomBytes?(11) ?? EncryptionPrimitives.random(count: 11)
+            prefix = try EncryptionPrimitives.testingRandomBytes?(11) ?? EncryptionPrimitives.random(count: 11)
             guard prefix.count == 11 else { throw conversion.failure("暗号ヘッダーの長さが一致しません") }
             prefix.append(UInt8(truncatingIfNeeded: conversion.crc >> 24))
             prefix = traditional!.encrypt(prefix)
@@ -439,7 +439,7 @@ final class ZipReencryption {
             active = nil
             for ordinal in appended.indices {
                 let index = plan.records.count + ordinal
-                // 追記 CD は plan が offset を確定済み。local の照合は P1-G が行う。
+                // 追記 CD は plan が offset を確定済み。追加 record の local は ZipAppendedRecordSelfCheck が照合する。
                 guard case .rebuilt(let bytes) = plan.central[index],
                       validated.bytes.subdata(in: validated.records[index].centralRange) == bytes else {
                     throw KaitoError.malformed("appended entry")

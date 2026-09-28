@@ -11,7 +11,7 @@ final class BatchOutputTests: XCTestCase {
         let root = try ZipTestSupport.directory("p7-buffer-bytes")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.fixture(root)
-        try ArchiveUpdater.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
+        try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
             for encryption in 0..<3 {
                 let options = WriterOptions(password: encryption == 0 ? nil : "password",
                                             zipEncryption: encryption == 2 ? .zipCrypto : .aes256, compressionThreads: 8)

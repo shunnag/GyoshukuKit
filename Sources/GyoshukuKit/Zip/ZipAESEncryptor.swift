@@ -41,7 +41,7 @@ final class ZipAESEncryptor {
         }
         while offset < input.count {
             try Task.checkCancellation()
-            let count = min(256 * 1024, input.count - offset)
+            let count = min(IOChunk.size, input.count - offset)
             let blocks = (count + 15) / 16
             var counters = Data()
             counters.reserveCapacity(blocks * 16)

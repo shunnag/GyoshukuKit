@@ -1,7 +1,7 @@
 import Foundation
 private import Darwin
 
-// 先読みの窓は compressionThreads、open...close だけは Step 0-P7 の上限4本。
+// 先読みの窓は compressionThreads 件、同時に open している source は最大 4 本（`init(threads:)` の `min(threads, 4)`）。
 final class SourcePrefetchLimiter: @unchecked Sendable {
     private let condition = NSCondition()
     private var available: Int
@@ -41,7 +41,6 @@ struct FileJob: Sendable {
     @TaskLocal static var testingBeforeWorkerOpen: (@Sendable (Int, URL) throws -> Void)?
     @TaskLocal static var testingDuringWorkerRead: (@Sendable (Int, URL) throws -> Void)?
     @TaskLocal static var testingDescriptorChange: (@Sendable (Int) -> Void)?
-    @TaskLocal static var testingBeforeLstat: (@Sendable (Int, URL) throws -> Void)?
 
     let index: Int
     let addition: ArchiveAddition
@@ -79,7 +78,7 @@ struct FileJob: Sendable {
         try data.withUnsafeMutableBytes { bytes in
             var offset = 0
             while offset < size {
-                let count = Darwin.read(fd, bytes.baseAddress!.advanced(by: offset), min(256 * 1024, size - offset))
+                let count = Darwin.read(fd, bytes.baseAddress!.advanced(by: offset), min(IOChunk.size, size - offset))
                 if count < 0 {
                     let code = errno
                     if code == EINTR { continue }

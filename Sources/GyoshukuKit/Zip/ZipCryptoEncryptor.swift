@@ -76,7 +76,7 @@ final class ZipCryptoSpool {
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            var chunk = Data(count: Int(min(256 * 1024, remaining)))
+            var chunk = Data(count: Int(min(UInt64(IOChunk.size), remaining)))
             let actual = chunk.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress, $0.count) }
             if actual < 0, errno == EINTR { continue }
             guard actual > 0 else { throw WriterError.io(operation: "read ZipCrypto spool", code: actual == 0 ? EIO : errno) }

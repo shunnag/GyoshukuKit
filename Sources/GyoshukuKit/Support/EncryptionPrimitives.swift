@@ -5,6 +5,9 @@ private import CryptoKit
 
 // 暗号 primitive と OS の乱数境界。外部依存や独自 AES 実装を持たない。
 enum EncryptionPrimitives {
+    // 試験は AES の salt（16 byte）と ZipCrypto の header（11 byte）の乱数をここで差し替える。
+    @TaskLocal static var testingRandomBytes: (@Sendable (Int) throws -> Data)?
+
     static func random(count: Int) throws -> Data {
         var bytes = Data(count: count)
         let status: OSStatus = bytes.withUnsafeMutableBytes {

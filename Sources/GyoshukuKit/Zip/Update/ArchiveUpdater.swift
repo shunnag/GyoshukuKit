@@ -1,6 +1,6 @@
 import Foundation
 private import Darwin
-public import KaitoKit
+internal import KaitoKit
 
 /// ZIP / ZIP64 の追加・削除・改名。生き残る entry は再圧縮しない。
 /// thread-safe ではない。呼出側は同じ書庫への操作も直列化する。
@@ -19,27 +19,32 @@ public final class ArchiveUpdater: ArchiveEditing {
     private var renamed: [Int: String] = [:]
     private var reencryptionRequested = false
     private var currentPassword: String?
-    var afterRebuild: ((URL) throws -> Void)?
     private var pathReservations: EditPathReservations?
-    var hasPathReservations: Bool { pathReservations != nil }
     private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     private var liveNameCheck: LiveNameCheck?
     private lazy var excluded = [Bool](repeating: false, count: Int(layout.count))
-    private(set) var nameCheckScanCount = 0
-    var writerUsesLiveNameCheck: Bool { writer?.existingPathCheck != nil }
-    // 最終計画だけが使う取得境界。検証時と追加だけの commit は seam を通らない。
-    lazy var recordLayout: (Int) throws -> ZipRecordLayout? = { [unowned self] in validatedLayout(at: $0) }
-    @TaskLocal static var testingRandomBytes: (@Sendable (Int) throws -> Data)?
+
+    // MARK: 試験用の観測点
+    // testing* は試験だけが設定する。recordLayout は production の既定を持ち、試験が差し替える。
+    // 残りは production が更新し、試験が読む。
     @TaskLocal static var testingAppendedCorruption: (@Sendable (inout Data) -> Void)?
     @TaskLocal static var testingNameCheckBudget: Int?
     @TaskLocal static var testingNameCheckMinimumEntries: Int?
+    // 再構築の出力を閉じた直後、再暗号化の検証を始める前に呼ぶ。
+    var testingAfterRebuild: ((URL) throws -> Void)?
+    // 最終計画だけが使う取得境界。検証時と追加だけの commit は seam を通らない。
+    lazy var recordLayout: (Int) throws -> ZipRecordLayout? = { [unowned self] in validatedLayout(at: $0) }
+    private(set) var nameCheckScanCount = 0
+    var writerUsesLiveNameCheck: Bool { writer?.existingPathCheck != nil }
+    var hasPathReservations: Bool { pathReservations != nil }
 
     @_spi(Testing) public enum CommitStrategy: Sendable, Equatable {
         case unchanged, appendOnly, inPlacePatch, rebuild, rebuildThenAppend, stagedRebuild
     }
     @_spi(Testing) public private(set) var lastCommitStrategy: CommitStrategy?
 
+    /// 全 editor と writer が使う進捗型。ZIP updater に入れ子なのは公開 API の互換のため。
     public struct CommitProgress: Sendable, Equatable {
         /// 呼出しごとの仕事量。add は追加元の読取、finishAdditions は未出力の入力 byte。
         /// updater の commit は照合の読取・再暗号化の鍵導出も含み、事前の add は含まない。
@@ -53,6 +58,8 @@ public final class ArchiveUpdater: ArchiveEditing {
         directory.records.indices.contains(index) ? directory.records[index].layout : nil
     }
 
+    // ZIP の open と自己検査（追加 record・再暗号化の出力）が共有する reader の設定。
+    // 読取制限を外し、AppleDouble を entry として見せる。試験も同じ設定で照合する。
     static var readerOptions: ReaderOptions {
         ReaderOptions(limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
                       appleDoublePolicy: .expose)
@@ -383,7 +390,7 @@ public final class ArchiveUpdater: ArchiveEditing {
             outputHandle = nil
             if let reencryption, let (plan, pendingMeter) = verification {
                 var meter = pendingMeter
-                do { try afterRebuild?(replacement!) }
+                do { try testingAfterRebuild?(replacement!) }
                 catch is CancellationError { throw CancellationError() }
                 catch { throw UpdaterError.reencryptionFailed(index: -1, name: "", reason: "出力の検証を開始できません") }
                 try reencryption.verify(url: replacement!, plan: plan, directory: directory, renamed: renamed,
@@ -447,7 +454,7 @@ public final class ArchiveUpdater: ArchiveEditing {
             position = (try? ZipRebuild.predictedEnd(source: source, directory: directory, removed: removed, renamed: renamed)) ?? position
         }
         appendStart = position
-        let hook = Self.testingRandomBytes
+        let hook = EncryptionPrimitives.testingRandomBytes
         let writer = ArchiveWriter(output: outputHandle!, url: replacement!,
             format: .zip, options: options,
             zipSalt: { try hook?(16) ?? EncryptionPrimitives.random(count: 16) })

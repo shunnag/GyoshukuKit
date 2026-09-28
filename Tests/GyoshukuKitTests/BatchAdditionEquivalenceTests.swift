@@ -11,7 +11,7 @@ final class BatchAdditionEquivalenceTests: XCTestCase {
         let root = try ZipTestSupport.directory("p7-writer-matrix")
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try B.fixture(root)
-        try ArchiveUpdater.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
+        try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
         try SevenZipAESEncryptor.$testingIV.withValue({ Data(repeating: 23, count: 16) }) {
             for format in S.formats {
                 let items = B.applicable(fixture, format: format)

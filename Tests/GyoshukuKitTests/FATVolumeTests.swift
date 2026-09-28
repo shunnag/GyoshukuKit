@@ -303,7 +303,7 @@ final class FATVolumeTests: XCTestCase {
         try FileManager.default.removeItem(at: output)
         let failed = try ArchiveUpdater.open(url: source, output: output, options: .init(password: "new"))
         try failed.reencryptExistingEntries(currentPassword: nil)
-        failed.afterRebuild = { _ in throw CancellationError() }
+        failed.testingAfterRebuild = { _ in throw CancellationError() }
         XCTAssertThrowsError(try failed.commit()) { XCTAssertTrue($0 is CancellationError) }
         try unchanged(source, original, identity)
         try contents(work, ["source.zip"])

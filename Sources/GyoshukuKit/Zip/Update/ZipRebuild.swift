@@ -1,5 +1,5 @@
 import Foundation
-public import KaitoKit
+internal import KaitoKit
 
 // entry の解釈と descriptor の終端は KaitoKit だけが決める。
 // ここで読む CD の byte 表は、未知の extra / comment / 属性を保存して再出力するためのもの。

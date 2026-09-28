@@ -138,7 +138,7 @@ enum ZipRecords {
             result.le(UInt16(0)) // comment
             result.le(UInt16(0)) // disk start: 単一 volume なので sentinel は不要
             result.le(UInt16(0)) // internal attributes
-            let dosByte: UInt32 = mode & 0xF000 == 0x4000 ? 0x10 : 0
+            let dosByte: UInt32 = mode.isDirectoryMode ? 0x10 : 0
             result.le((UInt32(mode) << 16) | dosByte)
             result.le(UInt32(min(offset, limit)))
             result.append(name)
