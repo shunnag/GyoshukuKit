@@ -24,6 +24,13 @@
     `testing*`(試験だけが設定)と `*Observer`(本番も使う観測点)で名前を分けた。試験だけの `TarCompressor` 適合と `XZCompressor` の別名を production から外した。
   - 自己照合の V/R/L 符号の凡例を code に書き、経緯の comment を現在の契約に書き換え、英語の comment を日本語に揃えた。
 - 使われていなかった writer の `identity` 引数と、それだけのために呼んでいた `fstat` を削った。
+- テストの整理: 共有 helper を `Tests/GyoshukuKitTests/Support/`（`TestSupport`・`ReferenceTool`・`TestPaths`・`TestCorpus`・
+  `IOEvents`・`OptInGate`・`ScaleProbe` ほか）に集め、test class を一 file 一 class にして形式ごとの directory に分けた。
+  milestone 名の class を機能名に改めた（`WriterOutputBaselineTests`・`CompressedTarSpecialMembersTests`・`ZipEditTestSupport`・
+  `TarEditTestSupport` ほか）。環境変数で有効にする計測は `Probes/` に置き、閾値の検査は `GYOSHUKU_SCALE_ASSERT=1` のときだけ
+  失敗する（`GYOSHUKU_P14_ASSERT` は別名として残る）。計測行は tab 区切りで stderr に出す。編集予約の時間計測は既定の
+  suite から opt-in の probe に移した。`Tests/README.md` に helper・fixture・環境変数・外部ツールの一覧を書いた。
+  `SevenZipExternalOracles.check` は 7zz / bsdtar が無いとき黙って通らず skip する。
 
 ## [0.6.0] - 2026-09-27
 

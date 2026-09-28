@@ -216,8 +216,9 @@ swift test
 ```
 
 テストには `/usr/bin/unzip`、`/opt/homebrew/bin/7zz`、`/usr/bin/ditto`、
-`/usr/bin/tar`、`/usr/bin/python3`、`/usr/bin/cmp` が必要です。欠けていれば失敗し、
-黙って skip しません。通常の `swift test` に 4 GiB + 1 MiB の全バイト往復と
+`/usr/bin/tar`、`/usr/bin/python3`、`/usr/bin/cmp` が必要です。共通の起動 helper は欠けていれば失敗し、
+一部の相互運用テストだけが skip します（現状は [Tests/README.md](Tests/README.md) の「外部ツールが無いとき」）。
+テストの配置、共有 helper、`GYOSHUKU_*` 環境変数（`GYOSHUKU_SCALE_ASSERT` を含む）の一覧も同じ README にある。通常の `swift test` に 4 GiB + 1 MiB の全バイト往復と
 65,536 entry の全件検証と、改名で local offset が 4 GiB を越える再構築も含めます。
 作業用 clone と展開物に約 12 GiB の空き領域を確保し、
 巨大な展開物は成功後に削除します。小さい書庫と実ツールのログは
@@ -292,7 +293,9 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 >
 > `swift test` includes real unzip, 7-Zip, ditto and bsdtar checks plus KaitoKit
 > round trips, including all bytes above 4 GiB and all 65,536 entries. Required
-> tools are listed above; missing tools fail instead of silently skipping.
+> tools are listed above; the shared launcher fails when a tool is missing, and a few
+> interop tests skip (see Tests/README.md for the current list, the test layout and the
+> `GYOSHUKU_*` environment variables).
 > Tests retain small archives/logs under `.build/verification` and remove large
 > extracted data after success. Allow about 12 GiB for working copies and extraction.
 >
