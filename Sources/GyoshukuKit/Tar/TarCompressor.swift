@@ -71,7 +71,7 @@ struct TarChunkLayout {
 
     func nextCount(available: Int, bufferedCount: Int) -> Int {
         // 終端と record の詰め物は、小さい試験用 S でも一つに保つ。
-        var count = min(available, 256 * 1024)
+        var count = min(available, IOChunk.size)
         if !ending { count = min(count, currentLimit - bufferedCount) }
         if let end = pendingEnds.first { count = Int(min(UInt64(count), end - position)) }
         return count

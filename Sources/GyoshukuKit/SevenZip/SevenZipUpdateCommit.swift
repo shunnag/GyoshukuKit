@@ -27,7 +27,7 @@ private final class SevenZipSolidInput {
             let file = files[cursor]
             if stream == nil { stream = try reader.stream(reader.entries[file]); crc = 0 }
             let keep = surviving.contains(file)
-            let bytes = try SevenZipReencryption.read(stream!, count: keep ? count : 256 * 1024)
+            let bytes = try SevenZipReencryption.read(stream!, count: keep ? count : IOChunk.size)
             try advance(UInt64(bytes.count))
             crc = updateCRC(crc, bytes)
             if bytes.isEmpty { crcs[file] = crc; stream = nil; cursor += 1 }

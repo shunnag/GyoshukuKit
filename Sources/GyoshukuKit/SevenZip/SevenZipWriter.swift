@@ -16,7 +16,6 @@ final class SevenZipWriter {
     private var position: UInt64 = 0
     private var finished = false
     private var aborted = false
-    private static let chunkSize = 256 * 1024
     private let lzmaChunkSize: Int
     private let pipeline: LZMA2ChunkPipeline<ChunkTag>
 
@@ -73,7 +72,7 @@ final class SevenZipWriter {
             // 短い read でも圧縮境界を変えず、I/O だけを 256 KiB に保つ。
             while input.count < inputSize {
                 try Task.checkCancellation()
-                let requested = min(Self.chunkSize, inputSize - input.count)
+                let requested = min(IOChunk.size, inputSize - input.count)
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
                 entry.record.crc = updateCRC(entry.record.crc, chunk)
@@ -126,9 +125,9 @@ final class SevenZipWriter {
             let plainSize = UInt64(header.count)
             let crc = SevenZipRecords.checksum(header)
             let start = position
-            for offset in stride(from: 0, to: header.count, by: Self.chunkSize) {
+            for offset in stride(from: 0, to: header.count, by: IOChunk.size) {
                 try Task.checkCancellation()
-                try write(aes.encrypt(header[offset..<min(offset + Self.chunkSize, header.count)]))
+                try write(aes.encrypt(header[offset..<min(offset + IOChunk.size, header.count)]))
             }
             try write(aes.finish())
             header = SevenZipRecords.encodedHeader(packOffset: packedSize, packedSize: position - start,
@@ -195,10 +194,10 @@ final class SevenZipWriter {
     }
 
     private func write(_ data: Data) throws {
-        for offset in stride(from: 0, to: data.count, by: Self.chunkSize) {
+        for offset in stride(from: 0, to: data.count, by: IOChunk.size) {
             try Task.checkCancellation()
             let start = data.startIndex + offset
-            let chunk = data[start..<min(start + Self.chunkSize, data.endIndex)]
+            let chunk = data[start..<min(start + IOChunk.size, data.endIndex)]
             let next = try checkedAdd(position, UInt64(chunk.count))
             try output.write(contentsOf: chunk)
             if isAppend { ZipCopyEngine.writeObserver?(position, chunk.count) }

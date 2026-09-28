@@ -50,7 +50,6 @@ public final class ArchiveRewriter: ArchiveEditing {
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
     private var additionsClosed = false
-    private static let chunkSize = 256 * 1024
 
     public let sourceFormat: KaitoKit.ArchiveFormat
     public let hasEncryptedEntries: Bool
@@ -562,7 +561,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         let stream = try reader.stream(entry)
         var size: UInt64 = 0
         while true {
-            let chunk = try Self.read(stream, count: Self.chunkSize)
+            let chunk = try Self.read(stream, count: IOChunk.size)
             if chunk.isEmpty { break }
             size = try checkedAdd(size, UInt64(chunk.count))
             try file.write(contentsOf: chunk)
@@ -577,12 +576,12 @@ public final class ArchiveRewriter: ArchiveEditing {
         defer { try? file.close() }
         try body(entry.size) {
             try Task.checkCancellation()
-            return try FileRead.readChunk(file.fileDescriptor, upTo: min($0, Self.chunkSize))
+            return try FileRead.readChunk(file.fileDescriptor, upTo: min($0, IOChunk.size))
         }
     }
 
     private static func read(_ stream: EntryStream, count: Int) throws -> Data {
-        var data = Data(count: min(count, chunkSize))
+        var data = Data(count: min(count, IOChunk.size))
         var filled = 0
         let capacity = data.count
         try data.withUnsafeMutableBytes { storage in

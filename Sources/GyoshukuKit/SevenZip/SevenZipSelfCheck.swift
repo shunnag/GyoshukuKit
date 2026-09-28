@@ -64,7 +64,7 @@ extension SevenZipUpdater {
                     let input = try outputReader.stream(outputReader.entries[file])
                     while true {
                         try Task.checkCancellation()
-                        let bytes = try SevenZipReencryption.read(input, count: 256 * 1024)
+                        let bytes = try SevenZipReencryption.read(input, count: IOChunk.size)
                         try advancing(UInt64(bytes.count))
                         if bytes.isEmpty { break }
                     }

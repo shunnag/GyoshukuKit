@@ -77,7 +77,7 @@ final class TarWriter {
             var remaining = size
             while remaining > 0 {
                 try Task.checkCancellation()
-                let requested = Int(min(256 * 1024, remaining))
+                let requested = Int(min(UInt64(IOChunk.size), remaining))
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
                 try write(chunk)

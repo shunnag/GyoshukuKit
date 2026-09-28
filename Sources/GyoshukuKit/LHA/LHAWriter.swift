@@ -7,7 +7,6 @@ final class LHAWriter {
     private let url: URL
     private var finished = false
     private var aborted = false
-    private static let chunkSize = 256 * 1024
     static let compressionChunkSize = 1 * 1024 * 1024
     private let threads: Int
     private let encoder: @Sendable (Data) throws -> Data
@@ -68,7 +67,7 @@ final class LHAWriter {
         var crc: UInt16 = 0
         while remaining > 0 {
             try Task.checkCancellation()
-            let requested = Int(min(UInt64(Self.chunkSize), remaining))
+            let requested = Int(min(UInt64(IOChunk.size), remaining))
             let chunk = try read(requested)
             guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
             input.append(chunk)
@@ -131,7 +130,7 @@ final class LHAWriter {
             input.reserveCapacity(target)
             while input.count < target {
                 try Task.checkCancellation()
-                let requested = min(Self.chunkSize, target - input.count)
+                let requested = min(IOChunk.size, target - input.count)
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
                 try write(chunk)
@@ -217,7 +216,7 @@ final class LHAWriter {
             input.reserveCapacity(target)
             while input.count < target {
                 try Task.checkCancellation()
-                let requested = min(Self.chunkSize, target - input.count)
+                let requested = min(IOChunk.size, target - input.count)
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
                 try write(chunk)
@@ -282,10 +281,10 @@ final class LHAWriter {
     }
 
     private func write(_ data: Data) throws {
-        for offset in stride(from: 0, to: data.count, by: Self.chunkSize) {
+        for offset in stride(from: 0, to: data.count, by: IOChunk.size) {
             try Task.checkCancellation()
             let start = data.startIndex + offset
-            try output.write(contentsOf: data[start..<min(start + Self.chunkSize, data.endIndex)])
+            try output.write(contentsOf: data[start..<min(start + IOChunk.size, data.endIndex)])
         }
     }
 }
@@ -330,7 +329,7 @@ private final class LHACompressionSpool {
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            let chunk = try FileRead.readChunk(file.fileDescriptor, upTo: Int(min(256 * 1024, remaining)))
+            let chunk = try FileRead.readChunk(file.fileDescriptor, upTo: Int(min(UInt64(IOChunk.size), remaining)))
             guard !chunk.isEmpty else { throw WriterError.io(operation: "read LHA spool", code: EIO) }
             try emit(chunk)
             remaining -= UInt64(chunk.count)

@@ -45,7 +45,6 @@ public final class ArchiveWriter {
     private var state = State.writing
     private var additionsClosed = false
     @TaskLocal static var testingAfterPreWalk: (@Sendable () throws -> Void)?
-    private static let chunkSize = 256 * 1024
     private static let compressedExtensions: Set<String> = [
         "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
     ]
@@ -672,7 +671,7 @@ public final class ArchiveWriter {
             input.reserveCapacity(count)
             while input.count < count {
                 try Task.checkCancellation()
-                let requested = min(Self.chunkSize, count - input.count)
+                let requested = min(IOChunk.size, count - input.count)
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
                 input.append(chunk)
@@ -705,8 +704,8 @@ public final class ArchiveWriter {
             if let emittingAES { try write(emittingAES.prefix) }
         }
         let compressed = result!.data
-        for offset in stride(from: compressed.startIndex, to: compressed.endIndex, by: Self.chunkSize) {
-            let chunk = compressed[offset..<min(offset + Self.chunkSize, compressed.endIndex)]
+        for offset in stride(from: compressed.startIndex, to: compressed.endIndex, by: IOChunk.size) {
+            let chunk = compressed[offset..<min(offset + IOChunk.size, compressed.endIndex)]
             try write(emittingAES.map { try $0.encrypt(chunk) } ?? chunk)
         }
         if let crc = tag.crc {
@@ -788,7 +787,7 @@ public final class ArchiveWriter {
         var crc: UInt32 = 0
         while remaining > 0 {
             try Task.checkCancellation()
-            let requested = Int(min(UInt64(Self.chunkSize), remaining))
+            let requested = Int(min(UInt64(IOChunk.size), remaining))
             let chunk = try read(requested)
             guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
             crc = updateCRC(crc, chunk)
@@ -807,11 +806,11 @@ public final class ArchiveWriter {
     private func write(_ data: Data, addition: BatchEntry?) throws {
         try Task.checkCancellation()
         let next = try checkedAdd(position, UInt64(data.count))
-        if data.count >= Self.chunkSize {
+        if data.count >= IOChunk.size {
             try flushZipOutput()
             try output.write(contentsOf: data)
         } else {
-            if zipOutputBuffer.count + data.count > Self.chunkSize { try flushZipOutput() }
+            if zipOutputBuffer.count + data.count > IOChunk.size { try flushZipOutput() }
             if zipOutputBuffer.isEmpty { zipBufferedAddition = addition }
             zipOutputBuffer.append(data)
         }

@@ -21,10 +21,10 @@ final class SevenZipFolderEncoder {
     }
     private func emit(_ data: Data, write: (Data) throws -> Void) throws {
         compressedSize = try checkedAdd(compressedSize, UInt64(data.count))
-        for offset in stride(from: 0, to: data.count, by: 256 * 1024) {
+        for offset in stride(from: 0, to: data.count, by: IOChunk.size) {
             try Task.checkCancellation()
             let start = data.startIndex + offset
-            let chunk = data[start..<min(start + 256 * 1024, data.endIndex)]
+            let chunk = data[start..<min(start + IOChunk.size, data.endIndex)]
             try output(aes.map { try $0.encrypt(chunk) } ?? chunk, write: write)
         }
     }
@@ -59,7 +59,7 @@ final class SevenZipFolderEncoder {
             var data = Data()
             data.reserveCapacity(count)
             while data.count < count {
-                let chunk = try read(min(256 * 1024, count - data.count))
+                let chunk = try read(min(IOChunk.size, count - data.count))
                 guard !chunk.isEmpty, chunk.count <= count - data.count else { throw WriterError.sourceChanged("7z folder") }
                 data.append(chunk)
             }

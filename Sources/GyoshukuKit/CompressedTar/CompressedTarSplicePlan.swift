@@ -92,7 +92,7 @@ struct CompressedTarSplicePlan {
         func feed(to end: UInt64) {
             if layout.takePendingCut() { cut() }
             while cursor < end {
-                let n = layout.nextCount(available: Int(min(262144, end - cursor)), bufferedCount: buffered)
+                let n = layout.nextCount(available: Int(min(UInt64(IOChunk.size), end - cursor)), bufferedCount: buffered)
                 buffered += n; cursor += UInt64(n)
                 if layout.appended(n, bufferedCount: buffered) { cut() }
             }

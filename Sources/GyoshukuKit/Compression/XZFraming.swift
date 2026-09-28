@@ -2,7 +2,6 @@ import Foundation
 
 // 参照仕様: https://tukaani.org/xz/xz-file-format.txt (1.2.1)。
 enum XZFraming {
-    private static let outputSize = 256 * 1024
     private static let flags = Data([0, 1])
 
     static var streamHeader: Data {
@@ -59,9 +58,9 @@ enum XZFraming {
     }
 
     private static func slices(_ data: Data, emit: (Data) throws -> Void) throws {
-        for offset in stride(from: data.startIndex, to: data.endIndex, by: Self.outputSize) {
+        for offset in stride(from: data.startIndex, to: data.endIndex, by: IOChunk.size) {
             try Task.checkCancellation()
-            try emit(data[offset..<min(offset + Self.outputSize, data.endIndex)])
+            try emit(data[offset..<min(offset + IOChunk.size, data.endIndex)])
         }
     }
 

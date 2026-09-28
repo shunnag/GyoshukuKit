@@ -10,7 +10,7 @@ final class Bzip2Compressor: TarCompressor {
     private let stream: UnsafeMutablePointer<bz_stream>
     private var initialized = false
     private var finished = false
-    private var output = [UInt8](repeating: 0, count: 256 * 1_024)
+    private var output = [UInt8](repeating: 0, count: IOChunk.size)
 
     init(level: Int) throws {
         stream = .allocate(capacity: 1)
