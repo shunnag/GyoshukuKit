@@ -1,5 +1,4 @@
 import Foundation
-private import Darwin
 public import KaitoKit
 
 /// LHA の追加・削除・改名。運ぶ member の byte を保ち、追加は末尾へ書く。thread-safe ではない。
@@ -16,7 +15,7 @@ public final class LHAUpdater: ArchiveEditing {
         case flipWrittenByte(UInt64), shiftSourceSegment, dropTerminator, corruptWrittenHeader, corruptAppendedPayload
     }
     @TaskLocal static var testingFault: Fault?
-    private(set) var verificationSeconds = (v2: 0.0, v3: 0.0, total: 0.0)
+    private(set) var verificationSeconds: LHASelfCheck.Timings = (v2: 0.0, v3: 0.0, total: 0.0)
 
     private let snapshot: ArchiveSourceSnapshot
     private let output: URL
@@ -155,7 +154,7 @@ public final class LHAUpdater: ArchiveEditing {
                 let member = try layout.member(index)
                 renamedHeaders[index] = try LHARecords.Entry(name: name, mode: ArchiveRewriter.mode(for: entry),
                     size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? Date())
-                    .header(method: directory ? "-lhd-" : member.method,
+                    .header(method: directory ? LHARecords.Method.lhd : member.method,
                             packedSize: directory ? 0 : UInt32(member.dataRange.byteLength),
                             crc: directory ? 0 : member.crc16)
             }
@@ -187,24 +186,20 @@ public final class LHAUpdater: ArchiveEditing {
             })
             try Task.checkCancellation()
             try meter.start()
-            let fault = Self.faultAction(plan: plan, finalLength: finalLength, records: records, appendStart: appendStart)
+            let fault = Self.testingFault.map {
+                LHASelfCheck.faultAction($0, plan: plan, finalLength: finalLength, records: records, appendStart: appendStart)
+            }
             let strategy = try SplicedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
                 try destination.commit(outputPlan, meter: meter) { fd, advance in
-                    try self.verify(plan: plan, records: records, additionLength: additionLength,
-                                    finalLength: finalLength, descriptor: fd, advance: advance)
+                    self.verificationSeconds = try LHASelfCheck.verify(plan: plan, records: records, additionLength: additionLength,
+                        finalLength: finalLength, descriptor: fd, source: self.snapshot.source, layout: self.layout,
+                        appendStart: self.appendStart, advance: advance)
                 }
             }
             try meter.finish()
             try Task.checkCancellation()
             snapshot.cleanup()
-            switch strategy {
-            case .unchanged: lastCommitStrategy = .unchanged
-            case .inPlacePatch: lastCommitStrategy = .inPlacePatch
-            case .appendOnly: lastCommitStrategy = removed.isEmpty && plan.changed.isEmpty ? .appendOnly : .splice
-            case .splice: lastCommitStrategy = .splice
-            case .sequential: lastCommitStrategy = .sequential
-            case .relocatedAppend: lastCommitStrategy = .relocatedAppend
-            }
+            lastCommitStrategy = CommitStrategy(strategy, appendWasSplice: !removed.isEmpty || !plan.changed.isEmpty)
             state = .committed
         }
     }
@@ -242,91 +237,6 @@ public final class LHAUpdater: ArchiveEditing {
         return writer
     }
 
-    private func verify(plan: LHAEditPlan, records: [LHAWriter.MemberRecord], additionLength: UInt64,
-                        finalLength: UInt64, descriptor: Int32, advance: (UInt64) throws -> Void) throws {
-        let started = ProcessInfo.processInfo.systemUptime
-        defer { verificationSeconds.total = ProcessInfo.processInfo.systemUptime - started }
-        var progressError: Error?
-        func advancing(_ count: UInt64) throws {
-            do { try advance(count) } catch { progressError = error; throw error }
-        }
-        do {
-            var info = stat()
-            guard fstat(descriptor, &info) == 0, info.st_size >= 0, UInt64(info.st_size) == finalLength else { throw failure("V4 length") }
-            guard plan.isChanged else { return }
-            let source = try ArchiveFileSource(duplicating: descriptor)
-            for change in plan.changed {
-                try Task.checkCancellation()
-                let actual = try SplicedArchiveOutput.read(descriptor, at: change.outputOffset, count: change.header.count)
-                guard actual == change.header, actual.first != 0 else { throw failure("V1 header") }
-                let original = try layout.member(change.index)
-                let payloadLength = original.dataRange.byteLength
-                let end = change.outputOffset + UInt64(change.header.count) + payloadLength
-                let walked = try LHALayout.walk(source: source, range: change.outputOffset..<end) { index, header in
-                    guard index == 0, header.member.headerLevel == 2, header.member.method == original.method,
-                          header.member.crc16 == (original.method == "-lhd-" ? 0 : original.crc16),
-                          header.member.dataRange.byteLength == payloadLength else {
-                        throw self.failure("V1 parsed header")
-                    }
-                }
-                guard walked.count == 1, walked.end == end, !walked.terminated else { throw failure("V1 bounds") }
-            }
-            let v2Start = ProcessInfo.processInfo.systemUptime
-            for boundary in plan.boundaries {
-                try Task.checkCancellation()
-                let original = try SplicedArchiveOutput.read(snapshot.source.descriptor, at: boundary.source, count: Int(boundary.length), counted: true)
-                let written = try SplicedArchiveOutput.read(descriptor, at: boundary.output, count: Int(boundary.length), counted: true)
-                try advancing(boundary.length * 2)
-                guard original == written else { throw failure("V2 boundary header") }
-            }
-            verificationSeconds.v2 = ProcessInfo.processInfo.systemUptime - v2Start
-            if additionLength > 0 {
-                let v3Start = ProcessInfo.processInfo.systemUptime
-                do {
-                    try LHAAppendedMemberCheck.verify(descriptor: descriptor, at: plan.membersEnd, originalStart: appendStart!,
-                                                      length: additionLength, records: records, advance: advancing)
-                } catch {
-                    if error is CancellationError { throw error }
-                    throw failure("V3: \(error)")
-                }
-                verificationSeconds.v3 = ProcessInfo.processInfo.systemUptime - v3Start
-            }
-            guard try SplicedArchiveOutput.read(descriptor, at: finalLength - 1, count: 1) == Data([0]) else { throw failure("V4 terminator") }
-        } catch {
-            if let progressError { throw progressError }
-            if error is CancellationError { throw error }
-            if let failure = error as? UpdaterRouteError, case .outputVerificationFailed = failure { throw failure }
-            throw failure("LHA verification: \(error)")
-        }
-    }
-    private func failure(_ reason: String) -> UpdaterRouteError { .outputVerificationFailed(reason: reason) }
-
-    private static func faultAction(plan: LHAEditPlan, finalLength: UInt64, records: [LHAWriter.MemberRecord],
-                                    appendStart: UInt64?) -> (@Sendable (Int32) throws -> Void)? {
-        guard let fault = testingFault else { return nil }
-        let header = plan.changed.first?.outputOffset ?? plan.membersEnd
-        let boundary = plan.boundaries.first?.output ?? 0
-        let membersEnd = plan.membersEnd
-        let payload = records.first.map { plan.membersEnd + $0.headerOffset - (appendStart ?? 0) + $0.headerLength }
-        return { fd in
-            let offset: UInt64
-            switch fault {
-            case .flipWrittenByte(let value): offset = value
-            case .shiftSourceSegment:
-                let bytes = try SplicedArchiveOutput.read(fd, at: boundary + 1, count: 21)
-                try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: boundary) }
-                return
-            case .corruptWrittenHeader: offset = header
-            case .corruptAppendedPayload: offset = payload ?? membersEnd
-            case .dropTerminator:
-                try FileHandle(fileDescriptor: fd, closeOnDealloc: false).truncate(atOffset: finalLength - 1)
-                return
-            }
-            var byte = try SplicedArchiveOutput.read(fd, at: offset, count: 1)
-            byte[0] ^= 1
-            try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: offset) }
-        }
-    }
     private func perform(_ body: () throws -> Void) throws {
         guard state == .adding else {
             if state == .committing { state = .failed }
@@ -337,4 +247,18 @@ public final class LHAUpdater: ArchiveEditing {
     }
     // writer の衝突・符号化失敗も transaction 全体の失敗。abort は clone も含め出力を無効にする。
     private func cleanup() { writer = nil; lhaWriter = nil; destination.discard() }
+}
+
+extension LHAUpdater.CommitStrategy {
+    /// 共有出力の結果を LHA の語に写す。appendOnly でも削除・改名があれば splice と数える。
+    init(_ shared: SplicedCommitStrategy, appendWasSplice: Bool) {
+        switch shared {
+        case .unchanged: self = .unchanged
+        case .inPlacePatch: self = .inPlacePatch
+        case .appendOnly: self = appendWasSplice ? .splice : .appendOnly
+        case .splice: self = .splice
+        case .sequential: self = .sequential
+        case .relocatedAppend: self = .relocatedAppend
+        }
+    }
 }

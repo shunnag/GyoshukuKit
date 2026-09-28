@@ -18,9 +18,8 @@ enum LH5Encoder {
         return bits.finish()
     }
 
-    // A streaming input may include up to one window of already emitted
-    // history. Seed matches from it without emitting that prefix again.
-    // Keep the bit writer across inputs: LH5 blocks have no byte padding.
+    // streaming の入力は、既に出力した history を window 一つ分まで先頭に含めてよい。その prefix は match の
+    // 種にするだけで、再出力しない。LH5 の block には byte 境界の padding がないので、bit writer は入力を跨いで保つ。
     static func write(_ input: Data, startingAt initialOffset: Int = 0, to bits: inout Bits) throws {
         try Task.checkCancellation()
         guard initialOffset >= 0, initialOffset <= windowSize, initialOffset <= input.count else {

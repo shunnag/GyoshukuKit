@@ -1,6 +1,13 @@
 import Foundation
 
 enum LHARecords {
+    /// 書庫に書く method 名。writer は -lh5- と、縮まないときの -lh0-、directory の -lhd- だけを作る。
+    enum Method {
+        static let lh0 = "-lh0-"
+        static let lh5 = "-lh5-"
+        static let lhd = "-lhd-"
+    }
+
     struct Entry {
         let mode: UInt16
         let size: UInt32
@@ -25,7 +32,7 @@ enum LHARecords {
             }
             self.directory = directory
             // header 全体の 16 bit 上限も、入力の読み取りや出力より前に検証する。
-            _ = try header(method: mode.isDirectoryMode ? "-lhd-" : "-lh0-", packedSize: self.size, crc: 0)
+            _ = try header(method: mode.isDirectoryMode ? Method.lhd : Method.lh0, packedSize: self.size, crc: 0)
         }
 
         func header(method: String, packedSize: UInt32, crc: UInt16) throws -> Data {

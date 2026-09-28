@@ -92,5 +92,3 @@ final class ParallelXZCompressor: TarCompressor {
         blockCount = try checkedAdd(blockCount, 1)
     }
 }
-
-typealias XZCompressor = ParallelXZCompressor

@@ -7,7 +7,7 @@ extension SevenZipUpdater {
         for case let .convert(index, kind) in plan.works {
             try Task.checkCancellation()
             if kind != .attach, !passwordChecked.contains(index) {
-                try SevenZipFolderConversion.verifyPassword(reader: reader, files: filesByFolder[index])
+                try Self.verifyPassword(reader: reader, files: filesByFolder[index])
                 passwordChecked.insert(index)
             }
         }
@@ -22,6 +22,26 @@ extension SevenZipUpdater {
                 conversion.scratch = scratch
             }
         }
+    }
+
+    /// folder の file を先頭から合計 64 KiB 復号して現在の password を確かめる。復号の malformed / truncated は
+    /// wrongPassword と見る。detach / change の前にだけ要る（attach は平文を読む）。
+    private static func verifyPassword(reader: ArchiveReader, files: [Int]) throws {
+        guard reader.password != nil else { throw KaitoError.passwordRequired }
+        do {
+            var remaining = 64 * 1024
+            for index in files {
+                try Task.checkCancellation()
+                let stream = try reader.stream(reader.entries[index])
+                repeat {
+                    let bytes = try stream.readSome(upTo: min(remaining, 64 * 1024))
+                    remaining -= bytes.count
+                    if bytes.isEmpty { break }
+                } while remaining > 0
+                if remaining == 0 { break }
+            }
+        } catch KaitoError.malformed { throw KaitoError.wrongPassword }
+        catch KaitoError.truncated { throw KaitoError.wrongPassword }
     }
 
     func prepareReencodings(_ plan: SevenZipEditPlan, advance: @escaping (UInt64) throws -> Void) throws {
@@ -134,8 +154,8 @@ extension SevenZipUpdater {
                     input = try checkedAdd(input, folder.size)
                     let encrypted = reencrypt ? options.password != nil : folder.isEncrypted
                     var replacement = folder
-                    replacement.coders = (encrypted ? [.init(methodID: [6, 0xF1, 7, 1], properties: Array(repeating: 0, count: 18))] : [])
-                        + [.init(methodID: [0x21], properties: [0])]
+                    replacement.coders = (encrypted ? [.aes(properties: Array(repeating: 0, count: SevenZipAESEncryptor.propertiesLength))] : [])
+                        + [.lzma2(properties: 0)]
                     replacement.bindPairs = encrypted ? [.init(input: 1, output: 0)] : []
                     replacement.packedInputs = [0]; replacement.unpackSizes = encrypted ? [bound, size] : [size]
                     replacement.finalOutput = encrypted ? 1 : 0; replacement.crc32 = nil
@@ -235,33 +255,9 @@ extension SevenZipUpdater {
         } catch { if let progressError { throw progressError }; throw error }
         stats.v2Seconds = max(0, totalVerification.withLock { $0 } - stats.selfCheckSeconds)
         stats.packsSeconds = max(0, ProcessInfo.processInfo.systemUptime - packsStart - totalVerification.withLock { $0 })
-        var shifted = false, converted = false, reencodedAny = false
-        for work in plan.works {
-            let index = work.index, target = assembly.model.folders[assembly.outputFolderIndices[index]!]
-            switch work {
-            case .carry:
-                for (old, new) in zip(model.packs[model.folders[index].packIndices], assembly.model.packs[target.packIndices]) {
-                    let moved = old.range.lowerBound != new.range.lowerBound
-                    shifted = shifted || moved
-                    if (!destination.isCloneMode && (appended == nil || strategy == .relocatedAppend)) || (destination.isCloneMode && moved) {
-                        stats.writtenCarriedPackBytes += old.length
-                    }
-                    if !destination.isCloneMode || moved { stats.verificationReadBytes += old.length * 2 }
-                }
-            case .convert:
-                converted = true; stats.convertedPackBytes += conversions[index]!.replacement.packs[0].length
-            case .reencode:
-                reencodedAny = true; stats.reencodedFolderCount += 1
-                stats.scratchCopySeconds += reencoded[index]!.scratch.copySeconds - (scratchBefore[index] ?? 0)
-                stats.reencodedInputBytes += model.folders[index].size
-                stats.reencodedPackBytes += reencoded[index]!.scratch.length
-                stats.reencodeScratchWrittenBytes += reencoded[index]!.scratch.length
-            }
-        }
-        stats.strategy = plan.unchanged ? .unchanged : converted ? .reencrypted : reencodedAny ? .reencoded
-            : shifted ? .compacted : additions.isEmpty ? .headerOnly : .appendOnly
-        if strategy == .relocatedAppend { stats.strategy = .relocatedAppend }
-        else if strategy == .sequential { stats.strategy = .sequential }
+        stats.summarize(plan: plan, assembly: assembly, original: model, shared: strategy, isCloneMode: destination.isCloneMode,
+                        appended: appended, hasAdditions: !additions.isEmpty, conversions: conversions, reencoded: reencoded,
+                        scratchBefore: scratchBefore)
         try meter!.finish()
         try Task.checkCancellation()
         try snapshot.original.checkUnchanged(at: snapshot.originalURL)
@@ -309,7 +305,7 @@ extension SevenZipUpdater {
             } else {
                 guard let aes else { throw WriterError.invalidState }
                 pack = try aes.encrypt(plain); pack.append(try aes.finish())
-                folder = .init(coders: [.init(methodID: [6, 0xF1, 7, 1], properties: Array(aes.properties))],
+                folder = .init(coders: [.aes(properties: Array(aes.properties))],
                     bindPairs: [], packedInputs: [0], unpackSizes: [UInt64(plain.count)], finalOutput: 0,
                     crc32: SevenZipRecords.checksum(plain), packIndices: 0..<1, substreamIndices: 0..<1)
             }

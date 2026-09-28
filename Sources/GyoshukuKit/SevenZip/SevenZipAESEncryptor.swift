@@ -4,6 +4,8 @@ private import CommonCrypto
 /// 7z AES-256-CBC。CommonCrypto が block の端数を保持し、最後だけ明示的に zero pad する。
 final class SevenZipAESEncryptor {
     @TaskLocal static var testingIV: (@Sendable () -> Data)?
+    /// properties は設定 2 byte + IV 16 byte。header 長の見積りで実物の代わりに使う。
+    static let propertiesLength = 18
     let properties: Data
     private var cryptor: CCCryptorRef?
     private var remainder = 0
@@ -54,5 +56,22 @@ final class SevenZipAESEncryptor {
         guard status == CCCryptorStatus(kCCSuccess) else { throw WriterError.io(operation: "AES CBC finish", code: status) }
         result.append(tail.prefix(moved))
         return result
+    }
+}
+
+extension SevenZipAESEncryptor {
+    /// salt なしの KDF は書庫内で共通。鍵は最初の make で一度だけ導出し、folder / header ごとに IV の独立した
+    /// encryptor を作る。password が無ければ nil。SevenZipWriter と SevenZipUpdater が共有する。
+    struct Factory {
+        private let password: String?
+        private var key: Data?
+
+        init(password: String?) { self.password = password }
+
+        mutating func make() throws -> SevenZipAESEncryptor? {
+            guard let password else { return nil }
+            if key == nil { key = try EncryptionPrimitives.sevenZipKey(password: password) }
+            return try SevenZipAESEncryptor(key: key!)
+        }
     }
 }

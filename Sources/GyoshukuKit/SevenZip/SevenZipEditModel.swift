@@ -3,12 +3,19 @@ import Foundation
 
 struct SevenZipEditModel: Sendable, Equatable {
     struct Coder: Sendable, Equatable {
+        /// 7z の method ID。AES-256 + SHA-256 の鍵導出は 06 F1 07 01、LZMA2 は 21。
+        static let aesMethodID: [UInt8] = [0x06, 0xF1, 0x07, 0x01]
+        static let lzma2MethodID: [UInt8] = [0x21]
         var methodID: [UInt8]
         var inputCount = 1
         var outputCount = 1
         var isComplex = false
         var properties: [UInt8]?
-        var isAES: Bool { methodID == [0x06, 0xF1, 0x07, 0x01] }
+        var isAES: Bool { methodID == Self.aesMethodID }
+        /// 単入力・単出力の AES coder。properties は SevenZipAESEncryptor.properties の byte。
+        static func aes(properties: [UInt8]) -> Coder { Coder(methodID: aesMethodID, properties: properties) }
+        /// LZMA2 coder。properties は dictionary size を表す 1 byte。
+        static func lzma2(properties: UInt8) -> Coder { Coder(methodID: lzma2MethodID, properties: [properties]) }
     }
     struct Bind: Sendable, Equatable { var input: Int; var output: Int }
     struct Folder: Sendable, Equatable {
@@ -74,8 +81,8 @@ struct SevenZipEditModel: Sendable, Equatable {
     var filePropertyOrder: [UInt8] = []
     var unrepresentedReason: String?
 
-    // 7-Zip updates keep an absent attributes vector absent for new/replacement items.
-    // Empty archives use writer defaults. A partially defined source remains unchanged.
+    // 7-Zip の更新は、属性 vector の無い元には新規・置換 item にも属性を置かない。
+    // 空の書庫は writer の既定に従い、一部だけ定義された元はその形のまま保つ。
     var storesAttributesForAdditions: Bool { files.isEmpty || files.contains { $0.attributes != nil } }
 
     static func readerOptions(password: String?) -> ReaderOptions {

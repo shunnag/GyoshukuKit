@@ -29,7 +29,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     let headerPassword: String?
     var reencrypt = false
     var currentPassword: String?
-    var encryptionKey: Data?
+    private var encryptors: SevenZipAESEncryptor.Factory
     var removed: Set<Int> = []
     var renamed: [Int: String] = [:]
     private lazy var reservations = EditPathReservations(existingPaths)
@@ -50,6 +50,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
                  model: SevenZipEditModel, names: [String], password: String?) {
         self.snapshot = snapshot; self.output = output; self.options = options; self.reader = reader
         self.model = model; self.names = names; filesByFolder = model.filesByFolder; headerPassword = password
+        encryptors = SevenZipAESEncryptor.Factory(password: options.password)
         destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "7z", sequential: Self.testingDisablesClone)
     }
     deinit { if state != .committed { cleanup() } }
@@ -217,11 +218,11 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         self.writer = writer; appendStart = offset; writerPathsNeedRefresh = false
         return writer
     }
+    /// enabled なら options.password の encryptor。password が無ければ invalidOption("password")。
     func makeEncryptor(enabled: Bool) throws -> SevenZipAESEncryptor? {
         guard enabled else { return nil }
-        guard let password = options.password else { throw WriterError.invalidOption("password") }
-        if encryptionKey == nil { encryptionKey = try EncryptionPrimitives.sevenZipKey(password: password) }
-        return try SevenZipAESEncryptor(key: encryptionKey!)
+        guard let aes = try encryptors.make() else { throw WriterError.invalidOption("password") }
+        return aes
     }
     private func perform(_ body: () throws -> Void) throws {
         guard state == .adding else {

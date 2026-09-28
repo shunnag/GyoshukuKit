@@ -32,3 +32,41 @@ public struct SevenZipAssessment: Sendable, Equatable {
     public internal(set) var v3Seconds = 0.0
     public internal(set) var v3aSeconds = 0.0
 }
+
+extension SevenZipCommitStatistics {
+    /// 書き終えた後に、計画・組み立てた model・共有出力の結果から strategy と pack の byte 量を集計する。
+    /// clone mode では動いた carry pack だけを書き、動かなかった pack は照合も読まない。
+    /// 共有出力が relocatedAppend / sequential に落ちた場合はその strategy が優先する。
+    mutating func summarize(plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly, original model: SevenZipEditModel,
+                            shared: SplicedCommitStrategy, isCloneMode: Bool, appended: Range<UInt64>?, hasAdditions: Bool,
+                            conversions: [Int: SevenZipFolderConversion], reencoded: [Int: SevenZipReencodedFolder],
+                            scratchBefore: [Int: Double]) {
+        var shifted = false, converted = false, reencodedAny = false
+        for work in plan.works {
+            let index = work.index, target = assembly.model.folders[assembly.outputFolderIndices[index]!]
+            switch work {
+            case .carry:
+                for (old, new) in zip(model.packs[model.folders[index].packIndices], assembly.model.packs[target.packIndices]) {
+                    let moved = old.range.lowerBound != new.range.lowerBound
+                    shifted = shifted || moved
+                    if (!isCloneMode && (appended == nil || shared == .relocatedAppend)) || (isCloneMode && moved) {
+                        writtenCarriedPackBytes += old.length
+                    }
+                    if !isCloneMode || moved { verificationReadBytes += old.length * 2 }
+                }
+            case .convert:
+                converted = true; convertedPackBytes += conversions[index]!.replacement.packs[0].length
+            case .reencode:
+                reencodedAny = true; reencodedFolderCount += 1
+                scratchCopySeconds += reencoded[index]!.scratch.copySeconds - (scratchBefore[index] ?? 0)
+                reencodedInputBytes += model.folders[index].size
+                reencodedPackBytes += reencoded[index]!.scratch.length
+                reencodeScratchWrittenBytes += reencoded[index]!.scratch.length
+            }
+        }
+        strategy = plan.unchanged ? .unchanged : converted ? .reencrypted : reencodedAny ? .reencoded
+            : shifted ? .compacted : hasAdditions ? .appendOnly : .headerOnly
+        if shared == .relocatedAppend { strategy = .relocatedAppend }
+        else if shared == .sequential { strategy = .sequential }
+    }
+}

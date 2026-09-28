@@ -41,6 +41,10 @@ struct LHALayout {
         } catch { return "LHA layout unavailable: \(error)" }
     }
 
+    /// 書き直しに回す理由。符号は design.md §4「LHA の更新」の表と同じ:
+    /// R10 名前の encoding（宣言が shiftJIS 以外、または宣言なしで非 ASCII）、L1 SFX、L2 0 byte 以外の終端、
+    /// L3 終端の後ろの非 0 byte、L4 非公開 member、L5 level 3、L6 incomplete entry、L7 data を持つ directory、
+    /// L8 LHArk の lh7、L9 UInt32 を越える packed size。R8（walk 不可・SPI との不一致）は scan / walk が出す。
     private static func reason(reader: ArchiveReader, raw: LHAArchiveLayout) throws -> String? {
         if let encoding = reader.nameEncoding, encoding != .shiftJIS { return "R10: name encoding" }
         if reader.nameEncoding == nil, reader.entries.contains(where: { $0.rawName.bytes.contains { $0 >= 0x80 } }) {
@@ -62,7 +66,7 @@ struct LHALayout {
             let entry = reader.entries[entryIndex]
             if entry.isIncomplete { return "L6: incomplete entry" }
             if entry.kind == .directory,
-               member.method != "-lhd-" || !member.dataRange.isEmpty || entry.uncompressedSize != 0 {
+               member.method != LHARecords.Method.lhd || !member.dataRange.isEmpty || entry.uncompressedSize != 0 {
                 return "L7: directory with data"
             }
             if member.method == "-lh7-", member.osID == 0x20 { return "L8: LHArk" }
@@ -183,6 +187,7 @@ struct LHALayout {
                       rawName: raw, originalSize: originalSize)
     }
 
+    /// R8: 独立した header walk が構造を読めない、または KaitoKit の SPI / 公開 entry と一致しない。
     private static func refuse(_ reason: String) -> UpdaterRouteError { .requiresRewrite(reason: "R8: \(reason)") }
 
     private struct HeaderCache {

@@ -110,7 +110,7 @@ final class CompressedTarWriterTests: XCTestCase {
             for chunk in [1, 3, 37, 262_144] {
                 let directory = try ZipTestSupport.directory("compressed-tar-chunks-\(format)-\(chunk)")
                 let archive = directory.appendingPathComponent("stream." + suffix(format))
-                let compressor: any TarCompressor = format == .tarBzip2 ? try Bzip2Compressor(level: 1) : try XZCompressor()
+                let compressor: any TarCompressor = format == .tarBzip2 ? try Bzip2StreamEncoder(level: 1) : try ParallelXZCompressor()
                 var encoded = Data()
                 // Exercise tiny input across native calls, then a final input larger than the output buffer.
                 for offset in stride(from: 0, to: 30_001, by: chunk) {
@@ -223,4 +223,11 @@ final class CompressedTarWriterTests: XCTestCase {
         }
     }
 
+}
+
+// 同期 codec を tar の圧縮 sink と同じ write(_:finish:emit:) の並びで試すための、試験だけの適合。
+// @testable import で見える protocol への適合なので、witness は public を要求される。
+extension Bzip2StreamEncoder: TarCompressor {
+    public var pendingInputBytes: UInt64 { 0 }
+    public func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {}
 }

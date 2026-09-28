@@ -5,7 +5,7 @@ final class SevenZipWriter {
     private let output: FileHandle
     private let url: URL
     private let options: WriterOptions
-    private var encryptionKey: Data?
+    private var encryptors: SevenZipAESEncryptor.Factory
     struct AppendedEntry {
         let record: SevenZipRecords.Entry
         let packRange: Range<UInt64>
@@ -43,6 +43,7 @@ final class SevenZipWriter {
         self.output = output
         self.url = url
         self.options = options
+        encryptors = SevenZipAESEncryptor.Factory(password: options.password)
         isAppend = startPosition != nil
         position = startPosition ?? 0
         lzmaChunkSize = chunkSize
@@ -62,7 +63,7 @@ final class SevenZipWriter {
         let record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
-        let entry = PendingEntry(record: record, aes: size > 0 ? try makeEncryptor() : nil)
+        let entry = PendingEntry(record: record, aes: size > 0 ? try encryptors.make() : nil)
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
@@ -108,7 +109,7 @@ final class SevenZipWriter {
                                            mtime: try SevenZipRecords.timestamp(date))
         record.crc = prefetched.crc
         try reserveSignature()
-        let entry = PendingEntry(record: record, aes: data.isEmpty ? nil : try makeEncryptor())
+        let entry = PendingEntry(record: record, aes: data.isEmpty ? nil : try encryptors.make())
         try pipeline.submit(data.isEmpty ? nil : data, tag: ChunkTag(entry: entry, isLast: true),
                             weight: UInt64(data.count), emit: emit)
         try Task.checkCancellation()
@@ -121,7 +122,7 @@ final class SevenZipWriter {
         var packedSize = position - 32
         var header = try SevenZipRecords.header(entries)
         if options.encryptsSevenZipHeaders {
-            guard let aes = try makeEncryptor() else { throw WriterError.invalidOption("encryptsSevenZipHeaders") }
+            guard let aes = try encryptors.make() else { throw WriterError.invalidOption("encryptsSevenZipHeaders") }
             let plainSize = UInt64(header.count)
             let crc = SevenZipRecords.checksum(header)
             let start = position
@@ -159,13 +160,6 @@ final class SevenZipWriter {
 
     private func reserveSignature() throws {
         if position == 0 { try write(Data(count: 32)) }
-    }
-
-    private func makeEncryptor() throws -> SevenZipAESEncryptor? {
-        guard let password = options.password else { return nil }
-        // salt なしの KDF は書庫内で共通。各 folder / header の IV は毎回独立に生成する。
-        if encryptionKey == nil { encryptionKey = try EncryptionPrimitives.sevenZipKey(password: password) }
-        return try SevenZipAESEncryptor(key: encryptionKey!)
     }
 
     private func emit(_ tag: ChunkTag, _ result: LZMA2ChunkPipeline<ChunkTag>.Output?) throws {

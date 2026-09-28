@@ -35,9 +35,9 @@ final class SevenZipFolderEncoder {
     }
 
     func folder(size: UInt64, crc: UInt32? = nil, substreamCount: Int = 1) -> SevenZipEditModel.Folder {
-        let lzma = SevenZipEditModel.Coder(methodID: [0x21], properties: [properties])
+        let lzma = SevenZipEditModel.Coder.lzma2(properties: properties)
         let coders: [SevenZipEditModel.Coder]
-        if let aes { coders = [.init(methodID: [6, 0xF1, 7, 1], properties: Array(aes.properties)), lzma] }
+        if let aes { coders = [.aes(properties: Array(aes.properties)), lzma] }
         else { coders = [lzma] }
         return .init(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)], packedInputs: [0],
                      unpackSizes: aes == nil ? [size] : [compressedSize, size], finalOutput: aes == nil ? 0 : 1,
