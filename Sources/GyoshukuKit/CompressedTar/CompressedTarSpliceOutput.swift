@@ -91,7 +91,8 @@ final class CompressedTarSpliceOutput {
     private func input(_ part: CompressedTarSplicePlan.Part, image: TarImageSource) throws -> Input {
         let bytes = try TarLayout.bytes(image, at: part.image.lowerBound, count: Int(part.image.byteLength))
         let start = part.image.lowerBound
-        let dictionary = format == .tarGzip ? try TarLayout.bytes(image, at: start - min(start, 32768), count: Int(min(start, 32768))) : Data()
+        let window = min(start, UInt64(DeflateBlock.windowSize))
+        let dictionary = format == .tarGzip ? try TarLayout.bytes(image, at: start - window, count: Int(window)) : Data()
         return Input(bytes: bytes, dictionary: dictionary, final: part.image.upperBound == image.length)
     }
 

@@ -42,7 +42,7 @@ struct CompressedTarSplicePlan {
                 for index in low..<chunks.count {
                     let chunk = chunks[index]
                     if chunk.imageRange.upperBound > oldEnd { break }
-                    let window = format == .tarGzip && !ignoresWindow ? min(32768, chunk.imageRange.lowerBound) : 0
+                    let window = format == .tarGzip && !ignoresWindow ? min(UInt64(DeflateBlock.windowSize), chunk.imageRange.lowerBound) : 0
                     guard chunk.imageRange.lowerBound - window >= span.offset, !chunk.imageRange.isEmpty else { continue }
                     // 変更後の終端は必ず literal。旧 gzip の BFINAL は運ばない。
                     if format == .tarGzip, index == chunks.count - 1 { continue }

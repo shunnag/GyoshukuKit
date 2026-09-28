@@ -36,7 +36,7 @@ enum CompressedTarSelfCheck {
                 let decoded: Data
                 switch format {
                 case .tarGzip:
-                    let window = min(32768, part.image.lowerBound)
+                    let window = min(UInt64(DeflateBlock.windowSize), part.image.lowerBound)
                     let dictionary = try TarLayout.bytes(image, at: part.image.lowerBound - window, count: Int(window))
                     decoded = try gzip(input.compressed, count: expected.count, dictionary: dictionary,
                                        final: part.image.upperBound == image.length)
@@ -107,7 +107,7 @@ enum CompressedTarSelfCheck {
             if let index = part.baseIndex {
                 guard plan.chunks.indices.contains(index) else { throw failure("V0 base index") }
                 let chunk = plan.chunks[index]
-                let window = writer.format == .tarGzip ? min(32768, chunk.imageRange.lowerBound) : 0
+                let window = writer.format == .tarGzip ? min(UInt64(DeflateBlock.windowSize), chunk.imageRange.lowerBound) : 0
                 let spanIndex = image.spanIndex(at: part.image.lowerBound)
                 guard spanIndex < image.spans.count else { throw failure("V0 source span") }
                 let span = image.spans[spanIndex]

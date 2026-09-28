@@ -4,6 +4,8 @@ private import Darwin
 
 struct DeflateBlock: Sendable {
     static let size = 1024 * 1024
+    /// deflate の辞書（sliding window）長。windowBits=15 の 32 KiB で、gzip の橋・照合・計画が同じ窓幅を使う。
+    static let windowSize = 32 * 1024
     typealias Encoder = @Sendable (DeflateBlock, Int) throws -> Data
 
     let input: Data
@@ -64,7 +66,7 @@ struct DeflateBlock: Sendable {
     }
 
     private static func encode(_ block: DeflateBlock, stream: UnsafeMutablePointer<z_stream>) throws -> Data {
-        precondition(block.input.count <= size && block.dictionary.count <= 32 * 1024)
+        precondition(block.input.count <= size && block.dictionary.count <= windowSize)
         if !block.dictionary.isEmpty {
             let status = block.dictionary.withUnsafeBytes {
                 deflateSetDictionary(stream, $0.baseAddress!.assumingMemoryBound(to: Bytef.self), uInt($0.count))
@@ -112,6 +114,6 @@ struct DeflateBlock: Sendable {
 
     static func dictionary(from input: Data) -> Data {
         // slice の backing storage に前 block 全体を残さない。
-        input.withUnsafeBytes { Data($0.suffix(32 * 1024)) }
+        input.withUnsafeBytes { Data($0.suffix(windowSize)) }
     }
 }

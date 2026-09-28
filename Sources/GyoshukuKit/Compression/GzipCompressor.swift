@@ -86,9 +86,9 @@ final class GzipCompressor: TarCompressor {
         let block = DeflateBlock(input: input, dictionary: dictionary, final: final)
         if final {
             dictionary = Data()
-        } else if layout.hasHints && input.count < 32 * 1024 {
+        } else if layout.hasHints && input.count < DeflateBlock.windowSize {
             // 短い header 群をまたいでも、直前の全入力から 32 KiB を残す。
-            dictionary = Data(dictionary.suffix(32 * 1024 - input.count))
+            dictionary = Data(dictionary.suffix(DeflateBlock.windowSize - input.count))
             dictionary.append(input)
         } else {
             dictionary = DeflateBlock.dictionary(from: input)
