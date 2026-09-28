@@ -10,8 +10,10 @@ final class ZipConversion {
     let target: ZipRawEncryption
     let storedLength: UInt64
     let compressedSize: UInt64
-    let passA: Bool
-    let v2: Bool
+    /// AE-2 の入力（CRC なし）を CRC の要る方式にするため、pass A で展開 CRC を先に計算する。
+    let needsCRCPrepass: Bool
+    /// V2 で展開 stream の CRC を照合する（ZipCrypto 入力、pass A 対象、平文 → AE-2）。
+    let verifiesExpandedCRC: Bool
     var crc: UInt32
     var payloadCRC: UInt32 = 0
     var local = Data()
@@ -30,8 +32,8 @@ final class ZipConversion {
         self.size = size
         storedLength = raw.payloadRange.byteLength - raw.encryption.overhead
         compressedSize = try checkedAdd(storedLength, target.overhead)
-        passA = raw.encryption.aesVersion == 2 && target.aesVersion == nil
-        v2 = raw.encryption == .zipCrypto || passA || (raw.encryption == .none && target.aesVersion == 2)
+        needsCRCPrepass = raw.encryption.aesVersion == 2 && target.aesVersion == nil
+        verifiesExpandedCRC = raw.encryption == .zipCrypto || needsCRCPrepass || (raw.encryption == .none && target.aesVersion == 2)
         crc = target.aesVersion == 2 ? 0 : raw.storedCRC32
     }
 
@@ -168,7 +170,27 @@ final class ZipConversion {
 }
 
 final class ZipReencryption {
-    enum Phase: Sendable { case deriveInput, deriveOutput, derivationWait, passA, convert, v0, v1, v2, v3 }
+    /// 変換と検証の段階。design.md「ZIP の再暗号化（P1b）」の段階名に対応し、試験は testingObserver で観測する。
+    enum Phase: Sendable {
+        /// 入力 AES の鍵材料を salt から導出する。
+        case deriveInput
+        /// 出力 AES の鍵材料を新しい salt から導出する。
+        case deriveOutput
+        /// 導出 pipeline の窓が空くのを待つ。
+        case derivationWait
+        /// pass A: AE-2 入力を平文 / ZipCrypto にするとき、展開 CRC を先に計算する。
+        case passA
+        /// 保存 payload を復号し、出力の方式で暗号化し直して書く。
+        case convert
+        /// V0: 出力の門番・entry 数・名前・種別・方式・サイズ・CRC・暗号状態と local / CD の byte。
+        case v0
+        /// V1: 全変換 entry の復号した保存 payload の長さと CRC。
+        case v1
+        /// V2: ZipCrypto 入力・pass A 対象・平文 → AE-2 の展開 CRC。
+        case v2
+        /// V3: AES 出力の標本を password から導き直した保存 byte の照合。
+        case v3
+    }
     struct Event: Sendable { let phase: Phase; let index: Int }
     @TaskLocal static var testingObserver: (@Sendable (Event) throws -> Void)?
     @TaskLocal static var testingKeyMaterial: (@Sendable (Int, inout Keys) throws -> Void)?
@@ -221,7 +243,7 @@ final class ZipReencryption {
         else { samples = Set((0..<16).map { aes[$0 * (aes.count - 1) / 15] }) }
         var total: UInt64 = 0
         for conversion in conversions.values {
-            let passes = 1 + (conversion.passA ? 1 : 0) + (conversion.v2 ? 1 : 0) + (samples.contains(conversion.index) ? 1 : 0)
+            let passes = 1 + (conversion.needsCRCPrepass ? 1 : 0) + (conversion.verifiesExpandedCRC ? 1 : 0) + (samples.contains(conversion.index) ? 1 : 0)
             for _ in 0..<passes { total = try checkedAdd(total, conversion.storedLength) }
             if conversion.raw.encryption.aesVersion != nil { total = try checkedAdd(total, Self.derivationWork) }
             if conversion.target.aesVersion != nil { total = try checkedAdd(total, Self.derivationWork) }
@@ -298,7 +320,7 @@ final class ZipReencryption {
         for key in [keys?.input, keys?.output] where key != nil {
             try engine.meter.wrote(Int(Self.derivationWork), progress: progress)
         }
-        if conversion.passA {
+        if conversion.needsCRCPrepass {
             try Self.observe(.passA, conversion.index)
             let stream = try input(conversion) { try reader.zipStream(at: conversion.index, aesKey: keys!.input!) }
             let digest = try Self.digest(stream, length: conversion.size, work: conversion.storedLength,
@@ -392,104 +414,138 @@ final class ZipReencryption {
         return (crc, produced)
     }
 
+    // fsync・close 後、公開前に出力を V0 → V1 / V2 → V3 の順で読み直す。失敗は進行中の変換 entry へ帰属させる。
     func verify(url: URL, plan: ZipRebuild.Plan, directory: ZipValidatedDirectory,
                 renamed: [Int: String], appended: [ZipRecords.Entry], meter: inout ZipCommitMeter, progress: Progress) throws {
         defer { outputKeys = Data(); outputSalts = Data() }
         var active: ZipConversion?
         do {
-            try Self.observe(.v0, -1)
-            let source = try ArchiveFileSource(url: url)
-            let layout = try ZipUpdateLayout(source: source)
-            var settings = ArchiveUpdater.readerOptions
-            settings.password = options.password
-            settings.lazyLocalHeaders = false
-            let output = try ArchiveReader.open(source: source, options: settings)
-            let validated = try ZipCentralDirectory.validate(source: source, reader: output,
-                centralOffset: layout.centralOffset, centralSize: layout.centralSize)
-            guard output.format == .zip, layout.count == UInt64(plan.records.count + appended.count),
-                  output.entries.count == plan.records.count + appended.count,
-                  layout.centralOffset == plan.centralOffset, source.length == plan.finalEnd,
-                  try source.bytes(at: plan.finalEnd - UInt64(plan.trailer.count), count: plan.trailer.count) == plan.trailer else {
-                throw KaitoError.malformed("output layout")
-            }
-            for (ordinal, record) in plan.records.enumerated() {
-                try Task.checkCancellation()
-                active = conversions[record.index]
-                let original = reader.entries[record.index], entry = output.entries[ordinal]
-                let raw = validated.records[ordinal].layout
-                let expected = active?.target ?? directory.records[record.index].layout.encryption
-                let crc = active?.crc ?? directory.records[record.index].layout.storedCRC32
-                guard entry.name == (renamed[record.index] ?? original.name), entry.kind == original.kind,
-                      entry.uncompressedSize == original.uncompressedSize,
-                      entry.compressedSize == (active?.compressedSize ?? original.compressedSize),
-                      entry.crc32 == (expected.aesVersion == 2 ? nil : crc), raw.storedCRC32 == crc,
-                      raw.encryption == expected, raw.compressionMethod == directory.records[record.index].layout.compressionMethod,
-                      raw.recordRange.lowerBound == record.offset else { throw KaitoError.malformed("output entry") }
-                if let conversion = active {
-                    guard !raw.hasDataDescriptor else { throw KaitoError.malformed("output descriptor") }
-                    // KaitoKit が照合しない local の方式・CRC・AES extra も byte 表から照合する。
-                    let local = try source.bytes(at: raw.recordRange.lowerBound, count: conversion.local.count)
-                    let central = validated.bytes.subdata(in: validated.records[ordinal].centralRange)
-                    guard local == conversion.local, central == conversion.central else {
-                        throw conversion.failure("出力ヘッダーの照合に失敗しました")
-                    }
-                    try conversion.validateHeaders(local: local, central: central)
-                }
-            }
-            active = nil
-            for ordinal in appended.indices {
-                let index = plan.records.count + ordinal
-                // 追記 CD は plan が offset を確定済み。追加 record の local は ZipAppendedRecordSelfCheck が照合する。
-                guard case .rebuilt(let bytes) = plan.central[index],
-                      validated.bytes.subdata(in: validated.records[index].centralRange) == bytes else {
-                    throw KaitoError.malformed("appended entry")
-                }
-            }
-            for (ordinal, record) in plan.records.enumerated() {
-                guard let conversion = conversions[record.index] else { continue }
-                active = conversion
-                let key = try outputKey(conversion)
-                try Self.observe(.v1, conversion.index)
-                let stored = try output.zipStoredPayloadStream(at: ordinal, aesKey: key)
-                let digest = try Self.digest(stored, length: conversion.storedLength, work: conversion.storedLength, meter: &meter, progress: progress)
-                guard digest.crc == conversion.payloadCRC else { throw conversion.failure("保存データの照合に失敗しました") }
-                if conversion.v2 {
-                    do {
-                        try Self.observe(.v2, conversion.index)
-                        let stream = try key.map { try output.zipStream(at: ordinal, aesKey: $0) } ?? output.stream(output.entries[ordinal])
-                        let expanded = try Self.digest(stream, length: conversion.size, work: conversion.storedLength, meter: &meter, progress: progress)
-                        if conversion.target.aesVersion == 2, expanded.crc != conversion.raw.storedCRC32 {
-                            throw conversion.failure("展開データの照合に失敗しました")
-                        }
-                    } catch is CancellationError { throw CancellationError() }
-                    catch {
-                        if conversion.raw.encryption == .zipCrypto {
-                            // 照合 byte を偶然通る入力だけ、通常の reader で原因を確定する。
-                            do {
-                                var discarded = ZipCommitMeter(totalBytes: 0)
-                                let input = try reader.stream(reader.entries[conversion.index])
-                                _ = try Self.digest(input, length: conversion.size, work: 0, meter: &discarded, progress: nil)
-                            } catch KaitoError.wrongPassword { throw InputPasswordFailure() }
-                            catch is CancellationError { throw CancellationError() }
-                            catch { }
-                        }
-                        throw conversion.failure("展開データの照合に失敗しました")
-                    }
-                }
-            }
-            // 材料経由では検出できない AE-2 の encryption key の取り違えを、password 導出で検出する。
-            for (ordinal, record) in plan.records.enumerated() where samples.contains(record.index) {
-                let conversion = conversions[record.index]!
-                active = conversion
-                try Self.observe(.v3, conversion.index)
-                let stream = try output.zipStoredPayloadStream(at: ordinal)
-                try meter.wrote(Int(Self.derivationWork), progress: progress)
-                let digest = try Self.digest(stream, length: conversion.storedLength, work: conversion.storedLength, meter: &meter, progress: progress)
-                guard digest.crc == conversion.payloadCRC else { throw conversion.failure("鍵導出の照合に失敗しました") }
-            }
+            let verified = try verifyLayout(url: url, plan: plan, appended: appended)
+            try verifyRecords(verified, plan: plan, directory: directory, renamed: renamed, appended: appended, active: &active)
+            try verifyPayloads(verified, plan: plan, meter: &meter, progress: progress, active: &active)
+            try verifyKeySamples(verified, plan: plan, meter: &meter, progress: progress, active: &active)
         } catch is CancellationError { throw CancellationError() }
         catch is InputPasswordFailure { throw KaitoError.wrongPassword }
         catch { throw active?.failure("出力の再暗号化検証に失敗しました") ?? UpdaterError.reencryptionFailed(index: -1, name: "", reason: "出力構造の照合に失敗しました") }
+    }
+
+    private struct VerifiedOutput {
+        let source: ArchiveFileSource
+        let reader: ArchiveReader
+        let validated: ZipValidatedDirectory
+    }
+
+    /// V0（前半）: 門番・entry 数・CD offset・終端 byte を計画と照合し、出力を KaitoKit で開く。
+    private func verifyLayout(url: URL, plan: ZipRebuild.Plan, appended: [ZipRecords.Entry]) throws -> VerifiedOutput {
+        try Self.observe(.v0, -1)
+        let source = try ArchiveFileSource(url: url)
+        let layout = try ZipUpdateLayout(source: source)
+        var settings = ArchiveUpdater.readerOptions
+        settings.password = options.password
+        settings.lazyLocalHeaders = false
+        let output = try ArchiveReader.open(source: source, options: settings)
+        let validated = try ZipCentralDirectory.validate(source: source, reader: output,
+            centralOffset: layout.centralOffset, centralSize: layout.centralSize)
+        guard output.format == .zip, layout.count == UInt64(plan.records.count + appended.count),
+              output.entries.count == plan.records.count + appended.count,
+              layout.centralOffset == plan.centralOffset, source.length == plan.finalEnd,
+              try source.bytes(at: plan.finalEnd - UInt64(plan.trailer.count), count: plan.trailer.count) == plan.trailer else {
+            throw KaitoError.malformed("output layout")
+        }
+        return VerifiedOutput(source: source, reader: output, validated: validated)
+    }
+
+    /// V0（後半）: 各 entry の名前・種別・サイズ・CRC・暗号状態・方式・offset、変換 entry の local / CD の byte、追記 CD を照合する。
+    private func verifyRecords(_ verified: VerifiedOutput, plan: ZipRebuild.Plan, directory: ZipValidatedDirectory,
+                               renamed: [Int: String], appended: [ZipRecords.Entry], active: inout ZipConversion?) throws {
+        let source = verified.source, output = verified.reader, validated = verified.validated
+        for (ordinal, record) in plan.records.enumerated() {
+            try Task.checkCancellation()
+            active = conversions[record.index]
+            let original = reader.entries[record.index], entry = output.entries[ordinal]
+            let raw = validated.records[ordinal].layout
+            let expected = active?.target ?? directory.records[record.index].layout.encryption
+            let crc = active?.crc ?? directory.records[record.index].layout.storedCRC32
+            guard entry.name == (renamed[record.index] ?? original.name), entry.kind == original.kind,
+                  entry.uncompressedSize == original.uncompressedSize,
+                  entry.compressedSize == (active?.compressedSize ?? original.compressedSize),
+                  entry.crc32 == (expected.aesVersion == 2 ? nil : crc), raw.storedCRC32 == crc,
+                  raw.encryption == expected, raw.compressionMethod == directory.records[record.index].layout.compressionMethod,
+                  raw.recordRange.lowerBound == record.offset else { throw KaitoError.malformed("output entry") }
+            if let conversion = active {
+                guard !raw.hasDataDescriptor else { throw KaitoError.malformed("output descriptor") }
+                // KaitoKit が照合しない local の方式・CRC・AES extra も byte 表から照合する。
+                let local = try source.bytes(at: raw.recordRange.lowerBound, count: conversion.local.count)
+                let central = validated.bytes.subdata(in: validated.records[ordinal].centralRange)
+                guard local == conversion.local, central == conversion.central else {
+                    throw conversion.failure("出力ヘッダーの照合に失敗しました")
+                }
+                try conversion.validateHeaders(local: local, central: central)
+            }
+        }
+        active = nil
+        for ordinal in appended.indices {
+            let index = plan.records.count + ordinal
+            // 追記 CD は plan が offset を確定済み。追加 record の local は ZipAppendedRecordSelfCheck が照合する。
+            guard case .rebuilt(let bytes) = plan.central[index],
+                  validated.bytes.subdata(in: validated.records[index].centralRange) == bytes else {
+                throw KaitoError.malformed("appended entry")
+            }
+        }
+    }
+
+    /// V1: 全変換 entry の復号した保存 payload の長さと CRC。V2: 展開の照合を要する entry の展開 CRC。
+    private func verifyPayloads(_ verified: VerifiedOutput, plan: ZipRebuild.Plan, meter: inout ZipCommitMeter,
+                                progress: Progress, active: inout ZipConversion?) throws {
+        let output = verified.reader
+        for (ordinal, record) in plan.records.enumerated() {
+            guard let conversion = conversions[record.index] else { continue }
+            active = conversion
+            let key = try outputKey(conversion)
+            try Self.observe(.v1, conversion.index)
+            let stored = try output.zipStoredPayloadStream(at: ordinal, aesKey: key)
+            let digest = try Self.digest(stored, length: conversion.storedLength, work: conversion.storedLength, meter: &meter, progress: progress)
+            guard digest.crc == conversion.payloadCRC else { throw conversion.failure("保存データの照合に失敗しました") }
+            if conversion.verifiesExpandedCRC {
+                do {
+                    try Self.observe(.v2, conversion.index)
+                    let stream = try key.map { try output.zipStream(at: ordinal, aesKey: $0) } ?? output.stream(output.entries[ordinal])
+                    let expanded = try Self.digest(stream, length: conversion.size, work: conversion.storedLength, meter: &meter, progress: progress)
+                    if conversion.target.aesVersion == 2, expanded.crc != conversion.raw.storedCRC32 {
+                        throw conversion.failure("展開データの照合に失敗しました")
+                    }
+                } catch is CancellationError { throw CancellationError() }
+                catch {
+                    if conversion.raw.encryption == .zipCrypto {
+                        // 照合 byte を偶然通る入力だけ、通常の reader で原因を確定する。
+                        do {
+                            var discarded = ZipCommitMeter(totalBytes: 0)
+                            let input = try reader.stream(reader.entries[conversion.index])
+                            _ = try Self.digest(input, length: conversion.size, work: 0, meter: &discarded, progress: nil)
+                        } catch KaitoError.wrongPassword { throw InputPasswordFailure() }
+                        catch is CancellationError { throw CancellationError() }
+                        catch { }
+                    }
+                    throw conversion.failure("展開データの照合に失敗しました")
+                }
+            }
+        }
+    }
+
+    /// V3: AES 出力の標本を password から導き直し、保存 byte を照合する。
+    /// 材料経由では検出できない AE-2 の encryption key の取り違えを、password 導出で検出する。
+    private func verifyKeySamples(_ verified: VerifiedOutput, plan: ZipRebuild.Plan, meter: inout ZipCommitMeter,
+                                  progress: Progress, active: inout ZipConversion?) throws {
+        let output = verified.reader
+        for (ordinal, record) in plan.records.enumerated() where samples.contains(record.index) {
+            let conversion = conversions[record.index]!
+            active = conversion
+            try Self.observe(.v3, conversion.index)
+            let stream = try output.zipStoredPayloadStream(at: ordinal)
+            try meter.wrote(Int(Self.derivationWork), progress: progress)
+            let digest = try Self.digest(stream, length: conversion.storedLength, work: conversion.storedLength, meter: &meter, progress: progress)
+            guard digest.crc == conversion.payloadCRC else { throw conversion.failure("鍵導出の照合に失敗しました") }
+        }
     }
 
     private struct InputPasswordFailure: Error { }

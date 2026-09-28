@@ -40,7 +40,8 @@ struct ZipAppendedRecordView: ByteSource {
     }
 }
 
-enum ZipAppendedRecordCheck {
+// commit 後の自己検査。追加した record を出力から読み直し、writer の計画と KaitoKit の解釈を照合する。
+enum ZipAppendedRecordSelfCheck {
     @TaskLocal static var testingSkipHeaderEquality = false
 
     static func check(descriptor: Int32, entries: [ZipRecords.Entry], start: UInt64,
@@ -92,3 +93,6 @@ enum ZipAppendedRecordCheck {
         return bytes
     }
 }
+
+// 旧名。SplicedArchiveOutput.read の呼出しが FileRead へ置き換わるまで残す。
+typealias ZipAppendedRecordCheck = ZipAppendedRecordSelfCheck

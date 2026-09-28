@@ -346,11 +346,11 @@ public final class ArchiveUpdater: ArchiveEditing {
                     stagedSource: stagedSource, writtenRange: written, reencryption: reencryption, engine: &engine, progress: progress)
                 if let appended, let written {
                     if let corrupt = Self.testingAppendedCorruption, let first = appended.entries.first {
-                        var bytes = try ZipAppendedRecordCheck.read(outputHandle!.fileDescriptor, at: plan.end, count: first.local().count)
+                        var bytes = try ZipAppendedRecordSelfCheck.read(outputHandle!.fileDescriptor, at: plan.end, count: first.local().count)
                         corrupt(&bytes)
                         try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(outputHandle!.fileDescriptor, bytes: $0, at: plan.end) }
                     }
-                    try ZipAppendedRecordCheck.check(descriptor: outputHandle!.fileDescriptor, entries: appended.entries,
+                    try ZipAppendedRecordSelfCheck.check(descriptor: outputHandle!.fileDescriptor, entries: appended.entries,
                         start: plan.end, recordBase: layout.centralOffset,
                         blockLength: written.byteLength, centralOffset: plan.centralOffset)
                 }

@@ -89,7 +89,7 @@ final class ZipMixedCommitTests: XCTestCase {
             let updater = try ArchiveUpdater.open(url: source, output: output)
             try updater.remove(entriesAt: [0])
             try updater.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date)
-            try ZipAppendedRecordCheck.$testingSkipHeaderEquality.withValue(bypass) {
+            try ZipAppendedRecordSelfCheck.$testingSkipHeaderEquality.withValue(bypass) {
                 try ArchiveUpdater.$testingAppendedCorruption.withValue({ $0[0] ^= 1 }) {
                     XCTAssertThrowsError(try updater.commit()) {
                         guard case UpdaterError.invalidArchive(let reason) = $0 else { return XCTFail("\($0)") }
