@@ -4,13 +4,7 @@ import XCTest
 @testable import GyoshukuKit
 
 enum LHATestSupport {
-    struct Expected {
-        let name: String
-        var data = Data()
-        var kind: EntryKind = .file
-        var mode: UInt16 = 0o644
-        var date: Date? = TestSupport.date
-    }
+    typealias Expected = ExpectedEntry
 
     /// Lhasa または 7-Zip を `directory` で起動する。終了値は `clean` か呼び出し側が確かめる。
     @discardableResult
@@ -56,21 +50,13 @@ enum LHATestSupport {
         try FileManager.default.createDirectory(at: lhaExtracted, withIntermediateDirectories: true)
         clean(try run(ReferenceTool.lhasa, ["xw=" + lhaExtracted.path, archive.path] + selected, in: directory, log: "lha-x"))
         clean(try run(ReferenceTool.sevenZip, ["x", "-y", "-o" + sevenExtracted.path, archive.path] + selected, in: directory, log: "7zz-x"), sevenZip: true)
-        let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
         let dateFormat = DateFormatter()
         dateFormat.locale = Locale(identifier: "en_US_POSIX")
         dateFormat.timeZone = TimeZone(secondsFromGMT: 0)
         dateFormat.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        for (index, item) in expected.enumerated() {
-            let entry = reader.entries[index]
-            XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
-            XCTAssertEqual(entry.kind, item.kind, item.name)
-            XCTAssertEqual(entry.posixPermissions, item.mode, item.name)
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
+        try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
             XCTAssertFalse(entry.isIncomplete)
-            if let date = item.date { XCTAssertEqual(entry.modificationDate, date, item.name) }
-            guard let externalIndex = externalItems.firstIndex(where: { $0.name == item.name }) else { continue }
+            guard let externalIndex = externalItems.firstIndex(where: { $0.name == item.name }) else { return }
             XCTAssertTrue(listing.text.contains(item.name), listing.text)
             if item.kind == .file {
                 XCTAssertTrue(tested.contains { $0.contains(item.name + "\t- Tested") }, test.text)
@@ -95,7 +81,7 @@ enum LHATestSupport {
                     XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeDirectory)
                 }
                 if extracted == lhaExtracted {
-                    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.uint16Value, item.mode, item.name)
+                    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.uint16Value, item.permissions, item.name)
                 }
             }
         }

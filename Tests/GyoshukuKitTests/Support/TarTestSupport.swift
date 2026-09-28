@@ -4,14 +4,7 @@ import XCTest
 @testable import GyoshukuKit
 
 enum TarTestSupport {
-    struct Expected {
-        var name: String
-        var data = Data()
-        var kind: EntryKind = .file
-        var permissions: UInt16 = 0o644
-        var date: Date? = TestSupport.date
-        var link: String? = nil
-    }
+    typealias Expected = ExpectedEntry
 
     static func verify(_ archive: URL, expected: [Expected], gzip: Bool = false) throws {
         let directory = archive.deletingLastPathComponent()
@@ -59,18 +52,11 @@ enum TarTestSupport {
         let extraction = try TestSupport.run(ReferenceTool.bsdtar, [gzip ? "-xzf" : "-xf", archive.path, "-C", extracted.path],
                                                 in: directory, log: "bsdtar-x")
         XCTAssertEqual(extraction, "")
-        let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
-        for (entry, item) in zip(reader.entries, expected) {
+        try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
             XCTAssertEqual(entry.rawName.bytes, Array(item.name.utf8))
-            XCTAssertEqual(entry.kind, item.kind, item.name)
-            XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
-            XCTAssertEqual(entry.posixPermissions, item.permissions, item.name)
-            if let date = item.date { XCTAssertEqual(entry.modificationDate, date, item.name) }
             XCTAssertFalse(entry.isIncomplete)
             XCTAssertEqual(entry.formatSpecific["uid"], "0")
             XCTAssertEqual(entry.formatSpecific["gid"], "0")
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
             let file = extracted.appendingPathComponent(item.name)
             switch item.kind {
             case .file:

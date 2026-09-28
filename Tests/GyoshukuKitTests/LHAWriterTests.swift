@@ -125,9 +125,9 @@ final class LHAWriterTests: XCTestCase {
         try writer.add(contentsOf: source, as: "tree")
         try writer.finish()
         try LHATestSupport.verify(url, expected: [
-            .init(name: "tree/", kind: .directory, mode: 0o755),
-            .init(name: "tree/empty/", kind: .directory, mode: 0o755),
-            .init(name: "tree/run", data: payload, mode: 0o755)
+            .init(name: "tree/", kind: .directory, permissions: 0o755),
+            .init(name: "tree/empty/", kind: .directory, permissions: 0o755),
+            .init(name: "tree/run", data: payload, permissions: 0o755)
         ])
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: directory.appendingPathComponent("lha-extracted/tree/run").path))
     }
@@ -151,9 +151,9 @@ final class LHAWriterTests: XCTestCase {
         XCTAssertEqual(bytes.members[2].extensions[1], Data())
         XCTAssertEqual(bytes.members[2].extensions[2], Data("folder".utf8) + Data([0xFF]))
         try LHATestSupport.verify(url, expected: [
-            .init(name: "dir/sub/file.txt", data: payload, mode: 0o755),
+            .init(name: "dir/sub/file.txt", data: payload, permissions: 0o755),
             .init(name: "empty"),
-            .init(name: "folder/", kind: .directory, mode: 0o755, date: nil)
+            .init(name: "folder/", kind: .directory, permissions: 0o755, date: nil)
         ])
     }
 
@@ -189,7 +189,7 @@ final class LHAWriterTests: XCTestCase {
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         XCTAssertEqual(writer.format, .lha)
         for item in items {
-            try writer.add(data: item.data, as: item.name, modificationDate: item.date, permissions: item.mode)
+            try writer.add(data: item.data, as: item.name, modificationDate: item.date, permissions: item.permissions)
         }
         try writer.finish()
         return url

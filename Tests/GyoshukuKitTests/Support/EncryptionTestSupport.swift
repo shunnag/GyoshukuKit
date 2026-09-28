@@ -7,11 +7,7 @@ import XCTest
 enum EncryptionTestSupport {
     static let password = "Gyoshuku-test-2026"
 
-    struct Item {
-        let name: String
-        var data = Data()
-        var kind: EntryKind = .file
-    }
+    typealias Item = ExpectedEntry
 
     static var corpus: [Item] {
         [0, 5, 19, 20, 21].map { Item(name: "size-\($0).txt", data: Data(repeating: 0x41, count: $0)) }
@@ -34,17 +30,13 @@ enum EncryptionTestSupport {
         }
     }
 
+    /// 名前・種類・内容と、entry ごとの暗号化の有無を照合する。大きさ・permission・更新日時は見ない。
     @discardableResult
     static func verify(_ url: URL, items: [Item], password: String? = EncryptionTestSupport.password,
                        encrypted: (Item) -> Bool) throws -> ArchiveReader {
-        let reader = try ArchiveReader.open(url: url, options: ReaderOptions(password: password))
-        XCTAssertEqual(reader.entries.map(\.name), items.map(\.name))
-        for (entry, item) in zip(reader.entries, items) {
-            XCTAssertEqual(entry.kind, item.kind, item.name)
+        try TestSupport.assertKaitoKitRoundTrip(url, expected: items, password: password, comparesMetadata: false) { entry, item in
             XCTAssertEqual(entry.isEncrypted, encrypted(item), item.name)
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
         }
-        return reader
     }
 
     // 失敗 oracle も実行し、password prompt は EOF で終了させる。失敗を skip しない。

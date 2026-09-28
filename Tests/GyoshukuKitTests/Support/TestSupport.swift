@@ -1,4 +1,5 @@
 import Foundation
+import KaitoKit
 import XCTest
 
 /// 形式に依らない test の共通部分：固定の更新日時、検証出力の directory、stderr への記録、外部ツールの検査付きの起動。
@@ -32,4 +33,39 @@ enum TestSupport {
         report("REFERENCE \(directory.lastPathComponent)/\(log): exit \(output.status); \(text.split(separator: "\n").suffix(2).joined(separator: " | "))")
         return text
     }
+
+    /// KaitoKit で書庫を開き、entry の名前の並びと、各 entry の種類・大きさ・permission・更新日時（`date` が nil でなければ）・
+    /// 内容を照合する。形式ごとの検査（CRC、tar の uid、7z の solid など）は `extra` で同じ entry について行う。
+    /// `comparesMetadata` が false なら大きさ・permission・更新日時を照合しない。
+    @discardableResult
+    static func assertKaitoKitRoundTrip(_ url: URL, expected: [ExpectedEntry], password: String? = nil,
+                                        comparesMetadata: Bool = true,
+                                        extra: (ArchiveEntry, ExpectedEntry) throws -> Void = { _, _ in }) throws -> ArchiveReader {
+        let reader = try ArchiveReader.open(url: url, options: ReaderOptions(password: password))
+        XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
+        guard reader.entries.count == expected.count else { return reader }
+        for (entry, item) in zip(reader.entries, expected) {
+            XCTAssertEqual(entry.kind, item.kind, item.name)
+            if comparesMetadata {
+                XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
+                XCTAssertEqual(entry.posixPermissions, item.permissions, item.name)
+                if let date = item.date { XCTAssertEqual(entry.modificationDate, date, item.name) }
+            }
+            XCTAssertEqual(try reader.read(entry), item.data, item.name)
+            try extra(entry, item)
+        }
+        return reader
+    }
+}
+
+/// 書いた書庫に期待する一つの entry。各 `*TestSupport` の `Expected`（暗号化は `Item`）はこの型の別名。
+struct ExpectedEntry {
+    var name: String
+    var data = Data()
+    var kind: EntryKind = .file
+    var permissions: UInt16 = 0o644
+    /// nil なら更新日時を照合しない。
+    var date: Date? = TestSupport.date
+    /// tar の symlink / hard link の参照先。
+    var link: String? = nil
 }

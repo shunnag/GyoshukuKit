@@ -4,13 +4,7 @@ import XCTest
 @testable import GyoshukuKit
 
 enum SevenZipTestSupport {
-    struct Expected {
-        let name: String
-        var data = Data()
-        var kind: EntryKind = .file
-        var mode: UInt16 = 0o644
-        var date: Date? = TestSupport.date
-    }
+    typealias Expected = ExpectedEntry
 
     /// 7-Zip を起動する。`success` なら警告と header の異常も失敗にし、`t` / `x` は "Everything is Ok" まで確かめる。
     @discardableResult
@@ -51,18 +45,10 @@ enum SevenZipTestSupport {
         XCTAssertTrue(listing.contains("Solid = -"), listing)
         let extracted = directory.appendingPathComponent("extracted")
         try run(["x", "-y", archive.path, "-o" + extracted.path], in: directory, log: "7zz-x")
-        let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map { Data($0.name.utf8) }, expected.map { Data($0.name.utf8) })
-        XCTAssertEqual(reader.entries.count, expected.count)
-        for (entry, item) in zip(reader.entries, expected) {
-            XCTAssertEqual(entry.kind, item.kind, item.name)
-            XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
-            XCTAssertEqual(entry.posixPermissions, item.mode, item.name)
-            if let date = item.date { XCTAssertEqual(entry.modificationDate, date, item.name) }
+        let reader = try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
             XCTAssertFalse(entry.isEncrypted)
             XCTAssertEqual(entry.solidGroup, -1)
             if !item.data.isEmpty { XCTAssertEqual(entry.crc32, CRC32.checksum(item.data), item.name) }
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
             let restored = extracted.appendingPathComponent(item.name)
             switch item.kind {
             case .file:
@@ -77,6 +63,9 @@ enum SevenZipTestSupport {
             default: XCTFail("Unexpected fixture kind")
             }
         }
+        // 名前は正規化せずに byte 列で照合する。
+        XCTAssertEqual(reader.entries.map { Data($0.name.utf8) }, expected.map { Data($0.name.utf8) })
+        XCTAssertEqual(reader.entries.count, expected.count)
     }
 
     static func uint32(_ data: Data, _ offset: Int) -> UInt32 {

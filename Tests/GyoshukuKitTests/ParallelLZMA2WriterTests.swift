@@ -33,14 +33,14 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         var items: [SevenZipTestSupport.Expected] = []
         for index in 0..<200 {
             if index == 51 { items.append(.init(name: "empty")) }
-            if index == 103 { items.append(.init(name: "directory/", kind: .directory, mode: 0o755)) }
+            if index == 103 { items.append(.init(name: "directory/", kind: .directory, permissions: 0o755)) }
             items.append(.init(name: "file-\(index)", data: Data(String(repeating: "small file \(index)\n", count: 25).utf8)))
         }
         for item in items {
             let url = source.appendingPathComponent(item.name)
             if item.kind == .directory { try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) }
             else { try item.data.write(to: url) }
-            try FileManager.default.setAttributes([.modificationDate: TestSupport.date, .posixPermissions: item.mode],
+            try FileManager.default.setAttributes([.modificationDate: TestSupport.date, .posixPermissions: item.permissions],
                                                   ofItemAtPath: url.path)
         }
         let expected = try serialArchive(items)
@@ -274,7 +274,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     private func serialArchive(_ items: [SevenZipTestSupport.Expected]) throws -> Data {
         var payload = Data(), entries: [SevenZipRecords.Entry] = []
         for item in items {
-            var entry = SevenZipRecords.Entry(name: item.name, mode: (item.kind == .directory ? 0o40000 : 0o100000) | item.mode,
+            var entry = SevenZipRecords.Entry(name: item.name, mode: (item.kind == .directory ? 0o40000 : 0o100000) | item.permissions,
                                                size: UInt64(item.data.count), mtime: try SevenZipRecords.timestamp(TestSupport.date))
             let start = payload.count
             for offset in stride(from: 0, to: item.data.count, by: ParallelLZMA2WriterTests.chunkSize) {

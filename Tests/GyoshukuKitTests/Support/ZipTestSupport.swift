@@ -4,13 +4,7 @@ import XCTest
 
 // 第三者実装の source を使わない、project-owned のクリーンルーム入力と byte 検査。
 enum ZipTestSupport {
-    struct Expected {
-        var name: String
-        var data = Data()
-        var kind: EntryKind = .file
-        var permissions: UInt16 = 0o644
-        var date: Date = TestSupport.date
-    }
+    typealias Expected = ExpectedEntry
 
     /// 全書庫を実ツールで検査し、展開結果と KaitoKit の全 entry を照合する。
     static func verify(_ archive: URL, expected: [Expected], legacyCP932: Bool = false,
@@ -62,16 +56,8 @@ enum ZipTestSupport {
             XCTAssertEqual(ditto, "ditto: Incorrect pkzip signature\n")
         }
         _ = try TestSupport.run(ReferenceTool.tar, ["-tf", archive.path], in: directory, log: "bsdtar-t")
-        let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
-        guard reader.entries.count == expected.count else { return }
-        for (entry, item) in zip(reader.entries, expected) {
-            XCTAssertEqual(entry.kind, item.kind, item.name)
-            XCTAssertEqual(entry.posixPermissions, item.permissions, item.name)
-            XCTAssertEqual(entry.modificationDate, item.date, item.name)
+        try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
             XCTAssertEqual(entry.crc32, CRC32.checksum(item.data), item.name)
-            XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
             let file = extracted.appendingPathComponent(item.name)
             switch item.kind {
             case .file:

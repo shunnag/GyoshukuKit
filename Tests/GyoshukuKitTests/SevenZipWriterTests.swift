@@ -44,7 +44,7 @@ final class SevenZipWriterTests: XCTestCase {
                 expected.append(.init(name: "empty-\(index)"))
             default:
                 try writer.addDirectory("dir-\(index)")
-                expected.append(.init(name: "dir-\(index)/", kind: .directory, mode: 0o755, date: nil))
+                expected.append(.init(name: "dir-\(index)/", kind: .directory, permissions: 0o755, date: nil))
             }
         }
         try writer.finish()
@@ -70,7 +70,7 @@ final class SevenZipWriterTests: XCTestCase {
             var expected: [SevenZipTestSupport.Expected] = []
             if variant == 1 {
                 try writer.addDirectory("directory")
-                expected = [.init(name: "directory/", kind: .directory, mode: 0o755, date: nil)]
+                expected = [.init(name: "directory/", kind: .directory, permissions: 0o755, date: nil)]
             } else if variant == 2 {
                 try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
                 expected = [.init(name: "empty")]
@@ -173,7 +173,7 @@ final class SevenZipWriterTests: XCTestCase {
         XCTAssertEqual(SevenZipTestSupport.uint32(attributes, 2), 0x81ED_8020)
         let times = try XCTUnwrap(bytes.fileProperties[0x14])
         XCTAssertEqual(SevenZipTestSupport.uint64(times, 2), 133_444_736_010_000_000)
-        try SevenZipTestSupport.verify(url, expected: [.init(name: "executable", data: payload, mode: 0o755)])
+        try SevenZipTestSupport.verify(url, expected: [.init(name: "executable", data: payload, permissions: 0o755)])
         let listing = try String(contentsOf: directory.appendingPathComponent("7zz-l-slt.log"), encoding: .utf8)
         XCTAssertEqual(SevenZipTestSupport.listingEntries(listing).first?["Modified"], "2023-11-14 22:13:21.0000000")
         let restored = directory.appendingPathComponent("extracted/executable")
@@ -215,11 +215,11 @@ final class SevenZipWriterTests: XCTestCase {
         try writer.add(contentsOf: source, as: "tree")
         try writer.finish()
         try SevenZipTestSupport.verify(url, expected: [
-            .init(name: "tree/", kind: .directory, mode: 0o755),
-            .init(name: "tree/a-file", data: payload, mode: 0o640),
-            .init(name: "tree/b-hard", data: payload, mode: 0o640),
-            .init(name: "tree/c-link", data: Data("a-file".utf8), kind: .symlink, mode: 0o755, date: nil),
-            .init(name: "tree/empty/", kind: .directory, mode: 0o750)
+            .init(name: "tree/", kind: .directory, permissions: 0o755),
+            .init(name: "tree/a-file", data: payload, permissions: 0o640),
+            .init(name: "tree/b-hard", data: payload, permissions: 0o640),
+            .init(name: "tree/c-link", data: Data("a-file".utf8), kind: .symlink, permissions: 0o755, date: nil),
+            .init(name: "tree/empty/", kind: .directory, permissions: 0o750)
         ])
         let bytes = try SevenZipBytes(Data(contentsOf: url))
         XCTAssertEqual(bytes.packedSizes.count, 3)
