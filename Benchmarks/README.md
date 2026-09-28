@@ -3,7 +3,8 @@
 macOS 26+、Swift 6、Python 3 が必要です。独立した SwiftPM package なので、root の
 products / targets / `swift test` は変えません。repository root から実行します。
 `../` の GyoshukuKit に依存する実行 package なので `Tests/` の外に置きます（KaitoKit の
-`Tests/Benchmarks/` は package ではなく script の directory です）。
+`Tests/Benchmarks/` は package ではなく script の directory です）。試験の構成と、`swift test` の中の
+opt-in の計測（`GYOSHUKU_*`）は [Tests/README.md](../Tests/README.md) にあります。
 
 ```sh
 Benchmarks/make-corpora.sh /tmp/gyoshuku-corpora
