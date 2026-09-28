@@ -13,10 +13,8 @@ final class TarAppendWriterTests: XCTestCase {
         defer { try? handle.close() }
         let fd = dup(handle.fileDescriptor)
         let child = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        let info = try ZipP1Support.info(output)
-        let identity = (info.st_dev, info.st_ino)
-        let tar = TarWriter(output: child, url: output, identity: identity, compressor: nil, startPosition: 1024)
-        var writer: ArchiveWriter? = ArchiveWriter(output: child, url: output, identity: identity, format: .tar,
+        let tar = TarWriter(output: child, url: output, compressor: nil, startPosition: 1024)
+        var writer: ArchiveWriter? = ArchiveWriter(output: child, url: output, format: .tar,
                                                    options: .init(), tarWriter: tar)
         try writer!.prepareAppend(at: 1024, existingPaths: [])
         try writer!.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date)

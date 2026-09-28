@@ -181,9 +181,7 @@ final class LHALifecycleTests: XCTestCase {
         let url = directory.appendingPathComponent("archive.lzh")
         FileManager.default.createFile(atPath: url.path, contents: nil)
         let output = try FileHandle(forWritingTo: url)
-        var info = stat()
-        XCTAssertEqual(fstat(output.fileDescriptor, &info), 0)
-        let writer = LHAWriter(output: output, url: url, identity: (info.st_dev, info.st_ino))
+        let writer = LHAWriter(output: output, url: url)
         defer { writer.abort(); try? output.close() }
         try body(writer, output)
     }

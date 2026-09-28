@@ -28,7 +28,7 @@ final class LHAWriter {
     var recordsMembers = false
     private(set) var memberRecords: [MemberRecord] = []
 
-    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), threads: Int = 1,
+    init(output: FileHandle, url: URL, threads: Int = 1,
          encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode) {
         precondition((1...64).contains(threads))
         self.output = output

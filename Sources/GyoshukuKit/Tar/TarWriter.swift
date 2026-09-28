@@ -16,7 +16,7 @@ final class TarWriter {
     private struct FileID: Hashable { let device: Int64; let inode: UInt64 }
     private var hardLinks: [FileID: (path: String, signature: [Int64])] = [:]
 
-    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), compressor: (any TarCompressor)?,
+    init(output: FileHandle, url: URL, compressor: (any TarCompressor)?,
          startPosition: UInt64 = 0) {
         self.output = output
         self.url = url

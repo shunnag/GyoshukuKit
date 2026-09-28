@@ -449,7 +449,7 @@ public final class ArchiveUpdater: ArchiveEditing {
         appendStart = position
         let hook = Self.testingRandomBytes
         let writer = ArchiveWriter(output: outputHandle!, url: replacement!,
-            identity: (ownedOutput!.identity.device, ownedOutput!.identity.inode), format: .zip, options: options,
+            format: .zip, options: options,
             zipSalt: { try hook?(16) ?? EncryptionPrimitives.random(count: 16) })
         self.writer = writer
         if canScanNames {

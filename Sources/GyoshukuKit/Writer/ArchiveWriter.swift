@@ -49,7 +49,7 @@ public final class ArchiveWriter {
         "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
     ]
 
-    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), format: ArchiveFormat, options: WriterOptions,
+    init(output: FileHandle, url: URL, format: ArchiveFormat, options: WriterOptions,
          tarWriter: TarWriter? = nil, sevenZipWriter: SevenZipWriter? = nil, lhaWriter: LHAWriter? = nil,
          deflateBlockSize: Int = DeflateBlock.size,
          deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
@@ -133,17 +133,14 @@ public final class ArchiveWriter {
         }
         guard fd >= 0 else { throw WriterError.io(operation: "create", code: errno) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        var info = stat()
-        guard fstat(fd, &info) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
-        let identity = (info.st_dev, info.st_ino)
         let tar = format.isTar
-            ? TarWriter(output: handle, url: url, identity: identity, compressor: compressor) : nil
+            ? TarWriter(output: handle, url: url, compressor: compressor) : nil
         let sevenZip = format == .sevenZip
-            ? SevenZipWriter(output: handle, url: url, identity: identity, options: options,
+            ? SevenZipWriter(output: handle, url: url, options: options,
                              chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
-        let lha = format == .lha ? LHAWriter(output: handle, url: url, identity: identity,
+        let lha = format == .lha ? LHAWriter(output: handle, url: url,
                                             threads: options.resolvedCompressionThreads, encoder: lh5Encoder) : nil
-        return ArchiveWriter(output: handle, url: url, identity: identity, format: format, options: options,
+        return ArchiveWriter(output: handle, url: url, format: format, options: options,
                              tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha,
                              deflateBlockSize: deflateBlockSize, deflateEncoder: deflateEncoder, zipSalt: zipSalt)
     }
@@ -346,11 +343,8 @@ public final class ArchiveWriter {
 
     static func sevenZipAppend(output: FileHandle, url: URL, at offset: UInt64,
                                options: WriterOptions, existingPaths: [(String, Bool)]) throws -> ArchiveWriter {
-        var info = stat()
-        guard fstat(output.fileDescriptor, &info) == 0 else { throw WriterError.io(operation: "fstat append", code: errno) }
-        let identity = (info.st_dev, info.st_ino)
-        let sevenZip = SevenZipWriter(output: output, url: url, identity: identity, options: options, startPosition: offset)
-        let writer = ArchiveWriter(output: output, url: url, identity: identity, format: .sevenZip,
+        let sevenZip = SevenZipWriter(output: output, url: url, options: options, startPosition: offset)
+        let writer = ArchiveWriter(output: output, url: url, format: .sevenZip,
                                    options: options, sevenZipWriter: sevenZip)
         try writer.prepareAppend(at: offset, existingPaths: existingPaths)
         return writer

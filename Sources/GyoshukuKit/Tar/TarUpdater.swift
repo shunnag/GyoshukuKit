@@ -220,12 +220,9 @@ public final class TarUpdater: ArchiveEditing {
         }
         let plan = try makePlan()
         let handle = try destination.beginAppend(at: plan.membersEnd, prefix: plan.prefix)
-        var info = stat()
-        guard fstat(handle.fileDescriptor, &info) == 0 else { throw WriterError.io(operation: "fstat append", code: errno) }
-        let identity = (info.st_dev, info.st_ino)
-        let tar = TarWriter(output: handle, url: output, identity: identity, compressor: nil, startPosition: plan.membersEnd)
+        let tar = TarWriter(output: handle, url: output, compressor: nil, startPosition: plan.membersEnd)
         tar.observesWrites = true
-        let writer = ArchiveWriter(output: handle, url: output, identity: identity, format: .tar, options: options, tarWriter: tar)
+        let writer = ArchiveWriter(output: handle, url: output, format: .tar, options: options, tarWriter: tar)
         try writer.prepareAppend(at: plan.membersEnd, existingPaths: existingPaths)
         self.writer = writer
         appendStart = plan.membersEnd

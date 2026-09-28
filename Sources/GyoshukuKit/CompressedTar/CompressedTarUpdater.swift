@@ -231,10 +231,10 @@ public final class CompressedTarUpdater: ArchiveEditing {
         let fd = fcntl(storage.handle.fileDescriptor, F_DUPFD_CLOEXEC, 0)
         guard fd >= 0 else { throw WriterError.io(operation: "dup append storage", code: errno) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        let tar = TarWriter(output: handle, url: storage.url, identity: (0, 0), compressor: nil)
+        let tar = TarWriter(output: handle, url: storage.url, compressor: nil)
         tar.recordsMemberLayout = true; tar.observesWrites = true
         tar.willWrite = { [storage] in try storage.willWrite($0) }
-        let writer = ArchiveWriter(output: handle, url: storage.url, identity: (0, 0), format: .tar,
+        let writer = ArchiveWriter(output: handle, url: storage.url, format: .tar,
                                    options: options, tarWriter: tar)
         try writer.prepareAppend(at: 0, existingPaths: existingPaths)
         self.writer = writer; tarWriter = tar; writerPathsNeedRefresh = false

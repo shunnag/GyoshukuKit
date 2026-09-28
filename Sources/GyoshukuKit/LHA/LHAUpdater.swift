@@ -234,12 +234,9 @@ public final class LHAUpdater: ArchiveEditing {
         }
         let plan = try makePlan()
         let handle = try destination.beginAppend(at: plan.membersEnd, prefix: plan.prefix)
-        var info = stat()
-        guard fstat(handle.fileDescriptor, &info) == 0 else { throw WriterError.io(operation: "fstat append", code: errno) }
-        let identity = (info.st_dev, info.st_ino)
-        let lha = LHAWriter(output: handle, url: output, identity: identity, threads: options.resolvedCompressionThreads, encoder: encoder)
+        let lha = LHAWriter(output: handle, url: output, threads: options.resolvedCompressionThreads, encoder: encoder)
         lha.recordsMembers = true
-        let writer = ArchiveWriter(output: handle, url: output, identity: identity, format: .lha, options: options, lhaWriter: lha)
+        let writer = ArchiveWriter(output: handle, url: output, format: .lha, options: options, lhaWriter: lha)
         try writer.prepareAppend(at: plan.membersEnd, existingPaths: existingPaths)
         self.writer = writer; lhaWriter = lha; appendStart = plan.membersEnd; writerPathsNeedRefresh = false
         return writer

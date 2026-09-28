@@ -75,9 +75,7 @@ enum ZipP1Support {
             let source = try ZipUpdateSource(url: url)
             let layout = try ZipUpdateLayout(source: source)
             let handle = try FileHandle(forUpdating: output)
-            var info = stat()
-            XCTAssertEqual(fstat(handle.fileDescriptor, &info), 0)
-            let writer = ArchiveWriter(output: handle, url: output, identity: (info.st_dev, info.st_ino),
+            let writer = ArchiveWriter(output: handle, url: output,
                                        format: .zip, options: options, zipSalt: { try salt(16) })
             try writer.prepareAppend(at: layout.centralOffset, existingPaths: [])
             for addition in additions {

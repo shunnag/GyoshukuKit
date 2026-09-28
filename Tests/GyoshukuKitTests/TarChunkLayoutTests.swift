@@ -318,10 +318,8 @@ final class TarChunkLayoutTests: XCTestCase {
             let url = directory.appendingPathComponent("\(threads).tar.bz2")
             let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
             XCTAssertGreaterThanOrEqual(fd, 0)
-            var info = stat()
-            XCTAssertEqual(fstat(fd, &info), 0)
             let writer = TarWriter(output: FileHandle(fileDescriptor: fd, closeOnDealloc: true), url: url,
-                identity: (info.st_dev, info.st_ino), compressor: try ParallelBzip2Compressor(level: 1, threads: threads))
+                compressor: try ParallelBzip2Compressor(level: 1, threads: threads))
             var read = false
             try writer.add(name: String(repeating: "p", count: 500_053), mode: 0o100644, size: 1,
                            date: ZipTestSupport.date, owners: nil, hardLink: nil) { _ in
@@ -343,10 +341,8 @@ final class TarChunkLayoutTests: XCTestCase {
             let url = directory.appendingPathComponent("\(enabled).tar")
             let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
             XCTAssertGreaterThanOrEqual(fd, 0)
-            var info = stat()
-            XCTAssertEqual(fstat(fd, &info), 0)
             let writer = TarWriter(output: FileHandle(fileDescriptor: fd, closeOnDealloc: true), url: url,
-                                   identity: (info.st_dev, info.st_ino), compressor: nil)
+                                   compressor: nil)
             writer.recordsMemberLayout = enabled
             for item in items(limits: .init(uniform: 8192)) {
                 var offset = 0
@@ -372,10 +368,8 @@ final class TarChunkLayoutTests: XCTestCase {
             let url = directory.appendingPathComponent("\(threads).tar.xz")
             let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
             XCTAssertGreaterThanOrEqual(fd, 0)
-            var info = stat()
-            XCTAssertEqual(fstat(fd, &info), 0)
             let writer = TarWriter(output: FileHandle(fileDescriptor: fd, closeOnDealloc: true), url: url,
-                identity: (info.st_dev, info.st_ino), compressor: try ParallelXZCompressor(
+                compressor: try ParallelXZCompressor(
                     threads: threads, chunkSize: limits.piece, packingSize: limits.packing))
             var read = false
             try writer.add(name: String(repeating: "p", count: limits.piece + 53), mode: 0o100644, size: 1,

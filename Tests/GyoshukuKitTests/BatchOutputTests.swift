@@ -76,9 +76,7 @@ final class BatchOutputTests: XCTestCase {
             let output = root.appendingPathComponent("partial-\(unreadable).zip")
             try Data().write(to: output)
             let handle = try FileHandle(forReadingFrom: output)
-            var info = stat()
-            XCTAssertEqual(fstat(handle.fileDescriptor, &info), 0)
-            let writer = ArchiveWriter(output: handle, url: output, identity: (info.st_dev, info.st_ino),
+            let writer = ArchiveWriter(output: handle, url: output,
                                        format: .zip, options: .init(compressionThreads: 8))
             XCTAssertThrowsError(try writer.add(items, events: nil)) {
                 let failure = $0 as? ArchiveAdditionError

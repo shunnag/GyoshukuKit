@@ -36,7 +36,7 @@ final class SevenZipWriter {
         let isLast: Bool
     }
 
-    init(output: FileHandle, url: URL, identity _: (dev_t, ino_t), options: WriterOptions,
+    init(output: FileHandle, url: URL, options: WriterOptions,
          startPosition: UInt64? = nil, chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) {
         precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))

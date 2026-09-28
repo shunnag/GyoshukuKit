@@ -174,11 +174,9 @@ final class LHAWriterParallelTests: XCTestCase {
             let output = try FileHandle(forWritingTo: url)
             defer { try? output.close() }
             try output.seekToEnd()
-            var info = stat()
-            XCTAssertEqual(fstat(output.fileDescriptor, &info), 0)
-            let lha = LHAWriter(output: output, url: url, identity: (info.st_dev, info.st_ino), threads: threads)
+            let lha = LHAWriter(output: output, url: url, threads: threads)
             lha.recordsMembers = true
-            let writer = ArchiveWriter(output: output, url: url, identity: (info.st_dev, info.st_ino), format: .lha,
+            let writer = ArchiveWriter(output: output, url: url, format: .lha,
                                        options: WriterOptions(compressionThreads: threads), lhaWriter: lha)
             try writer.addDirectory("表", modificationDate: ZipTestSupport.date, ownerIDs: nil)
             try writer.add(data: Data(repeating: 65, count: 1024), as: "表/ソ.bin", modificationDate: ZipTestSupport.date)
