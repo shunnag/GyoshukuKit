@@ -1,9 +1,8 @@
 import Foundation
 
-// 圧縮 tar の chunk 境界機械。member の header / 本文の境目と packing / piece の上限だけで区切りを決める。
-// 書く側の TarCompressor（GzipCompressor / ParallelBzip2Compressor / ParallelXZCompressor）と、
-// 編集側の CompressedTarSplicePlan.cuts が同じ規則で境界を出すので、計画の境界と writer の境界が一致する。
-// TarLayout（書庫の構造）とは別物。
+// 圧縮器用の chunk 境界機械。member の header / 本文の境目と packing / piece の上限だけで区切りを決める。
+// TarCompressor（GzipCompressor / ParallelBzip2Compressor / ParallelXZCompressor）と
+// CompressedTarSplicePlan.cuts が同じ規則を使い、計画と writer の境界を一致させる。
 struct TarChunkLimits: Sendable, Equatable {
     let packing: Int
     let piece: Int
@@ -17,7 +16,7 @@ struct TarChunkLimits: Sendable, Equatable {
     init(uniform: Int) { self.init(packing: uniform, piece: uniform) }
 }
 
-struct TarChunkLayout {
+struct TarChunkCutter {
     let limits: TarChunkLimits
     private(set) var hasHints = false
     private var position: UInt64 = 0

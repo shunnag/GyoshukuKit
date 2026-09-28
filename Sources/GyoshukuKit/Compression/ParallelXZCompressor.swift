@@ -5,7 +5,7 @@ final class ParallelXZCompressor: TarCompressor {
     static let memberPackingSize = 4 * 1024 * 1024
     static let lightChunkLimit = 64 * 1024
     private let chunkSize: Int
-    private var layout: TarChunkLayout
+    private var layout: TarChunkCutter
     private let pipeline: LZMA2ChunkPipeline<Void>
     private var input = Data()
     private var records = Data()
@@ -28,7 +28,7 @@ final class ParallelXZCompressor: TarCompressor {
         let packing = min(packingSize ?? Self.memberPackingSize, chunkSize)
         precondition((1...chunkSize).contains(packing))
         self.chunkSize = chunkSize
-        layout = TarChunkLayout(limits: .init(packing: packing, piece: chunkSize))
+        layout = TarChunkCutter(limits: .init(packing: packing, piece: chunkSize))
         pipeline = LZMA2ChunkPipeline(threads: threads, checksum: true,
                                      lightWeightLimit: threads > 1 ? UInt64(Self.lightChunkLimit) : 0, encoder: encoder)
     }

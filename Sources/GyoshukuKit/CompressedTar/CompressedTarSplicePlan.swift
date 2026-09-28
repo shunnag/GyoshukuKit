@@ -87,7 +87,7 @@ struct CompressedTarSplicePlan {
 
     // G1 の境界機械を byte 数だけで進める。橋の先頭が header/本文の途中でも同じ規則を使う。
     static func cuts(_ range: Range<UInt64>, image: TarImageSource, limits: TarChunkLimits) -> [Range<UInt64>] {
-        var layout = TarChunkLayout(limits: limits), buffered = 0
+        var layout = TarChunkCutter(limits: limits), buffered = 0
         var cursor = range.lowerBound, start = cursor
         var result: [Range<UInt64>] = []
         func cut() {
