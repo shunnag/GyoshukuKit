@@ -5,7 +5,7 @@ import XCTest
 
 enum TarP2Support {
     static func fixture(_ root: URL, count: Int = 6, size: Int = 513, format: GyoshukuKit.ArchiveFormat = .tar) throws -> URL {
-        let url = root.appendingPathComponent("source.tar")
+        let url = root.appendingPathComponent("source." + format.testFileExtension)
         let writer = try ArchiveWriter.create(url: url, format: format)
         for index in 0..<count {
             try writer.add(data: Data(repeating: UInt8(index % 251), count: size), as: String(format: "file-%06d", index),
