@@ -2,41 +2,6 @@ import Foundation
 import Synchronization
 internal import KaitoKit
 
-struct SevenZipReencodedFolder {
-    let files: [Int]
-    let scratch: SplicedScratchFile
-    let replacement: SevenZipEditPlan.Replacement
-}
-
-private final class SevenZipSolidInput {
-    let reader: ArchiveReader
-    let files: [Int]
-    let surviving: Set<Int>
-    let advance: (UInt64) throws -> Void
-    var cursor = 0
-    var stream: EntryStream?
-    var crc: UInt32 = 0
-    var crcs: [Int: UInt32] = [:]
-
-    init(reader: ArchiveReader, files: [Int], surviving: [Int], advance: @escaping (UInt64) throws -> Void) {
-        self.reader = reader; self.files = files; self.surviving = Set(surviving); self.advance = advance
-    }
-    func read(_ count: Int) throws -> Data {
-        while cursor < files.count {
-            try Task.checkCancellation()
-            let file = files[cursor]
-            if stream == nil { stream = try reader.stream(reader.entries[file]); crc = 0 }
-            let keep = surviving.contains(file)
-            let bytes = try stream!.readSome(upTo: keep ? count : IOChunk.size)
-            try advance(UInt64(bytes.count))
-            crc = updateCRC(crc, bytes)
-            if bytes.isEmpty { crcs[file] = crc; stream = nil; cursor += 1 }
-            else if keep { return bytes }
-        }
-        return Data()
-    }
-}
-
 extension SevenZipUpdater {
     func prepareConversions(_ plan: SevenZipEditPlan, toScratch: Bool = false) throws {
         for case let .convert(index, kind) in plan.works {

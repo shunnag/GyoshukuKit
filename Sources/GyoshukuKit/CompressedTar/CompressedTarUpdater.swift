@@ -2,51 +2,6 @@ import Foundation
 private import Darwin
 @_spi(TarEditLayout) public import KaitoKit
 
-public enum CompressedTarFullEncodeReason: Sendable, Equatable {
-    case framing(String)
-    case noReusableChunk
-}
-
-public enum CompressedTarStrategy: Sendable, Equatable {
-    case unchanged
-    case splice(carriedChunks: Int, reencodedChunks: Int)
-    case fullEncode(CompressedTarFullEncodeReason)
-}
-
-public struct CompressedTarAssessment: Sendable, Equatable {
-    public let format: ArchiveFormat
-    public let framingReusable: Bool
-    public let hasInteriorBoundaries: Bool
-    public let imageLength: UInt64
-    public let reason: CompressedTarFullEncodeReason?
-    public var nextEditReencodesEverything: Bool {
-        !framingReusable || (!hasInteriorBoundaries && imageLength > UInt64(CompressedTarSplicePlan.limits(format, options: WriterOptions()).piece))
-    }
-}
-
-public enum CompressedTarOutputSegment: Sendable, Equatable {
-    case reused(output: Range<UInt64>, base: Range<UInt64>)
-    case encoded(output: Range<UInt64>)
-}
-
-public struct CompressedTarCommitResult: Sendable {
-    public struct OutputIdentity: Sendable, Equatable {
-        public let device: UInt64, inode: UInt64, size: UInt64
-        public let modificationSeconds: Int64, modificationNanoseconds: Int64
-    }
-    public let strategy: CompressedTarStrategy
-    public let output: OutputIdentity
-    public let segments: [CompressedTarOutputSegment]
-    public let reencodedImageBytes: UInt64, reencodedOldImageBytes: UInt64, carriedCompressedBytes: UInt64
-}
-
-@_spi(Testing) public struct CompressedTarCommitStatistics: Sendable {
-    public let planningSeconds: Double, encodingSeconds: Double, copyingSeconds: Double, selfCheckSeconds: Double
-    public let reencodedImageBytes: UInt64, reencodedOldImageBytes: UInt64, carriedCompressedBytes: UInt64
-    public let carriedChunks: Int, reencodedChunks: Int, scratchBytes: UInt64
-    public let strategy: CompressedTarStrategy
-}
-
 /// session reader の復号済み tar と地図を使い、変更を含む区切りだけを符号化する。
 /// 原本のパスは開かない。追加は末尾、運ぶ member は所有者と名前の byte を保つ。
 /// 従来の設定（.beginning / .reset）は open で requiresRewrite を返す。
