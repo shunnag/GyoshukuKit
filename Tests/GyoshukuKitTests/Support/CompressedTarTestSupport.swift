@@ -104,24 +104,13 @@ enum CompressedTarTestSupport {
         try ArchiveReader.openSplicedCompressedTar(output: FileByteSource(url: output), sourceURL: output.appendingPathExtension(base.container == .gzip ? "tar.gz" : base.container == .bzip2 ? "tar.bz2" : "tar.xz"),
                                                    base: base, splice: splice(result), options: readerOptions)
     }
-    static func imagesEqual(_ left: any ByteSource, _ right: any ByteSource, file: StaticString = #filePath, line: UInt = #line) throws {
-        XCTAssertEqual(left.length, right.length, file: file, line: line)
-        guard left.length == right.length else { return }
-        var offset: UInt64 = 0
-        while offset < left.length {
-            let count = Int(min(1048576, left.length - offset))
-            XCTAssertEqual(try TarLayout.bytes(left, at: offset, count: count), try TarLayout.bytes(right, at: offset, count: count),
-                           "image at \(offset)", file: file, line: line)
-            offset += UInt64(count)
-        }
-    }
     static func verify(_ output: URL, base: TarEditingSnapshot, result: CompressedTarCommitResult,
                        oracle: URL? = nil) throws -> sending ArchiveReader {
         let full = try open(output)
         let verified: ArchiveReader
         do { verified = try k5(output, base: base, result: result) }
         catch let error as TarSpliceVerificationError where error.reason == .baseNotSpliceable && base.chunkMap == nil {
-            if let oracle { try imagesEqual(full.tarEditingSnapshot()!.image, FileByteSource(url: oracle)) }
+            if let oracle { try XCTAssertByteSourcesEqual(full.tarEditingSnapshot()!.image, FileByteSource(url: oracle)) }
             return full
         }
         XCTAssertEqual(verified.entries.map(\.name), full.entries.map(\.name))
@@ -129,8 +118,8 @@ enum CompressedTarTestSupport {
             XCTAssertEqual(a.kind, b.kind)
             if a.kind != .directory { XCTAssertEqual(try verified.read(a), try full.read(b)) }
         }
-        try imagesEqual(verified.tarEditingSnapshot()!.image, full.tarEditingSnapshot()!.image)
-        if let oracle { try imagesEqual(verified.tarEditingSnapshot()!.image, FileByteSource(url: oracle)) }
+        try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, full.tarEditingSnapshot()!.image)
+        if let oracle { try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, FileByteSource(url: oracle)) }
         let info = try ZipP1Support.info(output)
         XCTAssertEqual(result.output.inode, info.st_ino)
         XCTAssertEqual(result.output.size, UInt64(info.st_size))

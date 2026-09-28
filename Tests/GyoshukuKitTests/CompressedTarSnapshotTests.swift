@@ -22,7 +22,7 @@ final class CompressedTarSnapshotTests: XCTestCase {
                     XCTAssertEqual(snapshot.image is FileByteSource, disk, context)
                     XCTAssertEqual(snapshot.chunkMap, expected, context)
                     XCTAssertNil(snapshot.chunkMapUnavailableReason, context)
-                    try CompressedTarTestSupport.imagesEqual(snapshot.image, baseline.image)
+                    try XCTAssertByteSourcesEqual(snapshot.image, baseline.image)
                     let reopened = try reader.reopen()
                     let again = try XCTUnwrap(reopened.tarEditingSnapshot(), context)
                     XCTAssertEqual(again.chunkMap, snapshot.chunkMap, context)

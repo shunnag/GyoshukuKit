@@ -301,7 +301,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         let restored = directory.appendingPathComponent("restored.zip")
         try ReencryptionSupport.convert(encrypted, to: restored, current: "new", password: nil)
         XCTAssertFalse(try XCTUnwrap(ReencryptionSupport.reader(restored).zipRawRecordLayout(at: 0)).localHasZIP64Extra)
-        try ZipP1Support.assertEqualFiles(source, restored)
+        try XCTAssertFilesEqual(source, restored)
         try EncryptionTestSupport.run(["t", "-pnew", encrypted.path], archive: encrypted, log: "large-7zz")
     }
 
@@ -319,7 +319,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
                 XCTAssertThrowsError(try updater.commit()) { error in
                     guard case UpdaterError.nonRelocatableEntry(index: 1, name: _, reason: _) = error else { return XCTFail("\(error)") }
                 }
-                try ZipP1Support.assertEqualFiles(source, original)
+                try XCTAssertFilesEqual(source, original)
             } else {
                 try updater.commit()
                 let raw = try XCTUnwrap(ReencryptionSupport.reader(source).zipRawRecordLayout(at: 1))

@@ -145,7 +145,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
                         XCTAssertEqual(result.strategy, .unchanged, context)
                         XCTAssertEqual(try Data(contentsOf: output), original, context)
                         let verified = try CompressedTarTestSupport.verify(output, base: base, result: result)
-                        try CompressedTarTestSupport.imagesEqual(verified.tarEditingSnapshot()!.image, base.image)
+                        try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, base.image)
                         try FileManager.default.removeItem(at: output)
                     }
                 } catch {

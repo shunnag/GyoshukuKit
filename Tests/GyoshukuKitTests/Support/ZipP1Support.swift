@@ -118,7 +118,7 @@ enum ZipP1Support {
             try updater.commit()
             if let expectedStrategy { XCTAssertEqual(updater.lastCommitStrategy, expectedStrategy, label) }
         }
-        if byteIdentical { try assertEqualFiles(output, old, label: label) }
+        if byteIdentical { try XCTAssertFilesEqual(output, old, label) }
         else {
             let a = try ArchiveReader.open(url: output, options: ReaderOptions(password: options.password)), b = try ArchiveReader.open(url: old, options: ReaderOptions(password: options.password))
             XCTAssertEqual(a.entries.map(\.name), b.entries.map(\.name))
@@ -128,20 +128,6 @@ enum ZipP1Support {
             }
         }
         return output
-    }
-
-    static func assertEqualFiles(_ left: URL, _ right: URL, label: String = "",
-                                 file: StaticString = #filePath, line: UInt = #line) throws {
-        let a = try FileHandle(forReadingFrom: left), b = try FileHandle(forReadingFrom: right)
-        defer { try? a.close(); try? b.close() }
-        var offset: UInt64 = 0
-        while true {
-            let x = try a.read(upToCount: 4 * 1024 * 1024) ?? Data()
-            let y = try b.read(upToCount: 4 * 1024 * 1024) ?? Data()
-            guard x == y else { XCTFail("\(label): byte mismatch at chunk \(offset)", file: file, line: line); return }
-            if x.isEmpty { return }
-            offset += UInt64(x.count)
-        }
     }
 
     static func info(_ url: URL) throws -> stat {

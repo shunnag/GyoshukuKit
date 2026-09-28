@@ -27,7 +27,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     private func assertStoredBytes(_ items: [ZipTestSupport.Expected], at url: URL) throws {
         let expected = url.deletingLastPathComponent().appendingPathComponent("expected.zip")
         try writeStored(items, to: expected)
-        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: expected), "entire stored ZIP is byte-exact")
+        try XCTAssertFilesEqual(url, expected, "entire stored ZIP is byte-exact")
     }
 
     func testUnshiftedSameLengthRenameReadsLessThanOneMiB() throws {

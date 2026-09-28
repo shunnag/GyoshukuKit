@@ -27,7 +27,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                 let writer = try ArchiveRewriter.open(url: raw, output: fresh, format: format, options: options)
                 try writer.commit()
             }
-            try CompressedTarTestSupport.imagesEqual(CompressedTarTestSupport.open(fresh).tarEditingSnapshot()!.image, FileByteSource(url: raw))
+            try XCTAssertByteSourcesEqual(CompressedTarTestSupport.open(fresh).tarEditingSnapshot()!.image, FileByteSource(url: raw))
             for layout in ["new", "old"] {
                 let source = layout == "new" ? fresh : corpus.appendingPathComponent("mixed.\(suffix)")
                 let reader = try CompressedTarTestSupport.open(source)
@@ -84,7 +84,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                     if layout == "new", operation == "append" { XCTAssertEqual(result.reencodedOldImageBytes, 0) }
                     let full = try CompressedTarTestSupport.open(output)
                     XCTAssertEqual(verified.entries.map(\.name), full.entries.map(\.name))
-                    try CompressedTarTestSupport.imagesEqual(verified.tarEditingSnapshot()!.image, full.tarEditingSnapshot()!.image)
+                    try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, full.tarEditingSnapshot()!.image)
                     try FileManager.default.removeItem(at: output)
                 }
             }

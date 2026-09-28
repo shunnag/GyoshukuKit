@@ -76,7 +76,7 @@ final class ZipMixedCommitTests: XCTestCase {
             try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
         }
         XCTAssertFalse(events.events.contains { ($0.offset..<($0.offset + UInt64($0.count))).overlaps(gap) })
-        try ZipP1Support.assertEqualFiles(output, oracle)
+        try XCTAssertFilesEqual(output, oracle)
     }
 
     func testCorruptionFailsBothGKAndIndependentKaitoCheck() throws {

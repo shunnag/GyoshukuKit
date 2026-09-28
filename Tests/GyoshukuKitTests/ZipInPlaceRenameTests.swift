@@ -29,7 +29,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
                 XCTAssertTrue(ranges.contains { $0.lowerBound <= event.offset && event.offset + UInt64(event.count) <= $0.upperBound })
             }
             XCTAssertEqual(events.events.count, count * 2)
-            try ZipP1Support.assertEqualFiles(output, oracle)
+            try XCTAssertFilesEqual(output, oracle)
         }
     }
 
