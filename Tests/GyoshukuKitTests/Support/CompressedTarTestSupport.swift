@@ -25,7 +25,7 @@ enum CompressedTarTestSupport {
         for name in ["large-A", "large-B"] {
             var body = Data(repeating: 37, count: size)
             var random = TestCorpus.XorShift64(state: name == "large-A" ? 17 : 31)
-            let entropy = ProcessInfo.processInfo.environment["GYOSHUKU_P3_REPETITIVE_FIXTURE"] == "1" ? 0 : min(size, 65536)
+            let entropy = OptInGate.isOn("GYOSHUKU_P3_REPETITIVE_FIXTURE") ? 0 : min(size, 65536)
             for index in 0..<entropy {
                 body[index] = UInt8(truncatingIfNeeded: random.next())
             }
@@ -99,7 +99,8 @@ enum CompressedTarTestSupport {
             switch $0 { case .encoded(let output): .encoded(output: output); case .reused(let output, let base): .reused(output: output, base: base) }
         })
     }
-    static func k5(_ output: URL, base: TarEditingSnapshot, result: CompressedTarCommitResult) throws -> sending ArchiveReader {
+    /// KaitoKit の K5 検証（design.md §6「圧縮 tar の区切り単位の更新」）で splice を開く。
+    static func spliceVerifiedReader(_ output: URL, base: TarEditingSnapshot, result: CompressedTarCommitResult) throws -> sending ArchiveReader {
         try ArchiveReader.openSplicedCompressedTar(output: FileByteSource(url: output), sourceURL: output.appendingPathExtension(base.container == .gzip ? "tar.gz" : base.container == .bzip2 ? "tar.bz2" : "tar.xz"),
                                                    base: base, splice: splice(result), options: readerOptions)
     }
@@ -107,7 +108,7 @@ enum CompressedTarTestSupport {
                        oracle: URL? = nil) throws -> sending ArchiveReader {
         let full = try open(output)
         let verified: ArchiveReader
-        do { verified = try k5(output, base: base, result: result) }
+        do { verified = try spliceVerifiedReader(output, base: base, result: result) }
         catch let error as TarSpliceVerificationError where error.reason == .baseNotSpliceable && base.chunkMap == nil {
             if let oracle { try XCTAssertByteSourcesEqual(full.tarEditingSnapshot()!.image, FileByteSource(url: oracle)) }
             return full
@@ -119,7 +120,7 @@ enum CompressedTarTestSupport {
         }
         try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, full.tarEditingSnapshot()!.image)
         if let oracle { try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, FileByteSource(url: oracle)) }
-        let info = try ZipP1Support.info(output)
+        let info = try ZipEditTestSupport.info(output)
         XCTAssertEqual(result.output.inode, info.st_ino)
         XCTAssertEqual(result.output.size, UInt64(info.st_size))
         XCTAssertEqual(result.output.modificationSeconds, Int64(info.st_mtimespec.tv_sec))
@@ -168,7 +169,7 @@ enum CompressedTarTestSupport {
 /// thread 数と全体の再符号化の有無によらず、同じ編集が同じ byte 列になることを確かめる。
 enum CompressedTarDeterminism {
     static func run(_ format: GyoshukuKit.ArchiveFormat) throws {
-        let root = try TestSupport.directory("p3-determinism-\(format)")
+        let root = try TestSupport.directory("compressed-tar-determinism-\(format)")
         let source = try CompressedTarTestSupport.fixture(root, format)
         var expected: Data?
         for threads in [1, 4, 8] {

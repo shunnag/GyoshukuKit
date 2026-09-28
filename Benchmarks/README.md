@@ -2,6 +2,9 @@
 
 macOS 26+、Swift 6、Python 3 が必要です。独立した SwiftPM package なので、root の
 products / targets / `swift test` は変えません。repository root から実行します。
+`../` の GyoshukuKit に依存する実行 package なので `Tests/` の外に置きます（KaitoKit の
+`Tests/Benchmarks/` は package ではなく script の directory です）。試験の構成と、`swift test` の中の
+opt-in の計測（`GYOSHUKU_*`）は [Tests/README.md](../Tests/README.md) にあります。
 
 ```sh
 Benchmarks/make-corpora.sh /tmp/gyoshuku-corpora
@@ -37,8 +40,7 @@ thread 設定を TSV で表示します。コマンド、標準出力、生の t
 そのまま writer に渡す。items と batch は同じ名前順の前順走査（計時に含む）で項目列を作り、
 items は項目別 API、batch は一回の `add(_:events:)` を使う。`--progress` は byte 進捗を観測し、
 finish の前に `finishAdditions` を呼ぶ。directory の日時は現在時刻なので、この bench の mode 間の
-比較では書庫 byte の一致を要求しない。P7 の受入計測には、オーケストレータが固定した三階層の
-small corpus と manifest を使う（make-corpora.sh の平坦な small とは別）。
+比較では書庫 byte の一致を要求しない。`make-corpora.sh` の small は一つの directory に 50,000 file を平らに置きます。
 
 `--references` は選択した `zip` / `txz` / `7z` に対して、PATH 上にある
 `zip -r -6` / `tar | xz -6 -T0` / `7zz a -mx6` を追加します。欠けたツールは理由付きで skip。
@@ -59,10 +61,9 @@ bin_dir=$(swift build -c release --package-path Benchmarks --show-bin-path)
 は source の basename で追加し、directory は名前順に再帰します。出力は入力の外にある新規 file に限ります。
 `--level` は元の harness と同じ `deflateLevel`（0...9、既定6）で、ZIP / tar.gz に適用します。
 bzip2 は library 既定の9、XZ / 7z / LHA は library 固有の設定です。
-P14以降のtar.xzは4 MiB以下のmemberを最大4 MiBのblockに詰め、これを越えるmemberの
-header群と本文を分けます。本文と大きなheader群の片は最大16 MiBです。
-P14より前のtar.xzの結果とはサイズ・時間をそのまま比べないでください。
-P14の受入比較は同じcorpusを親commitと変更後で交互に作り、配置の変更を含む差として記録します。
+tar.xz は 4 MiB 以下の member を最大 4 MiB の block に詰め、4 MiB を越える member は header 群と
+本文を分けて、本文と大きな header 群を最大 16 MiB の片にします。この配置は 0.6.0 からなので、
+0.6.0 より前の tar.xz の結果とはサイズ・時間をそのまま比べないでください。
 `--threads` は `compressionThreads`（1...64）へ渡し、省略時は nil のまま library に委ねます。
 表示する `threads` は圧縮の並列数の設定です。tar.xzは2以上で64 KiB以下のblockを枠に数えず、
 未出力blockを合計 `2 × threads + 1` まで許すため、同時に動くencoderの総数とは一致しません。
@@ -70,6 +71,10 @@ P14の受入比較は同じcorpusを親commitと変更後で交互に作り、�
 非圧縮 tar は常に1です。単独実行の `elapsed_s` は `ContinuousClock` で create から finish までを
 測り、runner の wall 秒はプロセス起動・終了も含みます。`--level` / `--threads` は reference には適用しません。
 
-2026-09-24 の検証記録:
+検証記録:
 [並列 LZMA2](../Documentation/verification/2026-09-24-parallel-lzma2.md)、
-[並列 deflate / bzip2](../Documentation/verification/2026-09-24-parallel-deflate-bzip2.md)。
+[並列 deflate / bzip2](../Documentation/verification/2026-09-24-parallel-deflate-bzip2.md)（2026-09-24）、
+[tar.xz の block の詰め方](../Documentation/verification/2026-09-26-p14-xz-packing.md)（2026-09-26、
+親 commit と交互に作った受入比較）、
+[batch 追加](../Documentation/verification/2026-09-27-p7g-batch.md)（2026-09-27、三階層の固定 small corpus での
+mode 間の受入計測）。
