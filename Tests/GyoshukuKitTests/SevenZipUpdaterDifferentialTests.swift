@@ -6,7 +6,7 @@ import XCTest
 final class SevenZipUpdaterDifferentialTests: XCTestCase {
     func testSeededEditsAgainstIndependentModelAndRewriter() throws {
         let iterations = Int(ProcessInfo.processInfo.environment["GYOSHUKU_7Z_DIFF_ITERATIONS"] ?? "200") ?? 200
-        let root = try ZipTestSupport.directory("7z-differential")
+        let root = try TestSupport.directory("7z-differential")
         func canonical(_ item: SevenZipEditSupport.Item) -> SevenZipEditSupport.Item {
             var result = item
             result.name = item.name.precomposedStringWithCanonicalMapping
@@ -17,12 +17,12 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
         func random(_ limit: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 32) % UInt64(limit)) }
         for iteration in 0..<iterations {
             try autoreleasepool {
-                let work = try SevenZipEditSupport.work(root)
+                let work = try TestSupport.work(in: root)
                 let source = work.appendingPathComponent("source.7z")
                 let count = 10 + random(191)
                 let password: String? = iteration % 3 == 0 ? nil : "secret"
                 let headers = iteration % 3 == 2
-                let external = iteration % 6 >= 3 && FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz")
+                let external = iteration % 6 >= 3 && FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip)
                 let input = work.appendingPathComponent("input")
                 if external { try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true) }
                 let writer = try external ? nil : ArchiveWriter.create(url: source, format: .sevenZip,
@@ -32,25 +32,18 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
                     let name = index % 9 == 0 ? "日本語-\(index)" : index % 11 == 0 ? "e\u{301}-\(index)" : "file-\(index)"
                     let bytes = Data(repeating: UInt8(random(255)), count: index % 7 == 0 ? 0 : 1 + random(3000))
                     if external { try bytes.write(to: input.appendingPathComponent(name)) }
-                    else { try writer!.add(data: bytes, as: name, modificationDate: ZipTestSupport.date) }
+                    else { try writer!.add(data: bytes, as: name, modificationDate: TestSupport.date) }
                     expected.append(.init(name: name.precomposedStringWithCanonicalMapping, kind: .file, data: bytes))
                 }
                 if external { try FileManager.default.createDirectory(at: input.appendingPathComponent("dir"), withIntermediateDirectories: true) }
-                else { try writer!.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil) }
+                else { try writer!.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil) }
                 expected.append(.init(name: "dir/", kind: .directory, data: Data()))
                 if external {
                     let solid = ["on", "16k", "off"][iteration % 3]
-                    let log = work.appendingPathComponent("7zz-create.log")
-                    FileManager.default.createFile(atPath: log.path, contents: nil)
-                    let handle = try FileHandle(forWritingTo: log), process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/7zz")
-                    process.currentDirectoryURL = input
-                    process.arguments = ["a", "-t7z", "-mx=1", "-mmt=1", "-ms=" + solid]
+                    let arguments = ["a", "-t7z", "-mx=1", "-mmt=1", "-ms=" + solid]
                         + (password.map { ["-p" + $0] } ?? []) + (headers ? ["-mhe=on"] : []) + [source.path, "."]
-                    process.standardOutput = handle; process.standardError = handle
-                    try process.run(); process.waitUntilExit(); try handle.close()
-                    let diagnostic = try String(contentsOf: log, encoding: .utf8)
-                    XCTAssertEqual(process.terminationStatus, 0, diagnostic)
+                    try ReferenceTool.run(ReferenceTool.sevenZip, arguments, in: work, log: "7zz-create",
+                                          environment: [:], workingDirectory: input)
                 } else { try writer!.finish() }
                 let before = try SevenZipEditSupport.reader(source, password: password)
                 let old = try XCTUnwrap(SevenZipEditModel.read(before))
@@ -82,12 +75,12 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
                         ? ArchiveRewriter.open(url: source, password: password, output: output, format: .sevenZip, options: options)
                         : SevenZipUpdater.open(url: source, password: password, output: output, options: options)
                     let late = iteration % 2 == 0 && !replacement
-                    if late { try editor.add(data: addition, as: additionName, modificationDate: ZipTestSupport.date, permissions: nil) }
+                    if late { try editor.add(data: addition, as: additionName, modificationDate: TestSupport.date, permissions: nil) }
                     try editor.remove(entriesAt: Array(remove))
                     try editor.rename(entryAt: rename, to: newName)
                     if let reencrypt = editor as? any ArchiveReencrypting, convert { try reencrypt.reencryptExistingEntries(currentPassword: password) }
-                    if !late { try editor.add(data: addition, as: additionName, modificationDate: ZipTestSupport.date, permissions: nil) }
-                    try editor.addDirectory("newdir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                    if !late { try editor.add(data: addition, as: additionName, modificationDate: TestSupport.date, permissions: nil) }
+                    try editor.addDirectory("newdir", modificationDate: TestSupport.date, ownerIDs: nil)
                     try editor.commit()
                     XCTAssertEqual(try SevenZipEditSupport.items(SevenZipEditSupport.reader(output, password: target)).map(canonical), projected, "seed iteration \(iteration) rewrite=\(rewrite)")
                     outputs.append(output)

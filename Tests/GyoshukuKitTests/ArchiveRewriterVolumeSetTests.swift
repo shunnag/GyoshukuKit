@@ -8,12 +8,12 @@ final class ArchiveRewriterVolumeSetTests: XCTestCase {
     private let formats: [(GyoshukuKit.ArchiveFormat, String)] = [(.sevenZip, "7z"), (.tar, "tar")]
 
     private func archive(_ label: String, format: GyoshukuKit.ArchiveFormat, suffix: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("rewriter-volumes-\(label)-\(suffix)")
+        let directory = try TestSupport.directory("rewriter-volumes-\(label)-\(suffix)")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source." + suffix)
         let writer = try ArchiveWriter.create(url: url, format: format)
         try writer.add(data: Data(repeating: 0x61, count: 8_192), as: "payload.bin",
-                       modificationDate: ZipTestSupport.date)
+                       modificationDate: TestSupport.date)
         try writer.finish()
         return url
     }

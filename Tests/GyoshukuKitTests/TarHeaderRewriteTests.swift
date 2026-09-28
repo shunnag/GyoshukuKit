@@ -3,17 +3,6 @@ import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 
-struct TarMemorySource: ByteSource {
-    let data: Data
-    var length: UInt64 { UInt64(data.count) }
-    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
-        guard offset < length else { return 0 }
-        let count = min(buffer.count, data.count - Int(offset))
-        data.withUnsafeBytes { buffer.baseAddress!.copyMemory(from: $0.baseAddress!.advanced(by: Int(offset)), byteCount: count) }
-        return count
-    }
-}
-
 final class TarHeaderRewriteTests: XCTestCase {
     func testWriterGroupsMatchExactlyAcrossPaxFieldsAndNameBoundaries() throws {
         let names = ["short", String(repeating: "a", count: 100), String(repeating: "a", count: 101),
@@ -73,7 +62,7 @@ final class TarHeaderRewriteTests: XCTestCase {
     }
 
     func testOrderedRepeatedPaxAndSparseAllVersions() throws {
-        let root = try ZipTestSupport.directory("p2-sparse")
+        let root = try TestSupport.directory("p2-sparse")
         for version in ["0.0", "0.1", "1.0"] {
             for named in [false, true] {
                 var fields = [("path", "discarded"), ("path", ""), ("SCHILY.xattr.user.test", "one"),
@@ -112,8 +101,8 @@ final class TarHeaderRewriteTests: XCTestCase {
                 XCTAssertNil(try Data(contentsOf: output).range(of: Data("old-parent".utf8)))
                 if named && version != "0.0" {
                     let script = "import tarfile,sys; t=tarfile.open(sys.argv[1]); assert t.getnames()==['new-parent/new-leaf']; assert t.extractfile(t.getmembers()[0]).read()==b'ab'+bytes(6)+b'cd'"
-                    try ZipTestSupport.run("/usr/bin/python3", ["-c", script, output.path], in: root, log: "sparse-python-\(version)")
-                    let listing = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tf", output.path], in: root, log: "sparse-bsd-\(version)")
+                    try TestSupport.run(ReferenceTool.python3, ["-c", script, output.path], in: root, log: "sparse-python-\(version)")
+                    let listing = try TestSupport.run(ReferenceTool.bsdtar, ["-tf", output.path], in: root, log: "sparse-bsd-\(version)")
                     XCTAssertEqual(listing, "new-parent/new-leaf\n")
                 }
             }
@@ -139,7 +128,7 @@ final class TarLayoutTests: XCTestCase {
     }
 
     func testGenericByteSourceUnitsAndBoundedHeaderReads() throws {
-        let root = try ZipTestSupport.directory("p2-layout")
+        let root = try TestSupport.directory("p2-layout")
         let source = try TarP2Support.fixture(root, count: 20, size: 64 * 1024)
         let data = try Data(contentsOf: source)
         let (_, disk, reader) = try TarP2Support.scan(source)
@@ -160,7 +149,7 @@ final class TarLayoutTests: XCTestCase {
 
 final class TarEditPlanTests: XCTestCase {
     func testContiguousSourcesMergeAndHeaderOnlyPatches() throws {
-        let root = try ZipTestSupport.directory("p2-plan")
+        let root = try TestSupport.directory("p2-plan")
         let source = try TarP2Support.fixture(root)
         let (layout, disk, reader) = try TarP2Support.scan(source)
         let plan = try TarEditPlan.make(layout: layout, source: disk, names: reader.entries.map(\.name), rawNames: reader.entries.map { Data($0.rawName.bytes) },

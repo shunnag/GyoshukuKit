@@ -5,7 +5,7 @@ import XCTest
 
 final class LHAUpdaterRefusalTests: XCTestCase {
     func testStructuralRefusalsPreserveSourceAndLeaveNoFiles() throws {
-        let root = try ZipTestSupport.directory("lha-refusals")
+        let root = try TestSupport.directory("lha-refusals")
         let cases = [("os9-k-short-level2", "R8"), ("names-euc-jp", "R10"), ("names-utf8-declared", "R10"),
                      ("names-utf8-undeclared", "R10"), ("sfx", "L1"), ("empty-name-directory-tail", "L2"),
                      ("larc-lzs-eof", "L2"), ("tl-S5", "L3"), ("tl-S11", "L3"), ("anonymous-middle", "L4"),
@@ -15,8 +15,8 @@ final class LHAUpdaterRefusalTests: XCTestCase {
             let before = try ZipP1Support.info(source)
             // L9 is sparse: compare its stored prefix and stat, without reading a 4 GiB hole.
             let bytes = try ZipUpdateSource(url: source).bytes(at: 0, count: min(Int(before.st_size), 65536))
-            let reader = try ArchiveReader.open(url: source, options: .init(limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
-            let work = try TarP2Support.work(root)
+            let reader = try ArchiveReader.open(url: source, options: TestSupport.editingReaderOptions)
+            let work = try TestSupport.work(in: root)
             XCTAssertThrowsError(try LHAUpdater.open(url: source, output: work.appendingPathComponent("out.lzh"))) {
                 guard case UpdaterRouteError.requiresRewrite(let text) = $0 else { return XCTFail("\(name): \($0)") }
                 XCTAssertTrue(text.contains(reason), "\(name): \(text)")
@@ -32,9 +32,9 @@ final class LHAUpdaterRefusalTests: XCTestCase {
         }
     }
     func testSettingsSplitMismatchTrailingAndOtherFormats() throws {
-        let root = try ZipTestSupport.directory("lha-routing")
+        let root = try TestSupport.directory("lha-routing")
         let source = try LHAUpdateSupport.generated(root)
-        let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
+        let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
         func refused(_ url: URL, options: WriterOptions = .init(), reason: String) throws {
             XCTAssertThrowsError(try LHAUpdater.open(url: url, output: output, options: options)) {
                 guard case UpdaterRouteError.requiresRewrite(let text) = $0 else { return XCTFail("\($0)") }
@@ -61,8 +61,8 @@ final class LHAUpdaterRefusalTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
     }
     func testUnrepresentableMethodsAndSymlinks() throws {
-        let root = try ZipTestSupport.directory("lha-unrepresentable")
-        let work = try TarP2Support.work(root)
+        let root = try TestSupport.directory("lha-unrepresentable")
+        let work = try TestSupport.work(in: root)
         for kind in 0..<2 {
             let source = root.appendingPathComponent("source-\(kind).lzh")
             let h = LHAHeaderBuilder.header(level: 2, name: Data((kind == 0 ? "unsupported" : "link|target").utf8), packed: 0, original: 0, crc: 0,
@@ -75,7 +75,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
         }
     }
     func testMacBinaryEnvelopeIsStillUnrepresentable() throws {
-        let root = try ZipTestSupport.directory("lha-macbinary"), work = try TarP2Support.work(root)
+        let root = try TestSupport.directory("lha-macbinary"), work = try TestSupport.work(in: root)
         var envelope = Data(count: 256)
         envelope[1] = 6
         envelope.replaceSubrange(2..<8, with: Data("member".utf8))

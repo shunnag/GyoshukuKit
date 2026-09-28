@@ -22,10 +22,10 @@ final class TarUpdaterDifferentialTests: XCTestCase {
 
     func testSeededArchivesAndOperationOrdersAgainstIndependentModelAndRewriter() throws {
         let iterations = Int(ProcessInfo.processInfo.environment["GYOSHUKU_TAR_DIFF_ITERATIONS"] ?? "") ?? 300
-        let root = try ZipTestSupport.directory("p2-differential")
+        let root = try TestSupport.directory("p2-differential")
         var random = Random()
         for iteration in 0..<iterations {
-            let directory = try TarP2Support.work(root)
+            let directory = try TestSupport.work(in: root)
             defer { try? FileManager.default.removeItem(at: directory) }
             var members: [Member] = []
             var targets: [Int] = []
@@ -59,7 +59,7 @@ final class TarUpdaterDifferentialTests: XCTestCase {
                         else: e.size=len(b)
                         t.addfile(e,io.BytesIO(b))
                 """
-                try ZipTestSupport.run("/usr/bin/python3", ["-c", script, json.path, source.path, String(iteration)], in: directory, log: "python-fixture")
+                try TestSupport.run(ReferenceTool.python3, ["-c", script, json.path, source.path, String(iteration)], in: directory, log: "python-fixture")
             } else {
                 try TarP2Support.archive(members.map { member in
                     (.init(name: Data(member.name.utf8), size: UInt64(member.data.count), mtime: 1700000001, uid: 501, gid: 20,
@@ -99,7 +99,7 @@ final class TarUpdaterDifferentialTests: XCTestCase {
                     switch edit {
                     case .remove(let index): try editor.remove(entriesAt: [index])
                     case .rename(let index, let name): try editor.rename(entryAt: index, to: name)
-                    case .add(let name, let data): try editor.add(data: data, as: name, modificationDate: ZipTestSupport.date, permissions: 0o644)
+                    case .add(let name, let data): try editor.add(data: data, as: name, modificationDate: TestSupport.date, permissions: 0o644)
                     }
                 }
                 try editor.commit()
@@ -152,6 +152,6 @@ final class TarUpdaterDifferentialTests: XCTestCase {
                 XCTAssertEqual(try reader.read(reader.entries[survivors.count + index]), addition.data)
             }
         }
-        ZipTestSupport.report("TAR-DIFFERENTIAL iterations=\(iterations) seed=0x70a8e122")
+        TestSupport.report("TAR-DIFFERENTIAL iterations=\(iterations) seed=0x70a8e122")
     }
 }

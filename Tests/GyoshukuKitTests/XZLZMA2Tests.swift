@@ -7,7 +7,7 @@ import XCTest
 
 final class XZLZMA2Tests: XCTestCase {
     func testAppleXZRetainsLZMA2TerminatorAndDecodes() throws {
-        let directory = try ZipTestSupport.directory("7z-apple-xz")
+        let directory = try TestSupport.directory("7z-apple-xz")
         let input = Data(String(repeating: "Apple Compression LZMA2 payload\n", count: 1000).utf8)
         let container = try LZMA2Compressor.encodeXZ(input)
         let parsed = try XZLZMA2.extract(container)
@@ -25,7 +25,7 @@ final class XZLZMA2Tests: XCTestCase {
     }
 
     func testOptionalSizeFieldsAndHeaderPaddingMovePayloadDynamically() throws {
-        let directory = try ZipTestSupport.directory("7z-xz-optional-sizes")
+        let directory = try TestSupport.directory("7z-xz-optional-sizes")
         let input = Data((0..<20_003).map { UInt8(truncatingIfNeeded: $0) })
         let raw = try LZMA2Compressor.encode(input)
         var observedOffsets: Set<Int> = []
@@ -43,11 +43,11 @@ final class XZLZMA2Tests: XCTestCase {
             try assertDecodes(fixture.data, to: input)
         }
         XCTAssertEqual(observedOffsets, [24, 28, 32, 40])
-        ZipTestSupport.report("XZ OPTIONAL SIZE FIELDS: payload offsets \(observedOffsets.sorted()); CRC32 check excluded; 7zz accepted all fixtures")
+        TestSupport.report("XZ OPTIONAL SIZE FIELDS: payload offsets \(observedOffsets.sorted()); CRC32 check excluded; 7zz accepted all fixtures")
     }
 
     func testNoneCRC32CRC64AndSHA256ChecksDoNotLeakIntoPayload() throws {
-        let directory = try ZipTestSupport.directory("7z-xz-checks")
+        let directory = try TestSupport.directory("7z-xz-checks")
         let input = Data("container checks belong outside the raw LZMA2 stream".utf8)
         let raw = try LZMA2Compressor.encode(input)
         for check: UInt8 in [0, 1, 4, 10] {

@@ -5,7 +5,7 @@ import XCTest
 
 final class TarWriterTests: XCTestCase {
     func testSimpleArchiveExternalToolsAndKaitoRoundTrip() throws {
-        let directory = try ZipTestSupport.directory("tar-simple")
+        let directory = try TestSupport.directory("tar-simple")
         let url = directory.appendingPathComponent("archive.tar")
         let writer = try ArchiveWriter.create(url: url, format: .tar)
         XCTAssertEqual(writer.format, .tar)
@@ -29,10 +29,10 @@ final class TarWriterTests: XCTestCase {
 
     func testEmptyArchiveAndBlockingFactorBoundaries() throws {
         for (index, size) in [nil, 0, 1, 511, 512, 513, 8_704, 8_705, 9_216].enumerated() {
-            let directory = try ZipTestSupport.directory("tar-block-\(index)")
+            let directory = try TestSupport.directory("tar-block-\(index)")
             let url = directory.appendingPathComponent("archive.tar")
             let writer = try ArchiveWriter.create(url: url, format: .tar)
-            if let size { try writer.add(data: Data(repeating: 0x41, count: size), as: "file", modificationDate: ZipTestSupport.date) }
+            if let size { try writer.add(data: Data(repeating: 0x41, count: size), as: "file", modificationDate: TestSupport.date) }
             try writer.finish()
             let data = try Data(contentsOf: url)
             let bytes = try TarBytes(data)
@@ -45,11 +45,11 @@ final class TarWriterTests: XCTestCase {
 
     func testExactly100ByteNameAnd101BytePaxPath() throws {
         for length in [100, 101] {
-            let directory = try ZipTestSupport.directory("tar-name-\(length)")
+            let directory = try TestSupport.directory("tar-name-\(length)")
             let url = directory.appendingPathComponent("archive.tar")
             let name = String(repeating: "n", count: length)
             let writer = try ArchiveWriter.create(url: url, format: .tar)
-            try writer.add(data: Data([1]), as: name, modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data([1]), as: name, modificationDate: TestSupport.date)
             try writer.finish()
             let bytes = try TarBytes(Data(contentsOf: url))
             XCTAssertEqual(bytes.records.map(\.type), length == 100 ? [0x30] : [0x78, 0x30])
@@ -62,13 +62,13 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testUstarPrefixBoundaryAvoidsUnnecessaryPax() throws {
-        let directory = try ZipTestSupport.directory("tar-prefix")
+        let directory = try TestSupport.directory("tar-prefix")
         let url = directory.appendingPathComponent("archive.tar")
         let prefix = String(repeating: "p", count: 155)
         let leaf = String(repeating: "f", count: 100)
         let name = prefix + "/" + leaf
         let writer = try ArchiveWriter.create(url: url, format: .tar)
-        try writer.add(data: Data(), as: name, modificationDate: ZipTestSupport.date)
+        try writer.add(data: Data(), as: name, modificationDate: TestSupport.date)
         try writer.addDirectory(prefix + "/" + String(repeating: "d", count: 99))
         try writer.finish()
         let bytes = try TarBytes(Data(contentsOf: url))
@@ -80,13 +80,13 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testJapanesePaxKeepsExactUTF8Bytes() throws {
-        let directory = try ZipTestSupport.directory("tar-japanese")
+        let directory = try TestSupport.directory("tar-japanese")
         let url = directory.appendingPathComponent("archive.tar")
         let names = ["日本語/資料.txt", String(repeating: "凝縮", count: 20) + ".txt"]
         let data = Data("こんにちは\n".utf8)
         let writer = try ArchiveWriter.create(url: url, format: .tar)
         for name in names {
-            try writer.add(data: data, as: name, modificationDate: ZipTestSupport.date)
+            try writer.add(data: data, as: name, modificationDate: TestSupport.date)
         }
         try writer.finish()
         let bytes = try TarBytes(Data(contentsOf: url))
@@ -100,11 +100,11 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testDecomposedInputUsesSharedNFCNormalization() throws {
-        let directory = try ZipTestSupport.directory("tar-nfc")
+        let directory = try TestSupport.directory("tar-nfc")
         let url = directory.appendingPathComponent("archive.tar")
         let name = "日本語/ガラス.txt"
         let writer = try ArchiveWriter.create(url: url, format: .tar)
-        try writer.add(data: Data(), as: name.decomposedStringWithCanonicalMapping, modificationDate: ZipTestSupport.date)
+        try writer.add(data: Data(), as: name.decomposedStringWithCanonicalMapping, modificationDate: TestSupport.date)
         try writer.finish()
         let bytes = try TarBytes(Data(contentsOf: url))
         XCTAssertEqual(try bytes.records[0].pax["path"], Data(name.utf8))
@@ -115,7 +115,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testOctalSizeOverflowUsesPaxAndBase256Header() throws {
-        let directory = try ZipTestSupport.directory("tar-size-overflow")
+        let directory = try TestSupport.directory("tar-size-overflow")
         for size: UInt64 in [0o77777777777, 0o100000000000, UInt64.max] {
             let headers = TarRecords.Entry(name: Data("large".utf8), size: size).headers()
             let header = Data(headers.suffix(512))
@@ -136,9 +136,9 @@ final class TarWriterTests: XCTestCase {
         let url = directory.appendingPathComponent("header-only.tar")
         try TarRecords.Entry(name: Data("large".utf8), size: 8_589_934_592).headers().write(to: url)
         let script = "import tarfile,sys; t=tarfile.open(sys.argv[1]); m=t.next(); print(m.name,m.size,m.pax_headers['size']); t.close()"
-        let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-large-header")
+        let output = try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-large-header")
         XCTAssertEqual(output, "large 8589934592 8589934592\n")
-        ZipTestSupport.report("TAR SIZE OVERFLOW: 8 GiB header constructed directly; no 8 GiB payload was written")
+        TestSupport.report("TAR SIZE OVERFLOW: 8 GiB header constructed directly; no 8 GiB payload was written")
     }
 
     func testOwnerNumericOverflowAndOwnerOptIn() throws {
@@ -150,7 +150,7 @@ final class TarWriterTests: XCTestCase {
         XCTAssertEqual(header[108..<116], Data([0x80, 0, 0, 0, 0, 0x20, 0, 0]))
         XCTAssertEqual(header[116..<124], Data([0x80, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF]))
         TarBytes.checksum(header)
-        let directory = try ZipTestSupport.directory("tar-owner-opt-in")
+        let directory = try TestSupport.directory("tar-owner-opt-in")
         let source = directory.appendingPathComponent("source")
         try Data([1]).write(to: source)
         let url = directory.appendingPathComponent("archive.tar")
@@ -166,7 +166,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testDirectoriesSymlinksAndHardLinksRestoreTheirTypes() throws {
-        let directory = try ZipTestSupport.directory("tar-tree")
+        let directory = try TestSupport.directory("tar-tree")
         let source = directory.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: source.appendingPathComponent("sub"), withIntermediateDirectories: true)
         let data = Data("linked content\n".utf8)
@@ -176,7 +176,7 @@ final class TarWriterTests: XCTestCase {
         let link = source.appendingPathComponent("c-link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "a.txt")
         for (url, mode) in [(source, 0o755), (source.appendingPathComponent("sub"), 0o750), (file, 0o640)] {
-            try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date, .posixPermissions: mode], ofItemAtPath: url.path)
+            try FileManager.default.setAttributes([.modificationDate: TestSupport.date, .posixPermissions: mode], ofItemAtPath: url.path)
         }
         let url = directory.appendingPathComponent("archive.tar")
         let writer = try ArchiveWriter.create(url: url, format: .tar)
@@ -198,7 +198,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testLongSymlinkAndHardLinkTargetsUsePaxLinkpath() throws {
-        let directory = try ZipTestSupport.directory("tar-long-links")
+        let directory = try TestSupport.directory("tar-long-links")
         let source = directory.appendingPathComponent("source")
         let alias = directory.appendingPathComponent("alias")
         let link = directory.appendingPathComponent("link")
@@ -207,7 +207,7 @@ final class TarWriterTests: XCTestCase {
         try data.write(to: source)
         try FileManager.default.linkItem(at: source, to: alias)
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: target)
-        try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date, .posixPermissions: 0o644], ofItemAtPath: source.path)
+        try FileManager.default.setAttributes([.modificationDate: TestSupport.date, .posixPermissions: 0o644], ofItemAtPath: source.path)
         let url = directory.appendingPathComponent("archive.tar")
         let writer = try ArchiveWriter.create(url: url, format: .tar)
         try writer.add(contentsOf: source, as: target)
@@ -225,15 +225,15 @@ final class TarWriterTests: XCTestCase {
 
     func testActualXattrIsNotArchivedOrRestored() throws {
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
-            let directory = try ZipTestSupport.directory("tar-metadata-\(format)")
+            let directory = try TestSupport.directory("tar-metadata-\(format)")
             let source = directory.appendingPathComponent("source")
             let payload = Data("metadata-free payload\n".utf8)
             try payload.write(to: source)
             let key = "com.gyoshukukit.fixture"
             let value = "PRIVATE-XATTR-SENTINEL-4937"
-            XCTAssertEqual(try ZipTestSupport.run("/usr/bin/xattr", ["-w", key, value, source.path], in: directory, log: "xattr-write"), "")
-            XCTAssertEqual(try ZipTestSupport.run("/usr/bin/xattr", ["-p", key, source.path], in: directory, log: "xattr-read"), value + "\n")
-            try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date, .posixPermissions: 0o644], ofItemAtPath: source.path)
+            XCTAssertEqual(try TestSupport.run(ReferenceTool.xattr, ["-w", key, value, source.path], in: directory, log: "xattr-write"), "")
+            XCTAssertEqual(try TestSupport.run(ReferenceTool.xattr, ["-p", key, source.path], in: directory, log: "xattr-read"), value + "\n")
+            try FileManager.default.setAttributes([.modificationDate: TestSupport.date, .posixPermissions: 0o644], ofItemAtPath: source.path)
             let suffix = format == .tar ? "tar" : format == .tarGzip ? "tar.gz" : format == .tarBzip2 ? "tar.bz2" : "tar.xz"
             let url = directory.appendingPathComponent("archive." + suffix)
             let writer = try ArchiveWriter.create(url: url, format: format)
@@ -242,13 +242,13 @@ final class TarWriterTests: XCTestCase {
             try TarTestSupport.verify(url, expected: [.init(name: "file", data: payload)], gzip: format == .tarGzip)
             let script = "import bz2,gzip,lzma,sys; p=sys.argv[1]; reader=gzip.open if p.endswith('.gz') else bz2.open if p.endswith('.bz2') else lzma.open if p.endswith('.xz') else open; b=reader(p,'rb').read(); open(sys.argv[2],'wb').write(b); print(len(b))"
             let rawURL = directory.appendingPathComponent("raw.tar")
-            let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, rawURL.path], in: directory, log: "python-raw")
+            let output = try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path, rawURL.path], in: directory, log: "python-raw")
             let raw = try Data(contentsOf: rawURL)
             XCTAssertEqual(output, "\(raw.count)\n")
             let bytes = try TarBytes(raw)
             XCTAssertEqual(bytes.records.map { String(decoding: $0.name, as: UTF8.self) }, ["file"])
             for marker in ["._", "SCHILY.xattr", key, value] { XCTAssertNil(raw.range(of: Data(marker.utf8))) }
-            let restored = try ZipTestSupport.run("/usr/bin/xattr", ["-l", directory.appendingPathComponent("extracted/file").path], in: directory, log: "xattr-restored")
+            let restored = try TestSupport.run(ReferenceTool.xattr, ["-l", directory.appendingPathComponent("extracted/file").path], in: directory, log: "xattr-restored")
             XCTAssertFalse(restored.contains(key), restored)
             XCTAssertFalse(restored.contains(value), restored)
         }
@@ -256,7 +256,7 @@ final class TarWriterTests: XCTestCase {
 
     func testMtimeTruncationNegativeAndOctalOverflow() throws {
         for (index, seconds) in [1_700_000_001.875, -1.25, 8_589_934_592.0].enumerated() {
-            let directory = try ZipTestSupport.directory("tar-mtime-\(index)")
+            let directory = try TestSupport.directory("tar-mtime-\(index)")
             let url = directory.appendingPathComponent("archive.tar")
             let writer = try ArchiveWriter.create(url: url, format: .tar)
             try writer.add(data: Data(), as: "dated", modificationDate: Date(timeIntervalSince1970: seconds))
@@ -278,7 +278,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testSharedPathValidationAndFailedOutputCleanup() throws {
-        let directory = try ZipTestSupport.directory("tar-invalid")
+        let directory = try TestSupport.directory("tar-invalid")
         let paths = ["", "/absolute", "../escape", "a/../b", "a/./b", "a//b", "nul\0name", "file/", String(repeating: "界", count: 22_000)]
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             for (index, path) in paths.enumerated() {
@@ -294,7 +294,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testDuplicateNamesAndFileDirectoryConflicts() throws {
-        let directory = try ZipTestSupport.directory("tar-conflicts")
+        let directory = try TestSupport.directory("tar-conflicts")
         for (index, names) in [["parent", "parent/child"], ["parent/child", "parent"], ["ガ", "カ\u{3099}"]].enumerated() {
             let url = directory.appendingPathComponent("\(index).tar")
             let writer = try ArchiveWriter.create(url: url, format: .tar)
@@ -305,7 +305,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testLifecycleExistingDestinationAndOutputAsSource() throws {
-        let directory = try ZipTestSupport.directory("tar-lifecycle")
+        let directory = try TestSupport.directory("tar-lifecycle")
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let url = directory.appendingPathComponent("\(format).tar")
             do {
@@ -327,7 +327,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testChangedHardLinkSourceFailsInsteadOfReferencingOldPayload() throws {
-        let directory = try ZipTestSupport.directory("tar-changed-hardlink")
+        let directory = try TestSupport.directory("tar-changed-hardlink")
         let source = directory.appendingPathComponent("source")
         let alias = directory.appendingPathComponent("alias")
         try Data([1]).write(to: source)
@@ -343,7 +343,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testCleanupDoesNotDeleteReplacedDestination() throws {
-        let directory = try ZipTestSupport.directory("tar-replaced-output")
+        let directory = try TestSupport.directory("tar-replaced-output")
         let url = directory.appendingPathComponent("archive.tar")
         let moved = directory.appendingPathComponent("moved.tar")
         let writer = try ArchiveWriter.create(url: url, format: .tar)
@@ -358,7 +358,7 @@ final class TarWriterTests: XCTestCase {
 
     func testPublicTaskCancellationDuringPayloadRemovesOutput() async throws {
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip] {
-            let directory = try ZipTestSupport.directory("tar-cancel-\(format)")
+            let directory = try TestSupport.directory("tar-cancel-\(format)")
             let source = directory.appendingPathComponent("large-source")
             FileManager.default.createFile(atPath: source.path, contents: nil)
             let handle = try FileHandle(forWritingTo: source)
@@ -392,7 +392,7 @@ final class TarWriterTests: XCTestCase {
     }
 
     func testCancellationBeforeFinishRemovesPreviouslyWrittenMembers() async throws {
-        let directory = try ZipTestSupport.directory("tar-cancel-finish")
+        let directory = try TestSupport.directory("tar-cancel-finish")
         let url = directory.appendingPathComponent("archive.tar")
         let task = Task {
             let writer = try ArchiveWriter.create(url: url, format: .tar)

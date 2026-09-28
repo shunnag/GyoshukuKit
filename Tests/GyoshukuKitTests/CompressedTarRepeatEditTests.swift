@@ -6,7 +6,7 @@ import XCTest
 final class CompressedTarRepeatEditTests: XCTestCase {
     func testFiftySeededEditsUsingAdoptedAndReopenedSnapshots() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try ZipTestSupport.directory("p3-repeat-\(format)")
+            let root = try TestSupport.directory("p3-repeat-\(format)")
             var current = try CompressedTarTestSupport.fixture(root, format)
             var plainURL = root.appendingPathComponent("input.tar")
             var reader = try CompressedTarTestSupport.open(current)
@@ -22,13 +22,13 @@ final class CompressedTarRepeatEditTests: XCTestCase {
                     switch operation {
                     case 0: try editor.remove(entriesAt: [index])
                     case 1: try editor.rename(entryAt: index, to: "renamed-\(step)-" + String(repeating: "n", count: step % 2 == 0 ? 140 : 8))
-                    case 2: try editor.add(data: Data(repeating: UInt8(step), count: 4096), as: "added-\(step)", modificationDate: ZipTestSupport.date, permissions: nil)
+                    case 2: try editor.add(data: Data(repeating: UInt8(step), count: 4096), as: "added-\(step)", modificationDate: TestSupport.date, permissions: nil)
                     default:
                         try editor.remove(entriesAt: [index])
-                        try editor.add(data: Data([UInt8(step)]), as: oldName, modificationDate: ZipTestSupport.date, permissions: nil)
+                        try editor.add(data: Data([UInt8(step)]), as: oldName, modificationDate: TestSupport.date, permissions: nil)
                     }
                 }
-                let output = root.appendingPathComponent("step-\(step)." + TarP2Support.suffix(format))
+                let output = root.appendingPathComponent("step-\(step)." + format.testFileExtension)
                 let plainOutput = root.appendingPathComponent("step-\(step).tar")
                 let plain = try TarUpdater.open(url: plainURL, output: plainOutput)
                 try mutate(plain); try plain.commit()
@@ -41,13 +41,13 @@ final class CompressedTarRepeatEditTests: XCTestCase {
                 largestSmallCount = max(largestSmallCount, small)
                 XCTAssertLessThanOrEqual(small, 8, "\(format) step \(step)")
                 if step == 49 {
-                    let encoded = root.appendingPathComponent("full." + TarP2Support.suffix(format))
+                    let encoded = root.appendingPathComponent("full." + format.testFileExtension)
                     let full = try CompressedTarUpdater.open(reader: session.reopen(), output: encoded, format: format)
                     try mutate(full)
                     let forced = try CompressedTarUpdater.$testingForcesFullEncode.withValue(true) { try full.commit(progress: nil) }
                     _ = try CompressedTarTestSupport.verify(encoded, base: base, result: forced, oracle: plainOutput)
                     XCTAssertLessThanOrEqual(Double(result.output.size), Double(forced.output.size) * 1.01)
-                    ZipTestSupport.report("TAR-REPEAT \(format)\tseed=17\tedits=50\tsplice=\(result.output.size)\tfull=\(forced.output.size)\tsmall_max=\(largestSmallCount)")
+                    TestSupport.report("TAR-REPEAT \(format)\tseed=17\tedits=50\tsplice=\(result.output.size)\tfull=\(forced.output.size)\tsmall_max=\(largestSmallCount)")
                 }
                 current = output; plainURL = plainOutput
             }
@@ -76,7 +76,7 @@ final class CompressedTarLargeOffsetTests: XCTestCase {
         let image = TarImageSource(spans: [.init(source: source, offset: offset, range: 0..<4096, isOld: true)], length: 4096, terminalStart: 4096)
         let actual = try TarLayout.bytes(image, at: 0, count: 4096)
         XCTAssertEqual(actual, Data((0..<4096).map { UInt8((offset + UInt64($0)) % 251) }))
-        ZipTestSupport.report("TAR-LARGE length=\(length) crc=\(direct) offset=\(offset) passed")
+        TestSupport.report("TAR-LARGE length=\(length) crc=\(direct) offset=\(offset) passed")
     }
     private struct LargePatternSource: ByteSource {
         let length: UInt64

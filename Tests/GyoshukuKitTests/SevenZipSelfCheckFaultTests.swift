@@ -5,14 +5,14 @@ import XCTest
 
 final class SevenZipSelfCheckFaultTests: XCTestCase {
     func testEveryFaultIsDetectedAndCleaned() throws {
-        let root = try ZipTestSupport.directory("7z-faults")
+        let root = try TestSupport.directory("7z-faults")
         let simple = try SevenZipEditSupport.source(root)
         let faults: [SevenZipUpdater.Fault] = [.flipMovedPackByte, .flipAppendedPackByte, .flipReencodedPackByte,
             .flipConvertedPackByte, .corruptSerializedName, .dropLastPackFromModel]
         for fault in faults {
             let source = fault == .flipReencodedPackByte ? SevenZipEditSupport.fixture("m") : simple
             let before = try Data(contentsOf: source)
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: source, output: output, options: WriterOptions(password: "new"))
             switch fault {
             case .flipMovedPackByte: try updater.remove(entriesAt: [0])

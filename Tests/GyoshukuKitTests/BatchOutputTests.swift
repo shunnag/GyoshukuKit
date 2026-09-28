@@ -8,7 +8,7 @@ final class BatchOutputTests: XCTestCase {
     private typealias S = AdditionProgressTestSupport
 
     func testUnobservedBatchBytesAcrossBufferFlushesAndHeaderPatches() throws {
-        let root = try ZipTestSupport.directory("p7-buffer-bytes")
+        let root = try TestSupport.directory("p7-buffer-bytes")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.fixture(root)
         try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
@@ -22,10 +22,10 @@ final class BatchOutputTests: XCTestCase {
                     let writer = try ArchiveWriter.create(url: output, format: .zip, options: options,
                         deflateBlockSize: 65536, zipSalt: { Data(repeating: 19, count: 16) },
                         lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
-                    try writer.add(data: Data([1, 2, 3]), as: "before", modificationDate: ZipTestSupport.date)
+                    try writer.add(data: Data([1, 2, 3]), as: "before", modificationDate: TestSupport.date)
                     if batch { try writer.add(items, events: nil) } else { try B.singles(writer, items) }
                     // Stored data uses a seek to patch its header after the buffered records.
-                    try writer.add(data: Data(repeating: 91, count: 300_000), as: "after.png", modificationDate: ZipTestSupport.date)
+                    try writer.add(data: Data(repeating: 91, count: 300_000), as: "after.png", modificationDate: TestSupport.date)
                     try writer.finishAdditions(progress: nil)
                     let prefix = try Data(contentsOf: output)
                     XCTAssertFalse(prefix.isEmpty)
@@ -40,7 +40,7 @@ final class BatchOutputTests: XCTestCase {
     }
 
     func testBatchFlushesBeforeReturningAndBeforeCallbacksAndKeepsPartialZIP() throws {
-        let root = try ZipTestSupport.directory("p7-buffer-boundaries")
+        let root = try TestSupport.directory("p7-buffer-boundaries")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.small(root)
         for observed in [false, true] {
@@ -67,7 +67,7 @@ final class BatchOutputTests: XCTestCase {
     }
 
     func testBufferedWriteFailureBelongsToFirstUnwrittenItem() throws {
-        let root = try ZipTestSupport.directory("p7-buffer-failure")
+        let root = try TestSupport.directory("p7-buffer-failure")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.small(root)
         for unreadable in [false, true] {
@@ -90,13 +90,13 @@ final class BatchOutputTests: XCTestCase {
     }
 
     func testSevenZipVerifiedDataKeepsConfiguredChunkBoundaries() throws {
-        let root = try ZipTestSupport.directory("p7-sevenzip-verified")
+        let root = try TestSupport.directory("p7-sevenzip-verified")
         defer { try? FileManager.default.removeItem(at: root) }
         var items = try B.small(root, count: 3, size: 17)
         let link = root.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "disk-1")
         items.insert(.init(path: "link", source: .contents(of: link)), at: 1)
-        items.insert(.init(path: "directory", source: .directory(modificationDate: ZipTestSupport.date)), at: 2)
+        items.insert(.init(path: "directory", source: .directory(modificationDate: TestSupport.date)), at: 2)
         items.append(.init(path: "empty", source: .contents(of: try S.file(root, "empty", size: 0))))
         try SevenZipAESEncryptor.$testingIV.withValue({ Data(repeating: 23, count: 16) }) {
             for chunkSize in [16, 32] {
@@ -108,9 +108,9 @@ final class BatchOutputTests: XCTestCase {
                         let options = WriterOptions(password: encrypted ? "password" : nil,
                                                     encryptsSevenZipHeaders: encrypted, compressionThreads: 4)
                         let writer = try ArchiveWriter.create(url: output, format: .sevenZip, options: options, lzmaChunkSize: chunkSize)
-                        try writer.add(data: Data([1, 2]), as: "before", modificationDate: ZipTestSupport.date)
+                        try writer.add(data: Data([1, 2]), as: "before", modificationDate: TestSupport.date)
                         if batch { try writer.add(items, events: nil) } else { try B.singles(writer, items) }
-                        try writer.add(data: Data([3]), as: "after", modificationDate: ZipTestSupport.date)
+                        try writer.add(data: Data([3]), as: "after", modificationDate: TestSupport.date)
                         try writer.finish()
                         let bytes = try Data(contentsOf: output)
                         if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }

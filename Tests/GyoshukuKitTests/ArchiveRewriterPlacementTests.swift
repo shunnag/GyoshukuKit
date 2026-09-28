@@ -8,15 +8,15 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
         let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha]
         for format in formats {
             for placement in [AdditionPlacement.end, .beginning] {
-                let root = try ZipTestSupport.directory("p2-placement-\(format)-\(placement)")
+                let root = try TestSupport.directory("p2-placement-\(format)-\(placement)")
                 let source = try TarP2Support.fixture(root, count: 3)
-                let work = try TarP2Support.work(root), output = work.appendingPathComponent("output." + TarP2Support.suffix(format))
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output." + format.testFileExtension)
                 let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format,
                                                        options: .init(additionPlacement: placement))
                 try rewriter.remove(entriesAt: [1])
                 try rewriter.rename(entryAt: 2, to: "renamed")
-                try rewriter.add(data: Data([9, 8]), as: "added", modificationDate: ZipTestSupport.date)
-                try rewriter.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                try rewriter.add(data: Data([9, 8]), as: "added", modificationDate: TestSupport.date)
+                try rewriter.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil)
                 XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path).isEmpty, placement == .end)
                 var carried: [Int] = []
                 try rewriter.commit { completed, total in XCTAssertEqual(total, 2); carried.append(completed) }
@@ -25,7 +25,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
                 XCTAssertEqual(reader.entries.map(\.name), placement == .end
                     ? ["file-000000", "renamed", "added", "dir/"] : ["added", "dir/", "file-000000", "renamed"])
                 let directory = try XCTUnwrap(reader.entries.first { $0.kind == .directory })
-                XCTAssertEqual(directory.modificationDate, ZipTestSupport.date)
+                XCTAssertEqual(directory.modificationDate, TestSupport.date)
                 XCTAssertEqual(directory.posixPermissions, 0o755)
                 XCTAssertEqual(try reader.read(XCTUnwrap(reader.entries.first { $0.name == "added" })), Data([9, 8]))
             }
@@ -34,10 +34,10 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
 
     func testQueuedSourceIdentityAndImmediateReservationFailures() throws {
         for mutation in 0..<5 {
-            let root = try ZipTestSupport.directory("p2-queued-source-\(mutation)")
+            let root = try TestSupport.directory("p2-queued-source-\(mutation)")
             let source = try TarP2Support.fixture(root)
             let before = try Data(contentsOf: source)
-            let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.tar")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
             let disk = root.appendingPathComponent("disk")
             try Data([1, 2]).write(to: disk)
             let editor = try ArchiveRewriter.open(url: source, output: output, format: .tar)
@@ -73,7 +73,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
 final class ArchiveOwnerIDsTests: XCTestCase {
     func testTarUpdaterKeepsCarriedOwnersRegardlessOfDiskPolicy() throws {
         for preserve in [false, true] {
-            let root = try ZipTestSupport.directory("p2-tar-owner-policy-\(preserve)")
+            let root = try TestSupport.directory("p2-tar-owner-policy-\(preserve)")
             let source = root.appendingPathComponent("source.tar")
             try TarP2Support.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
             let disk = root.appendingPathComponent("disk")
@@ -95,12 +95,12 @@ final class ArchiveOwnerIDsTests: XCTestCase {
         for format in [GyoshukuKit.ArchiveFormat.tar, .tarGzip, .tarBzip2, .tarXZ] {
             for keep in [false, true] {
                 for preserve in [false, true] {
-                    let root = try ZipTestSupport.directory("p2-owners-\(format)-\(keep)-\(preserve)")
+                    let root = try TestSupport.directory("p2-owners-\(format)-\(keep)-\(preserve)")
                     let source = root.appendingPathComponent("source.tar")
                     try TarP2Support.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
                     let disk = root.appendingPathComponent("disk")
                     try Data([1]).write(to: disk)
-                    let output = root.appendingPathComponent("output." + TarP2Support.suffix(format))
+                    let output = root.appendingPathComponent("output." + format.testFileExtension)
                     let editor = try ArchiveRewriter.open(url: source, output: output, format: format,
                         options: .init(preserveOwnerIDs: preserve, carriedTarOwnerIDs: keep ? .keep : .reset))
                     try editor.add(contentsOf: disk, as: "added")
@@ -118,7 +118,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
 
     func testExplicitOwnersThroughAllEditorExistentialsAndRecursiveDiskAddition() throws {
         for mode in 0..<5 {
-            let root = try ZipTestSupport.directory("p2-explicit-owners-\(mode)")
+            let root = try TestSupport.directory("p2-explicit-owners-\(mode)")
             let format: GyoshukuKit.ArchiveFormat = mode == 0 ? .zip : .tar
             let source = try TarP2Support.fixture(root, count: 1, format: format)
             let output = root.appendingPathComponent("out")
@@ -134,7 +134,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
             try Data([7]).write(to: disk.appendingPathComponent("child"))
             let ids = ArchiveOwnerIDs(user: 3_000_000, group: 4_000_000)
             try editor.add(contentsOf: disk, as: "disk", ownerIDs: ids)
-            try editor.addDirectory("explicit", modificationDate: ZipTestSupport.date, ownerIDs: ids)
+            try editor.addDirectory("explicit", modificationDate: TestSupport.date, ownerIDs: ids)
             try editor.commit()
             let reader = try ArchiveReader.open(url: output)
             for entry in reader.entries where entry.name != "file-000000" {
@@ -152,14 +152,14 @@ final class ArchiveOwnerIDsTests: XCTestCase {
             }
             let explicit = try XCTUnwrap(reader.entries.first { $0.name == "explicit/" })
             XCTAssertEqual(explicit.posixPermissions, 0o755)
-            XCTAssertEqual(explicit.modificationDate, ZipTestSupport.date)
+            XCTAssertEqual(explicit.modificationDate, TestSupport.date)
         }
     }
 
     func testUnsupportedOwnersAndProtocolDefaults() throws {
         for format in [GyoshukuKit.ArchiveFormat.sevenZip, .lha] {
             for placement in [AdditionPlacement.end, .beginning] {
-                let root = try ZipTestSupport.directory("p2-unsupported-owners-\(format)-\(placement)")
+                let root = try TestSupport.directory("p2-unsupported-owners-\(format)-\(placement)")
                 let source = try TarP2Support.fixture(root)
                 let editor: any ArchiveEditing = try ArchiveRewriter.open(url: source, output: root.appendingPathComponent("out"), format: format,
                                                                           options: .init(additionPlacement: placement))

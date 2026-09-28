@@ -7,11 +7,11 @@ final class ArchiveUpdaterOptionsTests: XCTestCase {
     private let payload = Data(repeating: 0x41, count: 200 * 1024)
 
     private func original(_ label: String, empty: Bool = false) throws -> URL {
-        let directory = try ZipTestSupport.directory("updater-options-\(label)")
+        let directory = try TestSupport.directory("updater-options-\(label)")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
         if !empty {
-            try writer.add(data: Data("original entry\n".utf8), as: "old.txt", modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data("original entry\n".utf8), as: "old.txt", modificationDate: TestSupport.date)
         }
         try writer.finish()
         return url
@@ -20,7 +20,7 @@ final class ArchiveUpdaterOptionsTests: XCTestCase {
     private func append(_ url: URL, as path: String = "payload.txt", options: WriterOptions) throws -> ArchiveEntry {
         let updater = try ArchiveUpdater.open(url: url, options: options)
         let names = updater.entryNames
-        try updater.add(data: payload, as: path, modificationDate: ZipTestSupport.date)
+        try updater.add(data: payload, as: path, modificationDate: TestSupport.date)
         try updater.commit()
         let reader = try ArchiveReader.open(url: url)
         XCTAssertEqual(reader.entries.map(\.name), names + [path])
@@ -54,7 +54,7 @@ final class ArchiveUpdaterOptionsTests: XCTestCase {
             // 新規作成と照合し、level が既定値に戻らないことも確認する。
             let reference = url.deletingLastPathComponent().appendingPathComponent("writer.zip")
             let writer = try ArchiveWriter.create(url: reference, options: options)
-            try writer.add(data: payload, as: "payload.txt", modificationDate: ZipTestSupport.date)
+            try writer.add(data: payload, as: "payload.txt", modificationDate: TestSupport.date)
             try writer.finish()
             let referenceEntry = try XCTUnwrap(ArchiveReader.open(url: reference).entries.first)
             XCTAssertEqual(entry.compressedSize, referenceEntry.compressedSize)
@@ -84,7 +84,7 @@ final class ArchiveUpdaterOptionsTests: XCTestCase {
     }
 
     func testOpenValidatesOptionsBeforeAccessingArchive() throws {
-        let directory = try ZipTestSupport.directory("updater-options-validation-order")
+        let directory = try TestSupport.directory("updater-options-validation-order")
         let url = directory.appendingPathComponent("missing.zip")
         let invalidOptions: [(WriterOptions, WriterError)] = [
             (WriterOptions(deflateLevel: 10), .invalidOption("deflateLevel")),

@@ -9,15 +9,15 @@ final class TarUpdaterTests: XCTestCase {
         for sequential in [false, true] {
             try TarUpdater.$testingDisablesClone.withValue(sequential) {
                 for operation in 0..<9 {
-                    let root = try ZipTestSupport.directory("p2-edit-\(sequential)-\(operation)")
+                    let root = try TestSupport.directory("p2-edit-\(sequential)-\(operation)")
                     let source = try TarP2Support.fixture(root)
                     let before = try Data(contentsOf: source)
                     let (layout, _, old) = try TarP2Support.scan(source)
-                    let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.tar")
+                    let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
                     let updater = try TarUpdater.open(url: source, output: output)
                     var expected = old.entries.map(\.name)
                     var changed: Set<Int> = []
-                    if operation == 5 || operation == 6 { try updater.add(data: Data([33]), as: "added", modificationDate: ZipTestSupport.date) }
+                    if operation == 5 || operation == 6 { try updater.add(data: Data([33]), as: "added", modificationDate: TestSupport.date) }
                     switch operation {
                     case 0: break
                     case 1: try updater.remove(entriesAt: [5, 5]); expected.removeLast(); changed = [5]
@@ -30,7 +30,7 @@ final class TarUpdaterTests: XCTestCase {
                     default: try updater.rename(entryAt: 2, to: old.entries[2].name)
                     }
                     if operation == 5 || operation == 6 { expected.append("added") }
-                    if operation == 7 { try updater.addDirectory("new", modificationDate: ZipTestSupport.date, ownerIDs: .init(user: 501, group: 20)); expected.append("new/") }
+                    if operation == 7 { try updater.addDirectory("new", modificationDate: TestSupport.date, ownerIDs: .init(user: 501, group: 20)); expected.append("new/") }
                     let writes = ZipIOEvents(), reads = ZipIOEvents()
                     var progress: [ArchiveUpdater.CommitProgress] = []
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
@@ -81,7 +81,7 @@ final class TarUpdaterTests: XCTestCase {
     }
 
     func testRawNamesRootCommentTrailingBytesAndEmptyArchives() throws {
-        let root = try ZipTestSupport.directory("p2-raw")
+        let root = try TestSupport.directory("p2-raw")
         let comment = TarP2Support.extensionBytes(0x67, TarRecords.paxRecord("comment", value: Data(String(repeating: "a", count: 40).utf8)))
         for (index, names) in [[String](), ["./", "./a", "/b", "double//c", "cafe\u{301}"]].enumerated() {
             for tailSize in [512, 1024, 10240] {
@@ -94,7 +94,7 @@ final class TarUpdaterTests: XCTestCase {
                 XCTAssertEqual(try Data(contentsOf: unchanged), before)
                 let output = root.appendingPathComponent("out-\(index)-\(tailSize).tar")
                 let updater = try TarUpdater.open(url: source, output: output)
-                try updater.add(data: Data(), as: "new", modificationDate: ZipTestSupport.date)
+                try updater.add(data: Data(), as: "new", modificationDate: TestSupport.date)
                 try updater.commit()
                 let bytes = try Data(contentsOf: output)
                 let (layout, _, reader) = try TarP2Support.scan(source)
@@ -113,7 +113,7 @@ final class TarUpdaterTests: XCTestCase {
     }
 
     func testWrittenAndCopiedBytes500Members() throws {
-        let root = try ZipTestSupport.directory("p2-io")
+        let root = try TestSupport.directory("p2-io")
         let source = try TarP2Support.fixture(root, count: 500, size: 64 * 1024)
         let (layout, _, _) = try TarP2Support.scan(source)
         for operation in 0..<4 {
@@ -146,7 +146,7 @@ final class TarUpdaterHardLinkTests: XCTestCase {
     func testRetargetMaterializeRenameAndMetadata() throws {
         for removed in [Set([0]), Set([1]), Set([0, 1]), Set<Int>()] {
             for rename in [false, true] {
-                let root = try ZipTestSupport.directory("p2-links-\(removed.sorted())-\(rename)")
+                let root = try TestSupport.directory("p2-links-\(removed.sorted())-\(rename)")
                 let source = root.appendingPathComponent("source.tar")
                 let data = Data("payload".utf8)
                 let d = TarRecords.Entry(name: Data("data".utf8), size: UInt64(data.count))
@@ -177,7 +177,7 @@ final class TarUpdaterHardLinkTests: XCTestCase {
                 }
                 let extracted = root.appendingPathComponent("extract")
                 try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: false)
-                try ZipTestSupport.run("/usr/bin/bsdtar", ["-xf", output.path, "-C", extracted.path], in: root, log: "extract")
+                try TestSupport.run(ReferenceTool.bsdtar, ["-xf", output.path, "-C", extracted.path], in: root, log: "extract")
                 let inodes = try reader.entries.map { try ZipP1Support.info(extracted.appendingPathComponent($0.name)).st_ino }
                 XCTAssertEqual(Set(inodes).count, 1)
             }

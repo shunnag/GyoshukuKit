@@ -11,7 +11,7 @@ final class BatchAdditionSafetyTests: XCTestCase {
     func testWorkerReplacementAndReadMutationNeverPublish() throws {
         for format in S.formats {
             for mutation in ["symlink", "replace", "grow", "shrink"] {
-                let root = try ZipTestSupport.directory("p7-safety-\(format)-\(mutation)")
+                let root = try TestSupport.directory("p7-safety-\(format)-\(mutation)")
                 defer { try? FileManager.default.removeItem(at: root) }
                 let items = try B.small(root, size: 65536)
                 let source = try S.source(root, format: format)
@@ -59,7 +59,7 @@ final class BatchAdditionSafetyTests: XCTestCase {
     }
 
     func testMinimumIndexReadErrorBeatsLaterDuplicateAndDeflateErrorHasIndex() throws {
-        let root = try ZipTestSupport.directory("p7-attribution")
+        let root = try TestSupport.directory("p7-attribution")
         defer { try? FileManager.default.removeItem(at: root) }
         let original = try B.small(root)
         for duplicate in [false, true] {
@@ -92,7 +92,7 @@ final class BatchAdditionSafetyTests: XCTestCase {
     }
 
     func testOutputIdentityAndRecursiveDescendantAttribution() throws {
-        let root = try ZipTestSupport.directory("p7-output-identity")
+        let root = try TestSupport.directory("p7-output-identity")
         defer { try? FileManager.default.removeItem(at: root) }
         let output = root.appendingPathComponent("self.zip")
         let writer = try ArchiveWriter.create(url: output)
@@ -114,7 +114,7 @@ final class BatchAdditionSafetyTests: XCTestCase {
     }
 
     func testPrewalkFailureReportsDescendantAndLargeDeflateFailureReportsItem() throws {
-        let root = try ZipTestSupport.directory("p7-fallback-errors")
+        let root = try TestSupport.directory("p7-fallback-errors")
         defer { try? FileManager.default.removeItem(at: root) }
         let tree = root.appendingPathComponent("tree"), child = tree.appendingPathComponent("inaccessible")
         try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
@@ -140,7 +140,7 @@ final class BatchAdditionSafetyTests: XCTestCase {
 
     func testFallbackKeepsFirstSignatureWhileDrainingEarlierEvents() throws {
         for format in [ArchiveFormat.zip, .tarGzip] {
-            let root = try ZipTestSupport.directory("p7-fallback-stamp-\(format)")
+            let root = try TestSupport.directory("p7-fallback-stamp-\(format)")
             defer { try? FileManager.default.removeItem(at: root) }
             var items = try B.small(root, count: 2)
             let large = try S.file(root, "large", size: S.mib + 1)
@@ -167,7 +167,7 @@ final class BatchAdditionSafetyTests: XCTestCase {
     }
 
     func testDeferredExpectedSignatureAndCallbackCleanupInEveryEditor() throws {
-        let root = try ZipTestSupport.directory("p7-deferred-safety")
+        let root = try TestSupport.directory("p7-deferred-safety")
         defer { try? FileManager.default.removeItem(at: root) }
         for format in S.formats {
             let source = try S.source(root, format: format)

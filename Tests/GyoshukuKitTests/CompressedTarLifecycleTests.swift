@@ -8,7 +8,7 @@ import XCTest
 final class CompressedTarSelfCheckFaultTests: XCTestCase {
     func testSelfCheckFaultsAndK5Separation() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try ZipTestSupport.directory("p3-fault-\(format)")
+            let root = try TestSupport.directory("p3-fault-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
             let original = try Data(contentsOf: source), originalID = try ZipP1Support.info(source).st_ino
             let faults: [CompressedTarUpdater.Fault] = format == .tarGzip
@@ -79,9 +79,9 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
     }
     func testV4SeesSameInodeSameSizeRestoredMtimeChanges() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try ZipTestSupport.directory("p3-v4-\(format)")
+            let root = try TestSupport.directory("p3-v4-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
-            try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date], ofItemAtPath: source.path)
+            try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: source.path)
             let reader = try CompressedTarTestSupport.open(source), base = reader.tarEditingSnapshot()!
             let output = root.appendingPathComponent("bad")
             let editor = try CompressedTarUpdater.open(reader: reader, output: output, format: format)
@@ -92,7 +92,7 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
             var byte = try SplicedArchiveOutput.read(handle.fileDescriptor, at: offset, count: 1); byte[0] ^= 1
             try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(handle.fileDescriptor, bytes: $0, at: offset) }
             try handle.close()
-            try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date], ofItemAtPath: source.path)
+            try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: source.path)
             XCTAssertTrue(base.archiveIsUnchanged())
             let changed = try Data(contentsOf: source)
             XCTAssertThrowsError(try editor.commit()) { XCTAssertEqual($0 as? UpdaterError, .sourceChanged) }
@@ -105,7 +105,7 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
 final class CompressedTarLifecycleTests: XCTestCase {
     func testUnchangedCopyStageWithoutChunkMap() throws {
         for format in [GyoshukuKit.ArchiveFormat.tarGzip, .tarXZ] {
-            let root = try ZipTestSupport.directory("p3-mapless-cancellation-\(format)")
+            let root = try TestSupport.directory("p3-mapless-cancellation-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format, large: false)
             try FileManager.default.removeItem(at: root.appendingPathComponent("input.tar"))
             let reason: ChunkMapUnavailableReason
@@ -145,7 +145,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
                         XCTAssertEqual(result.strategy, .unchanged, context)
                         XCTAssertEqual(try Data(contentsOf: output), original, context)
                         let verified = try CompressedTarTestSupport.verify(output, base: base, result: result)
-                        try CompressedTarTestSupport.imagesEqual(verified.tarEditingSnapshot()!.image, base.image)
+                        try XCTAssertByteSourcesEqual(verified.tarEditingSnapshot()!.image, base.image)
                         try FileManager.default.removeItem(at: output)
                     }
                 } catch {
@@ -162,7 +162,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
 
     func testCancellationAndProgressFailureRemoveOnlyOwnedOutput() throws {
         enum Stop: Error { case requested }
-        let root = try ZipTestSupport.directory("p3-cancellation")
+        let root = try TestSupport.directory("p3-cancellation")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip)
         let original = try Data(contentsOf: source)
         for stage in [CompressedTarUpdater.Stage.planned, .encoding, .copying, .selfCheck] {
@@ -195,7 +195,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: moved.path))
     }
     func testTaskCancellationDuringEncodingAndCopy() async throws {
-        let root = try ZipTestSupport.directory("p3-task-cancellation")
+        let root = try TestSupport.directory("p3-task-cancellation")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip)
         for encoding in [true, false] {
             let output = root.appendingPathComponent("cancel-\(encoding)")
@@ -223,7 +223,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
         }
     }
     func testSourceChangesPathReplacementDiscardAndSpace() throws {
-        let root = try ZipTestSupport.directory("p3-lifecycle")
+        let root = try TestSupport.directory("p3-lifecycle")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let original = try Data(contentsOf: source)
         let output = root.appendingPathComponent("output")
@@ -264,7 +264,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
     func testFAT32() throws { try onDisk("MS-DOS FAT32") }
     func testExFAT() throws { try onDisk("ExFAT") }
     func testHostVolume() throws {
-        try onVolume(ZipTestSupport.directory("p3-host-lifecycle"), label: "host", expectsSmallVolume: false)
+        try onVolume(TestSupport.directory("p3-host-lifecycle"), label: "host", expectsSmallVolume: false)
     }
     private func onDisk(_ fileSystem: String) throws {
         let disk = try ArchiveTestDisk(fileSystem)
@@ -273,7 +273,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
     }
     private func onVolume(_ volume: URL, label: String, expectsSmallVolume: Bool) throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TarP2Support.work(volume)
+            let root = try TestSupport.work(in: volume)
             let source = try CompressedTarTestSupport.fixture(root, format, large: false)
             try FileManager.default.removeItem(at: root.appendingPathComponent("input.tar"))
             let original = try Data(contentsOf: source)
@@ -284,7 +284,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
                     let reader = try CompressedTarTestSupport.open(source)
                     let base = try XCTUnwrap(reader.tarEditingSnapshot(), context)
                     context = "\(label) \(format) \(operation), chunkMapUnavailableReason=\(String(describing: base.chunkMapUnavailableReason)), chunks=\(base.chunkMap?.chunks.count ?? 0)"
-                    ZipTestSupport.report("COMPRESSED_TAR_LIFECYCLE \(context)")
+                    TestSupport.report("COMPRESSED_TAR_LIFECYCLE \(context)")
                     var editor: CompressedTarUpdater? = try CompressedTarUpdater.open(reader: reader, output: output, format: format)
                     if operation == "add", expectsSmallVolume {
                         var space = statfs()

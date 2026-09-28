@@ -7,12 +7,12 @@ import XCTest
 final class SevenZipUpdaterInteropTests: XCTestCase {
     func testExternalReadersAndExtractionHashes() throws {
         guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
-        let root = try ZipTestSupport.directory("7z-interop")
+        let root = try TestSupport.directory("7z-interop")
         for name in ["g_plain", "g_aes", "g_aesh", "z_default", "z_aes", "z_aesh", "z_aesonlyh", "z_special", "anti", "lib", "bcj", "bcj2", "ppmd", "solid_zero"] {
             let source = SevenZipEditSupport.fixture(name)
             let old = try XCTUnwrap(SevenZipEditModel.read(SevenZipEditSupport.reader(source)))
             for operation in ["rename", "delete", "all"] {
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 let updater = try SevenZipUpdater.open(url: source, password: "secret", output: output,
                     options: WriterOptions(password: "secret", encryptsSevenZipHeaders: old.header.encrypted))
                 let first = old.files.firstIndex(where: \.hasStream) ?? 0
@@ -30,7 +30,7 @@ final class SevenZipUpdaterInteropTests: XCTestCase {
     // require the same rejection only while a StartPos entry remains. No other exception.
     func testStartPosBaselineAndPreservation() throws {
         guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
-        let root = try ZipTestSupport.directory("7z-startpos-interop")
+        let root = try TestSupport.directory("7z-startpos-interop")
         let source = SevenZipEditSupport.fixture("startpos")
         let original = try SevenZipEditSupport.reader(source)
         let model = try XCTUnwrap(SevenZipEditModel.read(original))
@@ -61,60 +61,6 @@ final class SevenZipUpdaterInteropTests: XCTestCase {
                 if let crc = entry.crc32 { XCTAssertEqual(crc, CRC32.checksum(expected[index].data)) }
             }
             try SevenZipExternalOracles.check(output, password: nil, permitsStartPosRejection: true)
-        }
-    }
-}
-
-enum SevenZipExternalOracles {
-    static var available: Bool {
-        FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") && FileManager.default.isExecutableFile(atPath: "/usr/bin/bsdtar")
-    }
-    static func check(_ output: URL, password: String?, permitsStartPosRejection: Bool = false) throws {
-        guard available else { return }
-        // Keep reference-tool artifacts away from the transaction's cleanup assertions.
-        let parent = ZipTestSupport.root.appendingPathComponent("7z-external-oracles")
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        let work = try SevenZipEditSupport.work(parent)
-        let reader = try SevenZipEditSupport.reader(output, password: password)
-        let model = try XCTUnwrap(SevenZipEditModel.read(reader))
-        let items = try SevenZipEditSupport.items(reader)
-        let passwordArguments = password.map { ["-p" + $0] } ?? []
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", "-y"] + passwordArguments + [output.path], in: work, log: "7zz-t")
-        let readers = model.header.encrypted || model.folders.contains(where: \.isEncrypted) ? ["7zz"] : ["7zz", "bsdtar"]
-        for tool in readers {
-            let target = work.appendingPathComponent(tool)
-            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-            if tool == "7zz" {
-                let arguments = ["x", "-y"] + passwordArguments + ["-o" + target.path, output.path]
-                if permitsStartPosRejection && model.files.contains(where: { $0.startPosition != nil }) {
-                    let log = work.appendingPathComponent("7zz-x.log")
-                    FileManager.default.createFile(atPath: log.path, contents: nil)
-                    let handle = try FileHandle(forWritingTo: log)
-                    let process = Process(); process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/7zz")
-                    process.arguments = arguments; process.standardOutput = handle; process.standardError = handle
-                    try process.run(); process.waitUntilExit(); try handle.close()
-                    let text = try String(contentsOf: log, encoding: .utf8)
-                    XCTAssertEqual(process.terminationStatus, 2, text)
-                    XCTAssertTrue(text.contains("ERROR: Unsupported Method :"), text)
-                    XCTAssertFalse(text.contains("Headers Error"), text)
-                    continue
-                }
-                try ZipTestSupport.run("/opt/homebrew/bin/7zz", arguments, in: work, log: "7zz-x")
-            } else {
-                try ZipTestSupport.run("/usr/bin/bsdtar", ["-xf", output.path, "-C", target.path], in: work, log: "bsdtar-x")
-            }
-            for (index, item) in items.enumerated() {
-                let path = target.appendingPathComponent(item.name)
-                // An anti item has no payload: 7zz applies the deletion; bsdtar exposes
-                // the empty placeholder (also true of the frozen baseline). Hash that below.
-                if model.files[index].isAnti && tool == "7zz" {
-                    XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "\(tool) anti: \(item.name)")
-                    continue
-                }
-                if item.kind == .directory { XCTAssertTrue(FileManager.default.fileExists(atPath: path.path)); continue }
-                let bytes = item.kind == .symlink ? Data(try FileManager.default.destinationOfSymbolicLink(atPath: path.path).utf8) : try Data(contentsOf: path)
-                XCTAssertEqual(SHA256.hash(data: bytes), SHA256.hash(data: item.data), "\(tool): \(item.name)")
-            }
         }
     }
 }

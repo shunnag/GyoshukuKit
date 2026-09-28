@@ -12,7 +12,7 @@ final class EmptyArchiveTests: XCTestCase {
 
     func testEveryWriterCanFinishWithoutMembersAndReopen() throws {
         for (format, suffix, expected) in formats {
-            let directory = try ZipTestSupport.directory("empty-writer-" + suffix)
+            let directory = try TestSupport.directory("empty-writer-" + suffix)
             let url = directory.appendingPathComponent("empty." + suffix)
             let writer = try ArchiveWriter.create(url: url, format: format)
             try writer.finish()
@@ -22,9 +22,9 @@ final class EmptyArchiveTests: XCTestCase {
             XCTAssertTrue(try reader.reopen().entries.isEmpty)
             if format == .lha {
                 XCTAssertEqual(try Data(contentsOf: url), Data([0]))
-                LHATestSupport.clean(try LHATestSupport.run(LHATestSupport.lhasa, ["l", url.path],
+                LHATestSupport.clean(try LHATestSupport.run(ReferenceTool.lhasa, ["l", url.path],
                     in: directory, log: "empty-lha-list"))
-                LHATestSupport.clean(try LHATestSupport.run(LHATestSupport.lhasa, ["t", url.path],
+                LHATestSupport.clean(try LHATestSupport.run(ReferenceTool.lhasa, ["t", url.path],
                     in: directory, log: "empty-lha-test"))
             }
         }
@@ -32,7 +32,7 @@ final class EmptyArchiveTests: XCTestCase {
 
     func testEveryRewriterCanRemoveAllMembersAndAddAgain() throws {
         for (format, suffix, expected) in formats {
-            let directory = try ZipTestSupport.directory("empty-rewriter-" + suffix)
+            let directory = try TestSupport.directory("empty-rewriter-" + suffix)
             let url = directory.appendingPathComponent("archive." + suffix)
             let writer = try ArchiveWriter.create(url: url, format: format)
             try writer.add(data: Data("old".utf8), as: "old.txt")

@@ -27,20 +27,20 @@ final class ZipDeleteRenameTests: XCTestCase {
     private func assertStoredBytes(_ items: [ZipTestSupport.Expected], at url: URL) throws {
         let expected = url.deletingLastPathComponent().appendingPathComponent("expected.zip")
         try writeStored(items, to: expected)
-        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: expected), "entire stored ZIP is byte-exact")
+        try XCTAssertFilesEqual(url, expected, "entire stored ZIP is byte-exact")
     }
 
     func testUnshiftedSameLengthRenameReadsLessThanOneMiB() throws {
-        let directory = try ZipTestSupport.directory("unshifted-rename-io")
+        let directory = try TestSupport.directory("unshifted-rename-io")
         defer { try? FileManager.default.removeItem(at: directory) }
         let (url, items) = try storedFixture(directory)
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "newer.bin")
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        ZipTestSupport.report("G1 same-length rename source bytes: \(counter.byteCount)")
-        XCTAssertLessThan(counter.byteCount, 1024 * 1024, "same-length rename must not read unmoved payloads")
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 same-length rename source bytes: \(counter.bytes)")
+        XCTAssertLessThan(counter.bytes, 1024 * 1024, "same-length rename must not read unmoved payloads")
         // Independent whole-archive oracle: only the two equal-length name fields change.
         var patched = before.bytes
         patched.replaceSubrange(30..<39, with: Data("newer.bin".utf8))
@@ -54,49 +54,49 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     func testUnshiftedTailDeletionReadsLessThanOneMiB() throws {
-        let directory = try ZipTestSupport.directory("unshifted-tail-delete-io")
+        let directory = try TestSupport.directory("unshifted-tail-delete-io")
         defer { try? FileManager.default.removeItem(at: directory) }
         let (url, items) = try storedFixture(directory)
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [1])
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        ZipTestSupport.report("G1 tail deletion source bytes: \(counter.byteCount)")
-        XCTAssertLessThan(counter.byteCount, 1024 * 1024, "tail deletion must not read unmoved payloads")
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 tail deletion source bytes: \(counter.bytes)")
+        XCTAssertLessThan(counter.bytes, 1024 * 1024, "tail deletion must not read unmoved payloads")
         try assertCarried(before, to: url, indices: [0])
         try assertStoredBytes([items[0]], at: url)
     }
 
     func testShiftedFirstDeletionCopiesOnlySurvivor() throws {
-        let directory = try ZipTestSupport.directory("shifted-first-delete-io")
+        let directory = try TestSupport.directory("shifted-first-delete-io")
         defer { try? FileManager.default.removeItem(at: directory) }
         let (url, items) = try storedFixture(directory)
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [0])
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        ZipTestSupport.report("G1 first deletion source bytes: \(counter.byteCount)")
-        XCTAssertGreaterThanOrEqual(counter.byteCount, UInt64(items[1].data.count))
-        XCTAssertLessThan(counter.byteCount, UInt64(items[1].data.count + 1024 * 1024))
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 first deletion source bytes: \(counter.bytes)")
+        XCTAssertGreaterThanOrEqual(counter.bytes, UInt64(items[1].data.count))
+        XCTAssertLessThan(counter.bytes, UInt64(items[1].data.count + 1024 * 1024))
         try assertCarried(before, to: url, indices: [1])
         try assertStoredBytes([items[1]], at: url)
     }
 
     func testShiftedDifferentLengthRenameCopiesPayloadsByteExactly() throws {
-        let directory = try ZipTestSupport.directory("shifted-rename-io")
+        let directory = try TestSupport.directory("shifted-rename-io")
         defer { try? FileManager.default.removeItem(at: directory) }
         let (url, items) = try storedFixture(directory)
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "longer-first-name.bin")
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        ZipTestSupport.report("G1 different-length rename source bytes: \(counter.byteCount)")
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 different-length rename source bytes: \(counter.bytes)")
         let payloadBytes = UInt64(items.reduce(0) { $0 + $1.data.count })
-        XCTAssertGreaterThanOrEqual(counter.byteCount, payloadBytes)
-        XCTAssertLessThan(counter.byteCount, payloadBytes + 1024 * 1024)
+        XCTAssertGreaterThanOrEqual(counter.bytes, payloadBytes)
+        XCTAssertLessThan(counter.bytes, payloadBytes + 1024 * 1024)
         try assertCarried(before, to: url, indices: [0, 1], renamed: [0])
         var expected = items
         expected[0].name = "longer-first-name.bin"
@@ -104,7 +104,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     func testUnshiftedRenameAfterAddPreservesAppendedZIPByteExactly() throws {
-        let directory = try ZipTestSupport.directory("unshifted-rename-after-add")
+        let directory = try TestSupport.directory("unshifted-rename-after-add")
         defer { try? FileManager.default.removeItem(at: directory) }
         let (url, items) = try storedFixture(directory, payloadSize: 256 * 1024)
         let before = try Snapshot(url)
@@ -147,7 +147,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let beforeBytes = Int64(before.f_bavail) * Int64(before.f_bsize)
         let afterBytes = Int64(after.f_bavail) * Int64(after.f_bsize)
         let delta = beforeBytes - afterBytes
-        ZipTestSupport.report("G1 APFS free bytes before=\(beforeBytes) after=\(afterBytes) consumed=\(delta)")
+        TestSupport.report("G1 APFS free bytes before=\(beforeBytes) after=\(afterBytes) consumed=\(delta)")
         // Allow 16 MiB for unrelated volume activity. Some environments return coarse/cached space
         // values even after sync; this measurement complements the deterministic source-read tests.
         XCTAssertLessThan(abs(delta), 16 * 1024 * 1024, "same-length rename must preserve APFS shared payload extents")
@@ -156,7 +156,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     private func original(_ label: String, count: Int = 5) throws -> (URL, [ZipTestSupport.Expected]) {
-        let directory = try ZipTestSupport.directory(label)
+        let directory = try TestSupport.directory(label)
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
         let items = (0..<count).map { index in
@@ -287,7 +287,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     func testDittoDescriptorsSurviveNeighborDeletionAndRename() throws {
-        let directory = try ZipTestSupport.directory("delete-ditto-descriptors")
+        let directory = try TestSupport.directory("delete-ditto-descriptors")
         let source = directory.appendingPathComponent("input")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         let date = Date(timeIntervalSince1970: 1_700_000_000)
@@ -297,7 +297,7 @@ final class ZipDeleteRenameTests: XCTestCase {
             try FileManager.default.setAttributes([.modificationDate: date, .posixPermissions: 0o640], ofItemAtPath: url.path)
         }
         let url = directory.appendingPathComponent("archive.zip")
-        try ZipTestSupport.run("/usr/bin/ditto", ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "ditto-create")
+        try TestSupport.run(ReferenceTool.ditto, ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "ditto-create")
         let before = try Snapshot(url)
         XCTAssertEqual(before.entries.count, 3)
         XCTAssertTrue(before.records.allSatisfy { $0.formatSpecific["hasDataDescriptor"] == "true" })
@@ -317,7 +317,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     func testCP932DeletionKeepsEverySurvivingNameByte() throws {
-        let directory = try ZipTestSupport.directory("delete-cp932")
+        let directory = try TestSupport.directory("delete-cp932")
         let url = directory.appendingPathComponent("archive.zip")
         // 公開 ZIP 表のクリーンルーム fixture。名前だけを CP932 で符号化する。
         let script = #"""
@@ -332,8 +332,8 @@ final class ZipDeleteRenameTests: XCTestCase {
             records+=local
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,3,3,len(cd),len(records),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
+        try TestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
         let before = try Snapshot(url)
         XCTAssertEqual(before.entries.map(\.name), ["削除.txt", "日本語.txt", "保存.txt"])
         let updater = try ArchiveUpdater.open(url: url)
@@ -353,7 +353,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url).count, 22)
         let directory = url.deletingLastPathComponent()
         let oracle = directory.appendingPathComponent("python-empty.zip")
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", "import sys,zipfile; zipfile.ZipFile(sys.argv[1],'w').close()", oracle.path], in: directory, log: "python-create")
+        try TestSupport.run(ReferenceTool.python3, ["-c", "import sys,zipfile; zipfile.ZipFile(sys.argv[1],'w').close()", oracle.path], in: directory, log: "python-create")
         XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: oracle))
         try ZipTestSupport.verify(url, expected: [])
     }
@@ -416,7 +416,7 @@ final class ZipDeleteRenameTests: XCTestCase {
             XCTAssertEqual(index, 1)
             XCTAssertEqual(name, items[1].name)
             XCTAssertTrue(reason.contains("rawRecord が nil"))
-            ZipTestSupport.report("REFUSAL \(reason)")
+            TestSupport.report("REFUSAL \(reason)")
         }
         XCTAssertEqual(called, [0, 1])
         XCTAssertEqual(try Data(contentsOf: url), before.bytes)
@@ -508,7 +508,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     func testFolderRenamesAreExplicitAndPreserveSymlinks() throws {
-        let directory = try ZipTestSupport.directory("rename-folder")
+        let directory = try TestSupport.directory("rename-folder")
         let input = directory.appendingPathComponent("input")
         let sub = input.appendingPathComponent("sub")
         try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
@@ -532,7 +532,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         try assertCarried(before, to: url, indices: Array(before.entries.indices), renamed: [0])
         try ZipTestSupport.verify(url, expected: expected)
 
-        let movedDirectory = try ZipTestSupport.directory("rename-folder-descendants")
+        let movedDirectory = try TestSupport.directory("rename-folder-descendants")
         let moved = movedDirectory.appendingPathComponent("archive.zip")
         try FileManager.default.copyItem(at: url, to: moved)
         let descendants = try ArchiveUpdater.open(url: moved)
@@ -547,7 +547,7 @@ final class ZipDeleteRenameTests: XCTestCase {
     }
 
     func testCP932RenameInvalidatesUnicodePathExtraWithoutMovingEqualLengthPayload() throws {
-        let directory = try ZipTestSupport.directory("rename-cp932-unicode-extra")
+        let directory = try TestSupport.directory("rename-cp932-unicode-extra")
         let url = directory.appendingPathComponent("archive.zip")
         let script = #"""
         import struct,zlib,sys
@@ -563,7 +563,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         cd=p('IHHHHHHIIIHHHHHII',0x02014b50,0x0314,20,0,0,0,0x21,crc,len(data),len(data),len(name),len(cx),len(comment),0,1,0o100751<<16,0)+name+cx+comment
         open(sys.argv[1],'wb').write(local+cd+p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         // CP932 の旧名 10 byte に対し UTF-8 の新名も 10 byte。

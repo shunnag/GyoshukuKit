@@ -5,7 +5,7 @@ import XCTest
 
 final class ArchiveEditingScaleTests: XCTestCase {
     func testBulkRenamesAfterAddingPreserveEveryPayloadAndReleaseOldPaths() throws {
-        let root = try ZipTestSupport.directory("editing-scale")
+        let root = try TestSupport.directory("editing-scale")
         defer { try? FileManager.default.removeItem(at: root) }
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tar] {
             for count in [1_000, 2_000, 4_000] {

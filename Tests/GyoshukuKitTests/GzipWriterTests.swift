@@ -14,11 +14,11 @@ final class GzipWriterTests: XCTestCase {
             return UInt8(truncatingIfNeeded: value)
         })
         for level in [0, 1, 6, 9] {
-            let directory = try ZipTestSupport.directory("gzip-level-\(level)")
+            let directory = try TestSupport.directory("gzip-level-\(level)")
             let url = directory.appendingPathComponent("archive.tar.gz")
             let writer = try ArchiveWriter.create(url: url, format: .tarGzip, options: WriterOptions(deflateLevel: level))
-            try writer.add(data: payload, as: "payload.bin", modificationDate: ZipTestSupport.date)
-            try writer.add(data: Data(), as: "empty", modificationDate: ZipTestSupport.date)
+            try writer.add(data: payload, as: "payload.bin", modificationDate: TestSupport.date)
+            try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
             try writer.finish()
             let data = try Data(contentsOf: url)
             // ID1/ID2, CM=deflate, FLG=0, MTIME=0, XFL は zlib の level、OS=Unix。
@@ -33,19 +33,19 @@ final class GzipWriterTests: XCTestCase {
             print('gzip CRC32 and ISIZE match; tar bytes',len(raw))
             """
             let rawURL = directory.appendingPathComponent("raw.tar")
-            let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, rawURL.path], in: directory, log: "python-gzip-trailer")
+            let output = try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path, rawURL.path], in: directory, log: "python-gzip-trailer")
             let raw = try Data(contentsOf: rawURL)
             XCTAssertEqual(output, "gzip CRC32 and ISIZE match; tar bytes \(raw.count)\n")
             let bytes = try TarBytes(raw)
             XCTAssertEqual(bytes.records.map(\.type), [0x30, 0x30])
             XCTAssertEqual(bytes.records[0].payload, payload)
-            let seven = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", rawURL.path], in: directory, log: "7zz-t-inner-tar")
+            let seven = try TestSupport.run(ReferenceTool.sevenZip, ["t", rawURL.path], in: directory, log: "7zz-t-inner-tar")
             XCTAssertTrue(seven.contains("Everything is Ok"))
         }
     }
 
     func testEmptyGzipArchive() throws {
-        let directory = try ZipTestSupport.directory("gzip-empty")
+        let directory = try TestSupport.directory("gzip-empty")
         let url = directory.appendingPathComponent("archive.tar.gz")
         let writer = try ArchiveWriter.create(url: url, format: .tarGzip)
         try writer.finish()
@@ -53,19 +53,19 @@ final class GzipWriterTests: XCTestCase {
     }
 
     func testGzipPaxAndSlicedData() throws {
-        let directory = try ZipTestSupport.directory("gzip-pax")
+        let directory = try TestSupport.directory("gzip-pax")
         let url = directory.appendingPathComponent("archive.tar.gz")
         let name = String(repeating: "日本語", count: 12)
         let data = Data([0, 1, 2, 3, 4]).dropFirst(2)
         XCTAssertNotEqual(data.startIndex, 0)
         let writer = try ArchiveWriter.create(url: url, format: .tarGzip)
-        try writer.add(data: data, as: name, modificationDate: ZipTestSupport.date, permissions: 0o750)
+        try writer.add(data: data, as: name, modificationDate: TestSupport.date, permissions: 0o750)
         try writer.finish()
         try TarTestSupport.verify(url, expected: [.init(name: name, data: Data([2, 3, 4]), permissions: 0o750)], gzip: true)
     }
 
     func testInvalidOptionsAndDateLeaveNoArchive() throws {
-        let directory = try ZipTestSupport.directory("gzip-invalid")
+        let directory = try TestSupport.directory("gzip-invalid")
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let url = directory.appendingPathComponent("\(format).tar.gz")
             for options in [WriterOptions(deflateLevel: -1), WriterOptions(deflateLevel: 10), WriterOptions(preserveMacOSMetadata: true)] {
@@ -83,7 +83,7 @@ final class GzipWriterTests: XCTestCase {
     /// bsdtar と record 構造・pax 判断・pax 本文まで一致することを確かめる。
     /// 外部ツールが「読める」だけでは、いつ pax を出すかの判断が同じとは言えない。
     func testTarRecordLayoutMatchesBsdtarByteForByte() throws {
-        let directory = try ZipTestSupport.directory("tar-vs-bsdtar")
+        let directory = try TestSupport.directory("tar-vs-bsdtar")
         let source = directory.appendingPathComponent("src", isDirectory: true)
         try FileManager.default.createDirectory(at: source.appendingPathComponent("sub"), withIntermediateDirectories: true)
         let files = ["a.txt": Data("hello world".utf8), "日本語.txt": Data("にほんご".utf8),
@@ -91,7 +91,7 @@ final class GzipWriterTests: XCTestCase {
         for (name, data) in files.sorted(by: { $0.key < $1.key }) {
             let url = source.appendingPathComponent(name)
             try data.write(to: url)
-            try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date,
+            try FileManager.default.setAttributes([.modificationDate: TestSupport.date,
                                                    .posixPermissions: 0o644], ofItemAtPath: url.path)
         }
         let ours = directory.appendingPathComponent("ours.tar")
@@ -102,7 +102,7 @@ final class GzipWriterTests: XCTestCase {
         try writer.finish()
 
         let theirs = directory.appendingPathComponent("theirs.tar")
-        _ = try ZipTestSupport.run("/usr/bin/bsdtar",
+        _ = try TestSupport.run(ReferenceTool.bsdtar,
             ["--no-mac-metadata", "--no-xattrs", "--uid", "0", "--gid", "0",
              "--uname", "", "--gname", "", "-cf", theirs.path, "-C", source.path,
              "a.txt", "日本語.txt", "sub/b.bin"], in: directory, log: "bsdtar-c")

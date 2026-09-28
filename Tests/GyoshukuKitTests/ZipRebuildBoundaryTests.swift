@@ -5,13 +5,13 @@ import XCTest
 
 final class ZipRebuildBoundaryTests: XCTestCase {
     func testZIP64CountDropsBelowLimitAndReturnsAfterMixedCommit() throws {
-        let directory = try ZipTestSupport.directory("rebuild-zip64-count-down")
+        let directory = try TestSupport.directory("rebuild-zip64-count-down")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
         var expected: [ZipTestSupport.Expected] = []
         for index in 0..<65_536 {
             let name = String(format: "entry-%05d", index)
-            try writer.add(data: Data(), as: name, modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(), as: name, modificationDate: TestSupport.date)
             expected.append(.init(name: name))
         }
         try writer.finish()
@@ -28,10 +28,10 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         try ZipTestSupport.verify(url, expected: expected)
         XCTAssertTrue(try String(contentsOf: directory.appendingPathComponent("unzip-l.log"), encoding: .utf8).contains("65533 files"))
         XCTAssertTrue(try String(contentsOf: directory.appendingPathComponent("7zz-t.log"), encoding: .utf8).contains("Files: 65533"))
-        ZipTestSupport.report("KAITO REBUILD ZIP64 down: count=65533, ZIP64 EOCD absent; every entry verified")
+        TestSupport.report("KAITO REBUILD ZIP64 down: count=65533, ZIP64 EOCD absent; every entry verified")
         try FileManager.default.removeItem(at: directory.appendingPathComponent("ditto"))
 
-        let upDirectory = try ZipTestSupport.directory("rebuild-zip64-count-up")
+        let upDirectory = try TestSupport.directory("rebuild-zip64-count-up")
         let upURL = upDirectory.appendingPathComponent("archive.zip")
         try FileManager.default.copyItem(at: url, to: upURL)
         let again = try ArchiveUpdater.open(url: upURL)
@@ -39,7 +39,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         expected[0].name = "renamed-00002"
         for index in 0..<3 {
             let name = "added-\(index)"
-            try again.add(data: Data(), as: name, modificationDate: ZipTestSupport.date)
+            try again.add(data: Data(), as: name, modificationDate: TestSupport.date)
             expected.append(.init(name: name))
         }
         try again.commit()
@@ -54,15 +54,15 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         try ZipTestSupport.verify(upURL, expected: expected)
         XCTAssertTrue(try String(contentsOf: upDirectory.appendingPathComponent("unzip-l.log"), encoding: .utf8).contains("65536 files"))
         XCTAssertTrue(try String(contentsOf: upDirectory.appendingPathComponent("7zz-t.log"), encoding: .utf8).contains("Files: 65536"))
-        ZipTestSupport.report("KAITO REBUILD ZIP64 up: count=65536, ZIP64 EOCD present; every entry verified")
+        TestSupport.report("KAITO REBUILD ZIP64 up: count=65536, ZIP64 EOCD present; every entry verified")
         try FileManager.default.removeItem(at: upDirectory.appendingPathComponent("ditto"))
     }
 
     func testRebuiltCentralDirectoryAddsAndDropsEachZIP64FieldIndependently() throws {
-        let directory = try ZipTestSupport.directory("rebuild-zip64-fields")
+        let directory = try TestSupport.directory("rebuild-zip64-fields")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
-        try writer.add(data: Data([1, 2, 3]), as: "x", modificationDate: ZipTestSupport.date)
+        try writer.add(data: Data([1, 2, 3]), as: "x", modificationDate: TestSupport.date)
         try writer.finish()
         let source = try ZipUpdateSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
@@ -97,7 +97,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
     }
 
     func testSignedZIP32AndZIP64DescriptorsSurviveRebuild() throws {
-        let directory = try ZipTestSupport.directory("rebuild-signed-descriptors")
+        let directory = try TestSupport.directory("rebuild-signed-descriptors")
         let url = directory.appendingPathComponent("archive.zip")
         // KaitoKit と独立した公開 byte 表の fixture。data descriptor の幅は検証側だけで作る。
         let script = #"""
@@ -122,7 +122,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             records+=local
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,3,3,len(cd),len(records),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
         let before = try Data(contentsOf: url)
         let reader = try ArchiveReader.open(url: url)
         let records = try reader.entries.map { try XCTUnwrap(reader.rawRecord(of: $0)) }
@@ -144,7 +144,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
     }
 
     func testZIP32DescriptorCrossingZIP64OffsetIsRefusedWithoutChangingOriginal() throws {
-        let directory = try ZipTestSupport.directory("rebuild-zip64-descriptor-refusal")
+        let directory = try TestSupport.directory("rebuild-zip64-descriptor-refusal")
         let url = directory.appendingPathComponent("archive.zip")
         try makeOffsetFixture(url, descriptor: true)
         let backup = directory.appendingPathComponent("original.zip")
@@ -175,7 +175,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         XCTAssertThrowsError(try controlReader.rawRecord(of: controlReader.entries[0])) { error in
             guard case let KaitoError.malformed(reason) = error else { return XCTFail("\(error)") }
             XCTAssertEqual(reason, "ZIP data descriptor overlaps the next record or central directory")
-            ZipTestSupport.report("KAITO OFFSET DESCRIPTOR LIMIT: \(reason)")
+            TestSupport.report("KAITO OFFSET DESCRIPTOR LIMIT: \(reason)")
         }
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "longer-first-name")
@@ -184,9 +184,9 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             XCTAssertEqual(index, 1)
             XCTAssertEqual(name, "tail.txt")
             XCTAssertTrue(reason.contains("KaitoKit 0.4.0"))
-            ZipTestSupport.report("REFUSAL \(reason)")
+            TestSupport.report("REFUSAL \(reason)")
         }
-        try ZipTestSupport.run("/usr/bin/cmp", [url.path, backup.path], in: directory, log: "original-cmp")
+        try TestSupport.run(ReferenceTool.cmp, [url.path, backup.path], in: directory, log: "original-cmp")
         XCTAssertThrowsError(try updater.commit())
         try FileManager.default.removeItem(at: url)
         try FileManager.default.removeItem(at: backup)
@@ -215,11 +215,11 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             f.write(p('IHHHHIIH',0x06054b50,0,0,2,2,len(cd),0xffffffff,0))
         print('sparse fixture: tail offset=%d, stored payload=%d, CRC=%08x'%(offset,size,crc))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, String(descriptor)], in: url.deletingLastPathComponent(), log: "python-create")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path, String(descriptor)], in: url.deletingLastPathComponent(), log: "python-create")
     }
 
     func testLocalOffsetCrosses4GiBThenDropsAfterDeletion() throws {
-        let directory = try ZipTestSupport.directory("rebuild-zip64-offset-up")
+        let directory = try TestSupport.directory("rebuild-zip64-offset-up")
         let url = directory.appendingPathComponent("archive.zip")
         // 大きい stored payload の入力だけ sparse で作る。updater は穴を特別扱いせず全 byte を運ぶ。
         // 末尾 entry の offset が 0xFFFFFFFF の直前から、先頭の改名で境界を越える。
@@ -256,13 +256,13 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         let oldSource = try before.read(tail)
         XCTAssertEqual(try result.read(result.entries[1]), oldSource)
         XCTAssertEqual(rawTail.recordRange.lowerBound, extras.zip64(4))
-        XCTAssertTrue(try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path], in: directory, log: "unzip-t").contains("No errors detected"))
-        try ZipTestSupport.run("/usr/bin/unzip", ["-l", url.path], in: directory, log: "unzip-l")
-        XCTAssertTrue(try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", url.path], in: directory, log: "7zz-t").contains("Everything is Ok"))
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", "-slt", url.path], in: directory, log: "7zz-l")
+        XCTAssertTrue(try TestSupport.run(ReferenceTool.unzip, ["-t", url.path], in: directory, log: "unzip-t").contains("No errors detected"))
+        try TestSupport.run(ReferenceTool.unzip, ["-l", url.path], in: directory, log: "unzip-l")
+        XCTAssertTrue(try TestSupport.run(ReferenceTool.sevenZip, ["t", url.path], in: directory, log: "7zz-t").contains("Everything is Ok"))
+        try TestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", url.path], in: directory, log: "7zz-l")
         let extracted = directory.appendingPathComponent("ditto")
-        try ZipTestSupport.run("/usr/bin/ditto", ["-x", "-k", url.path, extracted.path], in: directory, log: "ditto-x")
-        try ZipTestSupport.run("/usr/bin/tar", ["-tf", url.path], in: directory, log: "bsdtar-t")
+        try TestSupport.run(ReferenceTool.ditto, ["-x", "-k", url.path, extracted.path], in: directory, log: "ditto-x")
+        try TestSupport.run(ReferenceTool.tar, ["-tf", url.path], in: directory, log: "bsdtar-t")
         let stream = try result.stream(result.entries[0])
         let disk = try FileHandle(forReadingFrom: extracted.appendingPathComponent("longer-first-name"))
         defer { try? disk.close() }
@@ -280,10 +280,10 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         XCTAssertEqual(total, first.uncompressedSize)
         XCTAssertEqual(crc.value, first.crc32)
         XCTAssertEqual(try Data(contentsOf: extracted.appendingPathComponent("tail.txt")), oldSource)
-        ZipTestSupport.report("KAITO REBUILD offset up: \(rawTail.recordRange.lowerBound), size=\(total), CRC=\(String(crc.value, radix: 16)); every payload byte and ditto output verified")
+        TestSupport.report("KAITO REBUILD offset up: \(rawTail.recordRange.lowerBound), size=\(total), CRC=\(String(crc.value, radix: 16)); every payload byte and ditto output verified")
         try FileManager.default.removeItem(at: extracted)
 
-        let downDirectory = try ZipTestSupport.directory("rebuild-zip64-offset-down")
+        let downDirectory = try TestSupport.directory("rebuild-zip64-offset-down")
         let downURL = downDirectory.appendingPathComponent("archive.zip")
         try FileManager.default.copyItem(at: url, to: downURL)
         let deleting = try ArchiveUpdater.open(url: downURL)
@@ -294,7 +294,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         XCTAssertNil(down.extras(down.central, local: false)[1])
         XCTAssertNotEqual(down.u32(down.end - 20), 0x07064B50)
         try ZipTestSupport.verify(downURL, expected: [.init(name: "tail.txt", data: oldSource, permissions: 0o755)])
-        ZipTestSupport.report("KAITO REBUILD offset down: 0, ZIP64 field and EOCD absent")
+        TestSupport.report("KAITO REBUILD offset down: 0, ZIP64 field and EOCD absent")
         // 検証ログと小さい最終書庫を残し、4 GiB の作業書庫は残さない。
         try FileManager.default.removeItem(at: url)
     }

@@ -32,7 +32,7 @@ final class EmptyBatchTests: XCTestCase {
 
     private func renameOnly(_ format: ArchiveFormat, rewrite: Bool = false,
                             placement: AdditionPlacement = .end) throws {
-        let root = try ZipTestSupport.directory("p7-empty-\(format)-\(rewrite)-\(placement)")
+        let root = try TestSupport.directory("p7-empty-\(format)-\(rewrite)-\(placement)")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = try S.source(root, format: format), original = try Data(contentsOf: source)
         var options = S.options
@@ -103,7 +103,7 @@ final class EmptyBatchTests: XCTestCase {
     func testArchiveWriterDoesNotDrainPendingInputOrChangeFinishAndBytes() throws {
         var sawPendingInput = false
         for format in S.formats {
-            let root = try ZipTestSupport.directory("p7-empty-writer-\(format)")
+            let root = try TestSupport.directory("p7-empty-writer-\(format)")
             defer { try? FileManager.default.removeItem(at: root) }
             for populated in [false, true] {
                 for finish in [false, true] {
@@ -122,7 +122,7 @@ final class EmptyBatchTests: XCTestCase {
                         if empty { try checkEmpty() }
                         if populated {
                             try writer.add(data: Data(repeating: 0x61, count: 128 * 1024 + 1), as: "pending",
-                                           modificationDate: ZipTestSupport.date)
+                                           modificationDate: TestSupport.date)
                         }
                         sawPendingInput = sawPendingInput || writer.pendingInputBytes > 0
                         if empty { try checkEmpty() }
@@ -152,7 +152,7 @@ final class EmptyBatchTests: XCTestCase {
 
     func testFailedWritersAndEditorsStayFailedWithoutEvents() throws {
         for format in S.formats {
-            let root = try ZipTestSupport.directory("p7-empty-failed-\(format)")
+            let root = try TestSupport.directory("p7-empty-failed-\(format)")
             defer { try? FileManager.default.removeItem(at: root) }
             let source = try S.source(root, format: format)
             let writer = try ArchiveWriter.create(url: root.appendingPathComponent("writer"), format: format)
@@ -178,7 +178,7 @@ final class EmptyBatchTests: XCTestCase {
         for format in S.formats {
             for rewrite in [false, true] {
                 try await Task.detached {
-                    let root = try ZipTestSupport.directory("p7-empty-cancelled-\(format)-\(rewrite)")
+                    let root = try TestSupport.directory("p7-empty-cancelled-\(format)-\(rewrite)")
                     defer { try? FileManager.default.removeItem(at: root) }
                     let source = try S.source(root, format: format)
                     let writer = try ArchiveWriter.create(url: root.appendingPathComponent("writer"), format: format)

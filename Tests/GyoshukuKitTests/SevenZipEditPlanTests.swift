@@ -23,7 +23,7 @@ final class SevenZipEditPlanTests: XCTestCase {
     }
 
     func testNFDNoOpRenameKeepsRawBytes() throws {
-        let root = try ZipTestSupport.directory("7z-nfd")
+        let root = try TestSupport.directory("7z-nfd")
         let base = try SevenZipEditSupport.source(root, count: 1)
         let reader = try SevenZipEditSupport.reader(base)
         var model = try XCTUnwrap(SevenZipEditModel.read(reader))

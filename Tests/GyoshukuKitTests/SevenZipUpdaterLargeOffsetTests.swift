@@ -7,7 +7,7 @@ import XCTest
 final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
     func testSparseOffsetsPastFourGiB() throws {
         guard ProcessInfo.processInfo.environment["GYOSHUKU_7Z_LARGE"] == "1" else { throw XCTSkip("Set GYOSHUKU_7Z_LARGE=1") }
-        let root = try ZipTestSupport.directory("7z-large-offset")
+        let root = try TestSupport.directory("7z-large-offset")
         let small = try SevenZipEditSupport.source(root, count: 1)
         let smallReader = try SevenZipEditSupport.reader(small)
         let smallModel = try XCTUnwrap(SevenZipEditModel.read(smallReader))
@@ -48,7 +48,7 @@ final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
             try ZipCopyEngine.$writeObserver.withValue(events.write) {
                 if operation == "rename" { try updater.rename(entryAt: 1, to: "renamed") }
                 else if operation == "first" { try updater.remove(entriesAt: [0]) }
-                else { try updater.add(data: Data([1, 2]), as: "added", modificationDate: ZipTestSupport.date) }
+                else { try updater.add(data: Data([1, 2]), as: "added", modificationDate: TestSupport.date) }
                 try updater.commit()
             }
             print(String(format: "7Z-LARGE\t%@\tcommit_ms=%.3f\twritten_bytes=%llu", operation, (ProcessInfo.processInfo.systemUptime - start) * 1000, events.bytes))
@@ -65,8 +65,8 @@ final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
                 }
                 XCTAssertEqual(read, length)
             }
-            if FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") {
-                try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", "-y", output.path], in: root, log: "7zz-" + operation)
+            if FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) {
+                try TestSupport.run(ReferenceTool.sevenZip, ["t", "-y", output.path], in: root, log: "7zz-" + operation)
             }
         }
     }

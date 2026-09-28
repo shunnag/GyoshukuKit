@@ -7,22 +7,10 @@ import XCTest
 
 final class ArchiveRewriterTests: XCTestCase {
     private let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha]
-    private let date = ZipTestSupport.date
-
-    private func suffix(_ format: GyoshukuKit.ArchiveFormat) -> String {
-        switch format {
-        case .zip: "zip"
-        case .tar: "tar"
-        case .tarGzip: "tar.gz"
-        case .tarBzip2: "tar.bz2"
-        case .tarXZ: "tar.xz"
-        case .sevenZip: "7z"
-        case .lha: "lha"
-        }
-    }
+    private let date = TestSupport.date
 
     private func directory(_ label: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("rewriter-" + label)
+        let directory = try TestSupport.directory("rewriter-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }
@@ -39,26 +27,9 @@ final class ArchiveRewriterTests: XCTestCase {
 
     @discardableResult
     private func run(_ name: String, _ arguments: [String], in directory: URL) throws -> String {
-        let executable = try tool(name)
-        let log = directory.appendingPathComponent(UUID().uuidString + ".log")
-        XCTAssertTrue(FileManager.default.createFile(atPath: log.path, contents: nil))
-        let output = try FileHandle(forWritingTo: log)
-        defer { try? output.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.standardOutput = output
-        process.standardError = output
-        var environment = ProcessInfo.processInfo.environment
-        environment["COPYFILE_DISABLE"] = "1"
-        environment["LC_ALL"] = "en_US.UTF-8"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        let text = String(decoding: try Data(contentsOf: log), as: UTF8.self)
-        XCTAssertEqual(process.terminationStatus, 0, "\(name) \(arguments):\n\(text)")
-        return text
+        let environment = ReferenceTool.englishUTF8.merging(["COPYFILE_DISABLE": "1"]) { $1 }
+        return try ReferenceTool.run(try tool(name), arguments, in: directory, log: UUID().uuidString,
+                                     environment: environment, workingDirectory: directory).utf8Text
     }
 
     private func workDirectories(in directory: URL) throws -> [URL] {
@@ -103,7 +74,7 @@ final class ArchiveRewriterTests: XCTestCase {
         try updater.commit()
         let original = try ArchiveReader.open(url: source)
         let expected = try original.entries.map { try contents($0, reader: original) }
-        let output = directory.appendingPathComponent("output." + suffix(format))
+        let output = directory.appendingPathComponent("output." + format.testFileExtension)
         let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format)
         XCTAssertEqual(rewriter.sourceFormat, .zip)
         XCTAssertFalse(rewriter.hasEncryptedEntries)
@@ -155,7 +126,7 @@ final class ArchiveRewriterTests: XCTestCase {
         let marker = Data("UNIQUE-REMOVED-ENTRY-PAYLOAD-73F174C7".utf8)
         for (format, placement) in formats.flatMap({ format in [AdditionPlacement.end, .beginning].map { (format, $0) } }) {
             let directory = try directory("edit-\(format)-\(placement)")
-            let source = try archive(in: directory, filename: "source." + suffix(format), files: [
+            let source = try archive(in: directory, filename: "source." + format.testFileExtension, files: [
                 ("removed.txt", marker), ("rename.txt", Data("renamed contents".utf8)),
                 ("keep.txt", Data("keep".utf8)), ("parent/child.txt", Data("child".utf8))
             ])
@@ -531,7 +502,7 @@ final class ArchiveRewriterTests: XCTestCase {
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ] {
             let directory = try directory("hardlink-kept-\(format)")
             let source = try hardLinkArchive(in: directory)
-            let output = directory.appendingPathComponent("output." + suffix(format))
+            let output = directory.appendingPathComponent("output." + format.testFileExtension)
             let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format)
             try rewriter.rename(entryAt: 0, to: "renamed-target")
             try rewriter.commit()
@@ -547,7 +518,7 @@ final class ArchiveRewriterTests: XCTestCase {
         for format: GyoshukuKit.ArchiveFormat in [.zip, .sevenZip, .lha] {
             let directory = try directory("hardlink-expanded-\(format)")
             let source = try hardLinkArchive(in: directory)
-            let output = directory.appendingPathComponent("output." + suffix(format))
+            let output = directory.appendingPathComponent("output." + format.testFileExtension)
             try ArchiveRewriter.open(url: source, output: output, format: format).commit()
             let reader = try ArchiveReader.open(url: output)
             XCTAssertEqual(reader.entries.map(\.name), ["target", "hard"])
@@ -561,7 +532,7 @@ final class ArchiveRewriterTests: XCTestCase {
         for (format, placement) in formats.flatMap({ format in [AdditionPlacement.end, .beginning].map { (format, $0) } }) {
             let directory = try directory("hardlink-removed-\(format)-\(placement)")
             let source = try hardLinkArchive(in: directory)
-            let output = directory.appendingPathComponent("output." + suffix(format))
+            let output = directory.appendingPathComponent("output." + format.testFileExtension)
             let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format, options: .init(additionPlacement: placement))
             try rewriter.remove(entriesAt: [0])
             try rewriter.add(data: Data("replacement".utf8), as: "target")

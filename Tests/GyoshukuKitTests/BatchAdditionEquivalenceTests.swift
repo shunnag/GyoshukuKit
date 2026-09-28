@@ -8,7 +8,7 @@ final class BatchAdditionEquivalenceTests: XCTestCase {
     private typealias B = BatchAdditionTestSupport
 
     func testWriterBytesAllFormatsThreadsEncryptionAndThresholds() throws {
-        let root = try ZipTestSupport.directory("p7-writer-matrix")
+        let root = try TestSupport.directory("p7-writer-matrix")
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try B.fixture(root)
         try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: 17, count: $0) }) {
@@ -45,7 +45,7 @@ final class BatchAdditionEquivalenceTests: XCTestCase {
     }
 
     func testUpdaterAndRewriterBothPlacementsCommitBytes() throws {
-        let root = try ZipTestSupport.directory("p7-editors")
+        let root = try TestSupport.directory("p7-editors")
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try B.fixture(root)
         for format in S.formats {
@@ -75,7 +75,7 @@ final class BatchAdditionEquivalenceTests: XCTestCase {
     }
 
     func testLiveNameBudgetsPromoteWithQueuedNamesAndMatchSingles() throws {
-        let root = try ZipTestSupport.directory("p7-name-budget")
+        let root = try TestSupport.directory("p7-name-budget")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = try S.source(root, format: .zip)
         let original = try B.small(root, count: 10)
@@ -113,7 +113,7 @@ final class BatchAdditionEquivalenceTests: XCTestCase {
     }
 
     func testRecursiveFallbackAndOwnersAndLHASymlink() throws {
-        let root = try ZipTestSupport.directory("p7-recursive")
+        let root = try TestSupport.directory("p7-recursive")
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try B.fixture(root, full: false)
         for format in S.formats where format != .lha {

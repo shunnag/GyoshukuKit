@@ -6,11 +6,10 @@ import XCTest
 
 final class AppleDoubleSidecarEditingTests: XCTestCase {
     private func fixture(_ name: String, label: String) throws -> URL {
-        let encoded = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/appledouble/\(name).b64")
+        let encoded = TestPaths.fixture("appledouble", "\(name).b64")
         let data = try XCTUnwrap(Data(base64Encoded: try String(contentsOf: encoded, encoding: .utf8),
                                       options: .ignoreUnknownCharacters))
-        let directory = try ZipTestSupport.directory("appledouble-\(label)")
+        let directory = try TestSupport.directory("appledouble-\(label)")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent(name)
         try data.write(to: url)
@@ -70,7 +69,7 @@ final class AppleDoubleSidecarEditingTests: XCTestCase {
         XCTAssertFalse(result.entries.contains { $0.name.contains("..namedfork") })
         expectedHashes["added.txt"] = Data(SHA256.hash(data: addition))
         XCTAssertEqual(try payloadHashes(result), expectedHashes)
-        let verification = try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path],
+        let verification = try TestSupport.run(ReferenceTool.unzip, ["-t", url.path],
             in: url.deletingLastPathComponent(), log: "unzip-t")
         XCTAssertTrue(verification.contains("No errors detected"), verification)
     }
@@ -95,7 +94,7 @@ final class AppleDoubleSidecarEditingTests: XCTestCase {
         expectedHashes.removeValue(forKey: "folder/plain.txt")
         expectedHashes["added.txt"] = Data(SHA256.hash(data: addition))
         XCTAssertEqual(try payloadHashes(result), expectedHashes)
-        let verification = try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path],
+        let verification = try TestSupport.run(ReferenceTool.unzip, ["-t", url.path],
             in: url.deletingLastPathComponent(), log: "unzip-t")
         XCTAssertTrue(verification.contains("No errors detected"), verification)
     }

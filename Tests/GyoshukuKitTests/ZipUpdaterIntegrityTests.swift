@@ -6,12 +6,12 @@ import XCTest
 
 final class ZipUpdaterIntegrityTests: XCTestCase {
     private func fixture(_ label: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("zip-integrity-" + label)
+        let directory = try TestSupport.directory("zip-integrity-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url, options: .init(compressionMethod: .stored))
-        try writer.add(data: Data(repeating: 0x61, count: 512), as: "first.bin", modificationDate: ZipTestSupport.date)
-        try writer.add(data: Data("second payload".utf8), as: "other.bin", modificationDate: ZipTestSupport.date)
+        try writer.add(data: Data(repeating: 0x61, count: 512), as: "first.bin", modificationDate: TestSupport.date)
+        try writer.add(data: Data("second payload".utf8), as: "other.bin", modificationDate: TestSupport.date)
         try writer.finish()
         return url
     }
@@ -35,7 +35,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         }
         XCTAssertEqual(gatekeeper.rawValue, "ambiguousEndRecord", file: file, line: line)
         XCTAssertEqual(reason, gatekeeper.reason, file: file, line: line)
-        ZipTestSupport.report("G4 gate: \(gatekeeper.rawValue): \(reason)")
+        TestSupport.report("G4 gate: \(gatekeeper.rawValue): \(reason)")
     }
 
     private func assertInvalid(_ body: () throws -> Void, _ message: String,
@@ -45,7 +45,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
                 return XCTFail("expected invalidArchive, got \($0)", file: file, line: line)
             }
             XCTAssertFalse(reason.isEmpty, file: file, line: line)
-            ZipTestSupport.report("G4 invalidArchive: \(reason)")
+            TestSupport.report("G4 invalidArchive: \(reason)")
         }
     }
 
@@ -68,7 +68,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
             try accepted.commit()
             let names = try ArchiveReader.open(url: url).entries.map(\.name)
             XCTAssertEqual(names.count, 2, "red-run fixture must reproduce the old reader fallback")
-            ZipTestSupport.report("G4 RED append: before=2, after=\(names.count), added.txt visible=\(names.contains("added.txt"))")
+            TestSupport.report("G4 RED append: before=2, after=\(names.count), added.txt visible=\(names.contains("added.txt"))")
             XCTAssertEqual(names.count, 3, "committed append must expose the added entry")
         }
     }

@@ -10,10 +10,10 @@ final class LHAUpdaterScaleProbeTests: XCTestCase {
         guard let value = ProcessInfo.processInfo.environment["GYOSHUKU_LHA_SCALE_ENTRIES"], let count = Int(value), count > 2 else {
             throw XCTSkip("Set GYOSHUKU_LHA_SCALE_ENTRIES=100000; use -c release -Xswiftc -enable-testing")
         }
-        let root = try ZipTestSupport.directory("lha-scale-\(count)"), source = root.appendingPathComponent("source.lzh")
+        let root = try TestSupport.directory("lha-scale-\(count)"), source = root.appendingPathComponent("source.lzh")
         let data = Data(repeating: 65, count: 1024)
         let writer = try ArchiveWriter.create(url: source, format: .lha)
-        for index in 0..<count { try writer.add(data: data, as: String(format: "file-%06d", index), modificationDate: ZipTestSupport.date) }
+        for index in 0..<count { try writer.add(data: data, as: String(format: "file-%06d", index), modificationDate: TestSupport.date) }
         try writer.finish()
         func now() -> Double { ProcessInfo.processInfo.systemUptime }
         func edit(_ editor: any ArchiveEditing, operation: String) throws {
@@ -23,7 +23,7 @@ final class LHAUpdaterScaleProbeTests: XCTestCase {
             case "same": try editor.rename(entryAt: count / 2, to: String(format: "edit-%06d", count / 2))
             case "long": try editor.rename(entryAt: count / 2, to: "longer-name-than-before")
             case "replace": try editor.remove(entriesAt: [count / 2]); fallthrough
-            default: try editor.add(data: data, as: "added", modificationDate: ZipTestSupport.date, permissions: nil)
+            default: try editor.add(data: data, as: "added", modificationDate: TestSupport.date, permissions: nil)
             }
         }
         var load = [Double](repeating: 0, count: 3); _ = getloadavg(&load, 3)
@@ -56,7 +56,7 @@ final class LHAUpdaterScaleProbeTests: XCTestCase {
         try Data([0]).write(to: empty)
         let editor = try LHAUpdater.open(url: empty, output: output)
         let text = Data(repeating: 0x61, count: 256 << 20), start = now()
-        try editor.add(data: text, as: "text256.txt", modificationDate: ZipTestSupport.date)
+        try editor.add(data: text, as: "text256.txt", modificationDate: TestSupport.date)
         let encoded = now()
         try editor.commit()
         print(String(format: "LHA-SCALE-TEXT\tbytes=%d\tencode_ms=%.3f\tV3_ms=%.3f\tcommit_ms=%.3f", text.count, (encoded - start) * 1000, editor.verificationSeconds.v3 * 1000, (now() - encoded) * 1000))
@@ -66,7 +66,7 @@ final class LHAUpdaterScaleProbeTests: XCTestCase {
 final class LHAUpdaterLargeOffsetTests: XCTestCase {
     func testSparseOffsetsPastFourGiB() throws {
         guard ProcessInfo.processInfo.environment["GYOSHUKU_LHA_LARGE"] == "1" else { throw XCTSkip("Set GYOSHUKU_LHA_LARGE=1") }
-        let root = try ZipTestSupport.directory("lha-large-offset"), source = root.appendingPathComponent("source.lzh")
+        let root = try TestSupport.directory("lha-large-offset"), source = root.appendingPathComponent("source.lzh")
         FileManager.default.createFile(atPath: source.path, contents: nil)
         let handle = try FileHandle(forWritingTo: source)
         for index in 0..<4 {
@@ -90,8 +90,8 @@ final class LHAUpdaterLargeOffsetTests: XCTestCase {
             try editor.commit()
             let reader = try ArchiveReader.open(url: output, options: .init(limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max)))
             XCTAssertEqual(reader.entries.count, operation == 0 || operation == 3 ? 3 : operation == 2 ? 5 : 4)
-            if FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") {
-                let result = try LHATestSupport.run("/opt/homebrew/bin/7zz", ["l", output.path], in: root, log: "list-\(operation)")
+            if FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) {
+                let result = try LHATestSupport.run(ReferenceTool.sevenZip, ["l", output.path], in: root, log: "list-\(operation)")
                 XCTAssertEqual(result.status, 0, result.text)
             }
             print("LHA-LARGE\toperation=\(operation)\tbytes=\(try ZipP1Support.info(output).st_size)")

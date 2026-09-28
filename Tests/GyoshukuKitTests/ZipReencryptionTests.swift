@@ -25,7 +25,7 @@ enum ReencryptionSupport {
         let writer = try ArchiveWriter.create(url: url, format: .zip, options: .init(compressionMethod: method,
             useCompressionHeuristic: false, password: password, zipEncryption: encryption, compressionThreads: 1),
             zipSalt: { Data(repeating: salt, count: 16) }, lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
-        for (name, data) in items { try writer.add(data: data, as: name, modificationDate: ZipTestSupport.date, permissions: 0o640) }
+        for (name, data) in items { try writer.add(data: data, as: name, modificationDate: TestSupport.date, permissions: 0o640) }
         if special {
             let disk = directory.appendingPathComponent("disk-dir")
             try FileManager.default.createDirectory(at: disk, withIntermediateDirectories: true)
@@ -88,7 +88,7 @@ enum ReencryptionSupport {
 
 final class ZipReencryptionTests: XCTestCase {
     private func directory(_ name: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("reencrypt-" + name)
+        let directory = try TestSupport.directory("reencrypt-" + name)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }
@@ -194,10 +194,10 @@ final class ZipReencryptionTests: XCTestCase {
             try EncryptionPrimitives.$testingRandomBytes.withValue(ZipP1Support.salt) {
                 let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(password: ReencryptionSupport.new))
                 if order == 0 { try updater.reencryptExistingEntries(currentPassword: nil) }
-                if order == 2 { try updater.add(data: Data([4, 5]), as: "added", modificationDate: ZipTestSupport.date) }
+                if order == 2 { try updater.add(data: Data([4, 5]), as: "added", modificationDate: TestSupport.date) }
                 try updater.rename(entryAt: 1, to: "renamed")
                 try updater.remove(entriesAt: [0])
-                if order != 2 { try updater.add(data: Data([4, 5]), as: "added", modificationDate: ZipTestSupport.date) }
+                if order != 2 { try updater.add(data: Data([4, 5]), as: "added", modificationDate: TestSupport.date) }
                 if order != 0 { try updater.reencryptExistingEntries(currentPassword: nil) }
                 try updater.commit()
                 XCTAssertEqual(updater.lastCommitStrategy, .stagedRebuild)
@@ -222,7 +222,7 @@ final class ZipReencryptionTests: XCTestCase {
                     if reserve { try updater.reencryptExistingEntries(currentPassword: "same") }
                     if mode == 0 { try updater.rename(entryAt: 0, to: "size-X") }
                     if mode == 1 { try updater.remove(entriesAt: [0]); try updater.rename(entryAt: 1, to: "longer") }
-                    if mode == 2 { try updater.add(data: Data([1]), as: "new", modificationDate: ZipTestSupport.date) }
+                    if mode == 2 { try updater.add(data: Data([1]), as: "new", modificationDate: TestSupport.date) }
                     try updater.commit()
                     strategies.append(updater.lastCommitStrategy)
                 }

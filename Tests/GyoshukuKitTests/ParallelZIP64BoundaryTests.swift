@@ -5,7 +5,7 @@ import XCTest
 
 final class ParallelZIP64BoundaryTests: XCTestCase {
     func testIncompressibleMemberCrossesCompressedZIP64Threshold() throws {
-        let directory = try ZipTestSupport.directory("m8-zip64-compressed-boundary")
+        let directory = try TestSupport.directory("m8-zip64-compressed-boundary")
         let url = directory.appendingPathComponent("archive.zip")
         defer { try? FileManager.default.removeItem(at: url) }
         let blockSize = 64 * 1024
@@ -26,7 +26,7 @@ final class ParallelZIP64BoundaryTests: XCTestCase {
         let writer = try ArchiveWriter.create(url: url, format: .zip, options: WriterOptions(compressionThreads: 8),
             deflateBlockSize: blockSize, lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
         var remaining = size
-        try writer.addEntry(path: "random", mode: 0o100644, size: size, date: ZipTestSupport.date, atime: nil, owners: nil) { count in
+        try writer.addEntry(path: "random", mode: 0o100644, size: size, date: TestSupport.date, atime: nil, owners: nil) { count in
             guard remaining > 0 else { return Data() }
             XCTAssertEqual(count, blockSize)
             remaining -= UInt64(count)
@@ -63,12 +63,10 @@ final class ParallelZIP64BoundaryTests: XCTestCase {
         }
         XCTAssertEqual(total, size)
         XCTAssertEqual(entry.crc32, crc.value)
-        ZipTestSupport.report("M8 ZIP64 random input=\(size), compressed=\(compressed); every byte verified")
-        for candidates in [["/usr/bin/unzip"], ["/opt/homebrew/bin/7zz", "/usr/local/bin/7zz"]] {
-            guard let tool = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-                throw XCTSkip("Reference tool missing: \(candidates.joined(separator: ", "))")
-            }
-            try ZipTestSupport.run(tool, [tool.hasSuffix("unzip") ? "-t" : "t", url.path], in: directory,
+        TestSupport.report("M8 ZIP64 random input=\(size), compressed=\(compressed); every byte verified")
+        for candidates in [[ReferenceTool.unzip], [ReferenceTool.sevenZip, "/usr/local/bin/7zz"]] {
+            let tool = try ReferenceTool.firstAvailable(candidates)
+            try TestSupport.run(tool, [tool.hasSuffix("unzip") ? "-t" : "t", url.path], in: directory,
                                    log: tool.hasSuffix("unzip") ? "unzip-test" : "7zz-test")
         }
     }

@@ -4,20 +4,13 @@ import XCTest
 @testable import GyoshukuKit
 
 enum TarTestSupport {
-    struct Expected {
-        var name: String
-        var data = Data()
-        var kind: EntryKind = .file
-        var permissions: UInt16 = 0o644
-        var date: Date? = ZipTestSupport.date
-        var link: String? = nil
-    }
+    typealias Expected = ExpectedEntry
 
     static func verify(_ archive: URL, expected: [Expected], gzip: Bool = false) throws {
         let directory = archive.deletingLastPathComponent()
-        let listing = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tf", archive.path], in: directory, log: "bsdtar-t")
+        let listing = try TestSupport.run(ReferenceTool.bsdtar, ["-tf", archive.path], in: directory, log: "bsdtar-t")
         XCTAssertEqual(listing, expected.map { $0.name + "\n" }.joined())
-        let verbose = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tvf", archive.path], in: directory, log: "bsdtar-tv")
+        let verbose = try TestSupport.run(ReferenceTool.bsdtar, ["-tvf", archive.path], in: directory, log: "bsdtar-tv")
         let lines = verbose.split(separator: "\n")
         XCTAssertEqual(lines.count, expected.count)
         for (line, item) in zip(lines, expected) {
@@ -36,7 +29,7 @@ enum TarTestSupport {
         with tarfile.open(sys.argv[1]) as t:
             print(json.dumps([dict(name=m.name,size=m.size,uid=m.uid,gid=m.gid,uname=m.uname,gname=m.gname) for m in t],ensure_ascii=False))
         """
-        let python = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, archive.path], in: directory, log: "python-tarfile")
+        let python = try TestSupport.run(ReferenceTool.python3, ["-c", script, archive.path], in: directory, log: "python-tarfile")
         let members = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(python.utf8)) as? [[String: Any]])
         XCTAssertEqual(members.count, expected.count)
         for (member, item) in zip(members, expected) {
@@ -47,30 +40,23 @@ enum TarTestSupport {
             XCTAssertEqual(member["uname"] as? String, "")
             XCTAssertEqual(member["gname"] as? String, "")
         }
-        let seven = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", archive.path], in: directory, log: "7zz-t")
+        let seven = try TestSupport.run(ReferenceTool.sevenZip, ["t", archive.path], in: directory, log: "7zz-t")
         XCTAssertTrue(seven.contains("Everything is Ok"), seven)
         XCTAssertFalse(seven.lowercased().contains("warning"), seven)
         if gzip {
-            let result = try ZipTestSupport.run("/usr/bin/gzip", ["-t", archive.path], in: directory, log: "gzip-t")
+            let result = try TestSupport.run(ReferenceTool.gzip, ["-t", archive.path], in: directory, log: "gzip-t")
             XCTAssertEqual(result, "")
         }
         let extracted = directory.appendingPathComponent("extracted")
         try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: true)
-        let extraction = try ZipTestSupport.run("/usr/bin/bsdtar", [gzip ? "-xzf" : "-xf", archive.path, "-C", extracted.path],
+        let extraction = try TestSupport.run(ReferenceTool.bsdtar, [gzip ? "-xzf" : "-xf", archive.path, "-C", extracted.path],
                                                 in: directory, log: "bsdtar-x")
         XCTAssertEqual(extraction, "")
-        let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
-        for (entry, item) in zip(reader.entries, expected) {
+        try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
             XCTAssertEqual(entry.rawName.bytes, Array(item.name.utf8))
-            XCTAssertEqual(entry.kind, item.kind, item.name)
-            XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
-            XCTAssertEqual(entry.posixPermissions, item.permissions, item.name)
-            if let date = item.date { XCTAssertEqual(entry.modificationDate, date, item.name) }
             XCTAssertFalse(entry.isIncomplete)
             XCTAssertEqual(entry.formatSpecific["uid"], "0")
             XCTAssertEqual(entry.formatSpecific["gid"], "0")
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
             let file = extracted.appendingPathComponent(item.name)
             switch item.kind {
             case .file:
@@ -166,5 +152,17 @@ struct TarBytes {
         let actual = header.enumerated().reduce(UInt64(0)) { $0 + UInt64((148..<156).contains($1.offset) ? 0x20 : $1.element) }
         XCTAssertEqual(stored, actual)
         XCTAssertEqual(header[257..<265], Data("ustar\000".utf8))
+    }
+}
+
+/// test が組み立てた tar の byte 列をそのまま読ませる ByteSource。
+struct TarMemorySource: ByteSource {
+    let data: Data
+    var length: UInt64 { UInt64(data.count) }
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        guard offset < length else { return 0 }
+        let count = min(buffer.count, data.count - Int(offset))
+        data.withUnsafeBytes { buffer.baseAddress!.copyMemory(from: $0.baseAddress!.advanced(by: Int(offset)), byteCount: count) }
+        return count
     }
 }

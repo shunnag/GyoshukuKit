@@ -6,14 +6,14 @@ import XCTest
 
 final class SevenZipUpdaterRefusalTests: XCTestCase {
     func testStructuralRoutesAndAssessAgree() throws {
-        let root = try ZipTestSupport.directory("7z-refusals")
+        let root = try TestSupport.directory("7z-refusals")
         for (name, reason) in [("sfx", "sfx prefix"), ("packpos16", "pack position gap"),
             ("archive_properties", "header: archiveProperties"), ("external_names", "header: additionalStreams"),
             ("comment", "header: unknownFileProperty(0x16)"), ("unknown_1a", "header: unknownFileProperty(0x1A)")] {
             let source = SevenZipEditSupport.fixture(name)
             let before = try Data(contentsOf: source)
             let info = try ZipP1Support.info(source)
-            let work = try SevenZipEditSupport.work(root)
+            let work = try TestSupport.work(in: root)
             XCTAssertThrowsError(try SevenZipUpdater.open(url: source, output: work.appendingPathComponent("output.7z")), name) {
                 XCTAssertEqual($0 as? UpdaterRouteError, .requiresRewrite(reason: reason), name)
             }
@@ -30,7 +30,7 @@ final class SevenZipUpdaterRefusalTests: XCTestCase {
         }
     }
     func testSettingsNamesMismatchAndNon7z() throws {
-        let root = try ZipTestSupport.directory("7z-refusal-settings")
+        let root = try TestSupport.directory("7z-refusal-settings")
         let source = try SevenZipEditSupport.source(root)
         let output = root.appendingPathComponent("output.7z")
         XCTAssertThrowsError(try SevenZipUpdater.open(url: source, output: output, options: WriterOptions(additionPlacement: .beginning))) {

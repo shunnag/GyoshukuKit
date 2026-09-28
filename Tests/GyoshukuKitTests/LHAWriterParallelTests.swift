@@ -6,7 +6,7 @@ import XCTest
 
 final class LHAWriterParallelTests: XCTestCase {
     func testThreeHundredMembersMatchIndependentSerialReferenceAtEveryThreadCount() throws {
-        let directory = try ZipTestSupport.directory("lha-parallel-300")
+        let directory = try TestSupport.directory("lha-parallel-300")
         let below = Data(repeating: 65, count: 1_048_575)
         let exact = Data(repeating: 66, count: 1_048_576)
         let random = LHATestSupport.random(1_048_576)
@@ -38,9 +38,9 @@ final class LHAWriterParallelTests: XCTestCase {
             defer { try? observer.close() }
             for (index, item) in items.enumerated() {
                 if item.directory {
-                    try writer.addDirectory(item.name, modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                    try writer.addDirectory(item.name, modificationDate: TestSupport.date, ownerIDs: nil)
                 } else {
-                    try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date)
+                    try writer.add(data: item.data, as: item.name, modificationDate: TestSupport.date)
                 }
                 if threads == 1 {
                     XCTAssertEqual(try observer.offset(), memberEnds[index], item.name)
@@ -62,13 +62,13 @@ final class LHAWriterParallelTests: XCTestCase {
 
     func testEncoderFailureIsDeferredToAddFinishLargeDrainAndEndMembers() throws {
         for stage in ["add", "finish", "large", "endMembers"] {
-            let directory = try ZipTestSupport.directory("lha-parallel-fail-\(stage)")
+            let directory = try TestSupport.directory("lha-parallel-fail-\(stage)")
             let url = directory.appendingPathComponent("archive.lzh")
             let alias = directory.appendingPathComponent("alias.lzh")
             let writer = try LHAWriterParallelTests.create(url, threads: 2) { _ in throw WriterError.compression(-77) }
             try FileManager.default.linkItem(at: url, to: alias)
             try writer.add(data: Data([1]), as: "first")
-            try writer.addDirectory("directory", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+            try writer.addDirectory("directory", modificationDate: TestSupport.date, ownerIDs: nil)
             XCTAssertThrowsError(try {
                 switch stage {
                 case "add": try writer.add(data: Data([2]), as: "next")
@@ -84,10 +84,10 @@ final class LHAWriterParallelTests: XCTestCase {
     }
 
     func testDirectoriesDoNotRunEncoderAndWorkerCancellationRemovesOutput() throws {
-        let directory = try ZipTestSupport.directory("lha-parallel-directory")
+        let directory = try TestSupport.directory("lha-parallel-directory")
         let url = directory.appendingPathComponent("directory.lzh")
         let writer = try LHAWriterParallelTests.create(url, threads: 2) { _ in throw CancellationError() }
-        try writer.addDirectory("表", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+        try writer.addDirectory("表", modificationDate: TestSupport.date, ownerIDs: nil)
         try writer.finish()
         XCTAssertEqual(try LHABytes(Data(contentsOf: url)).members.map(\.method), ["-lhd-"])
         let failing = directory.appendingPathComponent("cancelled.lzh")
@@ -98,7 +98,7 @@ final class LHAWriterParallelTests: XCTestCase {
     }
 
     func testCapacityWaitPrecedesInputReadAndCancellationAbandonsPendingMembers() async throws {
-        let directory = try ZipTestSupport.directory("lha-parallel-capacity-cancel")
+        let directory = try TestSupport.directory("lha-parallel-capacity-cancel")
         let source = directory.appendingPathComponent("source")
         let url = directory.appendingPathComponent("archive.lzh")
         let alias = directory.appendingPathComponent("alias.lzh")
@@ -136,7 +136,7 @@ final class LHAWriterParallelTests: XCTestCase {
     }
 
     func testInputIsConsumedBeforeDeferredAddReturns() async throws {
-        let directory = try ZipTestSupport.directory("lha-parallel-consumed")
+        let directory = try TestSupport.directory("lha-parallel-consumed")
         let source = directory.appendingPathComponent("source")
         let url = directory.appendingPathComponent("archive.lzh")
         let input = Data(repeating: 84, count: 1024)
@@ -166,7 +166,7 @@ final class LHAWriterParallelTests: XCTestCase {
     }
 
     func testEndMembersRecordsAbsoluteOffsetsWithoutTerminatorOrClose() throws {
-        let directory = try ZipTestSupport.directory("lha-parallel-records")
+        let directory = try TestSupport.directory("lha-parallel-records")
         for threads in [1, 4] {
             let url = directory.appendingPathComponent("records-\(threads).lzh")
             let prefix = Data(repeating: 0x42, count: 73)
@@ -177,10 +177,10 @@ final class LHAWriterParallelTests: XCTestCase {
             let lha = LHAWriter(output: output, url: url, threads: threads, recordsMembers: true)
             let writer = ArchiveWriter(output: output, url: url, format: .lha,
                                        options: WriterOptions(compressionThreads: threads), lhaWriter: lha)
-            try writer.addDirectory("表", modificationDate: ZipTestSupport.date, ownerIDs: nil)
-            try writer.add(data: Data(repeating: 65, count: 1024), as: "表/ソ.bin", modificationDate: ZipTestSupport.date)
-            try writer.add(data: Data(repeating: 66, count: 1_048_577), as: "large", modificationDate: ZipTestSupport.date)
-            try writer.add(data: Data([67]), as: "after", modificationDate: ZipTestSupport.date)
+            try writer.addDirectory("表", modificationDate: TestSupport.date, ownerIDs: nil)
+            try writer.add(data: Data(repeating: 65, count: 1024), as: "表/ソ.bin", modificationDate: TestSupport.date)
+            try writer.add(data: Data(repeating: 66, count: 1_048_577), as: "large", modificationDate: TestSupport.date)
+            try writer.add(data: Data([67]), as: "after", modificationDate: TestSupport.date)
             let end = try writer.endAppendedMembers()
             XCTAssertEqual(try Data(contentsOf: url).count, Int(end))
             XCTAssertEqual(try output.offset(), end)
@@ -215,7 +215,7 @@ final class LHAWriterParallelTests: XCTestCase {
 
     static func serialMember(_ input: Data, name: String, directory: Bool = false) throws -> Data {
         let entry = try LHARecords.Entry(name: name, mode: directory ? 0o40755 : 0o100644,
-                                         size: UInt64(input.count), date: ZipTestSupport.date)
+                                         size: UInt64(input.count), date: TestSupport.date)
         let compressed = try LH5Encoder.encode(input)
         let shrinks = compressed.count < input.count
         let payload = shrinks ? compressed : input

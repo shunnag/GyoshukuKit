@@ -7,13 +7,13 @@ final class SevenZipUpdaterTests: XCTestCase {
     func testBasicOperationsBothModes() throws {
         for sequential in [false, true] {
             for operation in ["unchanged", "same", "long", "first", "last", "empty", "all", "add", "replace", "late"] {
-                let root = try ZipTestSupport.directory("7z-update-\(sequential)-\(operation)")
+                let root = try TestSupport.directory("7z-update-\(sequential)-\(operation)")
                 let source = try SevenZipEditSupport.source(root)
                 let before = try Data(contentsOf: source)
                 let original = try SevenZipEditSupport.reader(source)
                 let model = try XCTUnwrap(SevenZipEditModel.read(original))
                 var expected = try SevenZipEditSupport.items(original)
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 let updater = try SevenZipUpdater.$testingDisablesClone.withValue(sequential) { try SevenZipUpdater.open(url: source, output: output) }
                 var expectedStrategy: SevenZipUpdater.CommitStrategy = .headerOnly
                 switch operation {
@@ -26,16 +26,16 @@ final class SevenZipUpdaterTests: XCTestCase {
                 case "empty": try updater.remove(entriesAt: [4, 5]); expected.removeLast(2)
                 case "all": try updater.remove(entriesAt: Array(expected.indices)); expected.removeAll()
                 case "add":
-                    try updater.add(data: Data([9]), as: "added", modificationDate: ZipTestSupport.date)
-                    try updater.addDirectory("new", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                    try updater.add(data: Data([9]), as: "added", modificationDate: TestSupport.date)
+                    try updater.addDirectory("new", modificationDate: TestSupport.date, ownerIDs: nil)
                     expected += [.init(name: "added", kind: .file, data: Data([9])), .init(name: "new/", kind: .directory, data: Data())]
                     expectedStrategy = .appendOnly
                 case "replace":
                     try updater.remove(entriesAt: [0]); expected.remove(at: 0)
-                    try updater.add(data: Data([9]), as: "file0", modificationDate: ZipTestSupport.date)
+                    try updater.add(data: Data([9]), as: "file0", modificationDate: TestSupport.date)
                     expected.append(.init(name: "file0", kind: .file, data: Data([9]))); expectedStrategy = .compacted
                 default:
-                    try updater.add(data: Data([9]), as: "added", modificationDate: ZipTestSupport.date)
+                    try updater.add(data: Data([9]), as: "added", modificationDate: TestSupport.date)
                     try updater.remove(entriesAt: [0]); expected.remove(at: 0)
                     expected.append(.init(name: "added", kind: .file, data: Data([9]))); expectedStrategy = .relocatedAppend
                 }
@@ -63,7 +63,7 @@ final class SevenZipUpdaterTests: XCTestCase {
 
     func testFrozenFixturesRenameAndMetadata() throws {
         let excluded: Set<String> = ["archive_properties", "comment", "unknown_1a", "external_names", "sfx", "packpos16", "empty_7zz"]
-        let root = try ZipTestSupport.directory("7z-frozen-edits")
+        let root = try TestSupport.directory("7z-frozen-edits")
         for source in try FileManager.default.contentsOfDirectory(at: SevenZipEditSupport.fixtures, includingPropertiesForKeys: nil)
             where source.pathExtension == "7z" && !excluded.contains(source.deletingPathExtension().lastPathComponent) {
             let reader = try SevenZipEditSupport.reader(source)
@@ -86,7 +86,7 @@ final class SevenZipUpdaterTests: XCTestCase {
         }
     }
     func testAllDeletedThenDiskTreeAddedAndLateReservations() throws {
-        let root = try ZipTestSupport.directory("7z-disk-add")
+        let root = try TestSupport.directory("7z-disk-add")
         let source = try SevenZipEditSupport.source(root)
         let input = root.appendingPathComponent("tree")
         try FileManager.default.createDirectory(at: input.appendingPathComponent("dir"), withIntermediateDirectories: true)

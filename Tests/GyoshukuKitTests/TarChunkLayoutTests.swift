@@ -87,7 +87,7 @@ enum TarChunkLayoutTestSupport {
         open(sys.argv[2],'wb').write(raw)
         print(json.dumps(sizes))
         """
-        let output = try ZipTestSupport.run("/usr/bin/python3",
+        let output = try TestSupport.run(ReferenceTool.python3,
             ["-c", script, url.path, rawURL.path, format == .tarBzip2 ? "bz" : "xz"],
             in: url.deletingLastPathComponent(), log: url.lastPathComponent + "-decode")
         let lengths = try JSONDecoder().decode([Int].self, from: Data(output.utf8))
@@ -176,7 +176,7 @@ final class TarChunkLayoutTests: XCTestCase {
         for item in items {
             var offset = 0
             try writer.addEntry(path: item.name, mode: item.mode, size: UInt64(item.data.count),
-                                date: ZipTestSupport.date, atime: nil, owners: nil) { requested in
+                                date: TestSupport.date, atime: nil, owners: nil) { requested in
                 let count = min(requested, shortReads ? 997 : requested, item.data.count - offset)
                 defer { offset += count }
                 return item.data.subdata(in: offset..<(offset + count))
@@ -203,7 +203,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testMemberBoundariesEOFThreadCountsAndShortReads() throws {
-        let directory = try ZipTestSupport.directory("tar-chunk-layout")
+        let directory = try TestSupport.directory("tar-chunk-layout")
         for format in formats {
             let items = items(limits: limits(format))
             let plain = directory.appendingPathComponent("\(format).tar")
@@ -223,7 +223,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testEmptyArchiveHasOneFinalChunkEvenWithSmallLimit() throws {
-        let directory = try ZipTestSupport.directory("tar-chunk-empty")
+        let directory = try TestSupport.directory("tar-chunk-empty")
         for format in formats {
             let url = directory.appendingPathComponent("\(format)")
             try write([], to: url, format: format)
@@ -232,7 +232,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testExactUnpaddedHintLengthsAndRollingGzipDictionary() throws {
-        let directory = try ZipTestSupport.directory("tar-chunk-hints")
+        let directory = try TestSupport.directory("tar-chunk-hints")
         for format in formats {
             let size = limits(format).packing
             let lengths = [(511, size - 511), (512, size - 511), (513, 2 * size - 513),
@@ -293,7 +293,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testRewriterUsesMemberLayoutForAllCompressedTarFormats() throws {
-        let directory = try ZipTestSupport.directory("tar-chunk-rewriter")
+        let directory = try TestSupport.directory("tar-chunk-rewriter")
         let items = [Item(name: "large", data: Data(repeating: 65, count: 17 * 1024 * 1024)),
                      Item(name: "small", data: Data([1, 2, 3])), Item(name: "empty", data: Data())]
         let source = directory.appendingPathComponent("source.tar")
@@ -312,7 +312,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testBzip2HeaderGroupLargerThanChunkLimit() throws {
-        let directory = try ZipTestSupport.directory("tar-chunk-large-pax")
+        let directory = try TestSupport.directory("tar-chunk-large-pax")
         var expected: Data?
         for threads in [1, 4, 8] {
             let url = directory.appendingPathComponent("\(threads).tar.bz2")
@@ -322,7 +322,7 @@ final class TarChunkLayoutTests: XCTestCase {
                 compressor: try ParallelBzip2Compressor(level: 1, threads: threads))
             var read = false
             try writer.add(name: String(repeating: "p", count: 500_053), mode: 0o100644, size: 1,
-                           date: ZipTestSupport.date, owners: nil, hardLink: nil) { _ in
+                           date: TestSupport.date, owners: nil, hardLink: nil) { _ in
                 defer { read = true }
                 return read ? Data() : Data([7])
             }
@@ -336,7 +336,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testTarWriterRecordsOptionalMemberLayouts() throws {
-        let directory = try ZipTestSupport.directory("tar-member-layouts")
+        let directory = try TestSupport.directory("tar-member-layouts")
         for enabled in [false, true] {
             let url = directory.appendingPathComponent("\(enabled).tar")
             let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
@@ -346,7 +346,7 @@ final class TarChunkLayoutTests: XCTestCase {
             for item in items(limits: .init(uniform: 8192)) {
                 var offset = 0
                 try writer.add(name: item.name, mode: item.mode, size: UInt64(item.data.count),
-                               date: ZipTestSupport.date, owners: nil, hardLink: nil) { count in
+                               date: TestSupport.date, owners: nil, hardLink: nil) { count in
                     let end = min(offset + count, item.data.count)
                     defer { offset = end }
                     return item.data.subdata(in: offset..<end)
@@ -360,7 +360,7 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     func testXZHeaderGroupLargerThanPieceLimit() throws {
-        let directory = try ZipTestSupport.directory("xz-large-pax")
+        let directory = try TestSupport.directory("xz-large-pax")
         let limits = limits(.tarXZ)
         var expected: Data?
         for threads in [1, 4, 8] {
@@ -372,7 +372,7 @@ final class TarChunkLayoutTests: XCTestCase {
                     threads: threads, chunkSize: limits.piece, packingSize: limits.packing))
             var read = false
             try writer.add(name: String(repeating: "p", count: limits.piece + 53), mode: 0o100644, size: 1,
-                           date: ZipTestSupport.date, owners: nil, hardLink: nil) { _ in
+                           date: TestSupport.date, owners: nil, hardLink: nil) { _ in
                 defer { read = true }
                 return read ? Data() : Data([7])
             }

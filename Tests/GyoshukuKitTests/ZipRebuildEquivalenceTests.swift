@@ -5,7 +5,7 @@ import XCTest
 
 final class ZipRebuildEquivalenceTests: XCTestCase {
     func testSmallCorpusMatrixMatchesLegacyBytes() throws {
-        let directory = try ZipTestSupport.directory("p1-equivalence")
+        let directory = try TestSupport.directory("p1-equivalence")
         defer { try? FileManager.default.removeItem(at: directory) }
         var corpus: [URL] = []
         for (label, options, size) in [
@@ -56,12 +56,12 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
                 let output = try ZipP1Support.compare(source, operations: ops, label: "\(source.deletingPathExtension().lastPathComponent)-\(index)")
                 try FileManager.default.removeItem(at: output)
             }
-            ZipTestSupport.report("ZIP-ORACLE \(source.lastPathComponent): \(operations.count) byte-identical edits")
+            TestSupport.report("ZIP-ORACLE \(source.lastPathComponent): \(operations.count) byte-identical edits")
         }
     }
 
     func testMixedStoredDeflateAESZipCryptoAndFixedDirectory() throws {
-        let directory = try ZipTestSupport.directory("p1-equivalence-additions")
+        let directory = try TestSupport.directory("p1-equivalence-additions")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory)
         let disk = directory.appendingPathComponent("fixed-directory")
@@ -76,7 +76,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
     }
 
     func testZIP64CountCorpusMatchesLegacy() throws {
-        let directory = try ZipTestSupport.directory("p1-equivalence-count64")
+        let directory = try TestSupport.directory("p1-equivalence-count64")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory, count: 65_536, payloadSize: 0)
         try ZipP1Support.compare(source, operations: [.remove([0, 1, 65_535])], label: "down")
@@ -84,7 +84,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
     }
 
     func testSparse4GiBUpAndDownMixedMatchesLegacyInChunks() throws {
-        let directory = try ZipTestSupport.directory("p1-equivalence-offset64")
+        let directory = try TestSupport.directory("p1-equivalence-offset64")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Corpus.sparse(directory)
         let up = try ZipP1Support.compare(source, operations: [.rename(0, "longer-first-name"), .add("added", Data([1]))],
@@ -128,7 +128,7 @@ enum ZipP1Corpus {
         cd=b''.join(cds); comment=b'archive\0comment' if kind=='padding' else b''
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,5,5,len(cd),len(records),len(comment))+comment)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, variant], in: directory, log: "make-\(variant)")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path, variant], in: directory, log: "make-\(variant)")
         return url
     }
 
@@ -146,7 +146,7 @@ enum ZipP1Corpus {
                 with z.open(info,'w',force_zip64=True) as f: f.write(b'' if name.endswith('/') else b'payload'*11)
         open(sys.argv[1],'wb').write(sink.getvalue())
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "make-force64")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "make-force64")
         return url
     }
 
@@ -177,7 +177,7 @@ enum ZipP1Corpus {
         directory=b''.join(central); ending=bytearray(raw[end:]); struct.pack_into('<II',ending,12,len(directory),len(records))
         open(os.path.join(root,'infozip-unicode.zip'),'wb').write(records+directory+ending)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, directory.path], in: directory, log: "make-external")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, directory.path], in: directory, log: "make-external")
         return [directory.appendingPathComponent("infozip.zip"), directory.appendingPathComponent("infozip-unicode.zip"),
                 directory.appendingPathComponent("ditto.zip")]
     }
@@ -198,7 +198,7 @@ enum ZipP1Corpus {
             f.write(p('IQHHIIQQQQ',0x06064b50,44,0x033f,45,0,0,2,2,len(records),central))
             f.write(p('IIQI',0x07064b50,0,end64,1)); f.write(p('IHHHHIIH',0x06054b50,0,0,2,2,len(records),0xffffffff,0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "make-sparse")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "make-sparse")
         return url
     }
 }

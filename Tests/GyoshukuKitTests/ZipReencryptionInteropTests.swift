@@ -9,7 +9,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
     private let new = "interop-new"
 
     private func directory(_ name: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("reencrypt-interop-" + name)
+        let directory = try TestSupport.directory("reencrypt-interop-" + name)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }
@@ -37,13 +37,13 @@ final class ZipReencryptionInteropTests: XCTestCase {
             try EncryptionTestSupport.run(["t", "-p" + (password ?? "unused"), output.path], archive: output, log: label + "-7zz")
         }
         if !aes && methods.isSubset(of: [0, 8, 9]) {
-            try EncryptionTestSupport.run(["-t", "-P", password ?? "unused", output.path], archive: output, log: label + "-unzip", tool: "/usr/bin/unzip")
+            try EncryptionTestSupport.run(["-t", "-P", password ?? "unused", output.path], archive: output, log: label + "-unzip", tool: ReferenceTool.unzip)
         } else {
-            try EncryptionTestSupport.run(["-l", output.path], archive: output, log: label + "-unzip-list", tool: "/usr/bin/unzip")
+            try EncryptionTestSupport.run(["-l", output.path], archive: output, log: label + "-unzip-list", tool: ReferenceTool.unzip)
         }
         if !aes && methods.isSubset(of: [0, 8, 12, 14]) {
             try EncryptionTestSupport.run(["-c", "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode('utf-8')); assert z.testzip() is None", output.path, password ?? "unused"],
-                archive: output, log: label + "-python", tool: "/usr/bin/python3")
+                archive: output, log: label + "-python", tool: ReferenceTool.python3)
         }
         let listing = try tar(output, arguments: ["-tvf", "-"], label: label + "-tar-list")
         let text = String(decoding: listing, as: UTF8.self)
@@ -111,26 +111,14 @@ final class ZipReencryptionInteropTests: XCTestCase {
         }
     }
 
+    /// bsdtar に書庫を stdin から渡し（seek しない読み方）、stdout を返す。
     private func tar(_ archive: URL, arguments: [String], label: String) throws -> Data {
-        let tool = "/usr/bin/bsdtar"
-        guard FileManager.default.isExecutableFile(atPath: tool) else { XCTFail("Missing \(tool)"); throw CocoaError(.fileNoSuchFile) }
-        let out = archive.deletingLastPathComponent().appendingPathComponent(label + ".bin")
-        let err = archive.deletingLastPathComponent().appendingPathComponent(label + ".log")
-        FileManager.default.createFile(atPath: out.path, contents: nil)
-        FileManager.default.createFile(atPath: err.path, contents: nil)
-        let input = try FileHandle(forReadingFrom: archive), output = try FileHandle(forWritingTo: out), errors = try FileHandle(forWritingTo: err)
-        defer { try? input.close(); try? output.close(); try? errors.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
+        let input = try FileHandle(forReadingFrom: archive)
+        defer { try? input.close() }
         // AppleDouble を通常 entry として照合し、libarchive の metadata 結合を止める。
-        process.arguments = ["--options", "zip:!mac-ext"] + arguments
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = errors
-        try process.run(); process.waitUntilExit()
-        let message = String(decoding: try Data(contentsOf: err), as: UTF8.self)
-        XCTAssertEqual(process.terminationStatus, 0, message)
-        return try Data(contentsOf: out)
+        return try ReferenceTool.run(ReferenceTool.bsdtar, ["--options", "zip:!mac-ext"] + arguments,
+                                     in: archive.deletingLastPathComponent(), log: label, stdin: input,
+                                     environment: [:], standardOutput: label + ".bin").bytes
     }
 
     func testSevenZipStrengthsMethodsAndAllTargetModes() throws {
@@ -173,7 +161,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
         let link = directory.appendingPathComponent("info-link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "info-file")
         let infozip = directory.appendingPathComponent("infozip.zip")
-        try EncryptionTestSupport.run(["-e", "-y", "-P", old, "-j", infozip.path, input.path, link.path], archive: infozip, log: "infozip-create", tool: "/usr/bin/zip")
+        try EncryptionTestSupport.run(["-e", "-y", "-P", old, "-j", infozip.path, input.path, link.path], archive: infozip, log: "infozip-create", tool: ReferenceTool.zip)
         let info = try ReencryptionSupport.reader(infozip)
         XCTAssertTrue(try XCTUnwrap(info.zipRawRecordLayout(at: 0)).hasDataDescriptor)
         let folder = directory.appendingPathComponent("ditto-input")
@@ -182,7 +170,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
         try Data("ditto payload".utf8).write(to: file)
         try Data("resource-fork-payload".utf8).write(to: URL(fileURLWithPath: file.path + "/..namedfork/rsrc"))
         let ditto = directory.appendingPathComponent("ditto.zip")
-        try EncryptionTestSupport.run(["-c", "-k", "--sequesterRsrc", "--keepParent", folder.path, ditto.path], archive: ditto, log: "ditto-create", tool: "/usr/bin/ditto")
+        try EncryptionTestSupport.run(["-c", "-k", "--sequesterRsrc", "--keepParent", folder.path, ditto.path], archive: ditto, log: "ditto-create", tool: ReferenceTool.ditto)
         XCTAssertTrue(try ReencryptionSupport.reader(ditto).entries.contains { $0.name.contains("__MACOSX/") && $0.kind == .file })
         for (label, source, current) in [("infozip", infozip, Optional(old)), ("ditto", ditto, nil)] {
             for mode in 0..<3 {
@@ -196,8 +184,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
 
     func testModernFixturesAndSamePasswordMethodChanges() throws {
         let directory = try directory("modern")
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/zip-modern")
+        let root = TestPaths.fixtures.appendingPathComponent("zip-modern")
         for name in ["xz", "xz-aes", "xz-zipcrypto", "zstd20", "zstd93", "zstd-aes20", "zstd-aes93"] {
             let encoded = try Data(contentsOf: root.appendingPathComponent(name + ".zip.b64"))
             let source = directory.appendingPathComponent(name + ".zip")
@@ -215,7 +202,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
         let directory = try directory("mixed")
         let source = try ReencryptionSupport.fixture(directory, password: old, items: [("encrypted", Data([1]))])
         let append = try ArchiveUpdater.open(url: source)
-        try append.add(data: Data([2]), as: "plain", modificationDate: ZipTestSupport.date)
+        try append.add(data: Data([2]), as: "plain", modificationDate: TestSupport.date)
         try append.commit()
         let original = try EncryptionTestSupport.localRecords(source)
         let output = directory.appendingPathComponent("out.zip")

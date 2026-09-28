@@ -8,7 +8,7 @@ import XCTest
 // member だけを見るので、大きい member の byte 同一性はここで守る。
 final class LHAWriterStreamedMemberIdentityTests: XCTestCase {
     func testStreamedMemberBytesAreFrozenAtEveryThreadCount() throws {
-        let directory = try ZipTestSupport.directory("lha-streamed-member-identity")
+        let directory = try TestSupport.directory("lha-streamed-member-identity")
         // 圧縮できる text（3 MiB 超、-lh5-）と、縮まず全体を圧縮した後で -lh0- に落ちる乱数 2 本（1.5 MB と 2.6 MB）。
         var text = Data()
         var line = 0

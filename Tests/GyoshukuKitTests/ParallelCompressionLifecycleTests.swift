@@ -6,7 +6,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
     private static let blockSize = 64 * 1024
 
     func testSeparateZIPAddsEncodeConcurrently() async throws {
-        let directory = try ZipTestSupport.directory("m8-concurrent-disk-adds")
+        let directory = try TestSupport.directory("m8-concurrent-disk-adds")
         let source = directory.appendingPathComponent("source")
         try Data("one small file".utf8).write(to: source)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
@@ -29,7 +29,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
     func testCancellationDuringAddAndFinishDoesNotWaitForCodec() async throws {
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             for duringAdd in [false, true] {
-                let directory = try ZipTestSupport.directory("m8-cancel-\(format)-\(duringAdd)")
+                let directory = try TestSupport.directory("m8-cancel-\(format)-\(duringAdd)")
                 let url = directory.appendingPathComponent("archive")
                 let alias = directory.appendingPathComponent("alias")
                 let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
@@ -75,7 +75,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
     }
 
     func testBoundedInputIncludesAssemblyWhileLaterResultsWait() async throws {
-        let directory = try ZipTestSupport.directory("m8-bounded-input")
+        let directory = try TestSupport.directory("m8-bounded-input")
         let source = directory.appendingPathComponent("source")
         try Data(repeating: 0, count: 5 * ParallelCompressionLifecycleTests.blockSize).write(to: source)
         let firstStarted = DispatchSemaphore(value: 0), laterFinished = DispatchSemaphore(value: 0)
@@ -110,7 +110,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
     }
 
     func testDeferredEncoderErrorsInvalidateWriterAndRemoveTarOutput() throws {
-        let directory = try ZipTestSupport.directory("m8-encoder-errors")
+        let directory = try TestSupport.directory("m8-encoder-errors")
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             for threads in [1, 4] {
                 let url = directory.appendingPathComponent("\(format)-\(threads)")
@@ -134,7 +134,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
     }
 
     func testZipCryptoKeepsSerialEncoder() throws {
-        let directory = try ZipTestSupport.directory("m8-zipcrypto-serial")
+        let directory = try TestSupport.directory("m8-zipcrypto-serial")
         let writer = try ArchiveWriter.create(url: directory.appendingPathComponent("archive.zip"), format: .zip,
             options: WriterOptions(password: "password", zipEncryption: .zipCrypto, compressionThreads: 8),
             deflateEncoder: { _, _ in XCTFail("ZipCrypto entered parallel encoder"); throw WriterError.invalidState },

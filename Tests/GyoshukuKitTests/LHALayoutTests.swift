@@ -15,7 +15,7 @@ final class UpdaterRouteErrorTests: XCTestCase {
 
 final class LHALayoutTests: XCTestCase {
     func testIndependentWalkMatchesFrozenFixtures() throws {
-        let root = try ZipTestSupport.directory("lha-layout")
+        let root = try TestSupport.directory("lha-layout")
         for name in LHAUpdateSupport.accepted {
             let url = try LHAUpdateSupport.fixture(name, in: root)
             let (layout, _, reader) = try LHAUpdateSupport.scan(url)
@@ -24,7 +24,7 @@ final class LHALayoutTests: XCTestCase {
         }
     }
     func testBuilderLevelsNamesCRCsAndPayloadSkipping() throws {
-        let root = try ZipTestSupport.directory("lha-builder")
+        let root = try TestSupport.directory("lha-builder")
         let url = root.appendingPathComponent("source.lzh")
         var bytes = Data()
         for level: UInt8 in 0...2 {
@@ -47,7 +47,7 @@ final class LHALayoutTests: XCTestCase {
         XCTAssertThrowsError(try LHALayout.walk(source: damaged, range: 0..<damaged.length) { _, _ in })
     }
     func testLargeHeadersLevelOneCRCAndLevelThreeBuilder() throws {
-        let root = try ZipTestSupport.directory("lha-large-headers")
+        let root = try TestSupport.directory("lha-large-headers")
         for level: UInt8 in [1, 2, 3] {
             let source = root.appendingPathComponent("level-\(level).lzh")
             let name = Data("name".utf8)
@@ -69,7 +69,7 @@ final class LHALayoutTests: XCTestCase {
 
 final class LHAEditPlanTests: XCTestCase {
     func testMergingOffsetsBoundariesAndFreshTerminator() throws {
-        let root = try ZipTestSupport.directory("lha-plan")
+        let root = try TestSupport.directory("lha-plan")
         let url = try LHAUpdateSupport.generated(root)
         let (layout, _, _) = try LHAUpdateSupport.scan(url)
         let unchanged = try LHAEditPlan.make(layout: layout, removed: [], renamed: [:])
@@ -85,7 +85,7 @@ final class LHAEditPlanTests: XCTestCase {
         let all = try LHAEditPlan.make(layout: layout, removed: Set(0..<6), renamed: [:])
         XCTAssertTrue(all.prefix.isEmpty)
         XCTAssertEqual(all.membersEnd, 0)
-        let header = try LHARecords.Entry(name: "renamed", mode: 0o100644, size: 513, date: ZipTestSupport.date).header(method: "-lh5-", packedSize: 513, crc: 0)
+        let header = try LHARecords.Entry(name: "renamed", mode: 0o100644, size: 513, date: TestSupport.date).header(method: "-lh5-", packedSize: 513, crc: 0)
         let renamed = try LHAEditPlan.make(layout: layout, removed: [], renamed: [2: header], additionLength: 1)
         XCTAssertEqual(renamed.prefix.count, 3)
         XCTAssertEqual(renamed.changed.count, 1)
@@ -95,7 +95,7 @@ final class LHAEditPlanTests: XCTestCase {
 
 final class LHAHeaderReemitTests: XCTestCase {
     func testEveryAcceptedFixturePreservesPayloadAndReemitsExactHeader() throws {
-        let root = try ZipTestSupport.directory("lha-header-reemit")
+        let root = try TestSupport.directory("lha-header-reemit")
         for name in LHAUpdateSupport.accepted {
             let url = try LHAUpdateSupport.fixture(name, in: root)
             let old = try LHAUpdateSupport.scan(url)
@@ -108,7 +108,7 @@ final class LHAHeaderReemitTests: XCTestCase {
             let new = try LHAUpdateSupport.scan(output)
             for entry in old.2.entries {
                 let a = try old.0.member(entry.index), b = try new.0.member(entry.index)
-                let expected = try LHARecords.Entry(name: new.2.entries[entry.index].name, mode: ArchiveRepresentability.mode(for: entry), size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? ZipTestSupport.date)
+                let expected = try LHARecords.Entry(name: new.2.entries[entry.index].name, mode: ArchiveRepresentability.mode(for: entry), size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? TestSupport.date)
                     .header(method: a.method, packedSize: UInt32(a.dataRange.count), crc: a.method == "-lhd-" ? 0 : a.crc16)
                 XCTAssertEqual(try LHAUpdateSupport.bytes(new.1, b.headerRange), expected, name)
                 XCTAssertEqual(try LHAUpdateSupport.bytes(old.1, a.dataRange), try LHAUpdateSupport.bytes(new.1, b.dataRange), name)

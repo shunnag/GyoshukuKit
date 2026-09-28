@@ -5,8 +5,7 @@ import XCTest
 @_spi(Testing) @testable import GyoshukuKit
 
 enum SevenZipEditSupport {
-    static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Fixtures/sevenzip-edit")
+    static let fixtures = TestPaths.fixtures.appendingPathComponent("sevenzip-edit")
     static func fixture(_ name: String) -> URL { fixtures.appendingPathComponent(name + ".7z") }
     static func reader(_ url: URL, password: String? = "secret") throws -> ArchiveReader {
         try ArchiveReader.open(url: url, options: SevenZipEditModel.readerOptions(password: password))
@@ -32,10 +31,10 @@ enum SevenZipEditSupport {
         let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
             options: WriterOptions(password: password, encryptsSevenZipHeaders: headers, compressionThreads: 1))
         for i in 0..<count {
-            try writer.add(data: Data(repeating: UInt8(truncatingIfNeeded: i), count: 1000 + i * 100), as: "file\(i)", modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(repeating: UInt8(truncatingIfNeeded: i), count: 1000 + i * 100), as: "file\(i)", modificationDate: TestSupport.date)
         }
-        try writer.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
-        try writer.add(data: Data(), as: "empty", modificationDate: ZipTestSupport.date)
+        try writer.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil)
+        try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
         try writer.finish()
         return url
     }
@@ -53,10 +52,5 @@ enum SevenZipEditSupport {
             left.packIndices = right.packIndices; left.substreamIndices = right.substreamIndices
             XCTAssertEqual(left, right, file: file, line: line)
         }
-    }
-    static func work(_ root: URL) throws -> URL {
-        let work = root.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        return work
     }
 }

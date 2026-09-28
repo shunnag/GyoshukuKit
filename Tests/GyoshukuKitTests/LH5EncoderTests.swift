@@ -87,23 +87,23 @@ final class LH5EncoderTests: XCTestCase {
     func testTenMiBCompressionTimeAndRoundTrip() throws {
         // 履歴と一致しにくい入力も探索させる。単色だけの計測では全履歴を走査する実装を見逃す。
         let data = LHATestSupport.random(10 * 1024 * 1024, alphabetMask: 63)
-        let directory = try ZipTestSupport.directory("lha-performance")
+        let directory = try TestSupport.directory("lha-performance")
         let url = directory.appendingPathComponent("archive.lzh")
         let start = ContinuousClock.now
         let writer = try ArchiveWriter.create(url: url, format: .lha)
-        try writer.add(data: data, as: "ten-mib.bin", modificationDate: ZipTestSupport.date)
+        try writer.add(data: data, as: "ten-mib.bin", modificationDate: TestSupport.date)
         try writer.finish()
         let elapsed = start.duration(to: .now)
         XCTAssertLessThan(elapsed, .seconds(30))
-        ZipTestSupport.report("LHA PERFORMANCE: 10 MiB in \(elapsed), debug build; bound 30 seconds")
+        TestSupport.report("LHA PERFORMANCE: 10 MiB in \(elapsed), debug build; bound 30 seconds")
         XCTAssertEqual(try LHABytes(Data(contentsOf: url)).members.first?.method, "-lh5-")
         try LHATestSupport.verify(url, expected: [.init(name: "ten-mib.bin", data: data)])
     }
 
     private func verify(_ label: String, data: Data, encoded: Data) throws {
-        let directory = try ZipTestSupport.directory(label)
+        let directory = try TestSupport.directory(label)
         let url = directory.appendingPathComponent("archive.lzh")
-        let entry = try LHARecords.Entry(name: "encoded.bin", mode: 0o100644, size: UInt64(data.count), date: ZipTestSupport.date)
+        let entry = try LHARecords.Entry(name: "encoded.bin", mode: 0o100644, size: UInt64(data.count), date: TestSupport.date)
         let header = try entry.header(method: "-lh5-", packedSize: UInt32(encoded.count), crc: LHATestSupport.crc(data))
         try (header + encoded + Data([0])).write(to: url)
         try LHATestSupport.verify(url, expected: [.init(name: "encoded.bin", data: data)])

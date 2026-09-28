@@ -1,24 +1,8 @@
 import Foundation
 import Darwin
 import KaitoKit
-import Synchronization
 import XCTest
 @_spi(Testing) @testable import GyoshukuKit
-
-final class ZipIOEvents: Sendable {
-    struct Event: Sendable { let descriptor: Int32; let offset: UInt64; let count: Int; let inode: UInt64 }
-    private let storage = Mutex<[Event]>([])
-    var events: [Event] { storage.withLock { $0 } }
-    var bytes: UInt64 { events.reduce(0) { $0 + UInt64($1.count) } }
-    func read(_ descriptor: Int32, _ offset: UInt64, _ count: Int) {
-        var info = stat()
-        _ = fstat(descriptor, &info)
-        storage.withLock { $0.append(.init(descriptor: descriptor, offset: offset, count: count, inode: UInt64(info.st_ino))) }
-    }
-    func write(_ offset: UInt64, _ count: Int) {
-        storage.withLock { $0.append(.init(descriptor: -1, offset: offset, count: count, inode: 0)) }
-    }
-}
 
 enum ZipP1Support {
     enum Operation {
@@ -36,11 +20,11 @@ enum ZipP1Support {
             if name.hasSuffix("/") {
                 let disk = directory.appendingPathComponent("fixed-directory")
                 try FileManager.default.createDirectory(at: disk, withIntermediateDirectories: true)
-                try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date], ofItemAtPath: disk.path)
+                try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: disk.path)
                 try writer.add(contentsOf: disk, as: name)
             } else {
                 try writer.add(data: Data(repeating: UInt8(index % 251), count: payloadSize), as: name,
-                               modificationDate: ZipTestSupport.date)
+                               modificationDate: TestSupport.date)
             }
         }
         try writer.finish()
@@ -52,7 +36,7 @@ enum ZipP1Support {
             switch operation {
             case .remove(let indices): try updater.remove(entriesAt: indices)
             case .rename(let index, let name): try updater.rename(entryAt: index, to: name)
-            case .add(let name, let bytes): try updater.add(data: bytes, as: name, modificationDate: ZipTestSupport.date)
+            case .add(let name, let bytes): try updater.add(data: bytes, as: name, modificationDate: TestSupport.date)
             case .directory(let name, let disk): try updater.add(contentsOf: disk, as: name)
             }
         }
@@ -80,7 +64,7 @@ enum ZipP1Support {
             try writer.prepareAppend(at: layout.centralOffset, existingPaths: [])
             for addition in additions {
                 switch addition {
-                case .add(let name, let bytes): try writer.add(data: bytes, as: name, modificationDate: ZipTestSupport.date)
+                case .add(let name, let bytes): try writer.add(data: bytes, as: name, modificationDate: TestSupport.date)
                 case .directory(let name, let disk): try writer.add(contentsOf: disk, as: name)
                 default: break
                 }
@@ -118,7 +102,7 @@ enum ZipP1Support {
             try updater.commit()
             if let expectedStrategy { XCTAssertEqual(updater.lastCommitStrategy, expectedStrategy, label) }
         }
-        if byteIdentical { try assertEqualFiles(output, old, label: label) }
+        if byteIdentical { try XCTAssertFilesEqual(output, old, label) }
         else {
             let a = try ArchiveReader.open(url: output, options: ReaderOptions(password: options.password)), b = try ArchiveReader.open(url: old, options: ReaderOptions(password: options.password))
             XCTAssertEqual(a.entries.map(\.name), b.entries.map(\.name))
@@ -128,20 +112,6 @@ enum ZipP1Support {
             }
         }
         return output
-    }
-
-    static func assertEqualFiles(_ left: URL, _ right: URL, label: String = "",
-                                 file: StaticString = #filePath, line: UInt = #line) throws {
-        let a = try FileHandle(forReadingFrom: left), b = try FileHandle(forReadingFrom: right)
-        defer { try? a.close(); try? b.close() }
-        var offset: UInt64 = 0
-        while true {
-            let x = try a.read(upToCount: 4 * 1024 * 1024) ?? Data()
-            let y = try b.read(upToCount: 4 * 1024 * 1024) ?? Data()
-            guard x == y else { XCTFail("\(label): byte mismatch at chunk \(offset)", file: file, line: line); return }
-            if x.isEmpty { return }
-            offset += UInt64(x.count)
-        }
     }
 
     static func info(_ url: URL) throws -> stat {

@@ -5,14 +5,14 @@ import XCTest
 
 final class ZipUpdateProbeTests: XCTestCase {
     private func archive(_ label: String, count: Int = 3, longNames: Bool = false) throws -> URL {
-        let directory = try ZipTestSupport.directory("probe-" + label)
+        let directory = try TestSupport.directory("probe-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url, options: .init(compressionMethod: .stored))
         // Same writer/entry-loop fixture as ArchiveEditingScaleTests; padding makes the CD multi-MiB.
         let prefix = longNames ? String(repeating: String(repeating: "a", count: 200) + "/", count: 4) : ""
         for index in 0..<count {
-            try writer.add(data: Data(), as: prefix + "entry-\(index)", modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(), as: prefix + "entry-\(index)", modificationDate: TestSupport.date)
         }
         try writer.finish()
         return url
@@ -162,11 +162,11 @@ final class ZipUpdateProbeTests: XCTestCase {
         let source = try ZipUpdateSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         XCTAssertGreaterThan(layout.centralSize, 3 * 1024 * 1024)
-        let counter = ZipReadCounter()
-        let probe = try counter.measure { try ArchiveUpdater.probe(url: url) }
+        let counter = ZipIOEvents()
+        let probe = try counter.measureReads { try ArchiveUpdater.probe(url: url) }
         XCTAssertEqual(probe.entryCount, 4_000)
-        ZipTestSupport.report("G2 probe entries=\(probe.entryCount) central bytes=\(layout.centralSize) comment bytes=\(layout.comment.count) source bytes=\(counter.byteCount)")
-        XCTAssertLessThan(counter.byteCount, UInt64(2 * 1024 * 1024 + layout.comment.count),
+        TestSupport.report("G2 probe entries=\(probe.entryCount) central bytes=\(layout.centralSize) comment bytes=\(layout.comment.count) source bytes=\(counter.bytes)")
+        XCTAssertLessThan(counter.bytes, UInt64(2 * 1024 * 1024 + layout.comment.count),
                           "probe must not parse the multi-MiB central directory")
         // The bounded EOCD search can overlap the CD tail; outside it only two signatures are read.
         let tailStart = source.length - UInt64(22 + 65_535 + 1_048_576)

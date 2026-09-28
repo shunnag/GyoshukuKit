@@ -5,7 +5,7 @@ import XCTest
 
 final class ZipMixedCommitTests: XCTestCase {
     func testFourOrdersShrinkGrowAndWrittenOverlapMatchLegacy() throws {
-        let directory = try ZipTestSupport.directory("p1-mixed")
+        let directory = try TestSupport.directory("p1-mixed")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory, payloadSize: 512)
         let payload = Data(repeating: 77, count: 6000)
@@ -30,12 +30,12 @@ final class ZipMixedCommitTests: XCTestCase {
     }
 
     func testAppOrderDoesNotRereadOriginalCentralOrUnmovedPayload() throws {
-        let directory = try ZipTestSupport.directory("p1-mixed-read-bound")
+        let directory = try TestSupport.directory("p1-mixed-read-bound")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory, count: 20, payloadSize: 256 * 1024)
         let updater = try ArchiveUpdater.open(url: source)
         try updater.remove(entriesAt: [19])
-        try updater.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date)
+        try updater.add(data: Data([1]), as: "added", modificationDate: TestSupport.date)
         var calls: [Int] = []
         updater.recordLayout = { index in calls.append(index); return updater.validatedLayout(at: index) }
         let events = ZipIOEvents()
@@ -46,7 +46,7 @@ final class ZipMixedCommitTests: XCTestCase {
     }
 
     func testMixedReadBoundAndNoGapReadWithSmallBuffer() throws {
-        let directory = try ZipTestSupport.directory("p1-mixed-exact-reads")
+        let directory = try TestSupport.directory("p1-mixed-exact-reads")
         defer { try? FileManager.default.removeItem(at: directory) }
         for staged in [false, true] {
             let source = try ZipP1Support.fixture(directory, name: "large-\(staged).zip", count: 3, payloadSize: 8 * 1024 * 1024)
@@ -56,7 +56,7 @@ final class ZipMixedCommitTests: XCTestCase {
             let moved = survivors.reduce(UInt64(0)) { $0 + $1.upperBound - $1.lowerBound }
             try updater.remove(entriesAt: [0])
             if !staged { try updater.rename(entryAt: 1, to: "a-much-longer-file-name.txt") }
-            try updater.add(data: Data(repeating: 1, count: 2 * 1024 * 1024), as: "added", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data(repeating: 1, count: 2 * 1024 * 1024), as: "added", modificationDate: TestSupport.date)
             if staged { try updater.rename(entryAt: 1, to: "x") }
             let events = ZipIOEvents()
             try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
@@ -76,11 +76,11 @@ final class ZipMixedCommitTests: XCTestCase {
             try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
         }
         XCTAssertFalse(events.events.contains { ($0.offset..<($0.offset + UInt64($0.count))).overlaps(gap) })
-        try ZipP1Support.assertEqualFiles(output, oracle)
+        try XCTAssertFilesEqual(output, oracle)
     }
 
     func testCorruptionFailsBothGKAndIndependentKaitoCheck() throws {
-        let directory = try ZipTestSupport.directory("p1-mixed-corruption")
+        let directory = try TestSupport.directory("p1-mixed-corruption")
         defer { try? FileManager.default.removeItem(at: directory) }
         for bypass in [false, true] {
             let source = try ZipP1Support.fixture(directory, name: "source-\(bypass).zip")
@@ -88,7 +88,7 @@ final class ZipMixedCommitTests: XCTestCase {
             let output = directory.appendingPathComponent("output-\(bypass).zip")
             let updater = try ArchiveUpdater.open(url: source, output: output)
             try updater.remove(entriesAt: [0])
-            try updater.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data([1]), as: "added", modificationDate: TestSupport.date)
             try ZipAppendedRecordSelfCheck.$testingSkipHeaderEquality.withValue(bypass) {
                 try ArchiveUpdater.$testingAppendedCorruption.withValue({ $0[0] ^= 1 }) {
                     XCTAssertThrowsError(try updater.commit()) {
@@ -104,7 +104,7 @@ final class ZipMixedCommitTests: XCTestCase {
     }
 
     func testDeleteDefersReservationsAndLaterMutationsKeepCollisionRules() throws {
-        let directory = try ZipTestSupport.directory("p1-lazy-paths")
+        let directory = try TestSupport.directory("p1-lazy-paths")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory)
         for order in 0..<3 {

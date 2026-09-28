@@ -5,7 +5,7 @@ import XCTest
 
 final class ZipUpdaterOutputModeTests: XCTestCase {
     private func setup(_ label: String) throws -> (URL, URL, URL) {
-        let directory = try ZipTestSupport.directory("p1-output-" + label)
+        let directory = try TestSupport.directory("p1-output-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory)
         let parent = directory.appendingPathComponent("work")
@@ -37,7 +37,7 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
             try updater.remove(entriesAt: [0]); try updater.commit()
             XCTAssertTrue(events.events.allSatisfy { $0.inode == inode })
         }
-        try ZipP1Support.assertEqualFiles(output, replacement)
+        try XCTAssertFilesEqual(output, replacement)
         XCTAssertEqual(try Data(contentsOf: source), before)
         let after = try ZipP1Support.info(source)
         XCTAssertEqual(info.st_ino, after.st_ino)
@@ -108,7 +108,7 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
             }
             let oracle = parent.appendingPathComponent("oracle.zip")
             try ZipP1Support.legacy(source: source, output: oracle, operations: [.remove([0])])
-            try ZipP1Support.assertEqualFiles(output, oracle)
+            try XCTAssertFilesEqual(output, oracle)
             try FileManager.default.removeItem(at: output); try FileManager.default.removeItem(at: oracle)
         }
     }
@@ -162,10 +162,10 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
                 try FileManager.default.copyItem(at: input, to: replacement)
                 let a = try ArchiveUpdater.open(url: input, output: output), b = try ArchiveUpdater.open(url: replacement)
                 if append {
-                    for updater in [a, b] { try updater.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date) }
+                    for updater in [a, b] { try updater.add(data: Data([1]), as: "added", modificationDate: TestSupport.date) }
                 }
                 try a.commit(); try b.commit()
-                try ZipP1Support.assertEqualFiles(output, replacement)
+                try XCTAssertFilesEqual(output, replacement)
                 XCTAssertEqual(a.lastCommitStrategy, append ? .appendOnly : .unchanged)
                 try FileManager.default.removeItem(at: output); try FileManager.default.removeItem(at: replacement)
             }

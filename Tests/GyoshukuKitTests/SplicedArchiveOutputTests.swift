@@ -6,7 +6,7 @@ import XCTest
 
 final class SplicedArchiveOutputTests: XCTestCase {
     private func setup(_ label: String, sequential: Bool) throws -> (URL, URL, SplicedArchiveOutput) {
-        let root = try ZipTestSupport.directory("p2-output-" + label)
+        let root = try TestSupport.directory("p2-output-" + label)
         let source = root.appendingPathComponent("source.bin")
         try Data((0..<100).map(UInt8.init)).write(to: source)
         let output = root.appendingPathComponent("output.bin")

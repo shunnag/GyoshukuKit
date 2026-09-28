@@ -4,54 +4,18 @@ import XCTest
 @testable import GyoshukuKit
 
 enum LHATestSupport {
-    static let lhasa = "/opt/homebrew/bin/lha"
-    static let sevenZip = "/opt/homebrew/bin/7zz"
+    typealias Expected = ExpectedEntry
 
-    struct Expected {
-        let name: String
-        var data = Data()
-        var kind: EntryKind = .file
-        var mode: UInt16 = 0o644
-        var date: Date? = ZipTestSupport.date
-    }
-
-    struct Output {
-        let bytes: Data
-        let status: Int32
-        var text: String {
-            String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .shiftJIS)
-                ?? String(decoding: bytes, as: UTF8.self)
-        }
-    }
-
+    /// Lhasa または 7-Zip を `directory` で起動する。終了値は `clean` か呼び出し側が確かめる。
     @discardableResult
-    static func run(_ tool: String, _ arguments: [String], in directory: URL, log: String) throws -> Output {
-        guard FileManager.default.isExecutableFile(atPath: tool) else {
-            XCTFail("Required independent decoder missing: \(tool)")
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let logURL = directory.appendingPathComponent(log + ".log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        let output = try FileHandle(forWritingTo: logURL)
-        defer { try? output.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.standardOutput = output
-        process.standardError = output
-        var environment = ProcessInfo.processInfo.environment
-        environment["LC_ALL"] = "en_US.UTF-8"
-        environment["TZ"] = "UTC"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        let result = Output(bytes: try Data(contentsOf: logURL), status: process.terminationStatus)
-        ZipTestSupport.report("LHA DECODER \(directory.lastPathComponent)/\(log): exit \(result.status)\n\(result.text.suffix(700))")
+    static func run(_ tool: String, _ arguments: [String], in directory: URL, log: String) throws -> ReferenceTool.Output {
+        let result = try ReferenceTool.run(tool, arguments, in: directory, log: log, expect: .unchecked,
+                                           environment: ReferenceTool.englishUTF8InUTC, workingDirectory: directory)
+        TestSupport.report("LHA DECODER \(directory.lastPathComponent)/\(log): exit \(result.status)\n\(result.text.suffix(700))")
         return result
     }
 
-    static func clean(_ output: Output, sevenZip: Bool = false) {
+    static func clean(_ output: ReferenceTool.Output, sevenZip: Bool = false) {
         XCTAssertEqual(output.status, 0, output.text)
         for marker in ["warning", "error", "failed", "corrupt"] {
             XCTAssertFalse(output.text.lowercased().contains(marker), output.text)
@@ -63,18 +27,18 @@ enum LHATestSupport {
         let directory = archive.deletingLastPathComponent()
         let selected = externalNames ?? []
         let externalItems = expected.filter { externalNames == nil || selected.contains($0.name) }
-        let listing = try run(lhasa, ["l", archive.path] + selected, in: directory, log: "lha-l")
+        let listing = try run(ReferenceTool.lhasa, ["l", archive.path] + selected, in: directory, log: "lha-l")
         clean(listing)
-        let verbose = try run(lhasa, ["vv", archive.path] + selected, in: directory, log: "lha-vv")
+        let verbose = try run(ReferenceTool.lhasa, ["vv", archive.path] + selected, in: directory, log: "lha-vv")
         clean(verbose)
-        let test = try run(lhasa, ["t", archive.path] + selected, in: directory, log: "lha-t")
+        let test = try run(ReferenceTool.lhasa, ["t", archive.path] + selected, in: directory, log: "lha-t")
         clean(test)
         // Lhasa の成功表示は "Tested"。終了値 0 でも全 member を読み飛ばすことがあるため、各行を照合する。
         let tested = test.text.components(separatedBy: "\r").filter { $0.contains("- Tested") }
         XCTAssertEqual(tested.count, externalItems.filter { $0.kind == .file }.count, test.text)
-        let sevenTest = try run(sevenZip, ["t", archive.path] + selected, in: directory, log: "7zz-t")
+        let sevenTest = try run(ReferenceTool.sevenZip, ["t", archive.path] + selected, in: directory, log: "7zz-t")
         clean(sevenTest, sevenZip: true)
-        let sevenList = try run(sevenZip, ["l", "-slt", archive.path] + selected, in: directory, log: "7zz-l-slt")
+        let sevenList = try run(ReferenceTool.sevenZip, ["l", "-slt", archive.path] + selected, in: directory, log: "7zz-l-slt")
         clean(sevenList)
         let listed = SevenZipTestSupport.listingEntries(sevenList.text)
         XCTAssertEqual(listed.map { $0["Path"] ?? "" }, externalItems.map {
@@ -84,23 +48,15 @@ enum LHATestSupport {
         let lhaExtracted = directory.appendingPathComponent("lha-extracted")
         let sevenExtracted = directory.appendingPathComponent("7zz-extracted")
         try FileManager.default.createDirectory(at: lhaExtracted, withIntermediateDirectories: true)
-        clean(try run(lhasa, ["xw=" + lhaExtracted.path, archive.path] + selected, in: directory, log: "lha-x"))
-        clean(try run(sevenZip, ["x", "-y", "-o" + sevenExtracted.path, archive.path] + selected, in: directory, log: "7zz-x"), sevenZip: true)
-        let reader = try ArchiveReader.open(url: archive)
-        XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
+        clean(try run(ReferenceTool.lhasa, ["xw=" + lhaExtracted.path, archive.path] + selected, in: directory, log: "lha-x"))
+        clean(try run(ReferenceTool.sevenZip, ["x", "-y", "-o" + sevenExtracted.path, archive.path] + selected, in: directory, log: "7zz-x"), sevenZip: true)
         let dateFormat = DateFormatter()
         dateFormat.locale = Locale(identifier: "en_US_POSIX")
         dateFormat.timeZone = TimeZone(secondsFromGMT: 0)
         dateFormat.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        for (index, item) in expected.enumerated() {
-            let entry = reader.entries[index]
-            XCTAssertEqual(entry.uncompressedSize, UInt64(item.data.count), item.name)
-            XCTAssertEqual(entry.kind, item.kind, item.name)
-            XCTAssertEqual(entry.posixPermissions, item.mode, item.name)
-            XCTAssertEqual(try reader.read(entry), item.data, item.name)
+        try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
             XCTAssertFalse(entry.isIncomplete)
-            if let date = item.date { XCTAssertEqual(entry.modificationDate, date, item.name) }
-            guard let externalIndex = externalItems.firstIndex(where: { $0.name == item.name }) else { continue }
+            guard let externalIndex = externalItems.firstIndex(where: { $0.name == item.name }) else { return }
             XCTAssertTrue(listing.text.contains(item.name), listing.text)
             if item.kind == .file {
                 XCTAssertTrue(tested.contains { $0.contains(item.name + "\t- Tested") }, test.text)
@@ -125,24 +81,15 @@ enum LHATestSupport {
                     XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeDirectory)
                 }
                 if extracted == lhaExtracted {
-                    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.uint16Value, item.mode, item.name)
+                    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.uint16Value, item.permissions, item.name)
                 }
             }
         }
     }
 
+    /// 多くの試験が使う名前。実体は `TestCorpus.random`（seed 固定）。
     static func random(_ count: Int, alphabetMask: UInt8 = 255) -> Data {
-        // 決定的な擬似乱数を使い、実行ごとの偶然の圧縮率で stored 判定が変わらないようにする。
-        var state: UInt64 = 0xD137_923A_6E25_9B41
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(count)
-        for _ in 0..<count {
-            state ^= state >> 12
-            state ^= state << 25
-            state ^= state >> 27
-            bytes.append(UInt8(truncatingIfNeeded: (state &* 0x2545_F491_4F6C_DD1D) >> 56) & alphabetMask)
-        }
-        return Data(bytes)
+        TestCorpus.random(count, alphabetMask: alphabetMask)
     }
 
     // bitwise の独立実装で CRC table の実装ミスも検出する。
@@ -154,14 +101,6 @@ enum LHATestSupport {
         }
         return crc
     }
-
-    static func uint16(_ data: Data, _ offset: Int) -> UInt16 {
-        UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
-    }
-
-    static func uint32(_ data: Data, _ offset: Int) -> UInt32 {
-        (0..<4).reduce(0) { $0 | UInt32(data[offset + $1]) << (8 * $1) }
-    }
 }
 
 struct LHABytes {
@@ -172,7 +111,7 @@ struct LHABytes {
         let extensions: [UInt8: Data]
         let crcOffset: Int
         var method: String { String(decoding: header[2..<7], as: UTF8.self) }
-        var size: UInt32 { LHATestSupport.uint32(header, 11) }
+        var size: UInt32 { header.uint32LE(at: 11) }
     }
 
     let members: [Member]
@@ -182,7 +121,7 @@ struct LHABytes {
         var offset = 0
         while offset < data.count, data[offset] != 0 {
             guard data.count - offset >= 26 else { throw CocoaError(.fileReadCorruptFile) }
-            let size = Int(LHATestSupport.uint16(data, offset))
+            let size = Int(data.uint16LE(at: offset))
             guard size >= 26, size <= data.count - offset else { throw CocoaError(.fileReadCorruptFile) }
             let header = data.subdata(in: offset..<(offset + size))
             XCTAssertEqual(header[19], 0x20)
@@ -193,7 +132,7 @@ struct LHABytes {
             var crcOffset: Int?
             while true {
                 guard cursor + 2 <= size else { throw CocoaError(.fileReadCorruptFile) }
-                let length = Int(LHATestSupport.uint16(header, cursor))
+                let length = Int(header.uint16LE(at: cursor))
                 if length == 0 { cursor += 2; break }
                 guard length >= 3, length <= size - cursor else { throw CocoaError(.fileReadCorruptFile) }
                 let type = header[cursor + 2]
@@ -207,8 +146,8 @@ struct LHABytes {
             var authenticated = header
             authenticated[crc] = 0
             authenticated[crc + 1] = 0
-            XCTAssertEqual(LHATestSupport.uint16(header, crc), LHATestSupport.crc(authenticated))
-            let packedSize = Int(LHATestSupport.uint32(header, 7))
+            XCTAssertEqual(header.uint16LE(at: crc), LHATestSupport.crc(authenticated))
+            let packedSize = Int(header.uint32LE(at: 7))
             guard packedSize <= data.count - offset - size else { throw CocoaError(.fileReadCorruptFile) }
             let payload = data.subdata(in: (offset + size)..<(offset + size + packedSize))
             members.append(Member(offset: offset, header: header, payload: payload, extensions: fields, crcOffset: crc))

@@ -6,7 +6,7 @@ import XCTest
 final class CompressedTarSnapshotTests: XCTestCase {
     func testMapsSurviveShortReadsStagingAndReopen() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try ZipTestSupport.directory("p3-snapshot-\(format)")
+            let root = try TestSupport.directory("p3-snapshot-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format, large: false)
             let baseline = try XCTUnwrap(CompressedTarTestSupport.open(source).tarEditingSnapshot())
             let expected = try XCTUnwrap(baseline.chunkMap, "\(format): \(String(describing: baseline.chunkMapUnavailableReason))")
@@ -22,7 +22,7 @@ final class CompressedTarSnapshotTests: XCTestCase {
                     XCTAssertEqual(snapshot.image is FileByteSource, disk, context)
                     XCTAssertEqual(snapshot.chunkMap, expected, context)
                     XCTAssertNil(snapshot.chunkMapUnavailableReason, context)
-                    try CompressedTarTestSupport.imagesEqual(snapshot.image, baseline.image)
+                    try XCTAssertByteSourcesEqual(snapshot.image, baseline.image)
                     let reopened = try reader.reopen()
                     let again = try XCTUnwrap(reopened.tarEditingSnapshot(), context)
                     XCTAssertEqual(again.chunkMap, snapshot.chunkMap, context)
@@ -31,7 +31,7 @@ final class CompressedTarSnapshotTests: XCTestCase {
                 }
             }
             // Even an empty GK tar contains its terminator, so its map is nonempty.
-            let empty = root.appendingPathComponent("empty." + TarP2Support.suffix(format))
+            let empty = root.appendingPathComponent("empty." + format.testFileExtension)
             let writer = try ArchiveWriter.create(url: empty, format: format)
             try writer.finish()
             let snapshot = try XCTUnwrap(CompressedTarTestSupport.open(empty).tarEditingSnapshot())

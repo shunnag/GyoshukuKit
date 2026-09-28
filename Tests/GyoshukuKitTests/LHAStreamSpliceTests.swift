@@ -5,7 +5,7 @@ import XCTest
 
 final class LHAStreamSpliceTests: XCTestCase {
     func testLargeMembersMatchS15SerialStreamAtEveryThreadCount() throws {
-        let directory = try ZipTestSupport.directory("lha-parallel-streams")
+        let directory = try TestSupport.directory("lha-parallel-streams")
         let large = 8 * 1_048_576 + 8191
         let cases = [
             ("text-above", 1_048_577, "text"), ("random-above", 1_048_577, "random"),
@@ -37,11 +37,11 @@ final class LHAStreamSpliceTests: XCTestCase {
                                                       options: WriterOptions(compressionThreads: threads))
                 let observer = try writer.duplicateOutput()
                 defer { try? observer.close() }
-                try writer.add(data: Data([65]), as: "before", modificationDate: ZipTestSupport.date)
-                try writer.add(data: input, as: label, modificationDate: ZipTestSupport.date)
+                try writer.add(data: Data([65]), as: "before", modificationDate: TestSupport.date)
+                try writer.add(data: input, as: label, modificationDate: TestSupport.date)
                 XCTAssertEqual(try observer.offset(), UInt64(before.count + reference.bytes.count), "\(label), threads=\(threads)")
-                try writer.addDirectory("directory", modificationDate: ZipTestSupport.date, ownerIDs: nil)
-                try writer.add(data: Data([66]), as: "after", modificationDate: ZipTestSupport.date)
+                try writer.addDirectory("directory", modificationDate: TestSupport.date, ownerIDs: nil)
+                try writer.add(data: Data([66]), as: "after", modificationDate: TestSupport.date)
                 try writer.finish()
                 XCTAssertTrue(try Data(contentsOf: url) == expected, "\(label), threads=\(threads)")
                 if threads == 16 {
@@ -97,7 +97,7 @@ final class LHAStreamSpliceTests: XCTestCase {
     // d5c51b3 の addStreamed。出力と spool だけ Data に置き換え、Bits は全区切りで一本を使う。
     private static func serialStream(_ source: Data, name: String) throws -> (bytes: Data, method: String, unreadAtStop: Int) {
         let size = UInt64(source.count)
-        let entry = try LHARecords.Entry(name: name, mode: 0o100644, size: size, date: ZipTestSupport.date)
+        let entry = try LHARecords.Entry(name: name, mode: 0o100644, size: size, date: TestSupport.date)
         let placeholder = try entry.header(method: "-lh0-", packedSize: entry.size, crc: 0)
         var output = placeholder
         let payloadOffset = output.count

@@ -4,7 +4,7 @@ import XCTest
 
 final class ZipCommitProgressTests: XCTestCase {
     func testAllSixStrategiesCountExactlyWrittenBytesWithBoundedNotifications() throws {
-        let directory = try ZipTestSupport.directory("p1-progress")
+        let directory = try TestSupport.directory("p1-progress")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory, count: 3, payloadSize: 5 * 1024 * 1024)
         let cases: [([ZipP1Support.Operation], ArchiveUpdater.CommitStrategy)] = [
@@ -34,7 +34,7 @@ final class ZipCommitProgressTests: XCTestCase {
     }
 
     func testThrowAtInitialIntermediateAndFinalProgressRemovesOutput() throws {
-        let directory = try ZipTestSupport.directory("p1-progress-throw")
+        let directory = try TestSupport.directory("p1-progress-throw")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory, count: 3, payloadSize: 5 * 1024 * 1024)
         let original = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino

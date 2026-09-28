@@ -7,7 +7,7 @@ final class ArchiveUpdaterEntryNamesTests: XCTestCase {
     private let names = ["zeta.txt", "folder/", "folder/child.txt", "alpha.txt"]
 
     private func original(_ label: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("entry-names-\(label)")
+        let directory = try TestSupport.directory("entry-names-\(label)")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
         for name in names {
@@ -37,7 +37,7 @@ final class ArchiveUpdaterEntryNamesTests: XCTestCase {
     }
 
     func testEntryNamesPreserveCP932Characters() throws {
-        let directory = try ZipTestSupport.directory("entry-names-cp932")
+        let directory = try TestSupport.directory("entry-names-cp932")
         let url = directory.appendingPathComponent("archive.zip")
         // UTF-8 flag を立てず、名前を CP932 の byte 列で記録する。
         let script = #"""
@@ -51,7 +51,7 @@ final class ArchiveUpdaterEntryNamesTests: XCTestCase {
         end = p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0)
         open(sys.argv[1],'wb').write(local+cd+end)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
         let reader = try ArchiveReader.open(url: url)
         let updater = try ArchiveUpdater.open(url: url)
 
@@ -88,7 +88,7 @@ final class ArchiveUpdaterEntryNamesTests: XCTestCase {
     }
 
     func testEntryNamesAreEmptyForEmptyArchive() throws {
-        let directory = try ZipTestSupport.directory("entry-names-empty")
+        let directory = try TestSupport.directory("entry-names-empty")
         let url = directory.appendingPathComponent("archive.zip")
         try ArchiveWriter.create(url: url).finish()
         let updater = try ArchiveUpdater.open(url: url)

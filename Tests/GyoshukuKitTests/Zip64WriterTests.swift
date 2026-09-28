@@ -5,7 +5,7 @@ import XCTest
 
 final class Zip64WriterTests: XCTestCase {
     func testZIP64UncompressedSizeAbove4GiBRoundTrips() throws {
-        let directory = try ZipTestSupport.directory("zip64-size")
+        let directory = try TestSupport.directory("zip64-size")
         let source = directory.appendingPathComponent("zeros.bin")
         let size: UInt64 = (1 << 32) + (1 << 20)
         // 入力作成だけ sparse file を使う。writer は穴を検出せず全 byte を読む。
@@ -13,7 +13,7 @@ final class Zip64WriterTests: XCTestCase {
         let input = try FileHandle(forWritingTo: source)
         try input.truncate(atOffset: size)
         try input.close()
-        try FileManager.default.setAttributes([.posixPermissions: 0o644, .modificationDate: ZipTestSupport.date], ofItemAtPath: source.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644, .modificationDate: TestSupport.date], ofItemAtPath: source.path)
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url, options: WriterOptions(useCompressionHeuristic: false))
         try writer.add(contentsOf: source, as: "zeros.bin")
@@ -37,26 +37,26 @@ final class Zip64WriterTests: XCTestCase {
         // CD 自体の count/size/offset が収まるとき EOCD は通常幅のまま。
         XCTAssertEqual(bytes.u32(bytes.end), 0x06054B50)
         XCTAssertEqual(bytes.end, bytes.central + 46 + Int(bytes.u16(bytes.central + 28)) + Int(bytes.u16(bytes.central + 30)))
-        let unzip = try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path], in: directory, log: "unzip-t")
+        let unzip = try TestSupport.run(ReferenceTool.unzip, ["-t", url.path], in: directory, log: "unzip-t")
         XCTAssertTrue(unzip.contains("No errors detected"))
-        let listing = try ZipTestSupport.run("/usr/bin/unzip", ["-l", url.path], in: directory, log: "unzip-l")
+        let listing = try TestSupport.run(ReferenceTool.unzip, ["-l", url.path], in: directory, log: "unzip-l")
         XCTAssertTrue(listing.contains("\(size)"))
         XCTAssertTrue(listing.contains("zeros.bin"))
-        let sevenTest = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", url.path], in: directory, log: "7zz-t")
+        let sevenTest = try TestSupport.run(ReferenceTool.sevenZip, ["t", url.path], in: directory, log: "7zz-t")
         XCTAssertTrue(sevenTest.contains("Everything is Ok"))
-        let sevenList = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", url.path], in: directory, log: "7zz-l")
+        let sevenList = try TestSupport.run(ReferenceTool.sevenZip, ["l", url.path], in: directory, log: "7zz-l")
         XCTAssertTrue(sevenList.contains("\(size)"))
         let extracted = directory.appendingPathComponent("ditto")
-        try ZipTestSupport.run("/usr/bin/ditto", ["-x", "-k", url.path, extracted.path], in: directory, log: "ditto-x")
-        try ZipTestSupport.run("/usr/bin/cmp", [source.path, extracted.appendingPathComponent("zeros.bin").path], in: directory, log: "cmp")
-        try ZipTestSupport.run("/usr/bin/tar", ["-tf", url.path], in: directory, log: "bsdtar-t")
+        try TestSupport.run(ReferenceTool.ditto, ["-x", "-k", url.path, extracted.path], in: directory, log: "ditto-x")
+        try TestSupport.run(ReferenceTool.cmp, [source.path, extracted.appendingPathComponent("zeros.bin").path], in: directory, log: "cmp")
+        try TestSupport.run(ReferenceTool.tar, ["-tf", url.path], in: directory, log: "bsdtar-t")
         let reader = try ArchiveReader.open(url: url, options: ReaderOptions(limits: ReadLimits(maxEntrySize: size)))
         let entry = try XCTUnwrap(reader.entries.first)
         XCTAssertEqual(reader.entries.count, 1)
         XCTAssertEqual(entry.name, "zeros.bin")
         XCTAssertEqual(entry.uncompressedSize, size)
         XCTAssertEqual(entry.posixPermissions, 0o644)
-        XCTAssertEqual(entry.modificationDate, ZipTestSupport.date)
+        XCTAssertEqual(entry.modificationDate, TestSupport.date)
         XCTAssertEqual(entry.compressedSize, UInt64(bytes.u32(bytes.central + 20)))
         let stream = try reader.stream(entry)
         let zeros = Data(repeating: 0, count: 256 * 1024)
@@ -73,20 +73,20 @@ final class Zip64WriterTests: XCTestCase {
         }
         XCTAssertEqual(total, size)
         XCTAssertEqual(entry.crc32, crc.value)
-        ZipTestSupport.report("KAITO ZIP64 size=\(total) compressed=\(entry.compressedSize!) CRC=\(String(crc.value, radix: 16)); every byte verified")
+        TestSupport.report("KAITO ZIP64 size=\(total) compressed=\(entry.compressedSize!) CRC=\(String(crc.value, radix: 16)); every byte verified")
         // 巨大な展開物だけは残さず、検証に使った小さい書庫とログを保存する。
         try FileManager.default.removeItem(at: source)
         try FileManager.default.removeItem(at: extracted)
     }
 
     func testZIP64MoreThan65535EntriesRoundTrips() throws {
-        let directory = try ZipTestSupport.directory("zip64-count")
+        let directory = try TestSupport.directory("zip64-count")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
         var expected: [ZipTestSupport.Expected] = []
         for index in 0..<65_536 {
             let name = String(format: "entry-%05d", index)
-            try writer.add(data: Data(), as: name, modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(), as: name, modificationDate: TestSupport.date)
             expected.append(.init(name: name))
         }
         try writer.finish()
@@ -102,7 +102,7 @@ final class Zip64WriterTests: XCTestCase {
         XCTAssertEqual(bytes.u64(zip64End + 32), 65_536)
         XCTAssertEqual(bytes.u64(zip64End + 48), UInt64(bytes.central))
         try ZipTestSupport.verify(url, expected: expected)
-        ZipTestSupport.report("KAITO ZIP64 count=65536; all names, bytes, dates, permissions and CRCs verified")
+        TestSupport.report("KAITO ZIP64 count=65536; all names, bytes, dates, permissions and CRCs verified")
         try FileManager.default.removeItem(at: directory.appendingPathComponent("ditto"))
     }
 

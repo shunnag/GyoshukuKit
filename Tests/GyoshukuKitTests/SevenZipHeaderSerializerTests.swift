@@ -6,8 +6,7 @@ import XCTest
 
 final class SevenZipHeaderSerializerTests: XCTestCase {
     func testFrozenHeaders() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/sevenzip-edit")
+        let root = TestPaths.fixtures.appendingPathComponent("sevenzip-edit")
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("expected-structures.json"))) as? [String: Any])
         let archives = try XCTUnwrap(json["archives"] as? [String: [String: Any]])
         for name in archives.keys.sorted() where name != "empty_7zz.7z" {

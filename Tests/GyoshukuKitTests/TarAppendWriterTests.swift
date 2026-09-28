@@ -5,7 +5,7 @@ import XCTest
 
 final class TarAppendWriterTests: XCTestCase {
     func testEndMembersAtNonzeroOffsetKeepsTailAndDescriptor() throws {
-        let root = try ZipTestSupport.directory("p2-end-members")
+        let root = try TestSupport.directory("p2-end-members")
         let output = root.appendingPathComponent("out.tar")
         let original = Data(repeating: 0x5a, count: 10240)
         try original.write(to: output)
@@ -17,7 +17,7 @@ final class TarAppendWriterTests: XCTestCase {
         var writer: ArchiveWriter? = ArchiveWriter(output: child, url: output, format: .tar,
                                                    options: .init(), tarWriter: tar)
         try writer!.prepareAppend(at: 1024, existingPaths: [])
-        try writer!.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date)
+        try writer!.add(data: Data([1]), as: "added", modificationDate: TestSupport.date)
         XCTAssertEqual(try writer!.endAppendedMembers(), 2048)
         XCTAssertNotEqual(fcntl(fd, F_GETFD), -1)
         let data = try Data(contentsOf: output)
