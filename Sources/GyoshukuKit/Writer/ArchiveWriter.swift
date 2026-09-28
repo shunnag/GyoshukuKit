@@ -198,7 +198,7 @@ public final class ArchiveWriter {
     func addDirectory(_ path: String, modificationDate: Date?, ownerIDs: ArchiveOwnerIDs?) throws {
         try performAddition {
             try validateOwnerIDs(ownerIDs)
-            try addEntry(path: path, mode: 0o40755, size: 0, date: modificationDate ?? Date(), atime: nil,
+            try addEntry(path: path, mode: FileMode.defaultDirectory, size: 0, date: modificationDate ?? Date(), atime: nil,
                          owners: ownerIDs.map { ($0.user, $0.group) }) { _ in Data() }
         }
     }
@@ -217,7 +217,7 @@ public final class ArchiveWriter {
         try performAddition {
             var offset = 0
             try addEntry(
-                path: path, mode: 0o100000 | ((permissions ?? 0o644) & 0o7777), size: UInt64(data.count),
+                path: path, mode: FileMode.regular | ((permissions ?? 0o644) & 0o7777), size: UInt64(data.count),
                 date: modificationDate ?? Date(), atime: nil, owners: nil
             ) { requested in
                 let count = min(requested, data.count - offset)
@@ -477,7 +477,7 @@ public final class ArchiveWriter {
                 guard count >= 0 else { throw WriterError.io(operation: "readlink", code: errno) }
                 guard count < buffer.count else { throw WriterError.sourceChanged(url.path) }
                 var payload = Data(buffer.prefix(count))
-                try addEntry(path: path, mode: 0xA1ED, size: UInt64(count), date: date, atime: atime, owners: owners) { _ in
+                try addEntry(path: path, mode: FileMode.defaultSymlink, size: UInt64(count), date: date, atime: atime, owners: owners) { _ in
                     defer { payload = Data() }
                     return payload
                 }
@@ -593,7 +593,7 @@ public final class ArchiveWriter {
         read: (Int) throws -> Data
     ) throws {
         guard state == .writing, !additionsClosed else { throw WriterError.invalidState }
-        let directory = mode & 0xF000 == 0x4000
+        let directory = mode.isDirectoryMode
         let name = try reserveEntryName(path, directory: directory)
         try addReservedEntry(name: name, mode: mode, size: size, date: date, atime: atime,
                              owners: owners, hardLink: hardLink, read: read)
@@ -601,7 +601,7 @@ public final class ArchiveWriter {
 
     private func addReservedEntry(name: String, mode: UInt16, size: UInt64, date: Date, atime: Date?,
                                   owners: (UInt32, UInt32)?, hardLink: String?, read: (Int) throws -> Data) throws {
-        let directory = mode & 0xF000 == 0x4000
+        let directory = mode.isDirectoryMode
         if let tarWriter {
             try tarWriter.add(name: name, mode: mode, size: size, date: date, owners: owners, hardLink: hardLink, read: read)
             appendedPaths.append((name, directory))
@@ -623,7 +623,7 @@ public final class ArchiveWriter {
             try zipPipeline?.drain(emit: emitDeflate)
         }
         var entry = try makeZipEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners, method: method)
-        let password = mode & 0xF000 == 0x8000 ? options.password : nil
+        let password = mode.isRegularFileMode ? options.password : nil
         if let password, entry.encryption == .zipCrypto {
             try writeZipCryptoEntry(&entry, name: name, password: password, read: read)
             entries.append(entry)
@@ -732,7 +732,7 @@ public final class ArchiveWriter {
             mtime: try ZipRecords.timestamp(date), atime: try ZipRecords.timestamp(atime ?? date),
             dosTime: dos.time, dosDate: dos.date, mode: mode, owners: owners,
             offset: try checkedAdd(recordBase, position - appendStart), size: size)
-        entry.encryption = mode & 0xF000 == 0x8000 && options.password != nil ? options.zipEncryption : nil
+        entry.encryption = mode.isRegularFileMode && options.password != nil ? options.zipEncryption : nil
         return entry
     }
 
@@ -839,7 +839,7 @@ public final class ArchiveWriter {
     }
 
     private func compression(name: String, mode: UInt16, size: UInt64) -> CompressionMethod {
-        guard size > 0, mode & 0xF000 == 0x8000 else { return .stored }
+        guard size > 0, mode.isRegularFileMode else { return .stored }
         if options.useCompressionHeuristic {
             if Self.compressedExtensions.contains((name as NSString).pathExtension.lowercased()) { return .stored }
         }
@@ -880,7 +880,7 @@ extension ArchiveWriter {
         let hardLink: String?
         let inline: Data
         let zip: ZipRecords.Entry?
-        var inputBytes: UInt64 { mode & 0xF000 == 0x8000 ? size : 0 }
+        var inputBytes: UInt64 { mode.isRegularFileMode ? size : 0 }
     }
 
     /// 項目別 API と同じ byte を出力する、有界の並列先読み。
@@ -909,11 +909,11 @@ extension ArchiveWriter {
                 let data = result?.data ?? entry.inline
                 if let zip = entry.zip {
                     try emitCompleteZip(zip, data: data, crc: result?.crc ?? updateCRC(0, data), addition: entry)
-                    appendedPaths.append((entry.name, entry.mode & 0xF000 == 0x4000))
+                    appendedPaths.append((entry.name, entry.mode.isDirectoryMode))
                 } else if let sevenZipWriter {
                     try sevenZipWriter.add(name: entry.name, mode: entry.mode, date: entry.date,
                                            prefetched: result ?? Prefetched(data: data, crc: updateCRC(0, data)))
-                    appendedPaths.append((entry.name, entry.mode & 0xF000 == 0x4000))
+                    appendedPaths.append((entry.name, entry.mode.isDirectoryMode))
                 } else {
                     var offset = 0
                     try addReservedEntry(name: entry.name, mode: entry.mode, size: entry.size, date: entry.date,
@@ -966,7 +966,7 @@ extension ArchiveWriter {
                                 let owners: (UInt32, UInt32)?
                                 switch addition.source {
                                 case let .directory(explicitDate):
-                                    date = explicitDate ?? Date(); atime = nil; mode = 0o40755; size = 0
+                                    date = explicitDate ?? Date(); atime = nil; mode = FileMode.defaultDirectory; size = 0
                                     owners = addition.ownerIDs.map { ($0.user, $0.group) }
                                 case let .contents(url):
                                     guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
@@ -984,7 +984,7 @@ extension ArchiveWriter {
                                         ? info.st_dev == destination.st_dev && info.st_ino == destination.st_ino
                                         : ArchiveOwnedFile.matches(url: url, descriptor: output.fileDescriptor)
                                     guard !isOutput else { throw WriterError.invalidPath("source contains output archive") }
-                                    mode = info.st_mode & S_IFMT == S_IFLNK ? 0xA1ED : UInt16(info.st_mode)
+                                    mode = info.st_mode & S_IFMT == S_IFLNK ? FileMode.defaultSymlink : UInt16(info.st_mode)
                                     date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec))
                                     atime = Date(timeIntervalSince1970: Double(info.st_atimespec.tv_sec))
                                     owners = addition.ownerIDs.map { ($0.user, $0.group) }
@@ -1021,9 +1021,9 @@ extension ArchiveWriter {
                                         size = UInt64(info.st_size)
                                     } else { throw WriterError.unsupportedFileType(url.path) }
                                 }
-                                let name = try reserveEntryName(addition.path, directory: mode & 0xF000 == 0x4000)
+                                let name = try reserveEntryName(addition.path, directory: mode.isDirectoryMode)
                                 var hardLink: String?
-                                if mode & 0xF000 == 0x8000, let tarWriter {
+                                if mode.isRegularFileMode, let tarWriter {
                                     hardLink = try tarWriter.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
                                                                          signature: Self.linkSignature(info))
                                     if info.st_nlink > 1, hardLink == nil {
@@ -1041,8 +1041,8 @@ extension ArchiveWriter {
                                 }
                                 let entry = BatchEntry(index: index, addition: addition, name: name, mode: mode, size: size,
                                                        date: date, atime: atime, owners: owners, hardLink: hardLink, inline: inline, zip: zip)
-                                pendingBatchPaths.append((name, mode & 0xF000 == 0x4000))
-                                let job = mode & 0xF000 == 0x8000 ? FileJob(index: index, addition: addition, path: cPath,
+                                pendingBatchPaths.append((name, mode.isDirectoryMode))
+                                let job = mode.isRegularFileMode ? FileJob(index: index, addition: addition, path: cPath,
                                     expected: DiskSignature(info), size: Int(size), deflate: zip?.method == .deflate, limiter: limiter) : nil
                                 if let zipPipeline {
                                     try zipPipeline.submit(job.map { .file($0) }, tag: .init(entry: nil, crc: nil, addition: entry),

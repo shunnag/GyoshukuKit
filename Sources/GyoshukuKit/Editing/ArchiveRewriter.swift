@@ -480,7 +480,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     static func mode(for entry: ArchiveEntry) -> UInt16 {
-        let type: UInt16 = entry.kind == .directory ? 0o40000 : entry.kind == .symlink ? 0o120000 : 0o100000
+        let type: UInt16 = entry.kind == .directory ? FileMode.directory : entry.kind == .symlink ? FileMode.symlink : FileMode.regular
         return type | ((entry.posixPermissions ?? (entry.kind == .directory ? 0o755 : 0o644)) & 0o7777)
     }
 

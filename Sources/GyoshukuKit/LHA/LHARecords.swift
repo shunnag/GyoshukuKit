@@ -9,16 +9,15 @@ enum LHARecords {
         let directory: Data
 
         init(name: String, mode: UInt16, size: UInt64, date: Date) throws {
-            let type = mode & 0xF000
-            guard type == 0x8000 || type == 0x4000 else { throw WriterError.unsupportedFileType(name) }
+            guard mode.isRegularFileMode || mode.isDirectoryMode else { throw WriterError.unsupportedFileType(name) }
             guard size <= UInt32.max else { throw WriterError.sizeOverflow }
             self.mode = mode
             self.size = UInt32(size)
             self.mtime = try LHARecords.timestamp(date)
             // Unicode の区切りで分けてから符号化する。CP932 の後続 byte 0x5C は名前の一部。
             let components = name.split(separator: "/")
-            let directories = type == 0x4000 ? components[...] : components.dropLast()
-            self.filename = type == 0x4000 ? Data() : try LHARecords.encodeName(String(components.last ?? ""))
+            let directories = mode.isDirectoryMode ? components[...] : components.dropLast()
+            self.filename = mode.isDirectoryMode ? Data() : try LHARecords.encodeName(String(components.last ?? ""))
             var directory = Data()
             for component in directories {
                 directory.append(try LHARecords.encodeName(String(component)))
@@ -26,7 +25,7 @@ enum LHARecords {
             }
             self.directory = directory
             // header 全体の 16 bit 上限も、入力の読み取りや出力より前に検証する。
-            _ = try header(method: type == 0x4000 ? "-lhd-" : "-lh0-", packedSize: self.size, crc: 0)
+            _ = try header(method: mode.isDirectoryMode ? "-lhd-" : "-lh0-", packedSize: self.size, crc: 0)
         }
 
         func header(method: String, packedSize: UInt32, crc: UInt16) throws -> Data {
