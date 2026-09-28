@@ -1,6 +1,6 @@
 import Foundation
 private import Darwin
-@_spi(TarEditLayout) import KaitoKit
+@_spi(TarEditLayout) public import KaitoKit
 
 public enum CompressedTarFullEncodeReason: Sendable, Equatable {
     case framing(String)
