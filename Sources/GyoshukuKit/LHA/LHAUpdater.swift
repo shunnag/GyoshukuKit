@@ -22,14 +22,10 @@ public final class LHAUpdater: ArchiveEditing {
     private let options: WriterOptions
     private let reader: ArchiveReader
     private let layout: LHALayout
-    private let names: [String]
+    private let ledger: EntryEditLedger
     private let destination: SplicedArchiveOutput
     private let encoder: @Sendable (Data) throws -> Data
-    private var removed: Set<Int> = []
-    private var renamed: [Int: String] = [:]
     private var renamedHeaders: [Int: Data] = [:]
-    private lazy var reservations = EditPathReservations(existingPaths)
-    private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
     private var appendStart: UInt64?
@@ -43,7 +39,8 @@ public final class LHAUpdater: ArchiveEditing {
     private init(snapshot: ArchiveSourceSnapshot, output: URL, options: WriterOptions, reader: ArchiveReader,
                  layout: LHALayout, names: [String], encoder: @escaping @Sendable (Data) throws -> Data) {
         self.snapshot = snapshot; self.output = output; self.options = options
-        self.reader = reader; self.layout = layout; self.names = names; self.encoder = encoder
+        self.reader = reader; self.layout = layout; self.encoder = encoder
+        ledger = EntryEditLedger(names: names, entries: reader.entries)
         destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "lzh",
                                            sequential: Self.testingDisablesClone)
     }
@@ -126,29 +123,16 @@ public final class LHAUpdater: ArchiveEditing {
     }
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
-            for index in indices { try validateIndex(index) }
-            indexAppendedPaths()
-            for index in indices where !removed.contains(index) {
-                let name = renamed[index] ?? names[index]
-                if !name.isEmpty { reservations.remove(name, directory: reader.entries[index].kind == .directory) }
-                removed.insert(index); renamed.removeValue(forKey: index); renamedHeaders.removeValue(forKey: index)
-            }
+            try ledger.remove(indices, appendedBy: writer)
+            for index in indices { renamedHeaders.removeValue(forKey: index) }
             writerPathsNeedRefresh = true
         }
     }
     public func rename(entryAt index: Int, to path: String) throws {
         try perform {
-            try validateIndex(index)
-            guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
+            let name = try ledger.rename(index, to: path, format: .lha, appendedBy: writer)
             let entry = reader.entries[index], directory = entry.kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .lha)
-            indexAppendedPaths()
-            let old = renamed[index] ?? names[index]
-            if !old.isEmpty { reservations.remove(old, directory: directory) }
-            try reservations.validate(name, directory: directory)
-            reservations.insert(name, directory: directory)
-            renamed[index] = name
-            if name == names[index] { renamedHeaders.removeValue(forKey: index) }
+            if name == ledger.names[index] { renamedHeaders.removeValue(forKey: index) }
             else {
                 let member = try layout.member(index)
                 renamedHeaders[index] = try LHARecords.Entry(name: name, mode: ArchiveRepresentability.mode(for: entry),
@@ -198,38 +182,23 @@ public final class LHAUpdater: ArchiveEditing {
             try meter.finish()
             try Task.checkCancellation()
             snapshot.cleanup()
-            lastCommitStrategy = CommitStrategy(strategy, appendWasSplice: !removed.isEmpty || !plan.changed.isEmpty)
+            lastCommitStrategy = CommitStrategy(strategy, appendWasSplice: !ledger.removed.isEmpty || !plan.changed.isEmpty)
             state = .committed
         }
     }
 
     private func makePlan(additionLength: UInt64 = 0) throws -> LHAEditPlan {
-        try LHAEditPlan.make(layout: layout, removed: removed, renamed: renamedHeaders, additionLength: additionLength)
-    }
-    private var existingPaths: [(String, Bool)] {
-        reader.entries.compactMap { entry in
-            let name = renamed[entry.index] ?? names[entry.index]
-            return removed.contains(entry.index) || name.isEmpty ? nil : (name, entry.kind == .directory)
-        }
-    }
-    private func indexAppendedPaths() {
-        for (name, directory) in (writer?.appendedPaths ?? []).dropFirst(indexedAppendCount) {
-            reservations.insert(name, directory: directory)
-        }
-        indexedAppendCount = writer?.appendedPaths.count ?? indexedAppendCount
-    }
-    private func validateIndex(_ index: Int) throws {
-        guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
+        try LHAEditPlan.make(layout: layout, removed: ledger.removed, renamed: renamedHeaders, additionLength: additionLength)
     }
     private func preparedWriter() throws -> ArchiveWriter {
         if let writer {
-            if writerPathsNeedRefresh { writer.replaceExistingPaths(existingPaths); writerPathsNeedRefresh = false }
+            if writerPathsNeedRefresh { writer.replaceExistingPaths(ledger.existingPaths); writerPathsNeedRefresh = false }
             return writer
         }
         let plan = try makePlan()
         let handle = try destination.beginAppend(at: plan.membersEnd, prefix: plan.prefix)
         let writer = try ArchiveWriter.lhaAppend(output: handle, url: output, at: plan.membersEnd,
-                                                 options: options, existingPaths: existingPaths, encoder: encoder)
+                                                 options: options, existingPaths: ledger.existingPaths, encoder: encoder)
         self.writer = writer; appendStart = plan.membersEnd; writerPathsNeedRefresh = false
         return writer
     }

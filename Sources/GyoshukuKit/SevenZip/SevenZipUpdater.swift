@@ -23,17 +23,13 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     let options: WriterOptions
     let reader: ArchiveReader
     let model: SevenZipEditModel
-    let names: [String]
+    private let ledger: EntryEditLedger
     let filesByFolder: [[Int]]
     let destination: SplicedArchiveOutput
     let headerPassword: String?
     var reencrypt = false
     var currentPassword: String?
     private var encryptors: SevenZipAESEncryptor.Factory
-    var removed: Set<Int> = []
-    var renamed: [Int: String] = [:]
-    private lazy var reservations = EditPathReservations(existingPaths)
-    private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     var writer: ArchiveWriter?
     var appendStart: UInt64?
@@ -49,7 +45,8 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     private init(snapshot: ArchiveSourceSnapshot, output: URL, options: WriterOptions, reader: ArchiveReader,
                  model: SevenZipEditModel, names: [String], password: String?) {
         self.snapshot = snapshot; self.output = output; self.options = options; self.reader = reader
-        self.model = model; self.names = names; filesByFolder = model.filesByFolder; headerPassword = password
+        self.model = model; ledger = EntryEditLedger(names: names, entries: reader.entries)
+        filesByFolder = model.filesByFolder; headerPassword = password
         encryptors = SevenZipAESEncryptor.Factory(password: options.password)
         destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "7z", sequential: Self.testingDisablesClone)
     }
@@ -132,28 +129,13 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     }
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
-            for index in indices { try validateIndex(index) }
-            indexAppendedPaths()
-            for index in indices where !removed.contains(index) {
-                let name = renamed[index] ?? names[index]
-                if !name.isEmpty { reservations.remove(name, directory: reader.entries[index].kind == .directory) }
-                removed.insert(index); renamed.removeValue(forKey: index)
-            }
+            try ledger.remove(indices, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
     public func rename(entryAt index: Int, to path: String) throws {
         try perform {
-            try validateIndex(index)
-            guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
-            let directory = reader.entries[index].kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .sevenZip)
-            indexAppendedPaths()
-            let old = renamed[index] ?? names[index]
-            if !old.isEmpty { reservations.remove(old, directory: directory) }
-            try reservations.validate(name, directory: directory)
-            reservations.insert(name, directory: directory)
-            renamed[index] = name
+            try ledger.rename(index, to: path, format: .sevenZip, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
@@ -182,25 +164,13 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     }
 
     func makePlan(additions: Int = 0) -> SevenZipEditPlan {
-        SevenZipEditPlan.make(model: model, filesByFolder: filesByFolder, names: names, removed: removed, renamed: renamed,
-            additions: additions, reencrypt: reencrypt, currentPassword: currentPassword, headerPassword: headerPassword, options: options)
-    }
-    private var existingPaths: [(String, Bool)] {
-        reader.entries.compactMap { entry in
-            let name = renamed[entry.index] ?? names[entry.index]
-            return removed.contains(entry.index) || name.isEmpty ? nil : (name, entry.kind == .directory)
-        }
-    }
-    private func indexAppendedPaths() {
-        for (name, directory) in (writer?.appendedPaths ?? []).dropFirst(indexedAppendCount) { reservations.insert(name, directory: directory) }
-        indexedAppendCount = writer?.appendedPaths.count ?? indexedAppendCount
-    }
-    private func validateIndex(_ index: Int) throws {
-        guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
+        SevenZipEditPlan.make(model: model, filesByFolder: filesByFolder, names: ledger.names, removed: ledger.removed,
+            renamed: ledger.renamed, additions: additions, reencrypt: reencrypt, currentPassword: currentPassword,
+            headerPassword: headerPassword, options: options)
     }
     private func preparedWriter() throws -> ArchiveWriter {
         if let writer {
-            if writerPathsNeedRefresh { writer.replaceExistingPaths(existingPaths); writerPathsNeedRefresh = false }
+            if writerPathsNeedRefresh { writer.replaceExistingPaths(ledger.existingPaths); writerPathsNeedRefresh = false }
             return writer
         }
         let plan = makePlan()
@@ -214,7 +184,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         let offset = prefix.reduce(UInt64(0)) { $0 + $1.length }
         let handle = try destination.beginAppend(at: offset, prefix: prefix)
         let writer = try ArchiveWriter.sevenZipAppend(output: handle, url: output, at: offset,
-                                                     options: options, existingPaths: existingPaths)
+                                                     options: options, existingPaths: ledger.existingPaths)
         self.writer = writer; appendStart = offset; writerPathsNeedRefresh = false
         return writer
     }

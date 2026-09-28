@@ -34,11 +34,9 @@ public final class CompressedTarUpdater: ArchiveEditing {
     private let format: ArchiveFormat
     private let options: WriterOptions
     private let layout: TarLayout
-    private let names: [String], rawNames: [Data]
+    private let ledger: EntryEditLedger, rawNames: [Data]
     private let hardLinkTargets: [Int: Int], dataTargets: [Int: Int]
-    private var removed = Set<Int>(), renamed: [Int: String] = [:]
-    private lazy var reservations = EditPathReservations(existingPaths)
-    private var indexedAppendCount = 0, writerPathsNeedRefresh = false
+    private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?, storage: TarSpliceStorage?
     private var destination: CompressedTarSpliceOutput?
     private enum State { case adding, committing, committed, failed }
@@ -51,7 +49,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
                  hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
         self.editingSnapshot = editingSnapshot; self.entries = entries; entryNames = entries.map(\.name)
         self.output = output; self.format = format; self.options = options; self.layout = layout
-        self.names = names; rawNames = entries.map { Data($0.rawName.bytes) }
+        ledger = EntryEditLedger(names: names, entries: entries); rawNames = entries.map { Data($0.rawName.bytes) }
         self.hardLinkTargets = hardLinkTargets; self.dataTargets = dataTargets
     }
     deinit { if state != .committed { cleanup() } }
@@ -141,28 +139,14 @@ public final class CompressedTarUpdater: ArchiveEditing {
     }
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
-            for index in indices { try validateIndex(index) }
-            indexAppendedPaths()
-            for index in indices where !removed.contains(index) {
-                let name = renamed[index] ?? names[index]
-                if !name.isEmpty { reservations.remove(name, directory: entries[index].kind == .directory) }
-                removed.insert(index); renamed.removeValue(forKey: index)
-            }
+            try ledger.remove(indices, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
     public func rename(entryAt index: Int, to path: String) throws {
         try perform {
-            try validateIndex(index)
-            guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
-            let directory = entries[index].kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .tar)
-            indexAppendedPaths()
-            let old = renamed[index] ?? names[index]
-            if !old.isEmpty { reservations.remove(old, directory: directory) }
-            try reservations.validate(name, directory: directory)
-            reservations.insert(name, directory: directory)
-            renamed[index] = name; writerPathsNeedRefresh = true
+            try ledger.rename(index, to: path, format: .tar, appendedBy: writer)
+            writerPathsNeedRefresh = true
         }
     }
     public func commit() throws { _ = try commit(progress: nil) }
@@ -178,9 +162,9 @@ public final class CompressedTarUpdater: ArchiveEditing {
             let additionLength = try writer?.endAppendedMembers() ?? 0
             let additions = writer?.appendedTarMemberLayouts ?? []
             writer = nil
-            let plan = try TarEditPlan.make(layout: layout, source: snapshot.image, names: names, rawNames: rawNames,
-                hardLinkTargets: hardLinkTargets, dataTargets: dataTargets, removed: removed,
-                renamed: renamed, additionLength: additionLength)
+            let plan = try TarEditPlan.make(layout: layout, source: snapshot.image, names: ledger.names, rawNames: rawNames,
+                hardLinkTargets: hardLinkTargets, dataTargets: dataTargets, removed: ledger.removed,
+                renamed: ledger.renamed, additionLength: additionLength)
             let image: TarImageSource?
             let splice: CompressedTarSplicePlan?
             if plan.isChanged {
@@ -208,19 +192,6 @@ public final class CompressedTarUpdater: ArchiveEditing {
         return result!
     }
 
-    private var existingPaths: [(String, Bool)] {
-        entries.compactMap { entry in
-            let name = renamed[entry.index] ?? names[entry.index]
-            return removed.contains(entry.index) || name.isEmpty ? nil : (name, entry.kind == .directory)
-        }
-    }
-    private func indexAppendedPaths() {
-        for (name, directory) in (writer?.appendedPaths ?? []).dropFirst(indexedAppendCount) { reservations.insert(name, directory: directory) }
-        indexedAppendCount = writer?.appendedPaths.count ?? indexedAppendCount
-    }
-    private func validateIndex(_ index: Int) throws {
-        guard entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
-    }
     private func preparedStorage() throws -> TarSpliceStorage {
         if let storage { return storage }
         let storage = try TarSpliceStorage(directory: output.deletingLastPathComponent())
@@ -229,7 +200,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     }
     private func preparedWriter() throws -> ArchiveWriter {
         if let writer {
-            if writerPathsNeedRefresh { writer.replaceExistingPaths(existingPaths); writerPathsNeedRefresh = false }
+            if writerPathsNeedRefresh { writer.replaceExistingPaths(ledger.existingPaths); writerPathsNeedRefresh = false }
             return writer
         }
         let storage = try preparedStorage()
@@ -237,7 +208,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
         guard fd >= 0 else { throw WriterError.io(operation: "dup append storage", code: errno) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         let writer = try ArchiveWriter.tarAppend(output: handle, url: storage.url, at: 0, options: options,
-                                                 existingPaths: existingPaths, recordsMemberLayout: true,
+                                                 existingPaths: ledger.existingPaths, recordsMemberLayout: true,
                                                  willWrite: { [storage] in try storage.willWrite($0) })
         self.writer = writer; writerPathsNeedRefresh = false
         return writer

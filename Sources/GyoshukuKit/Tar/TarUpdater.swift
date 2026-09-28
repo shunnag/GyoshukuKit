@@ -19,15 +19,11 @@ public final class TarUpdater: ArchiveEditing {
     private let options: WriterOptions
     private let reader: ArchiveReader
     private let layout: TarLayout
-    private let names: [String]
+    private let ledger: EntryEditLedger
     private let rawNames: [Data]
     private let hardLinkTargets: [Int: Int]
     private let dataTargets: [Int: Int]
     private let destination: SplicedArchiveOutput
-    private var removed: Set<Int> = []
-    private var renamed: [Int: String] = [:]
-    private lazy var reservations = EditPathReservations(existingPaths)
-    private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
     private var appendStart: UInt64?
@@ -45,7 +41,7 @@ public final class TarUpdater: ArchiveEditing {
         self.options = options
         self.reader = reader
         self.layout = layout
-        self.names = names
+        ledger = EntryEditLedger(names: names, entries: reader.entries)
         rawNames = reader.entries.map { Data($0.rawName.bytes) }
         self.hardLinkTargets = hardLinkTargets
         self.dataTargets = dataTargets
@@ -118,29 +114,13 @@ public final class TarUpdater: ArchiveEditing {
     }
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
-            for index in indices { try validateIndex(index) }
-            indexAppendedPaths()
-            for index in indices where !removed.contains(index) {
-                let name = renamed[index] ?? names[index]
-                if !name.isEmpty { reservations.remove(name, directory: reader.entries[index].kind == .directory) }
-                removed.insert(index)
-                renamed.removeValue(forKey: index)
-            }
+            try ledger.remove(indices, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
     public func rename(entryAt index: Int, to path: String) throws {
         try perform {
-            try validateIndex(index)
-            guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
-            let directory = reader.entries[index].kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: .tar)
-            indexAppendedPaths()
-            let old = renamed[index] ?? names[index]
-            if !old.isEmpty { reservations.remove(old, directory: directory) }
-            try reservations.validate(name, directory: directory)
-            reservations.insert(name, directory: directory)
-            renamed[index] = name
+            try ledger.rename(index, to: path, format: .tar, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
@@ -179,41 +159,26 @@ public final class TarUpdater: ArchiveEditing {
             }
             try meter.finish()
             try Task.checkCancellation()
-            lastCommitStrategy = CommitStrategy(strategy, appendWasSplice: !removed.isEmpty || !plan.changed.isEmpty)
+            lastCommitStrategy = CommitStrategy(strategy, appendWasSplice: !ledger.removed.isEmpty || !plan.changed.isEmpty)
             state = .committed
         }
     }
 
     private func makePlan(additionLength: UInt64 = 0) throws -> TarEditPlan {
-        do { return try TarEditPlan.make(layout: layout, source: snapshot.source, names: names, rawNames: rawNames,
-                             hardLinkTargets: hardLinkTargets, dataTargets: dataTargets, removed: removed,
-                             renamed: renamed, additionLength: additionLength) }
+        do { return try TarEditPlan.make(layout: layout, source: snapshot.source, names: ledger.names, rawNames: rawNames,
+                             hardLinkTargets: hardLinkTargets, dataTargets: dataTargets, removed: ledger.removed,
+                             renamed: ledger.renamed, additionLength: additionLength) }
         catch TarUpdaterError.requiresRewrite { throw UpdaterError.sourceChanged }
-    }
-    private var existingPaths: [(String, Bool)] {
-        reader.entries.compactMap { entry in
-            let name = renamed[entry.index] ?? names[entry.index]
-            return removed.contains(entry.index) || name.isEmpty ? nil : (name, entry.kind == .directory)
-        }
-    }
-    private func indexAppendedPaths() {
-        for (name, directory) in (writer?.appendedPaths ?? []).dropFirst(indexedAppendCount) {
-            reservations.insert(name, directory: directory)
-        }
-        indexedAppendCount = writer?.appendedPaths.count ?? indexedAppendCount
-    }
-    private func validateIndex(_ index: Int) throws {
-        guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
     }
     private func preparedWriter() throws -> ArchiveWriter {
         if let writer {
-            if writerPathsNeedRefresh { writer.replaceExistingPaths(existingPaths); writerPathsNeedRefresh = false }
+            if writerPathsNeedRefresh { writer.replaceExistingPaths(ledger.existingPaths); writerPathsNeedRefresh = false }
             return writer
         }
         let plan = try makePlan()
         let handle = try destination.beginAppend(at: plan.membersEnd, prefix: plan.prefix)
         let writer = try ArchiveWriter.tarAppend(output: handle, url: output, at: plan.membersEnd,
-                                                 options: options, existingPaths: existingPaths)
+                                                 options: options, existingPaths: ledger.existingPaths)
         self.writer = writer; appendStart = plan.membersEnd; writerPathsNeedRefresh = false
         return writer
     }
