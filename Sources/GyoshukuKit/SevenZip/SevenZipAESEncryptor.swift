@@ -58,3 +58,20 @@ final class SevenZipAESEncryptor {
         return result
     }
 }
+
+extension SevenZipAESEncryptor {
+    /// salt なしの KDF は書庫内で共通。鍵は最初の make で一度だけ導出し、folder / header ごとに IV の独立した
+    /// encryptor を作る。password が無ければ nil。SevenZipWriter と SevenZipUpdater が共有する。
+    struct Factory {
+        private let password: String?
+        private var key: Data?
+
+        init(password: String?) { self.password = password }
+
+        mutating func make() throws -> SevenZipAESEncryptor? {
+            guard let password else { return nil }
+            if key == nil { key = try EncryptionPrimitives.sevenZipKey(password: password) }
+            return try SevenZipAESEncryptor(key: key!)
+        }
+    }
+}

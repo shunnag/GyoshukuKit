@@ -7,7 +7,7 @@ extension SevenZipUpdater {
         for case let .convert(index, kind) in plan.works {
             try Task.checkCancellation()
             if kind != .attach, !passwordChecked.contains(index) {
-                try SevenZipFolderConversion.verifyPassword(reader: reader, files: filesByFolder[index])
+                try Self.verifyPassword(reader: reader, files: filesByFolder[index])
                 passwordChecked.insert(index)
             }
         }
@@ -22,6 +22,26 @@ extension SevenZipUpdater {
                 conversion.scratch = scratch
             }
         }
+    }
+
+    /// folder の file を先頭から合計 64 KiB 復号して現在の password を確かめる。復号の malformed / truncated は
+    /// wrongPassword と見る。detach / change の前にだけ要る（attach は平文を読む）。
+    private static func verifyPassword(reader: ArchiveReader, files: [Int]) throws {
+        guard reader.password != nil else { throw KaitoError.passwordRequired }
+        do {
+            var remaining = 64 * 1024
+            for index in files {
+                try Task.checkCancellation()
+                let stream = try reader.stream(reader.entries[index])
+                repeat {
+                    let bytes = try stream.readSome(upTo: min(remaining, 64 * 1024))
+                    remaining -= bytes.count
+                    if bytes.isEmpty { break }
+                } while remaining > 0
+                if remaining == 0 { break }
+            }
+        } catch KaitoError.malformed { throw KaitoError.wrongPassword }
+        catch KaitoError.truncated { throw KaitoError.wrongPassword }
     }
 
     func prepareReencodings(_ plan: SevenZipEditPlan, advance: @escaping (UInt64) throws -> Void) throws {

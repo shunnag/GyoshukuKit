@@ -81,22 +81,4 @@ final class SevenZipFolderConversion {
                                                   reason: "7z の圧縮済み stream の暗号化変換に失敗しました")
         }
     }
-
-    static func verifyPassword(reader: ArchiveReader, files: [Int]) throws {
-        guard reader.password != nil else { throw KaitoError.passwordRequired }
-        do {
-            var remaining = 64 * 1024
-            for index in files {
-                try Task.checkCancellation()
-                let stream = try reader.stream(reader.entries[index])
-                repeat {
-                    let bytes = try stream.readSome(upTo: min(remaining, 64 * 1024))
-                    remaining -= bytes.count
-                    if bytes.isEmpty { break }
-                } while remaining > 0
-                if remaining == 0 { break }
-            }
-        } catch KaitoError.malformed { throw KaitoError.wrongPassword }
-        catch KaitoError.truncated { throw KaitoError.wrongPassword }
-    }
 }
