@@ -29,7 +29,7 @@ enum CompressedTarSelfCheck {
             let compressed: Data
             let part: Part
         }
-        let pipeline = OrderedChunkPipeline<Input, UInt64, Void>(threads: writer.options.resolvedCompressionThreads) { input in
+        let pipeline = OrderedChunkPipeline<Input, UInt64, Void>(threads: writer.threads) { input in
             do {
                 let part = input.part
                 let expected = try TarLayout.bytes(image, at: part.image.lowerBound, count: Int(part.image.byteLength))

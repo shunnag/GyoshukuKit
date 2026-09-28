@@ -33,6 +33,8 @@ final class CompressedTarSpliceOutput {
     let snapshot: TarEditingSnapshot
     let format: ArchiveFormat
     let options: WriterOptions
+    /// 並列数は init で一度だけ決め、事前符号化・書出し・自己照合の pipeline が共有する。
+    let threads: Int
     private let file: OwnedOutputFile
     private var retained = false
     private var encodingSeconds = 0.0, copyingSeconds = 0.0, checkingSeconds = 0.0
@@ -46,6 +48,7 @@ final class CompressedTarSpliceOutput {
 
     init(output: URL, snapshot: TarEditingSnapshot, format: ArchiveFormat, options: WriterOptions) {
         self.output = output; self.snapshot = snapshot; self.format = format; self.options = options
+        threads = options.resolvedCompressionThreads
         file = OwnedOutputFile(url: output)
     }
     deinit { if !retained { discard() } }
@@ -86,37 +89,70 @@ final class CompressedTarSpliceOutput {
         return Input(bytes: bytes, dictionary: dictionary, final: part.image.upperBound == image.length)
     }
 
+    /// 事前符号化の結果。metas は全 part の圧縮長と CRC（運ぶ chunk は地図から、橋は符号化結果から）。
+    private struct Preflight {
+        var metas: [Metadata] = []
+        var cache: [Int: Encoded] = [:]
+        var reencoded: UInt64 = 0, old: UInt64 = 0, carried: UInt64 = 0
+    }
+
+    /// 橋の事前符号化 → tail の確定 → total を固定した meter → 出力の作成 → framing header と parts の書出し → tail →
+    /// 故障注入 → fsync → 自己照合 → 公開、の順に進む。
     func commit(image: TarImageSource?, plan: CompressedTarSplicePlan?,
                 progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws -> CompressedTarCommitResult {
         guard let image, let plan else { return try unchanged(progress: progress) }
-        let format = self.format, options = self.options
-        var metadata: [Int: Metadata] = [:], cache: [Int: Encoded] = [:]
-        var cachedBytes = 0
-        let threads = options.resolvedCompressionThreads
-        let cacheLimit = threads * CompressedTarSplicePlan.limits(format, options: options).piece * 2
+        var preflight = try preflightEncode(plan: plan, image: image)
+        try prepareTail(metas: preflight.metas, plan: plan, image: image)
+        let verification = CompressedTarSelfCheck.units(format: format, metas: preflight.metas, encoded: plan.parts.map { $0.reused == nil }, tail: expectedTail.count)
+        let meter = CommitProgressMeter(total: try checkedAdd(try checkedAdd(preflight.reencoded, preflight.carried), verification), progress: progress)
+        try meter.start()
+        try create()
+        var engine = try writeParts(plan: plan, image: image, metas: preflight.metas, cache: &preflight.cache, meter: meter)
+        try writeTail(image: image, engine: &engine)
+        try injectFault()
+        try file.synchronize()
+        guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
+        let checkStart = ProcessInfo.processInfo.systemUptime
+        if !CompressedTarUpdater.testingSkipsSelfCheck {
+            try CompressedTarSelfCheck.verify(writer: self, image: image, plan: plan, descriptor: file.descriptor, meter: meter)
+        }
+        checkingSeconds = ProcessInfo.processInfo.systemUptime - checkStart
+        let strategy: CompressedTarStrategy = plan.reason.map { .fullEncode($0) } ?? .splice(carriedChunks: carriedCount, reencodedChunks: encodedCount)
+        return try finish(strategy: strategy, reencoded: preflight.reencoded, old: preflight.old, carried: preflight.carried, meter: meter)
+    }
+
+    /// 事前符号化と書出しで同じ並列数と軽い block の枠を使う。
+    private func makePipeline() -> OrderedChunkPipeline<Input, Encoded, Int> {
+        let format = self.format, options = self.options, threads = self.threads
         let lightWeightLimit = format == .tarXZ && threads > 1 ? UInt64(ParallelXZCompressor.lightChunkLimit) : 0
-        // 圧縮長を先に確定して total を固定する。cache は並列数 × 上限サイズの定数倍で、大きい fullEncode も平らに保存しない。
-        let preflight = OrderedChunkPipeline<Input, Encoded, Int>(threads: threads, lightWeightLimit: lightWeightLimit) {
+        return OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit) {
             try Self.encode($0, format: format, options: options)
         }
+    }
+
+    /// 圧縮長を先に確定して total を固定する。cache は並列数 × 上限サイズの定数倍で、大きい fullEncode も平らに保存しない。
+    private func preflightEncode(plan: CompressedTarSplicePlan, image: TarImageSource) throws -> Preflight {
+        var result = Preflight()
+        var metadata: [Int: Metadata] = [:]
+        var cachedBytes = 0
+        let cacheLimit = threads * CompressedTarSplicePlan.limits(format, options: options).piece * 2
+        let pipeline = makePipeline()
         let collect: (Int, Encoded?) throws -> Void = { index, encoded in
             guard let encoded else { return }
             metadata[index] = Metadata(encoded)
             self.encodingSeconds += encoded.seconds
-            if encoded.bytes.count <= cacheLimit - cachedBytes { cache[index] = encoded; cachedBytes += encoded.bytes.count }
+            if encoded.bytes.count <= cacheLimit - cachedBytes { result.cache[index] = encoded; cachedBytes += encoded.bytes.count }
         }
         for (index, part) in plan.parts.enumerated() where part.reused == nil {
             try CompressedTarUpdater.testingStage?(.encoding)
-            try preflight.waitForCapacity(emit: collect)
-            try preflight.submit(input(part, image: image), tag: index, weight: part.image.byteLength, emit: collect)
+            try pipeline.waitForCapacity(emit: collect)
+            try pipeline.submit(input(part, image: image), tag: index, weight: part.image.byteLength, emit: collect)
         }
-        try preflight.finish(emit: collect)
-        var reencoded: UInt64 = 0, old: UInt64 = 0, carried: UInt64 = 0
-        var metas: [Metadata] = []
+        try pipeline.finish(emit: collect)
         for (index, part) in plan.parts.enumerated() {
             if let base = part.reused {
                 let chunk = plan.chunks[base]
-                carried += chunk.compressedRange.byteLength
+                result.carried += chunk.compressedRange.byteLength
                 var chunkCRC: UInt32 = 0, header: UInt64 = 0, payload: UInt64 = 0, unpadded: UInt64 = 0
                 if case .gzip(let gzip) = snapshot.chunkMap {
                     let first = gzip.points[base].crc32
@@ -127,13 +163,18 @@ final class CompressedTarSpliceOutput {
                     header = xz.blocks[base].headerSize; payload = xz.blocks[base].compressedPayloadSize
                     unpadded = xz.blocks[base].unpaddedSize
                 }
-                metas.append(Metadata(Encoded(bytes: Data(), crc: chunkCRC, headerSize: header,
+                result.metas.append(Metadata(Encoded(bytes: Data(), crc: chunkCRC, headerSize: header,
                     payloadSize: payload, unpaddedSize: unpadded, seconds: 0), length: chunk.compressedRange.byteLength))
             } else {
-                reencoded += part.image.byteLength; old += image.oldBytes(in: part.image)
-                metas.append(metadata[index]!)
+                result.reencoded += part.image.byteLength; result.old += image.oldBytes(in: part.image)
+                result.metas.append(metadata[index]!)
             }
         }
+        return result
+    }
+
+    /// 全 part の CRC を結合して stream の CRC を確定し、gzip の trailer / xz の Index + footer を expectedTail に置く。
+    private func prepareTail(metas: [Metadata], plan: CompressedTarSplicePlan, image: TarImageSource) throws {
         var records = Data()
         for (index, part) in plan.parts.enumerated() {
             crc = GzipFraming.combineCRC(crc, metas[index].crc, length: part.image.byteLength)
@@ -145,23 +186,21 @@ final class CompressedTarSpliceOutput {
         if format == .tarXZ {
             try XZFraming.emitIndexAndFooter(records: records, blockCount: UInt64(plan.parts.count)) { expectedTail.append($0) }
         }
-        let verification = CompressedTarSelfCheck.units(format: format, metas: metas, encoded: plan.parts.map { $0.reused == nil }, tail: expectedTail.count)
-        let meter = CommitProgressMeter(total: try checkedAdd(try checkedAdd(reencoded, carried), verification), progress: progress)
-        try meter.start()
-        try create()
+    }
+
+    /// framing header に続けて part を順に書く。運ぶ chunk は原本から copy し、橋は cache か再符号化の結果を置く。
+    /// cache の橋は書いた時点で取り除いて解放する。parts / segments / payloadEnd を記録し、まだ flush していない engine を返す。
+    private func writeParts(plan: CompressedTarSplicePlan, image: TarImageSource, metas: [Metadata],
+                            cache: inout [Int: Encoded], meter: CommitProgressMeter) throws -> ZipCopyEngine {
         var engine = ZipCopyEngine(descriptor: file.descriptor, totalBytes: 0)
         var cursor: UInt64 = 0
         let header = format == .tarGzip ? GzipFraming.header(level: options.deflateLevel) : format == .tarXZ ? XZFraming.streamHeader : Data()
         try engine.append(header, at: cursor, progress: nil); cursor += UInt64(header.count)
-        let pipeline = OrderedChunkPipeline<Input, Encoded, Int>(threads: threads, lightWeightLimit: lightWeightLimit) {
-            try Self.encode($0, format: format, options: options)
-        }
+        let pipeline = makePipeline()
         var dropped = false
-        let emit: (Int, Encoded?) throws -> Void = { index, value in
+        func emit(_ index: Int, _ value: Encoded?) throws {
             let part = plan.parts[index], meta = metas[index]
-            let dropBzip = format == .tarBzip2 && CompressedTarUpdater.testingFault == .dropBzip2Stream && !dropped && part.reused != nil
-            let dropXZ = format == .tarXZ && CompressedTarUpdater.testingFault == .dropXZBlock && index == plan.parts.count - 1
-            if dropBzip || dropXZ { dropped = true; return }
+            if self.shouldDrop(part: part, index: index, of: plan.parts.count, alreadyDropped: dropped) { dropped = true; return }
             let start = cursor
             if let base = part.reused {
                 try CompressedTarUpdater.testingStage?(.copying)
@@ -194,32 +233,16 @@ final class CompressedTarSpliceOutput {
         }
         try pipeline.finish(emit: emit)
         payloadEnd = cursor
+        return engine
+    }
+
+    /// 試験用の故障を反映した tail を書いて flush し、finalLength を確定する。
+    private func writeTail(image: TarImageSource, engine: inout ZipCopyEngine) throws {
         var tail = expectedTail
-        if format == .tarXZ, CompressedTarUpdater.testingFault == .dropXZBlock || CompressedTarUpdater.testingFault == .xzIndexLength {
-            var changed = Data()
-            for (index, part) in parts.enumerated() {
-                changed.append(XZFraming.vli(part.meta.unpaddedSize))
-                changed.append(XZFraming.vli(part.image.byteLength + (CompressedTarUpdater.testingFault == .xzIndexLength && index == 0 ? 512 : 0)))
-            }
-            tail = Data()
-            try XZFraming.emitIndexAndFooter(records: changed, blockCount: UInt64(parts.count)) { tail.append($0) }
-        }
-        if format == .tarGzip, CompressedTarUpdater.testingFault == .trailerCRC {
-            tail = GzipFraming.trailer(crc: crc &+ 1, imageLength: image.length)
-        }
-        try engine.append(tail, at: cursor, progress: nil); cursor += UInt64(tail.count)
+        try applyTestingFaults(to: &tail, image: image)
+        try engine.append(tail, at: payloadEnd, progress: nil)
         try engine.flush(progress: nil)
-        finalLength = cursor
-        try injectFault()
-        try file.synchronize()
-        guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
-        let checkStart = ProcessInfo.processInfo.systemUptime
-        if !CompressedTarUpdater.testingSkipsSelfCheck {
-            try CompressedTarSelfCheck.verify(writer: self, image: image, plan: plan, descriptor: file.descriptor, meter: meter)
-        }
-        checkingSeconds = ProcessInfo.processInfo.systemUptime - checkStart
-        let strategy: CompressedTarStrategy = plan.reason.map { .fullEncode($0) } ?? .splice(carriedChunks: carriedCount, reencodedChunks: encodedCount)
-        return try finish(strategy: strategy, reencoded: reencoded, old: old, carried: carried, meter: meter)
+        finalLength = payloadEnd + UInt64(tail.count)
     }
 
     private func appendSegment(_ segment: CompressedTarOutputSegment) {
@@ -300,6 +323,32 @@ final class CompressedTarSpliceOutput {
         while try TarLayout.bytes(snapshot.archive, at: end - 4, count: 4) == Data(count: 4) { end -= 4 }
         let footer = try TarLayout.bytes(snapshot.archive, at: end - 12, count: 12)
         return 12..<(end - 12 - (UInt64(footer.zip32(4)) + 1) * 4)
+    }
+
+    /// 試験用。bzip2 は最初に運ぶ stream を一つ、xz は最後の block を書かずに飛ばし、自己照合と K5 が拒否することを確かめる。
+    private func shouldDrop(part: CompressedTarSplicePlan.Part, index: Int, of count: Int, alreadyDropped: Bool) -> Bool {
+        switch CompressedTarUpdater.testingFault {
+        case .dropBzip2Stream: return format == .tarBzip2 && !alreadyDropped && part.reused != nil
+        case .dropXZBlock: return format == .tarXZ && index == count - 1
+        default: return false
+        }
+    }
+
+    /// 試験用。xz は書いた parts から Index を作り直し（xzIndexLength は先頭 record の長さを 512 ずらす）、gzip は trailer の CRC を壊す。
+    private func applyTestingFaults(to tail: inout Data, image: TarImageSource) throws {
+        let fault = CompressedTarUpdater.testingFault
+        if format == .tarXZ, fault == .dropXZBlock || fault == .xzIndexLength {
+            var changed = Data()
+            for (index, part) in parts.enumerated() {
+                changed.append(XZFraming.vli(part.meta.unpaddedSize))
+                changed.append(XZFraming.vli(part.image.byteLength + (fault == .xzIndexLength && index == 0 ? 512 : 0)))
+            }
+            tail = Data()
+            try XZFraming.emitIndexAndFooter(records: changed, blockCount: UInt64(parts.count)) { tail.append($0) }
+        }
+        if format == .tarGzip, fault == .trailerCRC {
+            tail = GzipFraming.trailer(crc: crc &+ 1, imageLength: image.length)
+        }
     }
 
     private func injectFault() throws {
