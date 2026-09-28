@@ -3,17 +3,6 @@ import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 
-struct TarMemorySource: ByteSource {
-    let data: Data
-    var length: UInt64 { UInt64(data.count) }
-    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
-        guard offset < length else { return 0 }
-        let count = min(buffer.count, data.count - Int(offset))
-        data.withUnsafeBytes { buffer.baseAddress!.copyMemory(from: $0.baseAddress!.advanced(by: Int(offset)), byteCount: count) }
-        return count
-    }
-}
-
 final class TarHeaderRewriteTests: XCTestCase {
     func testWriterGroupsMatchExactlyAcrossPaxFieldsAndNameBoundaries() throws {
         let names = ["short", String(repeating: "a", count: 100), String(repeating: "a", count: 101),

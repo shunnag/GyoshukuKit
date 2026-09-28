@@ -176,3 +176,34 @@ enum CompressedTarTestSupport {
         return result
     }
 }
+
+/// thread 数と全体の再符号化の有無によらず、同じ編集が同じ byte 列になることを確かめる。
+enum CompressedTarDeterminism {
+    static func run(_ format: GyoshukuKit.ArchiveFormat) throws {
+        let root = try TestSupport.directory("p3-determinism-\(format)")
+        let source = try CompressedTarTestSupport.fixture(root, format)
+        var expected: Data?
+        for threads in [1, 4, 8] {
+            for force in [false, true] {
+                let output = root.appendingPathComponent("out-\(threads)-\(force)")
+                _ = try CompressedTarTestSupport.edit(source, format: format, output: output,
+                    options: .init(compressionThreads: threads), force: force) { try $0.rename(entryAt: 0, to: "large-C") }
+                let bytes = try Data(contentsOf: output)
+                if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
+            }
+        }
+        for operation in ["append", "delete"] {
+            var sizes: [UInt64] = []
+            for force in [false, true] {
+                let output = root.appendingPathComponent("size-\(operation)-\(force)")
+                let result = try CompressedTarTestSupport.edit(source, format: format, output: output, force: force) {
+                    if operation == "delete" { try $0.remove(entriesAt: [0]) }
+                    else { try $0.add(data: Data(repeating: 65, count: 4096), as: "added", modificationDate: TestSupport.date, permissions: nil) }
+                }
+                sizes.append(result.output.size)
+            }
+            XCTAssertLessThanOrEqual(abs(Double(sizes[0]) - Double(sizes[1])), 4096 + Double(sizes[1]) * 0.0005)
+            TestSupport.report("TAR-SIZE \(format)\t\(operation)\tsplice=\(sizes[0])\tfull=\(sizes[1])")
+        }
+    }
+}

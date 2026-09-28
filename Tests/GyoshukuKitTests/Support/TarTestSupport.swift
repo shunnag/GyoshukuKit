@@ -168,3 +168,15 @@ struct TarBytes {
         XCTAssertEqual(header[257..<265], Data("ustar\000".utf8))
     }
 }
+
+/// test が組み立てた tar の byte 列をそのまま読ませる ByteSource。
+struct TarMemorySource: ByteSource {
+    let data: Data
+    var length: UInt64 { UInt64(data.count) }
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        guard offset < length else { return 0 }
+        let count = min(buffer.count, data.count - Int(offset))
+        data.withUnsafeBytes { buffer.baseAddress!.copyMemory(from: $0.baseAddress!.advanced(by: Int(offset)), byteCount: count) }
+        return count
+    }
+}
