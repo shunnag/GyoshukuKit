@@ -35,6 +35,30 @@ GyoshukuKit 0.6.0 は KaitoKit 0.11.x に依存する。`@_spi` は SemVer の�
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
+### 2.1 ソースの配置(2026-09-28)
+
+`Sources/GyoshukuKit/` は役割ごとの階層にする。SwiftPM は階層を見ないので `Package.swift` は変えない。
+file 名は中の主な型の名前に合わせ、`Records` / `Layout` / `EditPlan` / `Updater` / `Writer` / `SelfCheck` の
+語を形式をまたいで同じ意味で使う。
+
+| directory | 内容 |
+| --- | --- |
+| `API/` | 公開の形式・設定・error(`ArchiveEditing`、`ArchiveFormat`、`WriterOptions`、`WriterError`、`UpdaterError`、`UpdaterRouteError`) |
+| `Writer/` | 新規作成の facade `ArchiveWriter`(形式ごとの writer への振り分け)と、ディスク側の先読み・署名 |
+| `Editing/` | 全 updater と rewriter が共有する層(`ArchiveRewriter`、`ArchiveRepresentability`、`EntryEditLedger`、`EditPathReservations`、`ArchiveFileSource`、`CommitProgressMeter`、`EntryStream` の読取) |
+| `SplicedOutput/` | 形式中立の出力 engine(`SplicedArchiveOutput`、`SplicedCommitPlan`、`OwnedOutputFile`、`ArchiveSourceSnapshot`、`ArchiveOwnedFile` / `FileIdentity`) |
+| `Zip/`、`Zip/Update/` | ZIP の record 表・`ZipWriter`・暗号化と、`ArchiveUpdater` の編集経路(layout の門番、中央 directory、rebuild、再暗号化、copy engine、自己照合) |
+| `Tar/`、`CompressedTar/`、`SevenZip/`、`LHA/` | 形式ごとの Records / Layout / EditPlan / Updater / Writer / SelfCheck |
+| `Compression/` | byte を圧縮 byte にする codec と framing(`DeflateBlock`、`OrderedChunkPipeline`、`GzipFraming`、`XZFraming`、`LH5Encoder`、…)。hot path。命名・comment・定数以外は触らない |
+| `Support/` | 書庫を知らない補助(`checkedAdd`、`Range<UInt64>.byteLength`、`updateCRC`、little-endian の `Data` 拡張、`IOChunk.size`、`FileMode`、`FileRead`、`EncryptionPrimitives`) |
+
+圧縮 tar の経路(`TarEditPlan → TarImageSource(+TarSpliceStorage)→ CompressedTarSplicePlan →
+CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify`)は `SplicedArchiveOutput` を使わず、
+出力 inode の所有だけを `OwnedOutputFile` で共有する。
+
+試験の継ぎ目は `@TaskLocal static var testing*`(試験だけが設定する)と `*Observer`(本番も設定しうる観測点)で
+名前を分ける。`CommitStrategy` と `lastCommitStrategy` は四つの updater で同じ `@_spi(Testing)` の形にする。
+
 ## 3. API の形
 
 KaitoKit の `ArchiveReader` と対称にする。
@@ -111,8 +135,8 @@ rewriter もこの経路を使う。1 は従来の同期処理、2 以上では 
 
 `add` の後に符号化が残る場合、失敗・取消しは後続の add / finish / internal の endMembers で通知し、
 従来の abort で出力を削除する。大きい member の前と終了時に member の pipeline を drain する。
-internal の `endLHAMembers()` は終端・fsync・close なしで追加の終わりを返す。
-`recordsMembers` を有効にしたときだけ、実際の出力時点の header 絶対位置・header/data 長・method と
+internal の `endAppendedMembers()`（tar と共通）は終端・fsync・close なしで追加の終わりを返す。
+init の `recordsMembers` を有効にしたとき（updater が使う `ArchiveWriter.lhaAppend` は常に有効）だけ、実際の出力時点の header 絶対位置・header/data 長・method と
 canonical な名前の byte（directory の 0xFF を `/` に変換し filename を連結）を保存する。
 LHAUpdater はこの追加 writer を既存の `SplicedArchiveOutput` と組み合わせる。
 
@@ -143,7 +167,8 @@ MacBinary envelope のある `m` member、symlink、pm2、表せない名前な�
 `UpdaterRouteError` は `requiresRewrite` と `outputVerificationFailed` の二つだけを持ち、
 `TarUpdaterError` はその typealias として既存の catch を保つ。
 
-予約は `EditPathReservations` を使う。index と entryNames は open 時のままで、削除後に同名の追加ができる。
+削除・改名と名前の予約は `EntryEditLedger`（内部で `EditPathReservations`）を使い、tar・圧縮 tar・7z の updater と
+`ArchiveRewriter` も同じ台帳を使う。index と entryNames は open 時のままで、削除後に同名の追加ができる。
 root `.` は予約名が空でも運び、正規化後に同じ名前へ改名した member の byte は保つ。
 違う名前への改名時点で `LHARecords.Entry` の header を作り、失敗は transaction 全体を失敗にする。
 改名しない member は header・payload・名前の raw byte・時刻・拡張をそのまま運ぶ。
