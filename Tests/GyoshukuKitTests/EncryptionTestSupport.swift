@@ -50,36 +50,16 @@ enum EncryptionTestSupport {
     // 失敗 oracle も実行し、password prompt は EOF で終了させる。失敗を skip しない。
     @discardableResult
     static func run(_ arguments: [String], archive: URL, log: String, success: Bool = true,
-                    tool: String = SevenZipTestSupport.tool) throws -> String {
-        guard FileManager.default.isExecutableFile(atPath: tool) else {
-            XCTFail("Required reference tool missing: \(tool)")
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let logURL = archive.deletingLastPathComponent().appendingPathComponent(log + ".log")
-        XCTAssertTrue(FileManager.default.createFile(atPath: logURL.path, contents: nil))
-        let handle = try FileHandle(forWritingTo: logURL)
-        defer { try? handle.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = handle
-        process.standardError = handle
-        var environment = ProcessInfo.processInfo.environment
-        environment["LC_ALL"] = "en_US.UTF-8"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        let text = String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+                    tool: String = ReferenceTool.sevenZip) throws -> String {
+        let output = try ReferenceTool.run(tool, arguments, in: archive.deletingLastPathComponent(), log: log,
+                                           expect: success ? .success : .failure, stdin: .nullDevice)
+        let text = output.utf8Text
         if success {
-            XCTAssertEqual(process.terminationStatus, 0, text)
             for marker in ["headers error", "warning", "errors:"] {
                 XCTAssertFalse(text.lowercased().contains(marker), text)
             }
-        } else {
-            XCTAssertNotEqual(process.terminationStatus, 0, text)
         }
-        ZipTestSupport.report("ENCRYPTION REFERENCE \(log): exit \(process.terminationStatus)")
+        ZipTestSupport.report("ENCRYPTION REFERENCE \(log): exit \(output.status)")
         return text
     }
 

@@ -133,7 +133,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     }
 
     func testTarXZBlockCountAndChecksWithXZ() throws {
-        let xz = try XCTUnwrap(try tool(["/opt/homebrew/bin/xz", "/usr/local/bin/xz", "/usr/bin/xz"]))
+        let xz = try ReferenceTool.firstAvailable([ReferenceTool.xz, "/usr/local/bin/xz", "/usr/bin/xz"])
         let directory = try ZipTestSupport.directory("parallel-xz-xz-tool")
         let url = try tarXZ(in: directory)
         try ZipTestSupport.run(xz, ["-t", url.path], in: directory, log: "xz-test")
@@ -145,7 +145,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     }
 
     func testTarXZMembersWithBSDTar() throws {
-        let tar = try XCTUnwrap(try tool(["/usr/bin/tar", "/opt/homebrew/bin/bsdtar"]))
+        let tar = try ReferenceTool.firstAvailable([ReferenceTool.tar, "/opt/homebrew/bin/bsdtar"])
         let directory = try ZipTestSupport.directory("parallel-xz-bsdtar")
         let url = try tarXZ(in: directory)
         let listing = try ZipTestSupport.run(tar, ["-tf", url.path], in: directory, log: "bsdtar-list")
@@ -153,7 +153,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     }
 
     func testTarXZChecksWithSevenZip() throws {
-        let seven = try XCTUnwrap(try tool([SevenZipTestSupport.tool, "/usr/local/bin/7zz"]))
+        let seven = try ReferenceTool.firstAvailable([ReferenceTool.sevenZip, "/usr/local/bin/7zz"])
         let directory = try ZipTestSupport.directory("parallel-xz-7zz")
         let url = try tarXZ(in: directory)
         let output = try ZipTestSupport.run(seven, ["t", url.path], in: directory, log: "7zz-test")
@@ -169,7 +169,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         XCTAssertEqual(bytes.count, 32)
         XCTAssertEqual(bytes[12..<16], Data(repeating: 0, count: 4))
         try bytes.write(to: url)
-        let xz = try XCTUnwrap(try tool(["/opt/homebrew/bin/xz", "/usr/local/bin/xz", "/usr/bin/xz"]))
+        let xz = try ReferenceTool.firstAvailable([ReferenceTool.xz, "/usr/local/bin/xz", "/usr/bin/xz"])
         try ZipTestSupport.run(xz, ["-t", url.path], in: directory, log: "xz-test")
         let listing = try ZipTestSupport.run(xz, ["-l", "--robot", url.path], in: directory, log: "xz-list")
         XCTAssertTrue(listing.contains("file\t1\t0\t"), listing)
@@ -291,12 +291,5 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         }
         let header = try SevenZipRecords.header(entries)
         return SevenZipRecords.signature(packedSize: UInt64(payload.count), header: header) + payload + header
-    }
-
-    private func tool(_ candidates: [String]) throws -> String? {
-        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw XCTSkip("Reference tool missing: \(candidates.joined(separator: ", "))")
-        }
-        return executable
     }
 }

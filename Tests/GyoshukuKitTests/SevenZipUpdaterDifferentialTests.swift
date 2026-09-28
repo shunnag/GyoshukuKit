@@ -22,7 +22,7 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
                 let count = 10 + random(191)
                 let password: String? = iteration % 3 == 0 ? nil : "secret"
                 let headers = iteration % 3 == 2
-                let external = iteration % 6 >= 3 && FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz")
+                let external = iteration % 6 >= 3 && FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip)
                 let input = work.appendingPathComponent("input")
                 if external { try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true) }
                 let writer = try external ? nil : ArchiveWriter.create(url: source, format: .sevenZip,
@@ -40,17 +40,10 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
                 expected.append(.init(name: "dir/", kind: .directory, data: Data()))
                 if external {
                     let solid = ["on", "16k", "off"][iteration % 3]
-                    let log = work.appendingPathComponent("7zz-create.log")
-                    FileManager.default.createFile(atPath: log.path, contents: nil)
-                    let handle = try FileHandle(forWritingTo: log), process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/7zz")
-                    process.currentDirectoryURL = input
-                    process.arguments = ["a", "-t7z", "-mx=1", "-mmt=1", "-ms=" + solid]
+                    let arguments = ["a", "-t7z", "-mx=1", "-mmt=1", "-ms=" + solid]
                         + (password.map { ["-p" + $0] } ?? []) + (headers ? ["-mhe=on"] : []) + [source.path, "."]
-                    process.standardOutput = handle; process.standardError = handle
-                    try process.run(); process.waitUntilExit(); try handle.close()
-                    let diagnostic = try String(contentsOf: log, encoding: .utf8)
-                    XCTAssertEqual(process.terminationStatus, 0, diagnostic)
+                    try ReferenceTool.run(ReferenceTool.sevenZip, arguments, in: work, log: "7zz-create",
+                                          environment: [:], workingDirectory: input)
                 } else { try writer!.finish() }
                 let before = try SevenZipEditSupport.reader(source, password: password)
                 let old = try XCTUnwrap(SevenZipEditModel.read(before))

@@ -161,7 +161,7 @@ final class TarUpdaterLargeMemberTests: XCTestCase {
             XCTAssertEqual(result.member(0).storedSize, size)
             XCTAssertEqual(reader.entries[0].kind, .file)
             if operation == 3 { XCTAssertEqual(reader.entries[0].name, "link") }
-            try ZipTestSupport.run("/usr/bin/bsdtar", ["-tvf", output.path], in: root, log: "large-\(operation)")
+            try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: "large-\(operation)")
             try FileManager.default.removeItem(at: output)
         }
     }

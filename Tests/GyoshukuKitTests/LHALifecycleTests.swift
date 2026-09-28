@@ -145,9 +145,9 @@ final class LHALifecycleTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: alias).count, 0)
         XCTAssertThrowsError(try ArchiveReader.open(url: url))
         XCTAssertThrowsError(try ArchiveReader.open(url: alias))
-        let lhasa = try LHATestSupport.run(LHATestSupport.lhasa, ["t", url.path], in: directory, log: "lha-cancelled")
+        let lhasa = try LHATestSupport.run(ReferenceTool.lhasa, ["t", url.path], in: directory, log: "lha-cancelled")
         XCTAssertTrue(lhasa.text.contains("No such file or directory"), lhasa.text)
-        let seven = try LHATestSupport.run(LHATestSupport.sevenZip, ["t", alias.path], in: directory, log: "7zz-cancelled-alias")
+        let seven = try LHATestSupport.run(ReferenceTool.sevenZip, ["t", alias.path], in: directory, log: "7zz-cancelled-alias")
         XCTAssertTrue(seven.text.contains("Cannot open the file as archive"), seven.text)
         XCTAssertFalse(seven.text.contains("Everything is Ok"), seven.text)
     }

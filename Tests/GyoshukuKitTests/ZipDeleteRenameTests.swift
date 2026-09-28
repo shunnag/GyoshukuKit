@@ -297,7 +297,7 @@ final class ZipDeleteRenameTests: XCTestCase {
             try FileManager.default.setAttributes([.modificationDate: date, .posixPermissions: 0o640], ofItemAtPath: url.path)
         }
         let url = directory.appendingPathComponent("archive.zip")
-        try ZipTestSupport.run("/usr/bin/ditto", ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "ditto-create")
+        try ZipTestSupport.run(ReferenceTool.ditto, ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "ditto-create")
         let before = try Snapshot(url)
         XCTAssertEqual(before.entries.count, 3)
         XCTAssertTrue(before.records.allSatisfy { $0.formatSpecific["hasDataDescriptor"] == "true" })
@@ -332,8 +332,8 @@ final class ZipDeleteRenameTests: XCTestCase {
             records+=local
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,3,3,len(cd),len(records),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
         let before = try Snapshot(url)
         XCTAssertEqual(before.entries.map(\.name), ["削除.txt", "日本語.txt", "保存.txt"])
         let updater = try ArchiveUpdater.open(url: url)
@@ -353,7 +353,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url).count, 22)
         let directory = url.deletingLastPathComponent()
         let oracle = directory.appendingPathComponent("python-empty.zip")
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", "import sys,zipfile; zipfile.ZipFile(sys.argv[1],'w').close()", oracle.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", "import sys,zipfile; zipfile.ZipFile(sys.argv[1],'w').close()", oracle.path], in: directory, log: "python-create")
         XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: oracle))
         try ZipTestSupport.verify(url, expected: [])
     }
@@ -563,7 +563,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         cd=p('IHHHHHHIIIHHHHHII',0x02014b50,0x0314,20,0,0,0,0x21,crc,len(data),len(data),len(name),len(cx),len(comment),0,1,0o100751<<16,0)+name+cx+comment
         open(sys.argv[1],'wb').write(local+cd+p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         // CP932 の旧名 10 byte に対し UTF-8 の新名も 10 byte。

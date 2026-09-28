@@ -4,9 +4,6 @@ import XCTest
 @testable import GyoshukuKit
 
 enum LHATestSupport {
-    static let lhasa = "/opt/homebrew/bin/lha"
-    static let sevenZip = "/opt/homebrew/bin/7zz"
-
     struct Expected {
         let name: String
         var data = Data()
@@ -15,43 +12,16 @@ enum LHATestSupport {
         var date: Date? = ZipTestSupport.date
     }
 
-    struct Output {
-        let bytes: Data
-        let status: Int32
-        var text: String {
-            String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .shiftJIS)
-                ?? String(decoding: bytes, as: UTF8.self)
-        }
-    }
-
+    /// Lhasa または 7-Zip を `directory` で起動する。終了値は `clean` か呼び出し側が確かめる。
     @discardableResult
-    static func run(_ tool: String, _ arguments: [String], in directory: URL, log: String) throws -> Output {
-        guard FileManager.default.isExecutableFile(atPath: tool) else {
-            XCTFail("Required independent decoder missing: \(tool)")
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let logURL = directory.appendingPathComponent(log + ".log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        let output = try FileHandle(forWritingTo: logURL)
-        defer { try? output.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.standardOutput = output
-        process.standardError = output
-        var environment = ProcessInfo.processInfo.environment
-        environment["LC_ALL"] = "en_US.UTF-8"
-        environment["TZ"] = "UTC"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        let result = Output(bytes: try Data(contentsOf: logURL), status: process.terminationStatus)
+    static func run(_ tool: String, _ arguments: [String], in directory: URL, log: String) throws -> ReferenceTool.Output {
+        let result = try ReferenceTool.run(tool, arguments, in: directory, log: log, expect: .unchecked,
+                                           environment: ReferenceTool.englishUTF8InUTC, workingDirectory: directory)
         ZipTestSupport.report("LHA DECODER \(directory.lastPathComponent)/\(log): exit \(result.status)\n\(result.text.suffix(700))")
         return result
     }
 
-    static func clean(_ output: Output, sevenZip: Bool = false) {
+    static func clean(_ output: ReferenceTool.Output, sevenZip: Bool = false) {
         XCTAssertEqual(output.status, 0, output.text)
         for marker in ["warning", "error", "failed", "corrupt"] {
             XCTAssertFalse(output.text.lowercased().contains(marker), output.text)
@@ -63,18 +33,18 @@ enum LHATestSupport {
         let directory = archive.deletingLastPathComponent()
         let selected = externalNames ?? []
         let externalItems = expected.filter { externalNames == nil || selected.contains($0.name) }
-        let listing = try run(lhasa, ["l", archive.path] + selected, in: directory, log: "lha-l")
+        let listing = try run(ReferenceTool.lhasa, ["l", archive.path] + selected, in: directory, log: "lha-l")
         clean(listing)
-        let verbose = try run(lhasa, ["vv", archive.path] + selected, in: directory, log: "lha-vv")
+        let verbose = try run(ReferenceTool.lhasa, ["vv", archive.path] + selected, in: directory, log: "lha-vv")
         clean(verbose)
-        let test = try run(lhasa, ["t", archive.path] + selected, in: directory, log: "lha-t")
+        let test = try run(ReferenceTool.lhasa, ["t", archive.path] + selected, in: directory, log: "lha-t")
         clean(test)
         // Lhasa の成功表示は "Tested"。終了値 0 でも全 member を読み飛ばすことがあるため、各行を照合する。
         let tested = test.text.components(separatedBy: "\r").filter { $0.contains("- Tested") }
         XCTAssertEqual(tested.count, externalItems.filter { $0.kind == .file }.count, test.text)
-        let sevenTest = try run(sevenZip, ["t", archive.path] + selected, in: directory, log: "7zz-t")
+        let sevenTest = try run(ReferenceTool.sevenZip, ["t", archive.path] + selected, in: directory, log: "7zz-t")
         clean(sevenTest, sevenZip: true)
-        let sevenList = try run(sevenZip, ["l", "-slt", archive.path] + selected, in: directory, log: "7zz-l-slt")
+        let sevenList = try run(ReferenceTool.sevenZip, ["l", "-slt", archive.path] + selected, in: directory, log: "7zz-l-slt")
         clean(sevenList)
         let listed = SevenZipTestSupport.listingEntries(sevenList.text)
         XCTAssertEqual(listed.map { $0["Path"] ?? "" }, externalItems.map {
@@ -84,8 +54,8 @@ enum LHATestSupport {
         let lhaExtracted = directory.appendingPathComponent("lha-extracted")
         let sevenExtracted = directory.appendingPathComponent("7zz-extracted")
         try FileManager.default.createDirectory(at: lhaExtracted, withIntermediateDirectories: true)
-        clean(try run(lhasa, ["xw=" + lhaExtracted.path, archive.path] + selected, in: directory, log: "lha-x"))
-        clean(try run(sevenZip, ["x", "-y", "-o" + sevenExtracted.path, archive.path] + selected, in: directory, log: "7zz-x"), sevenZip: true)
+        clean(try run(ReferenceTool.lhasa, ["xw=" + lhaExtracted.path, archive.path] + selected, in: directory, log: "lha-x"))
+        clean(try run(ReferenceTool.sevenZip, ["x", "-y", "-o" + sevenExtracted.path, archive.path] + selected, in: directory, log: "7zz-x"), sevenZip: true)
         let reader = try ArchiveReader.open(url: archive)
         XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
         let dateFormat = DateFormatter()

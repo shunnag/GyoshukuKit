@@ -122,7 +122,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             records+=local
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,3,3,len(cd),len(records),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
         let before = try Data(contentsOf: url)
         let reader = try ArchiveReader.open(url: url)
         let records = try reader.entries.map { try XCTUnwrap(reader.rawRecord(of: $0)) }
@@ -186,7 +186,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             XCTAssertTrue(reason.contains("KaitoKit 0.4.0"))
             ZipTestSupport.report("REFUSAL \(reason)")
         }
-        try ZipTestSupport.run("/usr/bin/cmp", [url.path, backup.path], in: directory, log: "original-cmp")
+        try ZipTestSupport.run(ReferenceTool.cmp, [url.path, backup.path], in: directory, log: "original-cmp")
         XCTAssertThrowsError(try updater.commit())
         try FileManager.default.removeItem(at: url)
         try FileManager.default.removeItem(at: backup)
@@ -215,7 +215,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             f.write(p('IHHHHIIH',0x06054b50,0,0,2,2,len(cd),0xffffffff,0))
         print('sparse fixture: tail offset=%d, stored payload=%d, CRC=%08x'%(offset,size,crc))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, String(descriptor)], in: url.deletingLastPathComponent(), log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path, String(descriptor)], in: url.deletingLastPathComponent(), log: "python-create")
     }
 
     func testLocalOffsetCrosses4GiBThenDropsAfterDeletion() throws {
@@ -256,13 +256,13 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         let oldSource = try before.read(tail)
         XCTAssertEqual(try result.read(result.entries[1]), oldSource)
         XCTAssertEqual(rawTail.recordRange.lowerBound, extras.zip64(4))
-        XCTAssertTrue(try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path], in: directory, log: "unzip-t").contains("No errors detected"))
-        try ZipTestSupport.run("/usr/bin/unzip", ["-l", url.path], in: directory, log: "unzip-l")
-        XCTAssertTrue(try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", url.path], in: directory, log: "7zz-t").contains("Everything is Ok"))
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", "-slt", url.path], in: directory, log: "7zz-l")
+        XCTAssertTrue(try ZipTestSupport.run(ReferenceTool.unzip, ["-t", url.path], in: directory, log: "unzip-t").contains("No errors detected"))
+        try ZipTestSupport.run(ReferenceTool.unzip, ["-l", url.path], in: directory, log: "unzip-l")
+        XCTAssertTrue(try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", url.path], in: directory, log: "7zz-t").contains("Everything is Ok"))
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", url.path], in: directory, log: "7zz-l")
         let extracted = directory.appendingPathComponent("ditto")
-        try ZipTestSupport.run("/usr/bin/ditto", ["-x", "-k", url.path, extracted.path], in: directory, log: "ditto-x")
-        try ZipTestSupport.run("/usr/bin/tar", ["-tf", url.path], in: directory, log: "bsdtar-t")
+        try ZipTestSupport.run(ReferenceTool.ditto, ["-x", "-k", url.path, extracted.path], in: directory, log: "ditto-x")
+        try ZipTestSupport.run(ReferenceTool.tar, ["-tf", url.path], in: directory, log: "bsdtar-t")
         let stream = try result.stream(result.entries[0])
         let disk = try FileHandle(forReadingFrom: extracted.appendingPathComponent("longer-first-name"))
         defer { try? disk.close() }

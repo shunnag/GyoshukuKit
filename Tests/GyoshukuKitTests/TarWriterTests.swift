@@ -136,7 +136,7 @@ final class TarWriterTests: XCTestCase {
         let url = directory.appendingPathComponent("header-only.tar")
         try TarRecords.Entry(name: Data("large".utf8), size: 8_589_934_592).headers().write(to: url)
         let script = "import tarfile,sys; t=tarfile.open(sys.argv[1]); m=t.next(); print(m.name,m.size,m.pax_headers['size']); t.close()"
-        let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-large-header")
+        let output = try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-large-header")
         XCTAssertEqual(output, "large 8589934592 8589934592\n")
         ZipTestSupport.report("TAR SIZE OVERFLOW: 8 GiB header constructed directly; no 8 GiB payload was written")
     }
@@ -231,8 +231,8 @@ final class TarWriterTests: XCTestCase {
             try payload.write(to: source)
             let key = "com.gyoshukukit.fixture"
             let value = "PRIVATE-XATTR-SENTINEL-4937"
-            XCTAssertEqual(try ZipTestSupport.run("/usr/bin/xattr", ["-w", key, value, source.path], in: directory, log: "xattr-write"), "")
-            XCTAssertEqual(try ZipTestSupport.run("/usr/bin/xattr", ["-p", key, source.path], in: directory, log: "xattr-read"), value + "\n")
+            XCTAssertEqual(try ZipTestSupport.run(ReferenceTool.xattr, ["-w", key, value, source.path], in: directory, log: "xattr-write"), "")
+            XCTAssertEqual(try ZipTestSupport.run(ReferenceTool.xattr, ["-p", key, source.path], in: directory, log: "xattr-read"), value + "\n")
             try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date, .posixPermissions: 0o644], ofItemAtPath: source.path)
             let suffix = format == .tar ? "tar" : format == .tarGzip ? "tar.gz" : format == .tarBzip2 ? "tar.bz2" : "tar.xz"
             let url = directory.appendingPathComponent("archive." + suffix)
@@ -242,13 +242,13 @@ final class TarWriterTests: XCTestCase {
             try TarTestSupport.verify(url, expected: [.init(name: "file", data: payload)], gzip: format == .tarGzip)
             let script = "import bz2,gzip,lzma,sys; p=sys.argv[1]; reader=gzip.open if p.endswith('.gz') else bz2.open if p.endswith('.bz2') else lzma.open if p.endswith('.xz') else open; b=reader(p,'rb').read(); open(sys.argv[2],'wb').write(b); print(len(b))"
             let rawURL = directory.appendingPathComponent("raw.tar")
-            let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, rawURL.path], in: directory, log: "python-raw")
+            let output = try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path, rawURL.path], in: directory, log: "python-raw")
             let raw = try Data(contentsOf: rawURL)
             XCTAssertEqual(output, "\(raw.count)\n")
             let bytes = try TarBytes(raw)
             XCTAssertEqual(bytes.records.map { String(decoding: $0.name, as: UTF8.self) }, ["file"])
             for marker in ["._", "SCHILY.xattr", key, value] { XCTAssertNil(raw.range(of: Data(marker.utf8))) }
-            let restored = try ZipTestSupport.run("/usr/bin/xattr", ["-l", directory.appendingPathComponent("extracted/file").path], in: directory, log: "xattr-restored")
+            let restored = try ZipTestSupport.run(ReferenceTool.xattr, ["-l", directory.appendingPathComponent("extracted/file").path], in: directory, log: "xattr-restored")
             XCTAssertFalse(restored.contains(key), restored)
             XCTAssertFalse(restored.contains(value), restored)
         }

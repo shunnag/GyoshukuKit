@@ -65,8 +65,8 @@ final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
                 }
                 XCTAssertEqual(read, length)
             }
-            if FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") {
-                try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", "-y", output.path], in: root, log: "7zz-" + operation)
+            if FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) {
+                try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", "-y", output.path], in: root, log: "7zz-" + operation)
             }
         }
     }

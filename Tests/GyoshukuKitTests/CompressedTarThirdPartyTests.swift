@@ -30,7 +30,7 @@ final class CompressedTarThirdPartyTests: XCTestCase {
         for kind in ["gzip", "bsdtar", "bzip2", "xz", "xz-blocks", "bz-streams", "sync", "gzip-members", "xz-padding"] {
             let format: GyoshukuKit.ArchiveFormat = kind.hasPrefix("xz") ? .tarXZ : kind.hasPrefix("bz") ? .tarBzip2 : .tarGzip
             let source = root.appendingPathComponent(kind + "." + TarP2Support.suffix(format))
-            try ZipTestSupport.run("/usr/bin/python3", ["-c", script, raw.path, source.path, kind], in: root, log: "make-\(kind)")
+            try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, raw.path, source.path, kind], in: root, log: "make-\(kind)")
             let unchanged = root.appendingPathComponent("unchanged-\(kind)." + TarP2Support.suffix(format))
             let copied = try CompressedTarTestSupport.edit(source, format: format, output: unchanged) { _ in }
             XCTAssertEqual(copied.strategy, .unchanged)
@@ -72,10 +72,10 @@ final class CompressedTarCompatibilityTests: XCTestCase {
 enum CompressedTarCompatibility {
     static func verify(_ output: URL, format: GyoshukuKit.ArchiveFormat) throws {
         let root = output.deletingLastPathComponent(), label = output.lastPathComponent
-        let tool = format == .tarGzip ? "/usr/bin/gzip" : format == .tarBzip2 ? "/usr/bin/bzip2" : "/opt/homebrew/bin/xz"
+        let tool = format == .tarGzip ? ReferenceTool.gzip : format == .tarBzip2 ? ReferenceTool.bzip2 : ReferenceTool.xz
         try ZipTestSupport.run(tool, ["-t", output.path], in: root, log: label + "-codec")
-        try ZipTestSupport.run("/usr/bin/bsdtar", ["-tvf", output.path], in: root, log: label + "-bsd-list")
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", output.path], in: root, log: label + "-7zz-test")
+        try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: label + "-bsd-list")
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", output.path], in: root, log: label + "-7zz-test")
         let raw = output.appendingPathExtension("decoded.tar")
         let script = """
         import sys,subprocess,tarfile,gzip,bz2,lzma,hashlib
@@ -95,7 +95,7 @@ enum CompressedTarCompatibility {
         assert b'ERROR' not in listing
         print('compatibility',codec,len(a),hashlib.sha256(d).hexdigest())
         """
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, output.path, raw.path, format == .tarGzip ? "gz" : format == .tarBzip2 ? "bz" : "xz"], in: root, log: label + "-content")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, output.path, raw.path, format == .tarGzip ? "gz" : format == .tarBzip2 ? "bz" : "xz"], in: root, log: label + "-content")
         try FileManager.default.removeItem(at: raw)
     }
 }

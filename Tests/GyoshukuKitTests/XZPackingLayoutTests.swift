@@ -12,7 +12,7 @@ final class XZPackingLayoutTests: XCTestCase {
             ("medium", [packing + 1], [512, packing + 512]),
             ("large", [piece + 129], [512, piece, 512])
         ]
-        let xz = try XCTUnwrap(["/opt/homebrew/bin/xz", "/usr/local/bin/xz", "/usr/bin/xz"]
+        let xz = try XCTUnwrap([ReferenceTool.xz, "/usr/local/bin/xz", "/usr/bin/xz"]
             .first { FileManager.default.isExecutableFile(atPath: $0) })
         for (name, sizes, expected) in cases {
             let url = root.appendingPathComponent(name + ".tar.xz")

@@ -40,8 +40,8 @@ final class LHACRCTests: XCTestCase {
         // 実機で確認: 7zz 26.03 は header CRC を検査せず Everything is Ok とする。
         // Lhasa 0.6.0 の lha t はこの member を読まず、出力なし・終了値 0 で戻る。
         // どちらの挙動も CRC の検証 assertion には使わず、上の独立計算と KaitoKit に担わせる。
-        try LHATestSupport.run(LHATestSupport.lhasa, ["t", corrupt.path], in: directory, log: "lha-header-crc-observation")
-        try LHATestSupport.run(LHATestSupport.sevenZip, ["t", corrupt.path], in: directory, log: "7zz-header-crc-observation")
+        try LHATestSupport.run(ReferenceTool.lhasa, ["t", corrupt.path], in: directory, log: "lha-header-crc-observation")
+        try LHATestSupport.run(ReferenceTool.sevenZip, ["t", corrupt.path], in: directory, log: "7zz-header-crc-observation")
     }
 
     func testDataCRCCorruptionReportsDamagedMemberInBothTools() throws {
@@ -63,10 +63,10 @@ final class LHACRCTests: XCTestCase {
         data[member.crcOffset] = UInt8(truncatingIfNeeded: headerCRC)
         data[member.crcOffset + 1] = UInt8(headerCRC >> 8)
         try data.write(to: url)
-        let lhasa = try LHATestSupport.run(LHATestSupport.lhasa, ["t", url.path], in: directory, log: "lha-data-crc")
+        let lhasa = try LHATestSupport.run(ReferenceTool.lhasa, ["t", url.path], in: directory, log: "lha-data-crc")
         XCTAssertTrue(lhasa.text.contains("damaged.txt\t- CRC error"), lhasa.text)
         XCTAssertTrue(lhasa.text.contains("intact.txt\t- Tested"), lhasa.text)
-        let seven = try LHATestSupport.run(LHATestSupport.sevenZip, ["t", url.path], in: directory, log: "7zz-data-crc")
+        let seven = try LHATestSupport.run(ReferenceTool.sevenZip, ["t", url.path], in: directory, log: "7zz-data-crc")
         XCTAssertTrue(seven.text.contains("ERROR: CRC Failed : damaged.txt"), seven.text)
         XCTAssertFalse(seven.text.contains("Everything is Ok"), seven.text)
         let reader = try ArchiveReader.open(url: url)

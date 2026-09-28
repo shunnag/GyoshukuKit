@@ -4,8 +4,6 @@ import XCTest
 @testable import GyoshukuKit
 
 enum SevenZipTestSupport {
-    static let tool = "/opt/homebrew/bin/7zz"
-
     struct Expected {
         let name: String
         var data = Data()
@@ -14,37 +12,20 @@ enum SevenZipTestSupport {
         var date: Date? = ZipTestSupport.date
     }
 
+    /// 7-Zip を起動する。`success` なら警告と header の異常も失敗にし、`t` / `x` は "Everything is Ok" まで確かめる。
     @discardableResult
     static func run(_ arguments: [String], in directory: URL, log: String, success: Bool = true) throws -> String {
-        guard FileManager.default.isExecutableFile(atPath: tool) else {
-            XCTFail("Required reference tool missing: \(tool)")
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let logURL = directory.appendingPathComponent(log + ".log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        let output = try FileHandle(forWritingTo: logURL)
-        defer { try? output.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = output
-        var environment = ProcessInfo.processInfo.environment
-        environment["LC_ALL"] = "en_US.UTF-8"
-        environment["TZ"] = "UTC"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        let text = String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+        let output = try ReferenceTool.run(ReferenceTool.sevenZip, arguments, in: directory, log: log,
+                                           expect: success ? .success : .failure,
+                                           environment: ReferenceTool.englishUTF8InUTC)
+        let text = output.utf8Text
         if success {
-            XCTAssertEqual(process.terminationStatus, 0, text)
             for marker in ["warning", "headers error", "errors:"] { XCTAssertFalse(text.lowercased().contains(marker), text) }
             if arguments.first == "t" || arguments.first == "x" { XCTAssertTrue(text.contains("Everything is Ok"), text) }
         } else {
-            XCTAssertNotEqual(process.terminationStatus, 0, text)
             XCTAssertFalse(text.contains("Everything is Ok"), text)
         }
-        ZipTestSupport.report("7Z REFERENCE \(directory.lastPathComponent)/\(log): exit \(process.terminationStatus)\n\(text)")
+        ZipTestSupport.report("7Z REFERENCE \(directory.lastPathComponent)/\(log): exit \(output.status)\n\(text)")
         return text
     }
 

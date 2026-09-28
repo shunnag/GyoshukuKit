@@ -85,7 +85,7 @@ final class SevenZipUpdaterHeaderTests: XCTestCase {
             XCTAssertEqual(try actual.read(actual.entries[actual.entries.count - 2]), Data([1, 7, 5]))
             try SevenZipExternalOracles.check(output, password: nil)
             if SevenZipExternalOracles.available {
-                let listing = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", output.path], in: root, log: name + "-list")
+                let listing = try ZipTestSupport.run(ReferenceTool.sevenZip, ["l", output.path], in: root, log: name + "-list")
                 let directory = try XCTUnwrap(listing.components(separatedBy: "\n").first { $0.hasSuffix("  added-dir/") })
                 XCTAssertTrue(directory.contains(" D.... "), directory)
             }

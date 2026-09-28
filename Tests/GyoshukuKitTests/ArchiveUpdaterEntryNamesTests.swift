@@ -51,7 +51,7 @@ final class ArchiveUpdaterEntryNamesTests: XCTestCase {
         end = p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0)
         open(sys.argv[1],'wb').write(local+cd+end)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
         let reader = try ArchiveReader.open(url: url)
         let updater = try ArchiveUpdater.open(url: url)
 

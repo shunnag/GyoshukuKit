@@ -19,7 +19,7 @@ final class ArchiveRewriterProbeTests: XCTestCase {
                 info.external_attr=((0o40755 if i in directories else 0o100644)<<16)|(0x10 if i in directories else 0)
                 z.writestr(info,b'' if i in directories else ('payload-%d'%i).encode())
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path,
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path,
             directoryIndices.sorted().map(String.init).joined(separator: ",")] + names,
             in: directory, log: "create")
         return url

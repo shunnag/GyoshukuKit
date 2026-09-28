@@ -23,13 +23,13 @@ final class CompressedTarWriterTests: XCTestCase {
         pathlib.Path(target).write_bytes(payload)
         print(len(payload))
         """
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, archive.path, decoded.path, suffix(format)],
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, archive.path, decoded.path, suffix(format)],
                                in: directory, log: "python-stream")
         XCTAssertEqual(try Data(contentsOf: decoded), expected)
-        try ZipTestSupport.run(format == .tarBzip2 ? "/usr/bin/bzip2" : "/opt/homebrew/bin/xz",
+        try ZipTestSupport.run(format == .tarBzip2 ? ReferenceTool.bzip2 : ReferenceTool.xz,
                                ["-t", archive.path], in: directory, log: "native-stream")
         let output = directory.appendingPathComponent("seven-stream")
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["x", "-y", archive.path, "-o" + output.path],
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["x", "-y", archive.path, "-o" + output.path],
                                in: directory, log: "seven-stream")
         let files = try FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil)
         XCTAssertEqual(files.count, 1)
@@ -59,7 +59,7 @@ final class CompressedTarWriterTests: XCTestCase {
             try verifyStream(archive, expected: expected, format: format)
             try TarTestSupport.verify(archive, expected: items)
             let sevenEntries = directory.appendingPathComponent("seven-entries")
-            try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["x", "-y", directory.appendingPathComponent("decoded.tar").path,
+            try ZipTestSupport.run(ReferenceTool.sevenZip, ["x", "-y", directory.appendingPathComponent("decoded.tar").path,
                                    "-o" + sevenEntries.path], in: directory, log: "seven-entries")
             for item in items { XCTAssertEqual(try Data(contentsOf: sevenEntries.appendingPathComponent(item.name)), item.data) }
         }
@@ -92,7 +92,7 @@ final class CompressedTarWriterTests: XCTestCase {
             try writer.add(data: LHATestSupport.random(190_123), as: "file")
             try writer.finish()
             XCTAssertEqual(try Data(contentsOf: archive).prefix(4), Data("BZh\(level)".utf8))
-            try ZipTestSupport.run("/usr/bin/bzip2", ["-t", archive.path], in: directory, log: "level-\(level)")
+            try ZipTestSupport.run(ReferenceTool.bzip2, ["-t", archive.path], in: directory, log: "level-\(level)")
         }
         XCTAssertEqual(WriterOptions().bzip2Level, 9)
         for level in [Int.min, 0, 10, Int.max] {
@@ -196,12 +196,12 @@ final class CompressedTarWriterTests: XCTestCase {
             try writer.add(contentsOf: source, as: "large")
             try writer.add(data: Data("after large entry".utf8), as: "after")
             try writer.finish()
-            let oracle = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, archive.path, source.path],
+            let oracle = try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, archive.path, source.path],
                                                 in: directory, log: "large-python-\(format)")
             let referenceHash = try XCTUnwrap(oracle.split(separator: " ").last?.trimmingCharacters(in: .whitespacesAndNewlines))
-            let listing = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tf", archive.path], in: directory, log: "large-bsdtar-\(format)")
+            let listing = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tf", archive.path], in: directory, log: "large-bsdtar-\(format)")
             XCTAssertEqual(listing, "large\nafter\n")
-            try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", archive.path], in: directory, log: "large-seven-\(format)")
+            try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", archive.path], in: directory, log: "large-seven-\(format)")
             // A raised explicit limit is required; the application's default stays 4 GiB.
             let limits = ReadLimits(maxEntrySize: length + 1_048_576, maxTotalUncompressedSize: length + 1_048_576,
                                     maxInMemorySize: 1_048_576, inMemorySingleFileLimit: 1_048_576)

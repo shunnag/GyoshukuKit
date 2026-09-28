@@ -70,9 +70,9 @@ final class CompressedTarP2OracleTests: XCTestCase {
             if variant == "bsd" {
                 let files = try TarP2Support.work(root)
                 for name in ["one", "two", "._two"] { try Data("content".utf8).write(to: files.appendingPathComponent(name)) }
-                try ZipTestSupport.run("/usr/bin/bsdtar", ["--format=pax", "--uid", "501", "--uname", "alice", "-cf", raw.path,
+                try ZipTestSupport.run(ReferenceTool.bsdtar, ["--format=pax", "--uid", "501", "--uname", "alice", "-cf", raw.path,
                                                        "-C", files.path, "one", "two", "._two"], in: root, log: "bsd")
-            } else { try ZipTestSupport.run("/usr/bin/python3", ["-c", script, raw.path, variant], in: root, log: variant) }
+            } else { try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, raw.path, variant], in: root, log: variant) }
             for format in CompressedTarTestSupport.formats {
                 let source = root.appendingPathComponent("\(variant)." + TarP2Support.suffix(format))
                 try CompressedTarTestSupport.compress(raw, to: source, format: format, aligned: false)

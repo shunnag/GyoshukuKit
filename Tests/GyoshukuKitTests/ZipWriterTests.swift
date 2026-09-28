@@ -13,9 +13,9 @@ final class ZipWriterTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url).count, 22)
         try ZipTestSupport.verify(url, expected: [])
         let oracle = directory.appendingPathComponent("python-empty.zip")
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", "import sys,zipfile; zipfile.ZipFile(sys.argv[1],'w').close()", oracle.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", "import sys,zipfile; zipfile.ZipFile(sys.argv[1],'w').close()", oracle.path], in: directory, log: "python-create")
         XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: oracle))
-        let result = try ZipTestSupport.run("/usr/bin/ditto", ["-x", "-k", oracle.path, directory.appendingPathComponent("python-ditto").path], in: directory, log: "python-ditto-x", allowed: [1])
+        let result = try ZipTestSupport.run(ReferenceTool.ditto, ["-x", "-k", oracle.path, directory.appendingPathComponent("python-ditto").path], in: directory, log: "python-ditto-x", allowed: [1])
         XCTAssertEqual(result, "ditto: Incorrect pkzip signature\n")
     }
 

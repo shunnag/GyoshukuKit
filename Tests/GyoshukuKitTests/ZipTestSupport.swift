@@ -26,40 +26,17 @@ enum ZipTestSupport {
         return directory
     }
 
+    /// `allowed` 以外の終了値を失敗にし、出力を UTF-8 として返す。
     @discardableResult
     static func run(_ tool: String, _ arguments: [String], in directory: URL, log: String,
                     allowed: Set<Int32> = [0]) throws -> String {
-        guard FileManager.default.isExecutableFile(atPath: tool) else {
-            XCTFail("Required reference tool missing: \(tool)")
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let output = directory.appendingPathComponent(log + ".log")
-        FileManager.default.createFile(atPath: output.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: output)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.standardOutput = handle
-        process.standardError = handle
-        var environment = ProcessInfo.processInfo.environment
-        environment["LC_ALL"] = "en_US.UTF-8"
-        if tool == "/usr/bin/ditto" {
-            // ditto は UTF-8 の flag のない名前をまず UTF-8 として読み、UTF-8 として不正な byte（CP932 など）だけを
-            // 利用者の既定の文字コード（~/.CFUserTextEncoding）で解釈する。CP932 の名前の試験を実行環境の言語設定に
-            // 依存させないよう、日本語（MacJapanese、地域 Japan）を明示する。
-            environment["__CF_USER_TEXT_ENCODING"] = String(format: "0x%X:0x1:0xE", getuid())
-        }
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        try handle.close()
-        let text = String(decoding: try Data(contentsOf: output), as: UTF8.self)
-        XCTAssertTrue(allowed.contains(process.terminationStatus), "\(tool) \(arguments) exit \(process.terminationStatus): \(text.prefix(4000))")
+        let output = try ReferenceTool.run(tool, arguments, in: directory, log: log, expect: .oneOf(allowed))
+        let text = output.utf8Text
         if tool.hasSuffix("/7zz") {
             // 7-Zip は Headers Error があっても exit 0 / Everything is Ok を返す場合がある。
             XCTAssertFalse(text.lowercased().contains("headers error") || text.lowercased().contains("warning") || text.lowercased().contains("errors:"), text)
         }
-        report("REFERENCE \(directory.lastPathComponent)/\(log): exit \(process.terminationStatus); \(text.split(separator: "\n").suffix(2).joined(separator: " | "))")
+        report("REFERENCE \(directory.lastPathComponent)/\(log): exit \(output.status); \(text.split(separator: "\n").suffix(2).joined(separator: " | "))")
         return text
     }
 
@@ -68,10 +45,10 @@ enum ZipTestSupport {
                        legacyOriginalIndices: [Int] = [0]) throws {
         let directory = archive.deletingLastPathComponent()
         let empty = expected.isEmpty
-        let test = try run("/usr/bin/unzip", ["-t", archive.path], in: directory, log: "unzip-t", allowed: empty ? [1] : [0])
+        let test = try run(ReferenceTool.unzip, ["-t", archive.path], in: directory, log: "unzip-t", allowed: empty ? [1] : [0])
         if empty { XCTAssertTrue(test.contains("zipfile is empty")) }
         else { XCTAssertTrue(test.contains("No errors detected")) }
-        let listing = try run("/usr/bin/unzip", ["-l", archive.path], in: directory, log: "unzip-l", allowed: empty ? [1] : [0])
+        let listing = try run(ReferenceTool.unzip, ["-l", archive.path], in: directory, log: "unzip-l", allowed: empty ? [1] : [0])
         func names(in listing: String) -> [String] { listing.split(separator: "\n").compactMap { line -> String? in
             let fields = line.split(maxSplits: 3, omittingEmptySubsequences: true, whereSeparator: { $0 == " " || $0 == "\t" })
             guard fields.count == 4, UInt64(fields[0]) != nil, fields[1].contains("-") else { return nil }
@@ -83,15 +60,15 @@ enum ZipTestSupport {
         } else if expected.contains(where: { !$0.name.utf8.allSatisfy({ $0 < 128 }) }) {
             // Apple 版 unzip は Unicode 非対応 build。独立した標準 ZIP と表示を比較する。
             let oracle = directory.appendingPathComponent("python-oracle.zip")
-            try run("/usr/bin/python3", ["-c", "import sys,zipfile,unicodedata; z=zipfile.ZipFile(sys.argv[1],'w'); [z.writestr(unicodedata.normalize('NFC',n),b'') for n in sys.argv[2:]]; z.close()", oracle.path] + expected.map(\.name), in: directory, log: "python-create")
-            let oracleListing = try run("/usr/bin/unzip", ["-l", oracle.path], in: directory, log: "python-unzip-l")
+            try run(ReferenceTool.python3, ["-c", "import sys,zipfile,unicodedata; z=zipfile.ZipFile(sys.argv[1],'w'); [z.writestr(unicodedata.normalize('NFC',n),b'') for n in sys.argv[2:]]; z.close()", oracle.path] + expected.map(\.name), in: directory, log: "python-create")
+            let oracleListing = try run(ReferenceTool.unzip, ["-l", oracle.path], in: directory, log: "python-unzip-l")
             XCTAssertEqual(names(in: listing), names(in: oracleListing))
         } else {
             XCTAssertEqual(names(in: listing), expected.map(\.name))
         }
-        let seven = try run("/opt/homebrew/bin/7zz", ["t"] + (legacyCP932 ? ["-mcp=932"] : []) + [archive.path], in: directory, log: "7zz-t")
+        let seven = try run(ReferenceTool.sevenZip, ["t"] + (legacyCP932 ? ["-mcp=932"] : []) + [archive.path], in: directory, log: "7zz-t")
         XCTAssertTrue(seven.contains("Everything is Ok"))
-        let sevenListing = try run("/opt/homebrew/bin/7zz", ["l", "-slt"] + (legacyCP932 ? ["-mcp=932"] : []) + [archive.path], in: directory, log: "7zz-l")
+        let sevenListing = try run(ReferenceTool.sevenZip, ["l", "-slt"] + (legacyCP932 ? ["-mcp=932"] : []) + [archive.path], in: directory, log: "7zz-l")
         let sevenNames = sevenListing.components(separatedBy: "----------\n").last!
             .split(separator: "\n").filter { $0.hasPrefix("Path = ") }.map { String($0.dropFirst(7)) }
         if legacyCP932 {
@@ -107,12 +84,12 @@ enum ZipTestSupport {
             XCTAssertEqual(sevenNames, expected.map { $0.name.hasSuffix("/") ? String($0.name.dropLast()) : $0.name })
         }
         let extracted = directory.appendingPathComponent("ditto")
-        let ditto = try run("/usr/bin/ditto", ["-x", "-k", archive.path, extracted.path], in: directory, log: "ditto-x", allowed: empty ? [1] : [0])
+        let ditto = try run(ReferenceTool.ditto, ["-x", "-k", archive.path, extracted.path], in: directory, log: "ditto-x", allowed: empty ? [1] : [0])
         if empty {
             // EOCD だけの正当な空 ZIP も ditto は拒否する。結果を成功と偽らない。
             XCTAssertEqual(ditto, "ditto: Incorrect pkzip signature\n")
         }
-        _ = try run("/usr/bin/tar", ["-tf", archive.path], in: directory, log: "bsdtar-t")
+        _ = try run(ReferenceTool.tar, ["-tf", archive.path], in: directory, log: "bsdtar-t")
         let reader = try ArchiveReader.open(url: archive)
         XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
         guard reader.entries.count == expected.count else { return }

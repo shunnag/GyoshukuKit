@@ -115,7 +115,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testUnzipIntegrityAndPayload() throws {
-        let tool = try Self.tool(["/usr/bin/unzip", "/opt/homebrew/bin/unzip"])
+        let tool = try ReferenceTool.firstAvailable([ReferenceTool.unzip, "/opt/homebrew/bin/unzip"])
         let url = try fixture("unzip", format: .zip)
         try ZipTestSupport.run(tool, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         for (index, item) in Self.items.enumerated() where item.mode & 0xF000 != 0x4000 {
@@ -124,7 +124,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testDittoExtraction() throws {
-        let tool = try Self.tool(["/usr/bin/ditto"])
+        let tool = try ReferenceTool.firstAvailable([ReferenceTool.ditto])
         let url = try fixture("ditto", format: .zip)
         let extracted = url.deletingLastPathComponent().appendingPathComponent("extracted")
         try ZipTestSupport.run(tool, ["-x", "-k", url.path, extracted.path], in: url.deletingLastPathComponent(), log: "extract")
@@ -132,7 +132,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testBSDTarExtractionForEveryFormat() throws {
-        let tool = try Self.tool(["/usr/bin/bsdtar", "/usr/bin/tar", "/opt/homebrew/bin/bsdtar"])
+        let tool = try ReferenceTool.firstAvailable([ReferenceTool.bsdtar, ReferenceTool.tar, "/opt/homebrew/bin/bsdtar"])
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             let url = try fixture("bsdtar-\(format)", format: format)
             let extracted = url.deletingLastPathComponent().appendingPathComponent("extracted")
@@ -143,7 +143,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testSevenZipIntegrityAndAESExtraction() throws {
-        let tool = try Self.tool(["/opt/homebrew/bin/7zz", "/usr/local/bin/7zz"])
+        let tool = try ReferenceTool.firstAvailable([ReferenceTool.sevenZip, "/usr/local/bin/7zz"])
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             let url = try fixture("7zz-\(format)", format: format)
             try ZipTestSupport.run(tool, ["t", url.path], in: url.deletingLastPathComponent(), log: "test")
@@ -157,8 +157,8 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testGzipIntegrityAndSingleMemberTrailer() throws {
-        let gzip = try Self.tool(["/usr/bin/gzip", "/opt/homebrew/bin/gzip"])
-        let python = try Self.tool(["/usr/bin/python3", "/opt/homebrew/bin/python3"])
+        let gzip = try ReferenceTool.firstAvailable([ReferenceTool.gzip, "/opt/homebrew/bin/gzip"])
+        let python = try ReferenceTool.firstAvailable([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
         let url = try fixture("gzip", format: .tarGzip)
         try ZipTestSupport.run(gzip, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         let script = """
@@ -175,8 +175,8 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testBzip2IntegrityAndConcatenatedStreamSizes() throws {
-        let bzip2 = try Self.tool(["/usr/bin/bzip2", "/opt/homebrew/bin/bzip2"])
-        let python = try Self.tool(["/usr/bin/python3", "/opt/homebrew/bin/python3"])
+        let bzip2 = try ReferenceTool.firstAvailable([ReferenceTool.bzip2, "/opt/homebrew/bin/bzip2"])
+        let python = try ReferenceTool.firstAvailable([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
         let url = try fixture("bzip2", format: .tarBzip2)
         try ZipTestSupport.run(bzip2, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         let script = """
@@ -304,25 +304,9 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         XCTAssertEqual(data, try Data(contentsOf: raw))
     }
 
-    private static func tool(_ candidates: [String]) throws -> String {
-        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw XCTSkip("Reference tool missing: \(candidates.joined(separator: ", "))")
-        }
-        return path
-    }
-
+    /// stdout を `url` の隣の `name` に書かせて返す。stderr は `name.log` に残す。
     private static func stdout(_ tool: String, _ arguments: [String], beside url: URL, name: String) throws -> Data {
-        let result = url.deletingLastPathComponent().appendingPathComponent(name)
-        FileManager.default.createFile(atPath: result.path, contents: nil)
-        let output = try FileHandle(forWritingTo: result)
-        defer { try? output.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.standardOutput = output
-        try process.run()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0, arguments.joined(separator: " "))
-        return try Data(contentsOf: result)
+        try ReferenceTool.run(tool, arguments, in: url.deletingLastPathComponent(), log: name,
+                              environment: [:], standardOutput: name).bytes
     }
 }

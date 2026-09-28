@@ -128,7 +128,7 @@ enum ZipP1Corpus {
         cd=b''.join(cds); comment=b'archive\0comment' if kind=='padding' else b''
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,5,5,len(cd),len(records),len(comment))+comment)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, variant], in: directory, log: "make-\(variant)")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path, variant], in: directory, log: "make-\(variant)")
         return url
     }
 
@@ -146,7 +146,7 @@ enum ZipP1Corpus {
                 with z.open(info,'w',force_zip64=True) as f: f.write(b'' if name.endswith('/') else b'payload'*11)
         open(sys.argv[1],'wb').write(sink.getvalue())
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "make-force64")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "make-force64")
         return url
     }
 
@@ -177,7 +177,7 @@ enum ZipP1Corpus {
         directory=b''.join(central); ending=bytearray(raw[end:]); struct.pack_into('<II',ending,12,len(directory),len(records))
         open(os.path.join(root,'infozip-unicode.zip'),'wb').write(records+directory+ending)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, directory.path], in: directory, log: "make-external")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, directory.path], in: directory, log: "make-external")
         return [directory.appendingPathComponent("infozip.zip"), directory.appendingPathComponent("infozip-unicode.zip"),
                 directory.appendingPathComponent("ditto.zip")]
     }
@@ -198,7 +198,7 @@ enum ZipP1Corpus {
             f.write(p('IQHHIIQQQQ',0x06064b50,44,0x033f,45,0,0,2,2,len(records),central))
             f.write(p('IIQI',0x07064b50,0,end64,1)); f.write(p('IHHHHIIH',0x06054b50,0,0,2,2,len(records),0xffffffff,0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "make-sparse")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "make-sparse")
         return url
     }
 }

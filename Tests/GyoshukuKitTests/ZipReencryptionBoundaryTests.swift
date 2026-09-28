@@ -39,7 +39,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         cd=b''.join(entries[i] for i in [2,0,5,1,4,3]);comment=b'archive-comment'
         open(sys.argv[1],'wb').write(records+cd+p('IHHHHIIH',0x06054b50,0,0,6,6,len(cd),len(records),len(comment))+comment)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, source.path], in: directory, log: "create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, source.path], in: directory, log: "create")
         let input = try ReencryptionSupport.reader(source)
         let oldSource = try ZipUpdateSource(url: source), oldLayout = try ZipUpdateLayout(source: oldSource)
         let oldDirectory = try ZipCentralDirectory.validate(source: oldSource, reader: input, centralOffset: oldLayout.centralOffset, centralSize: oldLayout.centralSize)
@@ -98,7 +98,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
             cd=p('IHHHHHHIIIHHHHHII',0x02014b50,0x314,20,0x800,0,0,0x21,crc,1,1,1,n,0,0,0,0o100644<<16,0)+name+extra
             open(sys.argv[1],'wb').write(local+cd+p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0))
             """#
-            try ZipTestSupport.run("/usr/bin/python3", ["-c", script, source.path, String(length)], in: directory, log: "create-\(length)")
+            try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, source.path, String(length)], in: directory, log: "create-\(length)")
             if length == 65_525 { try ReencryptionSupport.assertFailure(source, password: "new", current: nil) }
             else {
                 let output = directory.appendingPathComponent("out.zip")
@@ -130,7 +130,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         cd=p('IHHHHHHIIIHHHHHII',0x02014b50,0x314,20,0,0,0,0x21,crc,len(data),len(data),len(name),len(extra),0,0,0,0o100644<<16,0)+name+extra
         open(sys.argv[1],'wb').write(local+cd+p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, source.path], in: directory, log: "create")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, source.path], in: directory, log: "create")
         let updater = try ArchiveUpdater.open(url: source, options: .init(password: "new"))
         try updater.rename(entryAt: 0, to: "新しい名前")
         try updater.reencryptExistingEntries(currentPassword: nil)
@@ -285,7 +285,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
                 end64=f.tell();f.write(p('IQHHIIQQQQ',0x06064b50,44,0x33f,45,0,0,2,2,len(cd),cdo));f.write(p('IIQI',0x07064b50,0,end64,1))
             f.write(p('IHHHHIIH',0x06054b50,0,0,2,2,len(cd),min(cdo,0xffffffff),0))
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, String(size), String(tailDescriptor), String(tailDirectory)],
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path, String(size), String(tailDescriptor), String(tailDirectory)],
             in: url.deletingLastPathComponent(), log: "sparse")
     }
 

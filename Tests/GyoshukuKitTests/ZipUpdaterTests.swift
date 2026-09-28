@@ -96,9 +96,9 @@ final class ZipUpdaterTests: XCTestCase {
             try FileManager.default.setAttributes([.posixPermissions: 0o644, .modificationDate: sourceDate], ofItemAtPath: source.path)
             let url = directory.appendingPathComponent("archive.zip")
             if tool == "ditto" {
-                try ZipTestSupport.run("/usr/bin/ditto", ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "create")
+                try ZipTestSupport.run(ReferenceTool.ditto, ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "create")
             } else {
-                try ZipTestSupport.run("/usr/bin/zip", ["-j", url.path, source.path], in: directory, log: "create")
+                try ZipTestSupport.run(ReferenceTool.zip, ["-j", url.path, source.path], in: directory, log: "create")
             }
             let old = try Data(contentsOf: url)
             let bytes = ZipBytes(data: old)
@@ -132,8 +132,8 @@ final class ZipUpdaterTests: XCTestCase {
         end = p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0)
         open(sys.argv[1],'wb').write(local+cd+end)
         """#
-        try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path], in: directory, log: "python-create")
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
+        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
         let old = try Data(contentsOf: url)
         let legacy = ZipBytes(data: old)
         let rawName = old.subdata(in: (legacy.central + 46)..<(legacy.central + 46 + Int(legacy.u16(legacy.central + 28))))
@@ -316,7 +316,7 @@ final class ZipUpdaterTests: XCTestCase {
                 e=p('IHHHHIIH',0x06054b50,0,0,0,0,0,0,0)
                 open(sys.argv[1],'wb').write(z+l+e)
                 """#
-                try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path],
+                try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path],
                                        in: url.deletingLastPathComponent(), log: "python-create")
             }
             let comment = Data("ZIP comment: 保存\n".utf8)

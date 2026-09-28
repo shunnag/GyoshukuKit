@@ -112,8 +112,8 @@ final class TarHeaderRewriteTests: XCTestCase {
                 XCTAssertNil(try Data(contentsOf: output).range(of: Data("old-parent".utf8)))
                 if named && version != "0.0" {
                     let script = "import tarfile,sys; t=tarfile.open(sys.argv[1]); assert t.getnames()==['new-parent/new-leaf']; assert t.extractfile(t.getmembers()[0]).read()==b'ab'+bytes(6)+b'cd'"
-                    try ZipTestSupport.run("/usr/bin/python3", ["-c", script, output.path], in: root, log: "sparse-python-\(version)")
-                    let listing = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tf", output.path], in: root, log: "sparse-bsd-\(version)")
+                    try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, output.path], in: root, log: "sparse-python-\(version)")
+                    let listing = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tf", output.path], in: root, log: "sparse-bsd-\(version)")
                     XCTAssertEqual(listing, "new-parent/new-leaf\n")
                 }
             }

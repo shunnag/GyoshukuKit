@@ -177,7 +177,7 @@ final class TarUpdaterHardLinkTests: XCTestCase {
                 }
                 let extracted = root.appendingPathComponent("extract")
                 try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: false)
-                try ZipTestSupport.run("/usr/bin/bsdtar", ["-xf", output.path, "-C", extracted.path], in: root, log: "extract")
+                try ZipTestSupport.run(ReferenceTool.bsdtar, ["-xf", output.path, "-C", extracted.path], in: root, log: "extract")
                 let inodes = try reader.entries.map { try ZipP1Support.info(extracted.appendingPathComponent($0.name)).st_ino }
                 XCTAssertEqual(Set(inodes).count, 1)
             }

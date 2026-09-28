@@ -68,7 +68,7 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
         try FileManager.default.copyItem(at: source, to: reference)
         let reader = try SevenZipEditSupport.reader(source)
         let index = try XCTUnwrap(reader.entries.firstIndex { ($0.uncompressedSize ?? 0) > 0 })
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["d", "-y", reference.path, reader.entries[index].name], in: root, log: "7zz-d")
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["d", "-y", reference.path, reader.entries[index].name], in: root, log: "7zz-d")
         let output = root.appendingPathComponent("output.7z")
         let updater = try SevenZipUpdater.open(url: source, output: output)
         try updater.remove(entriesAt: [index]); try updater.commit()

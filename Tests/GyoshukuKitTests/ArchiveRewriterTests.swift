@@ -39,26 +39,9 @@ final class ArchiveRewriterTests: XCTestCase {
 
     @discardableResult
     private func run(_ name: String, _ arguments: [String], in directory: URL) throws -> String {
-        let executable = try tool(name)
-        let log = directory.appendingPathComponent(UUID().uuidString + ".log")
-        XCTAssertTrue(FileManager.default.createFile(atPath: log.path, contents: nil))
-        let output = try FileHandle(forWritingTo: log)
-        defer { try? output.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.standardOutput = output
-        process.standardError = output
-        var environment = ProcessInfo.processInfo.environment
-        environment["COPYFILE_DISABLE"] = "1"
-        environment["LC_ALL"] = "en_US.UTF-8"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-        let text = String(decoding: try Data(contentsOf: log), as: UTF8.self)
-        XCTAssertEqual(process.terminationStatus, 0, "\(name) \(arguments):\n\(text)")
-        return text
+        let environment = ReferenceTool.englishUTF8.merging(["COPYFILE_DISABLE": "1"]) { $1 }
+        return try ReferenceTool.run(try tool(name), arguments, in: directory, log: UUID().uuidString,
+                                     environment: environment, workingDirectory: directory).utf8Text
     }
 
     private func workDirectories(in directory: URL) throws -> [URL] {

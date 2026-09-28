@@ -41,8 +41,8 @@ final class LHABoundedWriterTests: XCTestCase {
         let reader = try ArchiveReader.open(url: url)
         XCTAssertEqual(reader.entries.count, 1)
         XCTAssertEqual(try reader.read(reader.entries[0]), data)
-        LHATestSupport.clean(try LHATestSupport.run(LHATestSupport.lhasa, ["t", url.path], in: directory, log: "short-lha"))
-        LHATestSupport.clean(try LHATestSupport.run(LHATestSupport.sevenZip, ["t", url.path], in: directory, log: "short-7zz"), sevenZip: true)
+        LHATestSupport.clean(try LHATestSupport.run(ReferenceTool.lhasa, ["t", url.path], in: directory, log: "short-lha"))
+        LHATestSupport.clean(try LHATestSupport.run(ReferenceTool.sevenZip, ["t", url.path], in: directory, log: "short-7zz"), sevenZip: true)
     }
 
     func testMidstreamSourceFailuresEraseOutputAndHardlinkWithoutSpoolLeaks() throws {

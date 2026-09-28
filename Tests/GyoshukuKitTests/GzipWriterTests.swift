@@ -33,13 +33,13 @@ final class GzipWriterTests: XCTestCase {
             print('gzip CRC32 and ISIZE match; tar bytes',len(raw))
             """
             let rawURL = directory.appendingPathComponent("raw.tar")
-            let output = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, url.path, rawURL.path], in: directory, log: "python-gzip-trailer")
+            let output = try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path, rawURL.path], in: directory, log: "python-gzip-trailer")
             let raw = try Data(contentsOf: rawURL)
             XCTAssertEqual(output, "gzip CRC32 and ISIZE match; tar bytes \(raw.count)\n")
             let bytes = try TarBytes(raw)
             XCTAssertEqual(bytes.records.map(\.type), [0x30, 0x30])
             XCTAssertEqual(bytes.records[0].payload, payload)
-            let seven = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", rawURL.path], in: directory, log: "7zz-t-inner-tar")
+            let seven = try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", rawURL.path], in: directory, log: "7zz-t-inner-tar")
             XCTAssertTrue(seven.contains("Everything is Ok"))
         }
     }
@@ -102,7 +102,7 @@ final class GzipWriterTests: XCTestCase {
         try writer.finish()
 
         let theirs = directory.appendingPathComponent("theirs.tar")
-        _ = try ZipTestSupport.run("/usr/bin/bsdtar",
+        _ = try ZipTestSupport.run(ReferenceTool.bsdtar,
             ["--no-mac-metadata", "--no-xattrs", "--uid", "0", "--gid", "0",
              "--uname", "", "--gname", "", "-cf", theirs.path, "-C", source.path,
              "a.txt", "日本語.txt", "sub/b.bin"], in: directory, log: "bsdtar-c")

@@ -59,7 +59,7 @@ final class TarUpdaterDifferentialTests: XCTestCase {
                         else: e.size=len(b)
                         t.addfile(e,io.BytesIO(b))
                 """
-                try ZipTestSupport.run("/usr/bin/python3", ["-c", script, json.path, source.path, String(iteration)], in: directory, log: "python-fixture")
+                try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, json.path, source.path, String(iteration)], in: directory, log: "python-fixture")
             } else {
                 try TarP2Support.archive(members.map { member in
                     (.init(name: Data(member.name.utf8), size: UInt64(member.data.count), mtime: 1700000001, uid: 501, gid: 20,

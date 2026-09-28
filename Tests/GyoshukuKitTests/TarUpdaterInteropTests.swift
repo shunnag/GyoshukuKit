@@ -11,7 +11,7 @@ final class TarUpdaterInteropTests: XCTestCase {
         }
         let root = try ZipTestSupport.directory("p2-git-archive")
         let source = root.appendingPathComponent("source.tar")
-        try ZipTestSupport.run("/usr/bin/git", ["-C", repository, "archive", "--format=tar", "-o", source.path,
+        try ZipTestSupport.run(ReferenceTool.git, ["-C", repository, "archive", "--format=tar", "-o", source.path,
                                                "9fb6ee2", "Sources/GyoshukuKit"], in: root, log: "git-archive")
         let (layout, data, reader) = try TarP2Support.scan(source)
         let first = try XCTUnwrap(layout.units.first)
@@ -25,7 +25,7 @@ final class TarUpdaterInteropTests: XCTestCase {
         try updater.commit()
         let result = try ZipUpdateSource(url: output)
         XCTAssertEqual(try data.bytes(at: 0, count: Int(first.paddedEnd)), try result.bytes(at: 0, count: Int(first.paddedEnd)))
-        try ZipTestSupport.run("/usr/bin/bsdtar", ["-tvf", output.path], in: root, log: "git-list")
+        try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: "git-list")
     }
 
     func testBSDAndPythonArchivesPreserveMetadataAcrossEdits() throws {
@@ -38,14 +38,14 @@ final class TarUpdaterInteropTests: XCTestCase {
         for variant in ["bsd", "pax", "gnu", "ustar"] {
             let source = root.appendingPathComponent("\(variant).tar")
             if variant == "bsd" {
-                try ZipTestSupport.run("/usr/bin/bsdtar", ["--format=pax", "-cf", source.path, "-C", disk.path, "one", "two", "three"], in: root, log: "create-bsd")
+                try ZipTestSupport.run(ReferenceTool.bsdtar, ["--format=pax", "-cf", source.path, "-C", disk.path, "one", "two", "three"], in: root, log: "create-bsd")
             } else {
                 let script = """
                 import tarfile,sys
                 with tarfile.open(sys.argv[1],'w',format={'pax':tarfile.PAX_FORMAT,'gnu':tarfile.GNU_FORMAT,'ustar':tarfile.USTAR_FORMAT}[sys.argv[2]]) as t:
                     for n in ['one','two','three']: t.add(sys.argv[3]+'/'+n,arcname=n)
                 """
-                try ZipTestSupport.run("/usr/bin/python3", ["-c", script, source.path, variant, disk.path], in: root, log: "create-\(variant)")
+                try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, source.path, variant, disk.path], in: root, log: "create-\(variant)")
             }
             let original = try ArchiveReader.open(url: source, options: .init(appleDoublePolicy: .expose))
             let output = root.appendingPathComponent("out-\(variant).tar")
@@ -56,13 +56,13 @@ final class TarUpdaterInteropTests: XCTestCase {
             try updater.add(data: Data("added".utf8), as: "added", modificationDate: ZipTestSupport.date)
             try updater.commit()
             let reader = try ArchiveReader.open(url: output, options: .init(appleDoublePolicy: .expose))
-            let listing = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tf", output.path], in: root, log: "list-\(variant)")
+            let listing = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tf", output.path], in: root, log: "list-\(variant)")
             // bsdtar は AppleDouble を metadata として処理する。
             for name in ["two", renamed, "added"] { XCTAssertTrue(listing.contains(name + "\n")) }
-            try ZipTestSupport.run("/usr/bin/bsdtar", ["-tvf", output.path], in: root, log: "verbose-\(variant)")
-            if FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") {
-                try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", output.path], in: root, log: "7zz-test-\(variant)")
-                try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["l", output.path], in: root, log: "7zz-list-\(variant)")
+            try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: "verbose-\(variant)")
+            if FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) {
+                try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", output.path], in: root, log: "7zz-test-\(variant)")
+                try ZipTestSupport.run(ReferenceTool.sevenZip, ["l", output.path], in: root, log: "7zz-list-\(variant)")
             }
             let python = """
             import tarfile,sys,hashlib
@@ -73,7 +73,7 @@ final class TarUpdaterInteropTests: XCTestCase {
                 assert b.extractfile(sys.argv[3]).read()==b'three-payload'
                 assert b.extractfile('added').read()==b'added'
             """
-            try ZipTestSupport.run("/usr/bin/python3", ["-c", python, source.path, output.path, renamed], in: root, log: "python-\(variant)")
+            try ZipTestSupport.run(ReferenceTool.python3, ["-c", python, source.path, output.path, renamed], in: root, log: "python-\(variant)")
             for tool in ["/opt/homebrew/bin/gtar", "/opt/homebrew/bin/gnutar"] where FileManager.default.isExecutableFile(atPath: tool) {
                 // GNU tar は libarchive の xattr の pax keyword を知らず、警告を出力に混ぜる。
                 try ZipTestSupport.run(tool, ["--warning=no-unknown-keyword", "-tvf", output.path], in: root, log: "gnu-\(variant)")
@@ -81,7 +81,7 @@ final class TarUpdaterInteropTests: XCTestCase {
                                                       log: "gnu-content-\(variant)"), "two-payload")
             }
             for entry in reader.entries where ["two", renamed, "added"].contains(entry.name) {
-                let content = try ZipTestSupport.run("/usr/bin/bsdtar", ["-xOf", output.path, entry.name], in: root, log: "content-\(variant)-\(entry.name)")
+                let content = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-xOf", output.path, entry.name], in: root, log: "content-\(variant)-\(entry.name)")
                 XCTAssertEqual(Data(content.utf8), try reader.read(entry))
             }
         }

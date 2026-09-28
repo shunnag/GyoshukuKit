@@ -90,8 +90,8 @@ final class LHAUpdaterLargeOffsetTests: XCTestCase {
             try editor.commit()
             let reader = try ArchiveReader.open(url: output, options: .init(limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max)))
             XCTAssertEqual(reader.entries.count, operation == 0 || operation == 3 ? 3 : operation == 2 ? 5 : 4)
-            if FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") {
-                let result = try LHATestSupport.run("/opt/homebrew/bin/7zz", ["l", output.path], in: root, log: "list-\(operation)")
+            if FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) {
+                let result = try LHATestSupport.run(ReferenceTool.sevenZip, ["l", output.path], in: root, log: "list-\(operation)")
                 XCTAssertEqual(result.status, 0, result.text)
             }
             print("LHA-LARGE\toperation=\(operation)\tbytes=\(try ZipP1Support.info(output).st_size)")

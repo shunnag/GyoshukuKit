@@ -87,7 +87,7 @@ enum TarChunkLayoutTestSupport {
         open(sys.argv[2],'wb').write(raw)
         print(json.dumps(sizes))
         """
-        let output = try ZipTestSupport.run("/usr/bin/python3",
+        let output = try ZipTestSupport.run(ReferenceTool.python3,
             ["-c", script, url.path, rawURL.path, format == .tarBzip2 ? "bz" : "xz"],
             in: url.deletingLastPathComponent(), log: url.lastPathComponent + "-decode")
         let lengths = try JSONDecoder().decode([Int].self, from: Data(output.utf8))

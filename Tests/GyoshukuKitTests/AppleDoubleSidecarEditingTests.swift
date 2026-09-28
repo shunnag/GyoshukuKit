@@ -69,7 +69,7 @@ final class AppleDoubleSidecarEditingTests: XCTestCase {
         XCTAssertFalse(result.entries.contains { $0.name.contains("..namedfork") })
         expectedHashes["added.txt"] = Data(SHA256.hash(data: addition))
         XCTAssertEqual(try payloadHashes(result), expectedHashes)
-        let verification = try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path],
+        let verification = try ZipTestSupport.run(ReferenceTool.unzip, ["-t", url.path],
             in: url.deletingLastPathComponent(), log: "unzip-t")
         XCTAssertTrue(verification.contains("No errors detected"), verification)
     }
@@ -94,7 +94,7 @@ final class AppleDoubleSidecarEditingTests: XCTestCase {
         expectedHashes.removeValue(forKey: "folder/plain.txt")
         expectedHashes["added.txt"] = Data(SHA256.hash(data: addition))
         XCTAssertEqual(try payloadHashes(result), expectedHashes)
-        let verification = try ZipTestSupport.run("/usr/bin/unzip", ["-t", url.path],
+        let verification = try ZipTestSupport.run(ReferenceTool.unzip, ["-t", url.path],
             in: url.deletingLastPathComponent(), log: "unzip-t")
         XCTAssertTrue(verification.contains("No errors detected"), verification)
     }

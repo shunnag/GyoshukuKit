@@ -80,7 +80,7 @@ final class EncryptionTests: XCTestCase {
         }
         try EncryptionTestSupport.run(["t", "-pwrong-password", url.path], archive: url, log: "7zz-wrong", success: false)
         if encryption == .zipCrypto {
-            try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-t", tool: "/usr/bin/unzip")
+            try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-t", tool: ReferenceTool.unzip)
         }
         XCTAssertTrue(try EncryptionTestSupport.spoolFiles(in: directory).isEmpty)
     }
@@ -368,7 +368,7 @@ final class EncryptionTests: XCTestCase {
         XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)), ["source.bin", "archive.zip"])
         try writer.finish()
         try EncryptionTestSupport.verify(url, items: [.init(name: "file.bin", data: payload)]) { _ in true }
-        try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-anonymous", tool: "/usr/bin/unzip")
+        try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-anonymous", tool: ReferenceTool.unzip)
     }
 
     func testZipCryptoSpoolRemovedAfterSourceChangesAndCancellation() throws {
@@ -590,7 +590,7 @@ final class EncryptionTests: XCTestCase {
             XCTAssertEqual(restored, size)
             try EncryptionTestSupport.run(["t", "-p" + password, url.path], archive: url, log: "7zz-large")
             if variant.1 == .zipCrypto {
-                try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-large", tool: "/usr/bin/unzip")
+                try EncryptionTestSupport.run(["-P", password, "-t", url.path], archive: url, log: "unzip-large", tool: ReferenceTool.unzip)
             }
             XCTAssertTrue(try EncryptionTestSupport.spoolFiles(in: scratch).isEmpty)
         }

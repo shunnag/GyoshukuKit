@@ -67,7 +67,7 @@ final class SevenZipUpdaterInteropTests: XCTestCase {
 
 enum SevenZipExternalOracles {
     static var available: Bool {
-        FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/7zz") && FileManager.default.isExecutableFile(atPath: "/usr/bin/bsdtar")
+        FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) && FileManager.default.isExecutableFile(atPath: ReferenceTool.bsdtar)
     }
     static func check(_ output: URL, password: String?, permitsStartPosRejection: Bool = false) throws {
         guard available else { return }
@@ -79,7 +79,7 @@ enum SevenZipExternalOracles {
         let model = try XCTUnwrap(SevenZipEditModel.read(reader))
         let items = try SevenZipEditSupport.items(reader)
         let passwordArguments = password.map { ["-p" + $0] } ?? []
-        try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", "-y"] + passwordArguments + [output.path], in: work, log: "7zz-t")
+        try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", "-y"] + passwordArguments + [output.path], in: work, log: "7zz-t")
         let readers = model.header.encrypted || model.folders.contains(where: \.isEncrypted) ? ["7zz"] : ["7zz", "bsdtar"]
         for tool in readers {
             let target = work.appendingPathComponent(tool)
@@ -87,21 +87,15 @@ enum SevenZipExternalOracles {
             if tool == "7zz" {
                 let arguments = ["x", "-y"] + passwordArguments + ["-o" + target.path, output.path]
                 if permitsStartPosRejection && model.files.contains(where: { $0.startPosition != nil }) {
-                    let log = work.appendingPathComponent("7zz-x.log")
-                    FileManager.default.createFile(atPath: log.path, contents: nil)
-                    let handle = try FileHandle(forWritingTo: log)
-                    let process = Process(); process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/7zz")
-                    process.arguments = arguments; process.standardOutput = handle; process.standardError = handle
-                    try process.run(); process.waitUntilExit(); try handle.close()
-                    let text = try String(contentsOf: log, encoding: .utf8)
-                    XCTAssertEqual(process.terminationStatus, 2, text)
+                    let text = try ReferenceTool.run(ReferenceTool.sevenZip, arguments, in: work, log: "7zz-x",
+                                                     expect: .oneOf([2]), environment: [:]).utf8Text
                     XCTAssertTrue(text.contains("ERROR: Unsupported Method :"), text)
                     XCTAssertFalse(text.contains("Headers Error"), text)
                     continue
                 }
-                try ZipTestSupport.run("/opt/homebrew/bin/7zz", arguments, in: work, log: "7zz-x")
+                try ZipTestSupport.run(ReferenceTool.sevenZip, arguments, in: work, log: "7zz-x")
             } else {
-                try ZipTestSupport.run("/usr/bin/bsdtar", ["-xf", output.path, "-C", target.path], in: work, log: "bsdtar-x")
+                try ZipTestSupport.run(ReferenceTool.bsdtar, ["-xf", output.path, "-C", target.path], in: work, log: "bsdtar-x")
             }
             for (index, item) in items.enumerated() {
                 let path = target.appendingPathComponent(item.name)

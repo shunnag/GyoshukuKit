@@ -15,9 +15,9 @@ enum TarTestSupport {
 
     static func verify(_ archive: URL, expected: [Expected], gzip: Bool = false) throws {
         let directory = archive.deletingLastPathComponent()
-        let listing = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tf", archive.path], in: directory, log: "bsdtar-t")
+        let listing = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tf", archive.path], in: directory, log: "bsdtar-t")
         XCTAssertEqual(listing, expected.map { $0.name + "\n" }.joined())
-        let verbose = try ZipTestSupport.run("/usr/bin/bsdtar", ["-tvf", archive.path], in: directory, log: "bsdtar-tv")
+        let verbose = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tvf", archive.path], in: directory, log: "bsdtar-tv")
         let lines = verbose.split(separator: "\n")
         XCTAssertEqual(lines.count, expected.count)
         for (line, item) in zip(lines, expected) {
@@ -36,7 +36,7 @@ enum TarTestSupport {
         with tarfile.open(sys.argv[1]) as t:
             print(json.dumps([dict(name=m.name,size=m.size,uid=m.uid,gid=m.gid,uname=m.uname,gname=m.gname) for m in t],ensure_ascii=False))
         """
-        let python = try ZipTestSupport.run("/usr/bin/python3", ["-c", script, archive.path], in: directory, log: "python-tarfile")
+        let python = try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, archive.path], in: directory, log: "python-tarfile")
         let members = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(python.utf8)) as? [[String: Any]])
         XCTAssertEqual(members.count, expected.count)
         for (member, item) in zip(members, expected) {
@@ -47,16 +47,16 @@ enum TarTestSupport {
             XCTAssertEqual(member["uname"] as? String, "")
             XCTAssertEqual(member["gname"] as? String, "")
         }
-        let seven = try ZipTestSupport.run("/opt/homebrew/bin/7zz", ["t", archive.path], in: directory, log: "7zz-t")
+        let seven = try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", archive.path], in: directory, log: "7zz-t")
         XCTAssertTrue(seven.contains("Everything is Ok"), seven)
         XCTAssertFalse(seven.lowercased().contains("warning"), seven)
         if gzip {
-            let result = try ZipTestSupport.run("/usr/bin/gzip", ["-t", archive.path], in: directory, log: "gzip-t")
+            let result = try ZipTestSupport.run(ReferenceTool.gzip, ["-t", archive.path], in: directory, log: "gzip-t")
             XCTAssertEqual(result, "")
         }
         let extracted = directory.appendingPathComponent("extracted")
         try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: true)
-        let extraction = try ZipTestSupport.run("/usr/bin/bsdtar", [gzip ? "-xzf" : "-xf", archive.path, "-C", extracted.path],
+        let extraction = try ZipTestSupport.run(ReferenceTool.bsdtar, [gzip ? "-xzf" : "-xf", archive.path, "-C", extracted.path],
                                                 in: directory, log: "bsdtar-x")
         XCTAssertEqual(extraction, "")
         let reader = try ArchiveReader.open(url: archive)
