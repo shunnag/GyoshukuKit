@@ -62,7 +62,7 @@ struct LHALayout {
             let entry = reader.entries[entryIndex]
             if entry.isIncomplete { return "L6: incomplete entry" }
             if entry.kind == .directory,
-               member.method != "-lhd-" || !member.dataRange.isEmpty || entry.uncompressedSize != 0 {
+               member.method != LHARecords.Method.lhd || !member.dataRange.isEmpty || entry.uncompressedSize != 0 {
                 return "L7: directory with data"
             }
             if member.method == "-lh7-", member.osID == 0x20 { return "L8: LHArk" }

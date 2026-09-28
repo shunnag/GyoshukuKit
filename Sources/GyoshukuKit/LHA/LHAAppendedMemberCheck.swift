@@ -23,7 +23,7 @@ enum LHAAppendedMemberCheck {
         guard reader.format == .lha, reader.entries.count == records.count,
               let raw = try reader.lhaRawLayout(), raw.memberCount == records.count,
               raw.unpublishedMemberCount == 0 else { throw failure("reader count") }
-        var buffer = [UInt8](repeating: 0, count: 256 * 1024)
+        var buffer = [UInt8](repeating: 0, count: IOChunk.size)
         for (index, record) in records.enumerated() {
             try Task.checkCancellation()
             let entry = reader.entries[index], member = try raw.member(at: index)

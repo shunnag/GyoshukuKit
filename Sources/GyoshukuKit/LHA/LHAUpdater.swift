@@ -155,7 +155,7 @@ public final class LHAUpdater: ArchiveEditing {
                 let member = try layout.member(index)
                 renamedHeaders[index] = try LHARecords.Entry(name: name, mode: ArchiveRewriter.mode(for: entry),
                     size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? Date())
-                    .header(method: directory ? "-lhd-" : member.method,
+                    .header(method: directory ? LHARecords.Method.lhd : member.method,
                             packedSize: directory ? 0 : UInt32(member.dataRange.byteLength),
                             crc: directory ? 0 : member.crc16)
             }
@@ -264,7 +264,7 @@ public final class LHAUpdater: ArchiveEditing {
                 let end = change.outputOffset + UInt64(change.header.count) + payloadLength
                 let walked = try LHALayout.walk(source: source, range: change.outputOffset..<end) { index, header in
                     guard index == 0, header.member.headerLevel == 2, header.member.method == original.method,
-                          header.member.crc16 == (original.method == "-lhd-" ? 0 : original.crc16),
+                          header.member.crc16 == (original.method == LHARecords.Method.lhd ? 0 : original.crc16),
                           header.member.dataRange.byteLength == payloadLength else {
                         throw self.failure("V1 parsed header")
                     }

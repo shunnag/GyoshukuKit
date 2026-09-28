@@ -3,6 +3,7 @@ private import Darwin
 
 // 名前の正規化・衝突検査・ディスク探索は ArchiveWriter と共有する。
 final class LHAWriter {
+    private typealias Method = LHARecords.Method
     private let output: FileHandle
     private let url: URL
     private var finished = false
@@ -76,7 +77,7 @@ final class LHAWriter {
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
         if let pipeline {
-            let directory = mode & 0xF000 == 0x4000
+            let directory = mode.isDirectoryMode
             try pipeline.submit(directory ? nil : input,
                 tag: Pending(entry: entry, crc: crc, input: input, directory: directory), weight: UInt64(input.count), emit: emit)
             return
@@ -84,14 +85,14 @@ final class LHAWriter {
         let compressed = try encoder(input)
         let shrinks = compressed.count < input.count
         let payload = shrinks ? compressed : input
-        let method = mode & 0xF000 == 0x4000 ? "-lhd-" : shrinks ? "-lh5-" : "-lh0-"
+        let method = mode.isDirectoryMode ? Method.lhd : shrinks ? Method.lh5 : Method.lh0
         try writeMember(entry, method: method, payload: payload, crc: crc)
         try Task.checkCancellation()
     }
 
     private func emit(_ pending: Pending, _ result: Data??) throws {
         let compressed = result ?? nil
-        let method = pending.directory ? "-lhd-" : compressed == nil ? "-lh0-" : "-lh5-"
+        let method = pending.directory ? Method.lhd : compressed == nil ? Method.lh0 : Method.lh5
         try writeMember(pending.entry, method: method, payload: compressed ?? pending.input, crc: pending.crc)
     }
 
@@ -113,7 +114,7 @@ final class LHAWriter {
     private func addStreamed(entry: LHARecords.Entry, name: String, size: UInt64,
                              read: (Int) throws -> Data) throws {
         let headerOffset = try output.offset()
-        let placeholder = try entry.header(method: "-lh0-", packedSize: entry.size, crc: 0)
+        let placeholder = try entry.header(method: Method.lh0, packedSize: entry.size, crc: 0)
         let spool = try LHACompressionSpool(nextTo: url)
         try write(placeholder)
         let payloadOffset = try output.offset()
@@ -157,14 +158,14 @@ final class LHAWriter {
             try spool.copy(emit: write)
             try output.truncate(atOffset: end)
         }
-        let header = try entry.header(method: shrinks ? "-lh5-" : "-lh0-",
+        let header = try entry.header(method: shrinks ? Method.lh5 : Method.lh0,
                                       packedSize: UInt32(packedSize), crc: crc)
         guard header.count == placeholder.count else { throw WriterError.invalidState }
         try output.seek(toOffset: headerOffset)
         try write(header)
         try output.seek(toOffset: end)
         record(entry, offset: headerOffset, headerLength: header.count, dataLength: packedSize,
-               method: shrinks ? "-lh5-" : "-lh0-")
+               method: shrinks ? Method.lh5 : Method.lh0)
         try Task.checkCancellation()
     }
 
@@ -181,7 +182,7 @@ final class LHAWriter {
     private func addStreamedParallel(entry: LHARecords.Entry, name: String, size: UInt64,
                                      read: (Int) throws -> Data) throws {
         let headerOffset = try output.offset()
-        let placeholder = try entry.header(method: "-lh0-", packedSize: entry.size, crc: 0)
+        let placeholder = try entry.header(method: Method.lh0, packedSize: entry.size, crc: 0)
         let spool = try LHACompressionSpool(nextTo: url)
         try write(placeholder)
         let payloadOffset = try output.offset()
@@ -243,7 +244,7 @@ final class LHAWriter {
             try spool.copy(emit: write)
             try output.truncate(atOffset: end)
         }
-        let method = shrinks ? "-lh5-" : "-lh0-"
+        let method = shrinks ? Method.lh5 : Method.lh0
         let header = try entry.header(method: method, packedSize: UInt32(packedSize), crc: crc)
         guard header.count == placeholder.count else { throw WriterError.invalidState }
         try output.seek(toOffset: headerOffset)
