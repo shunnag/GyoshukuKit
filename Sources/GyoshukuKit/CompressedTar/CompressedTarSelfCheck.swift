@@ -10,6 +10,12 @@ private import CGyoshukuBzip2
 // この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは自己照合。
 
+/// fsync 後・公開前の出力 descriptor に対して走る。失敗は TarUpdaterError.outputVerificationFailed。
+/// - V0（ledger）: parts の image / 出力座標が隙間なく連なり、運ぶ chunk が旧 span の中で gzip 窓を保ち、segments と一致する
+/// - V1: 橋（再符号化した part）だけを並列に復号して新 image の byte と比較する。xz は block の CRC32 check も見る
+/// - V2: framing。gzip の header / trailer、bzip2 の各 stream の頭と EOS、xz の stream header / block header / padding / Index + footer
+/// - V3: 出力の長さと identity（fstat と path の一致）。最後に原本が変わっていれば UpdaterError.sourceChanged
+/// V4（運んだ圧縮 byte の CRC32 と open 時の digest の比較）は書出し中に ZipCopyEngine.copy(compressedCRC32:) が行い、不一致は UpdaterError.sourceChanged。
 enum CompressedTarSelfCheck {
     typealias Metadata = CompressedTarSpliceOutput.Metadata
     typealias Part = CompressedTarSpliceOutput.WrittenPart

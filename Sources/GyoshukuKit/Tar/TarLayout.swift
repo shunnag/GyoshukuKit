@@ -44,6 +44,11 @@ struct TarLayout {
 
     static func refuse(_ reason: String) -> TarUpdaterError { .requiresRewrite(reason: reason) }
 
+    /// open 時の照合。walk の R コードに加えて次を拒否する。
+    /// - R5: sparse member への hard link
+    /// - R6: hard link とその参照先の生の名前が UTF-8 の名前と異なる
+    /// - R8: KaitoKit の entry と種別・保存長・名前が合わない、member 数が合わない
+    /// - R10: reader が名前の文字コードを推定した（nameEncoding が nil でない）
     static func scan(source: any ByteSource, length: UInt64, entries: [ArchiveEntry],
                      nameEncoding: String.Encoding?, hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) throws -> TarLayout {
         if nameEncoding != nil { throw refuse("R10: name encoding") }
@@ -65,7 +70,13 @@ struct TarLayout {
         return layout
     }
 
-    // 4 KiB の header cache は本文を跨いで先読みしない。拡張 payload は別の範囲で読む。
+    /// 独立した header walk。拒否は TarUpdaterError.requiresRewrite（R コード）。offset 0 の header の checksum 不一致だけは UpdaterError.invalidArchive。
+    /// - R1: 拡張 header の後に来る、または comment 以外の record を持つ global pax（g）
+    /// - R2: 旧 GNU sparse（S）
+    /// - R3: 本文を持つ hard link
+    /// - R4: hdrcharset record
+    /// - R8: 構造の不整合（checksum、数値欄、境界、pax record の書式と size、重複 pax、孤立した拡張 header、短い読取）
+    /// 4 KiB の header cache は本文を跨いで先読みしない。拡張 payload は別の範囲で読む。
     static func walk(source: any ByteSource, range: Range<UInt64>, headerReadLimit: UInt64? = nil,
                      visit: (Int, Unit, Group) throws -> Void) throws -> TarLayout {
         var cache = HeaderCache(source: source, length: headerReadLimit ?? range.upperBound)

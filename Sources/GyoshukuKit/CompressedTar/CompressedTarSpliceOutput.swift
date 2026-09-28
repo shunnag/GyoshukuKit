@@ -287,7 +287,7 @@ final class CompressedTarSpliceOutput {
         let start = ProcessInfo.processInfo.systemUptime
         var cursor: UInt64 = 0
         let chunks = snapshot.chunkMap?.chunks ?? []
-        // Copying also runs without a map; signal it once, before even the framing bytes.
+        // 地図が無くても copy は走る。framing byte より前に一度だけ stage を通知する。
         try CompressedTarUpdater.testingStage?(.copying)
         for chunk in chunks {
             if cursor < chunk.compressedRange.lowerBound { try engine.copy(cursor..<chunk.compressedRange.lowerBound, from: snapshot.archive, to: cursor) }
