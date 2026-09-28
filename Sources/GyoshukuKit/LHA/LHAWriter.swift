@@ -111,62 +111,91 @@ final class LHAWriter {
             dataLength: dataLength, method: method, rawName: name))
     }
 
-    private func addStreamed(entry: LHARecords.Entry, name: String, size: UInt64,
-                             read: (Int) throws -> Data) throws {
-        let headerOffset = try output.offset()
-        let placeholder = try entry.header(method: Method.lh0, packedSize: entry.size, crc: 0)
-        let spool = try LHACompressionSpool(nextTo: url)
-        try write(placeholder)
-        let payloadOffset = try output.offset()
-        var remaining = size
-        var crc: UInt16 = 0
-        var bits = LH5Encoder.Bits()
-        var compressing = true
-        var history = Data()
-        while remaining > 0 {
-            try Task.checkCancellation()
+    /// 1 MiB を超える member。仮 header を書いてから raw byte を出力へ、圧縮 byte を spool へ書き進め、
+    /// 最後に縮んだ側を残して header を確定する。addStreamed（逐次）と addStreamedParallel（並列）が共有する。
+    private struct StreamedMember {
+        let writer: LHAWriter
+        let entry: LHARecords.Entry
+        let name: String
+        let size: UInt64
+        let headerOffset: UInt64
+        let placeholder: Data
+        let spool: LHACompressionSpool
+        let payloadOffset: UInt64
+        private(set) var remaining: UInt64
+        private(set) var crc: UInt16 = 0
+
+        init(writer: LHAWriter, entry: LHARecords.Entry, name: String, size: UInt64) throws {
+            self.writer = writer; self.entry = entry; self.name = name; self.size = size
+            headerOffset = try writer.output.offset()
+            placeholder = try entry.header(method: Method.lh0, packedSize: entry.size, crc: 0)
+            spool = try LHACompressionSpool(nextTo: writer.url)
+            try writer.write(placeholder)
+            payloadOffset = try writer.output.offset()
+            remaining = size
+        }
+
+        /// history に続けて最大 compressionChunkSize を IOChunk.size ずつ読み、raw を出力へ書きつつ CRC を進める。
+        mutating func readChunk(after history: Data, read: (Int) throws -> Data) throws -> Data {
             var input = history
-            let prefixSize = history.count
-            let target = prefixSize + Int(min(UInt64(Self.compressionChunkSize), remaining))
+            let target = history.count + Int(min(UInt64(LHAWriter.compressionChunkSize), remaining))
             input.reserveCapacity(target)
             while input.count < target {
                 try Task.checkCancellation()
                 let requested = min(IOChunk.size, target - input.count)
                 let chunk = try read(requested)
                 guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
-                try write(chunk)
+                try writer.write(chunk)
                 crc = LHACRC16.update(crc, chunk)
                 input.append(chunk)
                 remaining -= UInt64(chunk.count)
             }
+            return input
+        }
+
+        /// 圧縮を続けていれば残りの bit を spool へ流し、縮んだなら spool を payload の位置へ戻して切り詰める。
+        /// 確定した header を仮 header の位置に書き、record する。
+        func finish(compressing: Bool, bits: inout LH5Encoder.Bits) throws {
+            if compressing { try spool.write(bits.finish()) }
+            let shrinks = compressing && spool.size < size
+            let packedSize = shrinks ? spool.size : size
+            let end = try checkedAdd(payloadOffset, packedSize)
+            if shrinks {
+                try writer.output.seek(toOffset: payloadOffset)
+                try spool.copy(emit: writer.write)
+                try writer.output.truncate(atOffset: end)
+            }
+            let method = shrinks ? Method.lh5 : Method.lh0
+            let header = try entry.header(method: method, packedSize: UInt32(packedSize), crc: crc)
+            guard header.count == placeholder.count else { throw WriterError.invalidState }
+            try writer.output.seek(toOffset: headerOffset)
+            try writer.write(header)
+            try writer.output.seek(toOffset: end)
+            writer.record(entry, offset: headerOffset, headerLength: header.count, dataLength: packedSize, method: method)
+            try Task.checkCancellation()
+        }
+    }
+
+    private func addStreamed(entry: LHARecords.Entry, name: String, size: UInt64,
+                             read: (Int) throws -> Data) throws {
+        var member = try StreamedMember(writer: self, entry: entry, name: name, size: size)
+        var bits = LH5Encoder.Bits()
+        var compressing = true
+        var history = Data()
+        while member.remaining > 0 {
+            try Task.checkCancellation()
+            let prefixSize = history.count
+            let input = try member.readChunk(after: history, read: read)
             if compressing {
                 try LH5Encoder.write(input, startingAt: prefixSize, to: &bits)
                 history = Data(input.suffix(LH5Encoder.windowSize))
-                try spool.write(bits.takeCompleteBytes())
-                // Packed output can only grow. Once it cannot win, preserve
-                // the raw bytes already written and stop doing codec work.
-                compressing = spool.size < size
+                try member.spool.write(bits.takeCompleteBytes())
+                // 圧縮出力は増えるだけ。勝てないと分かった時点で、既に書いた raw byte を残して codec の仕事を止める。
+                compressing = member.spool.size < size
             }
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
-        if compressing { try spool.write(bits.finish()) }
-        let shrinks = compressing && spool.size < size
-        let packedSize = shrinks ? spool.size : size
-        let end = try checkedAdd(payloadOffset, packedSize)
-        if shrinks {
-            try output.seek(toOffset: payloadOffset)
-            try spool.copy(emit: write)
-            try output.truncate(atOffset: end)
-        }
-        let header = try entry.header(method: shrinks ? Method.lh5 : Method.lh0,
-                                      packedSize: UInt32(packedSize), crc: crc)
-        guard header.count == placeholder.count else { throw WriterError.invalidState }
-        try output.seek(toOffset: headerOffset)
-        try write(header)
-        try output.seek(toOffset: end)
-        record(entry, offset: headerOffset, headerLength: header.count, dataLength: packedSize,
-               method: shrinks ? Method.lh5 : Method.lh0)
-        try Task.checkCancellation()
+        try member.finish(compressing: compressing, bits: &bits)
     }
 
     private struct Piece: Sendable {
@@ -181,19 +210,14 @@ final class LHAWriter {
 
     private func addStreamedParallel(entry: LHARecords.Entry, name: String, size: UInt64,
                                      read: (Int) throws -> Data) throws {
-        let headerOffset = try output.offset()
-        let placeholder = try entry.header(method: Method.lh0, packedSize: entry.size, crc: 0)
-        let spool = try LHACompressionSpool(nextTo: url)
-        try write(placeholder)
-        let payloadOffset = try output.offset()
+        var member = try StreamedMember(writer: self, entry: entry, name: name, size: size)
+        let spool = member.spool
         let pieces = OrderedChunkPipeline<Piece, PieceOutput, Void>(threads: threads) { piece in
             var bits = LH5Encoder.Bits()
             try LH5Encoder.write(piece.input, startingAt: piece.prefix, to: &bits)
             let remainder = bits.remainder
             return PieceOutput(bytes: bits.takeCompleteBytes(), remainder: remainder)
         }
-        var remaining = size
-        var crc: UInt16 = 0
         var bits = LH5Encoder.Bits()
         var history = Data()
         var compressing = true
@@ -205,26 +229,14 @@ final class LHAWriter {
             // 内部の停止だけを捕捉し、pipeline 自身の失敗時の abandon を通す。
             if spool.size >= size { throw CompressionStopped.stored }
         }
-        while remaining > 0 {
+        while member.remaining > 0 {
             try Task.checkCancellation()
             if compressing {
                 do { try pieces.waitForCapacity(emit: emitPiece) }
                 catch CompressionStopped.stored { compressing = false; history = Data() }
             }
-            var input = history
             let prefixSize = history.count
-            let target = prefixSize + Int(min(UInt64(Self.compressionChunkSize), remaining))
-            input.reserveCapacity(target)
-            while input.count < target {
-                try Task.checkCancellation()
-                let requested = min(IOChunk.size, target - input.count)
-                let chunk = try read(requested)
-                guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
-                try write(chunk)
-                crc = LHACRC16.update(crc, chunk)
-                input.append(chunk)
-                remaining -= UInt64(chunk.count)
-            }
+            let input = try member.readChunk(after: history, read: read)
             if compressing {
                 history = Data(input.suffix(LH5Encoder.windowSize))
                 try pieces.submit(Piece(input: input, prefix: prefixSize), tag: (), emit: emitPiece)
@@ -235,23 +247,7 @@ final class LHAWriter {
             do { try pieces.finish(emit: emitPiece) }
             catch CompressionStopped.stored { compressing = false }
         }
-        if compressing { try spool.write(bits.finish()) }
-        let shrinks = compressing && spool.size < size
-        let packedSize = shrinks ? spool.size : size
-        let end = try checkedAdd(payloadOffset, packedSize)
-        if shrinks {
-            try output.seek(toOffset: payloadOffset)
-            try spool.copy(emit: write)
-            try output.truncate(atOffset: end)
-        }
-        let method = shrinks ? Method.lh5 : Method.lh0
-        let header = try entry.header(method: method, packedSize: UInt32(packedSize), crc: crc)
-        guard header.count == placeholder.count else { throw WriterError.invalidState }
-        try output.seek(toOffset: headerOffset)
-        try write(header)
-        try output.seek(toOffset: end)
-        record(entry, offset: headerOffset, headerLength: header.count, dataLength: packedSize, method: method)
-        try Task.checkCancellation()
+        try member.finish(compressing: compressing, bits: &bits)
     }
 
     func endMembers() throws -> UInt64 {
@@ -290,9 +286,8 @@ final class LHAWriter {
     }
 }
 
-/// Only packed bytes need a spool: the raw fallback lives in the unfinished
-/// output itself. Unlink immediately, so cancellation, I/O errors, and process
-/// exit cannot leave a named payload file. Memory stays independent of size.
+/// spool が要るのは圧縮 byte だけで、raw の代替は書き終える前の出力そのものに置く。作ってすぐ unlink し、
+/// 取消し・I/O error・process 終了で名前のある payload file が残らないようにする。memory 使用量は size に依らない。
 private final class LHACompressionSpool {
     private let file: FileHandle
     private(set) var size: UInt64 = 0
