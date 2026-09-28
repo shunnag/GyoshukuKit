@@ -17,7 +17,7 @@ final class ParallelBzip2Compressor: TarCompressor {
         try pipeline.drain(didEmit: didEmit) { _, result in try emit(result!) }
     }
 
-    init(level: Int, threads: Int, encoder: @escaping Encoder = ParallelBzip2Compressor.encode) throws {
+    init(level: Int, threads: Int, encoder: @escaping Encoder = Bzip2StreamEncoder.encode) throws {
         guard (1...9).contains(level) else { throw WriterError.invalidOption("bzip2Level") }
         guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         chunkSize = Self.chunkSize(level: level)
@@ -31,11 +31,8 @@ final class ParallelBzip2Compressor: TarCompressor {
 
     func beginEndOfArchive() { layout.beginEndOfArchive(bufferedCount: input.count) }
 
-    static func encode(_ input: Data, level: Int) throws -> Data {
-        var result = Data()
-        try Bzip2Compressor(level: level).write(input, finish: true) { result.append($0) }
-        return result
-    }
+    // ArchiveWriter / CompressedTarSpliceOutput が参照する旧名。Bzip2StreamEncoder.encode へ寄せた後に外す。
+    static func encode(_ input: Data, level: Int) throws -> Data { try Bzip2StreamEncoder.encode(input, level: level) }
 
     func write(_ data: Data, finish: Bool, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
