@@ -40,7 +40,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     static func addProgressFixture(to writer: ArchiveWriter) throws {
-        try add(items.filter { writer.format != .lha || $0.mode & 0xF000 != 0xA000 }, to: writer)
+        try add(items.filter { writer.format != .lha || !$0.mode.isSymlinkMode }, to: writer)
     }
 
     func testZIPThreadCountsAndAESAreByteIdenticalAtLevels6And9() throws {
@@ -118,7 +118,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         let tool = try ReferenceTool.firstAvailable([ReferenceTool.unzip, "/opt/homebrew/bin/unzip"])
         let url = try fixture("unzip", format: .zip)
         try TestSupport.run(tool, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
-        for (index, item) in Self.items.enumerated() where item.mode & 0xF000 != 0x4000 {
+        for (index, item) in Self.items.enumerated() where !item.mode.isDirectoryMode {
             XCTAssertEqual(try Self.stdout(tool, ["-p", url.path, item.name], beside: url, name: "payload-\(index)"), item.data)
         }
     }
@@ -197,7 +197,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     func testUpdaterAndRewriterZIPOutputUsesParallelFormat() throws {
         let directory = try TestSupport.directory("m8-edit-shared-writer")
         var updated: Data?, rewritten: Data?
-        let items = Self.items.filter { $0.mode & 0xF000 == 0x8000 }
+        let items = Self.items.filter { $0.mode.isRegularFileMode }
         for threads in [1, 4, 8] {
             let options = WriterOptions(deflateLevel: 9, compressionThreads: threads)
             let zip = directory.appendingPathComponent("update-\(threads).zip")
@@ -284,14 +284,14 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     private static func verifyExtracted(_ directory: URL, items: [Item]) throws {
         for item in items {
             let path = directory.appendingPathComponent(item.name)
-            switch item.mode & 0xF000 {
-            case 0x4000:
+            if item.mode.isDirectoryMode {
                 var isDirectory: ObjCBool = false
                 XCTAssertTrue(FileManager.default.fileExists(atPath: path.path, isDirectory: &isDirectory))
                 XCTAssertTrue(isDirectory.boolValue)
-            case 0xA000:
+            } else if item.mode.isSymlinkMode {
                 XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: path.path), String(decoding: item.data, as: UTF8.self))
-            default: XCTAssertEqual(try Data(contentsOf: path), item.data)
+            } else {
+                XCTAssertEqual(try Data(contentsOf: path), item.data)
             }
         }
     }
