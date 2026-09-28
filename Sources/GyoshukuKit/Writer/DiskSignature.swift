@@ -2,11 +2,11 @@ import Foundation
 internal import Darwin
 
 struct DiskSignature: Sendable {
-    private let identity: ZipFileIdentity
+    private let identity: FileIdentity
     var isDirectory: Bool { identity.mode & S_IFMT == S_IFDIR }
     var inputByteCount: UInt64 { identity.mode & S_IFMT == S_IFREG ? UInt64(max(0, identity.size)) : 0 }
 
-    init(_ info: stat) { identity = ZipFileIdentity(info) }
+    init(_ info: stat) { identity = FileIdentity(info) }
 
     func matches(_ info: stat) -> Bool {
         identity.matchesInode(info) && identity.mode == info.st_mode && identity.size == info.st_size

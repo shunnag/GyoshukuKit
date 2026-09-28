@@ -9,7 +9,7 @@ final class ArchiveFileSource: ByteSource {
     @TaskLocal static var readObserver: (@Sendable (Int32, UInt64, Int) -> Void)?
     let descriptor: Int32
     let length: UInt64
-    let identity: ZipFileIdentity
+    let identity: FileIdentity
     let flags: UInt32
 
     init(url: URL) throws {
@@ -22,7 +22,7 @@ final class ArchiveFileSource: ByteSource {
             throw UpdaterError.invalidArchive("通常ファイルではありません")
         }
         descriptor = fd
-        identity = ZipFileIdentity(info)
+        identity = FileIdentity(info)
         flags = info.st_flags
         length = UInt64(info.st_size)
     }
@@ -37,7 +37,7 @@ final class ArchiveFileSource: ByteSource {
             throw UpdaterError.invalidArchive("通常ファイルではありません")
         }
         descriptor = fd
-        identity = ZipFileIdentity(info)
+        identity = FileIdentity(info)
         flags = info.st_flags
         length = UInt64(info.st_size)
     }

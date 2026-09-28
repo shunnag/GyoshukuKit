@@ -77,7 +77,7 @@ struct TarImageSource: ByteSource {
             case .source(let range): pieces.append((true, range.lowerBound, segment.length))
             case .literal(let length, let bytes):
                 let data = try bytes()
-                guard UInt64(data.count) == length else { throw TarUpdaterError.outputVerificationFailed(reason: "literal length") }
+                guard UInt64(data.count) == length else { throw UpdaterRouteError.outputVerificationFailed(reason: "literal length") }
                 let range = try storage.append(data)
                 pieces.append((false, range.lowerBound, length))
             case .generated, .scratch: throw WriterError.invalidState

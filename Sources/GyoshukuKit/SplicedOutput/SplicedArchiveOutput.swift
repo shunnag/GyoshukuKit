@@ -1,37 +1,11 @@
 import Foundation
 internal import Darwin
 
-enum SplicedSegment {
-    case source(Range<UInt64>)
-    case literal(length: UInt64, bytes: () throws -> Data)
-    case generated(length: UInt64, write: (SplicedSink) throws -> Void)
-    case scratch(SplicedScratchFile, Range<UInt64>)
-
-    var length: UInt64 {
-        switch self {
-        case .source(let range): range.byteLength
-        case .scratch(_, let range): range.byteLength
-        case .literal(let length, _), .generated(let length, _): length
-        }
-    }
-}
-
 struct SplicedSink {
     fileprivate let writer: SplicedSegmentWriter
     func write(_ bytes: Data) throws { try writer.write(bytes) }
     func copy(_ range: Range<UInt64>, from source: ArchiveFileSource) throws { try writer.copy(range, from: source) }
 }
-
-struct SplicedCommitPlan {
-    var prefix: [SplicedSegment]
-    var appended: Range<UInt64>?
-    var terminal: Data
-    var finalLength: UInt64
-    var finalPatch: (offset: UInt64, bytes: Data)? = nil
-    var formatVerificationUnits: UInt64
-}
-
-enum SplicedCommitStrategy { case unchanged, inPlacePatch, appendOnly, splice, sequential, relocatedAppend }
 
 fileprivate final class SplicedSegmentWriter {
     var engine: ZipCopyEngine
@@ -44,13 +18,13 @@ fileprivate final class SplicedSegmentWriter {
     }
     func write(_ bytes: Data) throws {
         let end = try checkedAdd(position, UInt64(bytes.count))
-        guard end <= limit else { throw TarUpdaterError.outputVerificationFailed(reason: "segment length") }
+        guard end <= limit else { throw UpdaterRouteError.outputVerificationFailed(reason: "segment length") }
         try engine.append(bytes, at: position, progress: nil)
         position = end
     }
     func copy(_ range: Range<UInt64>, from source: ArchiveFileSource) throws {
         let end = try checkedAdd(position, range.byteLength)
-        guard end <= limit else { throw TarUpdaterError.outputVerificationFailed(reason: "segment length") }
+        guard end <= limit else { throw UpdaterRouteError.outputVerificationFailed(reason: "segment length") }
         try engine.copy(range, from: source, to: position, progress: nil)
         position = end
     }
@@ -241,7 +215,7 @@ final class SplicedArchiveOutput {
                 try writer.copy(range, from: file.source())
                 file.copySeconds += ProcessInfo.processInfo.systemUptime - start
             }
-            guard writer.position == end else { throw TarUpdaterError.outputVerificationFailed(reason: "segment length") }
+            guard writer.position == end else { throw UpdaterRouteError.outputVerificationFailed(reason: "segment length") }
         }
         try writer.flush()
     }
@@ -277,14 +251,14 @@ final class SplicedArchiveOutput {
             else if let appended = plan.appended { tail.position += appended.byteLength }
             try tail.write(plan.terminal)
             try tail.flush()
-            guard tail.position == plan.finalLength else { throw TarUpdaterError.outputVerificationFailed(reason: "final length plan") }
+            guard tail.position == plan.finalLength else { throw UpdaterRouteError.outputVerificationFailed(reason: "final length plan") }
             try handle!.truncate(atOffset: plan.finalLength)
             try Self.testingBeforeSynchronize?(handle!.fileDescriptor)
             try handle!.synchronize()
             Self.testingDidSynchronize?()
             if let patch = plan.finalPatch {
                 guard try checkedAdd(patch.offset, UInt64(patch.bytes.count)) <= plan.finalLength else {
-                    throw TarUpdaterError.outputVerificationFailed(reason: "final patch bounds")
+                    throw UpdaterRouteError.outputVerificationFailed(reason: "final patch bounds")
                 }
                 var engine = ZipCopyEngine(descriptor: handle!.fileDescriptor, meter: meter)
                 try engine.patch(patch.bytes, at: patch.offset, progress: nil)
@@ -338,7 +312,7 @@ final class SplicedArchiveOutput {
                 let original = try Self.read(snapshot.source.descriptor, at: range.lowerBound + cursor, count: count, counted: true)
                 let written = try Self.read(handle!.fileDescriptor, at: outputOffset + cursor, count: count, counted: true)
                 try meter.advance(UInt64(count) * 2)
-                guard original == written else { throw TarUpdaterError.outputVerificationFailed(reason: "V5 source bytes") }
+                guard original == written else { throw UpdaterRouteError.outputVerificationFailed(reason: "V5 source bytes") }
                 cursor += UInt64(count)
             }
         }
