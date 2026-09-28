@@ -4,6 +4,8 @@ private import CommonCrypto
 /// 7z AES-256-CBC。CommonCrypto が block の端数を保持し、最後だけ明示的に zero pad する。
 final class SevenZipAESEncryptor {
     @TaskLocal static var testingIV: (@Sendable () -> Data)?
+    /// properties は設定 2 byte + IV 16 byte。header 長の見積りで実物の代わりに使う。
+    static let propertiesLength = 18
     let properties: Data
     private var cryptor: CCCryptorRef?
     private var remainder = 0

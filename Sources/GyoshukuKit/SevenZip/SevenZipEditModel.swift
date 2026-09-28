@@ -3,12 +3,19 @@ import Foundation
 
 struct SevenZipEditModel: Sendable, Equatable {
     struct Coder: Sendable, Equatable {
+        /// 7z の method ID。AES-256 + SHA-256 の鍵導出は 06 F1 07 01、LZMA2 は 21。
+        static let aesMethodID: [UInt8] = [0x06, 0xF1, 0x07, 0x01]
+        static let lzma2MethodID: [UInt8] = [0x21]
         var methodID: [UInt8]
         var inputCount = 1
         var outputCount = 1
         var isComplex = false
         var properties: [UInt8]?
-        var isAES: Bool { methodID == [0x06, 0xF1, 0x07, 0x01] }
+        var isAES: Bool { methodID == Self.aesMethodID }
+        /// 単入力・単出力の AES coder。properties は SevenZipAESEncryptor.properties の byte。
+        static func aes(properties: [UInt8]) -> Coder { Coder(methodID: aesMethodID, properties: properties) }
+        /// LZMA2 coder。properties は dictionary size を表す 1 byte。
+        static func lzma2(properties: UInt8) -> Coder { Coder(methodID: lzma2MethodID, properties: [properties]) }
     }
     struct Bind: Sendable, Equatable { var input: Int; var output: Int }
     struct Folder: Sendable, Equatable {

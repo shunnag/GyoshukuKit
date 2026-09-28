@@ -104,8 +104,7 @@ struct SevenZipEditPlan {
             let streamIndex: Int? = record.size > 0 ? model.substreams.count : nil
             if record.size > 0 {
                 let aes = record.aesProperties.map(Array.init)
-                let coders: [Model.Coder] = (aes.map { [.init(methodID: [6, 0xF1, 7, 1], properties: $0)] } ?? [])
-                    + [.init(methodID: [0x21], properties: [record.properties])]
+                let coders: [Model.Coder] = (aes.map { [.aes(properties: $0)] } ?? []) + [.lzma2(properties: record.properties)]
                 let folder = Model.Folder(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)],
                     packedInputs: [0], unpackSizes: aes == nil ? [record.size] : [record.compressedSize, record.size],
                     finalOutput: aes == nil ? 0 : 1, packIndices: 0..<1, substreamIndices: 0..<1)
@@ -117,7 +116,7 @@ struct SevenZipEditPlan {
             }
             model.files.append(.init(rawName: Model.nameBytes(record.name), substreamIndex: streamIndex,
                 isEmptyFile: record.size == 0 && !record.isDirectory, modificationTime: record.mtime,
-                attributes: storesAttributes ? UInt32(record.mode) << 16 | 0x8000 | (record.isDirectory ? 0x10 : 0x20) : nil))
+                attributes: storesAttributes ? SevenZipRecords.unixAttributes(mode: record.mode, isDirectory: record.isDirectory) : nil))
         }
         guard model.validLayout() else { throw failure("V0 layout") }
         return Assembly(model: model, outputFolderIndices: outputIndices, firstAddedFolder: firstAdded)

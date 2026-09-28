@@ -14,7 +14,7 @@ enum SevenZipRecords {
         var crc: UInt32 = 0
         var aesProperties: Data?
 
-        var isDirectory: Bool { mode & 0xF000 == 0x4000 }
+        var isDirectory: Bool { mode.isDirectoryMode }
     }
 
     static func timestamp(_ date: Date) throws -> UInt64 {
@@ -80,9 +80,9 @@ enum SevenZipRecords {
             result.append(number(UInt64(entries.count)))
             let empty = entries.filter { $0.size == 0 }
             if !empty.isEmpty {
-                property(0x0E, bits(entries.map { $0.size == 0 }), to: &result)
+                property(0x0E, SevenZipHeaderSerializer.bits(entries.map { $0.size == 0 }), to: &result)
                 // EmptyFile の添字は全 entry ではなく EmptyStream が立った entry だけを数える。
-                property(0x0F, bits(empty.map { !$0.isDirectory }), to: &result)
+                property(0x0F, SevenZipHeaderSerializer.bits(empty.map { !$0.isDirectory }), to: &result)
             }
             var names = Data([0])
             var times = Data([1, 0])
@@ -92,8 +92,7 @@ enum SevenZipRecords {
                 for unit in entry.name.utf16 { names.le(unit) }
                 names.le(UInt16(0))
                 times.le(entry.mtime)
-                // 0x8000 は Unix mode がある印。type も含め、Unix の実行 bit / symlink を復元させる。
-                attributes.le(UInt32(entry.mode) << 16 | 0x8000 | (entry.isDirectory ? 0x10 : 0x20))
+                attributes.le(unixAttributes(mode: entry.mode, isDirectory: entry.isDirectory))
             }
             property(0x11, names, to: &result)
             property(0x14, times, to: &result)
@@ -120,8 +119,15 @@ enum SevenZipRecords {
         return result
     }
 
+    /// 7z の attributes 欄。上位 16 bit が Unix mode、0x8000 はその印で、type も含め実行 bit / symlink を復元させる。
+    /// 下位は FILE_ATTRIBUTE_DIRECTORY (0x10) か FILE_ATTRIBUTE_ARCHIVE (0x20)。
+    static func unixAttributes(mode: UInt16, isDirectory: Bool) -> UInt32 {
+        UInt32(mode) << 16 | 0x8000 | (isDirectory ? 0x10 : 0x20)
+    }
+
     private static func aesCoder(_ properties: Data) -> Data {
-        var result = Data([0x24, 0x06, 0xF1, 0x07, 0x01])
+        var result = Data([0x24]) // method ID 長 4 | properties あり (0x20)
+        result.append(contentsOf: SevenZipEditModel.Coder.aesMethodID)
         result.append(number(UInt64(properties.count)))
         result.append(properties)
         return result
@@ -147,17 +153,11 @@ enum SevenZipRecords {
     static func checksum(_ data: Data) -> UInt32 {
         // zlib の一回の入力長は uInt。大きな header でも長さを切り詰めない。
         var crc: UInt32 = 0
-        for offset in stride(from: 0, to: data.count, by: 256 * 1024) {
+        for offset in stride(from: 0, to: data.count, by: IOChunk.size) {
             let start = data.startIndex + offset
-            crc = updateCRC(crc, data.subdata(in: start..<min(start + 256 * 1024, data.endIndex)))
+            crc = updateCRC(crc, data.subdata(in: start..<min(start + IOChunk.size, data.endIndex)))
         }
         return crc
-    }
-
-    private static func bits(_ values: [Bool]) -> Data {
-        var result = Data(count: (values.count + 7) / 8)
-        for (index, value) in values.enumerated() where value { result[index / 8] |= 0x80 >> (index % 8) }
-        return result
     }
 
     private static func property(_ id: UInt8, _ value: Data, to result: inout Data) {

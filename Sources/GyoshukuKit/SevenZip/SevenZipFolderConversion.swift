@@ -18,7 +18,7 @@ final class SevenZipFolderConversion {
         if conversion == .attach {
             plaintextLength = pack.length
             guard let aes else { throw WriterError.invalidState }
-            folder.coders.insert(.init(methodID: [6, 0xF1, 7, 1], properties: Array(aes.properties)), at: 0)
+            folder.coders.insert(.aes(properties: Array(aes.properties)), at: 0)
             folder.bindPairs = original.bindPairs.map { .init(input: $0.input + 1, output: $0.output + 1) }
             folder.bindPairs.append(.init(input: original.packedInputs[0] + 1, output: 0))
             folder.packedInputs = [0]

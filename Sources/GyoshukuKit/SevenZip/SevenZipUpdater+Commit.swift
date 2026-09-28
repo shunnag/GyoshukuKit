@@ -134,8 +134,8 @@ extension SevenZipUpdater {
                     input = try checkedAdd(input, folder.size)
                     let encrypted = reencrypt ? options.password != nil : folder.isEncrypted
                     var replacement = folder
-                    replacement.coders = (encrypted ? [.init(methodID: [6, 0xF1, 7, 1], properties: Array(repeating: 0, count: 18))] : [])
-                        + [.init(methodID: [0x21], properties: [0])]
+                    replacement.coders = (encrypted ? [.aes(properties: Array(repeating: 0, count: SevenZipAESEncryptor.propertiesLength))] : [])
+                        + [.lzma2(properties: 0)]
                     replacement.bindPairs = encrypted ? [.init(input: 1, output: 0)] : []
                     replacement.packedInputs = [0]; replacement.unpackSizes = encrypted ? [bound, size] : [size]
                     replacement.finalOutput = encrypted ? 1 : 0; replacement.crc32 = nil
@@ -309,7 +309,7 @@ extension SevenZipUpdater {
             } else {
                 guard let aes else { throw WriterError.invalidState }
                 pack = try aes.encrypt(plain); pack.append(try aes.finish())
-                folder = .init(coders: [.init(methodID: [6, 0xF1, 7, 1], properties: Array(aes.properties))],
+                folder = .init(coders: [.aes(properties: Array(aes.properties))],
                     bindPairs: [], packedInputs: [0], unpackSizes: [UInt64(plain.count)], finalOutput: 0,
                     crc32: SevenZipRecords.checksum(plain), packIndices: 0..<1, substreamIndices: 0..<1)
             }
