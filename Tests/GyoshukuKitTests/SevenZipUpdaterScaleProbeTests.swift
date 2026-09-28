@@ -6,18 +6,16 @@ import XCTest
 
 final class SevenZipUpdaterScaleProbeTests: XCTestCase {
     func testReleaseScale() throws {
-        guard let path = ProcessInfo.processInfo.environment["GYOSHUKU_7Z_SCALE_DIR"] else {
-            throw XCTSkip("Set GYOSHUKU_7Z_SCALE_DIR; use -c release -Xswiftc -enable-testing")
-        }
-        let fixtureRoot = URL(fileURLWithPath: path)
+        let fixtureRoot = try OptInGate.path("GYOSHUKU_7Z_SCALE_DIR")
         let root = try TestSupport.directory("7z-scale")
-        let selected = ProcessInfo.processInfo.environment["GYOSHUKU_7Z_SCALE_CASE"]
+        let selected = OptInGate.value("GYOSHUKU_7Z_SCALE_CASE")
         func now() -> Double { ProcessInfo.processInfo.systemUptime }
         let cases: [(String, [String])] = [("g_real", ["rename", "last", "add", "first", "middle"]),
             ("g_k100", ["rename", "first"]), ("z_k100", ["rename", "first"]), ("z_real_default", ["rename", "first"])]
-        func line(_ value: String) { FileHandle.standardOutput.write(Data((value + "\n").utf8)) }
-        line("7Z-SCALE-PROCESS\tpid=\(ProcessInfo.processInfo.processIdentifier)\toutputs=\(root.path)")
-        line("7Z-SCALE\tfixture\toperation\tengine\trepeat\topen_ms\tmutate_ms\tcommit_ms\tplan_ms\tpassword_ms\tscratch_encode_ms\tscratch_copy_ms\tpacks_ms\theader_ms\tV1_ms\tV2_ms\tV3_ms\tV3a_ms\toutput_bytes\tload1\tload5\tload15")
+        ScaleProbe.report(tag: "7Z-SCALE-PROCESS", columns: ["pid=\(ProcessInfo.processInfo.processIdentifier)", "outputs=\(root.path)"])
+        ScaleProbe.report(tag: "7Z-SCALE", columns: ["fixture", "operation", "engine", "repeat", "open_ms", "mutate_ms", "commit_ms",
+            "plan_ms", "password_ms", "scratch_encode_ms", "scratch_copy_ms", "packs_ms", "header_ms", "V1_ms", "V2_ms", "V3_ms",
+            "V3a_ms", "output_bytes", "load1", "load5", "load15"])
         func measure(_ source: URL, fixture: String, operations: [String], password: String? = nil) throws {
             let reader = try SevenZipEditSupport.reader(source, password: password)
             let files = reader.entries.filter { $0.kind == .file && ($0.uncompressedSize ?? 0) > 0 }.map(\.index)
@@ -55,23 +53,26 @@ final class SevenZipUpdaterScaleProbeTests: XCTestCase {
                             stats.reencodeScratchSeconds * 1000, stats.scratchCopySeconds * 1000,
                             stats.packsSeconds * 1000, stats.headerSeconds * 1000, stats.v1Seconds * 1000,
                             stats.v2Seconds * 1000, stats.v3Seconds * 1000, stats.v3aSeconds * 1000]
-                        line("7Z-SCALE\t\(fixture)\t\(operation)\t\(rewrite ? "rewriter" : "updater")\t\(repeatIndex)\t"
-                            + values.map { String(format: "%.3f", $0) }.joined(separator: "\t") + "\t\(outputSize)\t"
-                            + loads.map { String(format: "%.2f", $0) }.joined(separator: "\t"))
+                        ScaleProbe.report(tag: "7Z-SCALE", columns: [fixture, operation, rewrite ? "rewriter" : "updater", "\(repeatIndex)"]
+                            + values.map { String(format: "%.3f", $0) } + ["\(outputSize)"] + loads.map { String(format: "%.2f", $0) })
                         opens.append(values[0]); commits.append(values[2])
                         if !rewrite && fixture == "z_k100" && operation == "rename" {
                             XCTAssertLessThanOrEqual(outputSize.doubleValue, inputSize.doubleValue * 1.1)
                         }
                         if repeatIndex != 4 { try FileManager.default.removeItem(at: output) }
                     }
-                    line(String(format: "7Z-SCALE-MEDIAN\t%@\t%@\t%@\topen_ms=%.3f\tcommit_ms=%.3f",
-                                fixture, operation, rewrite ? "rewriter" : "updater", opens.sorted()[2], commits.sorted()[2]))
+                    ScaleProbe.report(tag: "7Z-SCALE-MEDIAN", columns: [fixture, operation, rewrite ? "rewriter" : "updater",
+                        String(format: "open_ms=%.3f", opens.sorted()[2]), String(format: "commit_ms=%.3f", commits.sorted()[2])])
                     if !rewrite {
                         let limit: Double? = fixture == "g_real" ? (["first", "middle"].contains(operation) ? 100 : 50)
                             : fixture == "g_k100" ? 600 : fixture == "z_k100" ? (operation == "rename" ? 800 : 3000)
                             : fixture == "z_real_default" ? (operation == "rename" ? 100 : nil) : 1500
-                        if let limit, commits.sorted()[2] > limit { line("7Z-SCALE-MISS\t\(fixture)\t\(operation)\tcommit_limit_ms=\(limit)") }
-                        if fixture == "g_k100", opens.sorted()[2] > 700 { line("7Z-SCALE-MISS\tg_k100\topen_limit_ms=700") }
+                        if let limit, !ScaleProbe.threshold(commits.sorted()[2], limit: limit, "\(fixture) \(operation) median commit_ms") {
+                            ScaleProbe.report(tag: "7Z-SCALE-MISS", columns: [fixture, operation, "commit_limit_ms=\(limit)"])
+                        }
+                        if fixture == "g_k100", !ScaleProbe.threshold(opens.sorted()[2], limit: 700, "g_k100 \(operation) median open_ms") {
+                            ScaleProbe.report(tag: "7Z-SCALE-MISS", columns: ["g_k100", "open_limit_ms=700"])
+                        }
                     }
                 }
             }

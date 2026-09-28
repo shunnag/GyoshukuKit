@@ -7,7 +7,7 @@ import XCTest
 
 final class TarUpdaterLargeMemberTests: XCTestCase {
     func testSparseNineGiBOffsetsAndHardLinkMaterialization() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_TAR_LARGE"] == "1" else { throw XCTSkip("GYOSHUKU_TAR_LARGE is not set") }
+        try OptInGate.flag("GYOSHUKU_TAR_LARGE")
         let root = try TestSupport.directory("p2-nine-gib")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source.tar")

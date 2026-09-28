@@ -5,7 +5,7 @@ import XCTest
 
 final class CompressedTarLargeOffsetTests: XCTestCase {
     func testLargeCRCAndImageOffsets() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_LARGE_TESTS"] == "1" else { throw XCTSkip("Set GYOSHUKU_LARGE_TESTS=1") }
+        try OptInGate.flag("GYOSHUKU_LARGE_TESTS")
         let zeros = Data(count: 1024 * 1024), prefix = Data("prefix".utf8)
         var suffixCRC: UInt32 = 0, direct = updateCRC(0, prefix)
         for _ in 0..<4608 { suffixCRC = updateCRC(suffixCRC, zeros); direct = updateCRC(direct, zeros) }

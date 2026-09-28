@@ -6,7 +6,7 @@ import XCTest
 
 final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
     func testSparseOffsetsPastFourGiB() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_7Z_LARGE"] == "1" else { throw XCTSkip("Set GYOSHUKU_7Z_LARGE=1") }
+        try OptInGate.flag("GYOSHUKU_7Z_LARGE")
         let root = try TestSupport.directory("7z-large-offset")
         let small = try SevenZipEditSupport.source(root, count: 1)
         let smallReader = try SevenZipEditSupport.reader(small)

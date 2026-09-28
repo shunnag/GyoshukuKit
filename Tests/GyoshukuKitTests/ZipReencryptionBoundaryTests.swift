@@ -258,9 +258,8 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
     }
 
     private func requireLarge() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_LARGE_ZIP_TESTS"] == "1" else {
-            throw XCTSkip("Set GYOSHUKU_LARGE_ZIP_TESTS=1 on a volume with at least 10 GiB free")
-        }
+        // 10 GiB 以上の空きがある volume で開ける。
+        try OptInGate.flag("GYOSHUKU_LARGE_ZIP_TESTS")
     }
 
     private func sparse(_ url: URL, size: UInt64, tailDescriptor: Bool = false, tailDirectory: Bool = false) throws {

@@ -25,7 +25,7 @@ enum CompressedTarTestSupport {
         for name in ["large-A", "large-B"] {
             var body = Data(repeating: 37, count: size)
             var random = TestCorpus.XorShift64(state: name == "large-A" ? 17 : 31)
-            let entropy = ProcessInfo.processInfo.environment["GYOSHUKU_P3_REPETITIVE_FIXTURE"] == "1" ? 0 : min(size, 65536)
+            let entropy = OptInGate.isOn("GYOSHUKU_P3_REPETITIVE_FIXTURE") ? 0 : min(size, 65536)
             for index in 0..<entropy {
                 body[index] = UInt8(truncatingIfNeeded: random.next())
             }

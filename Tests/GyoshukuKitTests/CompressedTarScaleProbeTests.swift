@@ -6,21 +6,20 @@ import XCTest
 
 final class CompressedTarScaleProbeTests: XCTestCase {
     func testMixedNewAndOldLayouts() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_SCALE_PROBES"] == "1",
-              let corpusPath = ProcessInfo.processInfo.environment["GYOSHUKU_SCALE_CORPUS"] else {
-            throw XCTSkip("Set GYOSHUKU_SCALE_PROBES=1 and GYOSHUKU_SCALE_CORPUS to p3val")
-        }
-        let corpus = URL(fileURLWithPath: corpusPath).appendingPathComponent("arc")
+        try OptInGate.flag("GYOSHUKU_SCALE_PROBES")
+        let corpus = try OptInGate.path("GYOSHUKU_SCALE_CORPUS").appendingPathComponent("arc")
         let root = try TestSupport.directory("compressed-tar-scale")
         let raw = corpus.appendingPathComponent("mixed.tar")
         let options = WriterOptions(compressionThreads: 8)
         // 合計 3 分待っても下がらない負荷は、そのまま記録し、時間の閾値は変えない。
         var loadWaitBudget = 180
-        TestSupport.report("TAR-SCALE layout\tcodec\toperation\tstage\twall_ms\tplan_ms\tencode_worker_ms\tcopy_ms\tselfcheck_ms\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\tencoded_chunks\tscratch_bytes\toutput_bytes\tload1\tload5\tload15\tlimit_ms\tload_wait_s")
+        ScaleProbe.report(tag: "TAR-SCALE", columns: ["layout", "codec", "operation", "stage", "wall_ms", "plan_ms", "encode_worker_ms",
+            "copy_ms", "selfcheck_ms", "reencoded_bytes", "reencoded_old_bytes", "carried_bytes", "carried_chunks", "encoded_chunks",
+            "scratch_bytes", "output_bytes", "load1", "load5", "load15", "limit_ms", "load_wait_s"])
         for format in CompressedTarTestSupport.formats {
             let suffix = format == .tarGzip ? "tgz" : format == .tarBzip2 ? "tbz" : "txz"
             let fresh: URL
-            if let directory = ProcessInfo.processInfo.environment["GYOSHUKU_SCALE_NEW_ARCHIVES"] {
+            if let directory = OptInGate.value("GYOSHUKU_SCALE_NEW_ARCHIVES") {
                 fresh = URL(fileURLWithPath: directory).appendingPathComponent("mixed-8.\(suffix)")
             } else {
                 fresh = root.appendingPathComponent("fresh.\(suffix)")
@@ -48,15 +47,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                         let name = operation == "rename-same" ? "r" + entry.name.dropFirst() : "renamed/" + String(repeating: "n", count: 160)
                         try updater.rename(entryAt: entry.index, to: String(name))
                     }
-                    var load = [Double](repeating: 0, count: 3)
-                    _ = getloadavg(&load, 3)
-                    var waited = 0
-                    while load[0] > 4, loadWaitBudget > 0 {
-                        try Task.checkCancellation()
-                        Thread.sleep(forTimeInterval: 1)
-                        waited += 1; loadWaitBudget -= 1
-                        _ = getloadavg(&load, 3)
-                    }
+                    let (load, waited) = try ScaleProbe.waitForLoad(below: 4, budget: &loadWaitBudget)
                     let started = ProcessInfo.processInfo.systemUptime
                     let result = try updater.commit(progress: nil)
                     let elapsed = ProcessInfo.processInfo.systemUptime - started
@@ -70,16 +61,15 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                     else if operation == "append" || operation == "rename-text256" { limit = layout == "new" ? 1.0 : .infinity }
                     else { limit = layout == "new" ? 1.5 : .infinity }
                     let stats = [statistics.planningSeconds, statistics.encodingSeconds, statistics.copyingSeconds, statistics.selfCheckSeconds]
-                        .map { String(format: "%.3f", $0 * 1000) }.joined(separator: "\t")
-                    let bytes = [result.reencodedImageBytes, result.reencodedOldImageBytes, result.carriedCompressedBytes]
-                        .map(String.init).joined(separator: "\t")
-                    let counts = "\(statistics.carriedChunks)\t\(statistics.reencodedChunks)\t\(statistics.scratchBytes)\t\(result.output.size)"
-                    let loads = load.map { String(format: "%.2f", $0) }.joined(separator: "\t")
+                        .map { String(format: "%.3f", $0 * 1000) }
+                    let bytes = [result.reencodedImageBytes, result.reencodedOldImageBytes, result.carriedCompressedBytes].map(String.init)
+                    let counts = ["\(statistics.carriedChunks)", "\(statistics.reencodedChunks)", "\(statistics.scratchBytes)", "\(result.output.size)"]
+                    let loads = load.map { String(format: "%.2f", $0) }
                     for (stage, seconds) in [("commit", elapsed), ("k5", k5)] {
-                        TestSupport.report("TAR-SCALE \(layout)\t\(suffix)\t\(operation)\t\(stage)\t" + String(format: "%.3f", seconds * 1000)
-                            + "\t" + stats + "\t" + bytes + "\t" + counts + "\t" + loads + "\t" + String(format: "%.3f", limit * 1000) + "\t\(waited)")
+                        ScaleProbe.report(tag: "TAR-SCALE", columns: [layout, suffix, operation, stage, String(format: "%.3f", seconds * 1000)]
+                            + stats + bytes + counts + loads + [String(format: "%.3f", limit * 1000), "\(waited)"])
                     }
-                    XCTAssertLessThanOrEqual(elapsed, limit, "\(layout) \(suffix) \(operation), load \(load)")
+                    ScaleProbe.threshold(elapsed, limit: limit, "\(layout) \(suffix) \(operation), load \(load)")
                     XCTAssertLessThanOrEqual(statistics.scratchBytes, UInt64((operation == "append" ? 4096 : 0) + 1048576))
                     if layout == "new", operation == "append" { XCTAssertEqual(result.reencodedOldImageBytes, 0) }
                     let full = try CompressedTarTestSupport.open(output)
@@ -95,16 +85,15 @@ final class CompressedTarScaleProbeTests: XCTestCase {
 
 extension CompressedTarScaleProbeTests {
     func testXZPackingArchives() throws {
-        guard let path = ProcessInfo.processInfo.environment["GYOSHUKU_P14_ARCHIVES"] else {
-            throw XCTSkip("Set GYOSHUKU_P14_ARCHIVES to the mixed, payload and mid archives")
-        }
-        let assertsTime = ProcessInfo.processInfo.environment["GYOSHUKU_P14_ASSERT"] == "1"
-        let archives = URL(fileURLWithPath: path)
+        let archives = try OptInGate.path("GYOSHUKU_P14_ARCHIVES")
+        let assertsTime = ScaleProbe.assertsThresholds(alias: "GYOSHUKU_P14_ASSERT")
         let root = try TestSupport.directory("xz-packing-scale")
         defer { try? FileManager.default.removeItem(at: root) }
         let options = WriterOptions(compressionThreads: 8)
         var loadWaitBudget = 180, sequence = 0
-        TestSupport.report("TAR-XZ-PACKING archive\toperation\tcommit_ms\tk5_ms\topen_ms\tstrategy\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\treencoded_chunks\tencodingSeconds\tselfCheckSeconds\tload1\tload5\tload15\tload_wait_s")
+        ScaleProbe.report(tag: "TAR-XZ-PACKING", columns: ["archive", "operation", "commit_ms", "k5_ms", "open_ms", "strategy",
+            "reencoded_bytes", "reencoded_old_bytes", "carried_bytes", "carried_chunks", "reencoded_chunks", "encodingSeconds",
+            "selfCheckSeconds", "load1", "load5", "load15", "load_wait_s"])
 
         // 親 commit へこのファイルだけを写しても実行できる API に限る。
         func run(_ source: URL, name: String, operation: String) throws -> URL {
@@ -131,14 +120,7 @@ extension CompressedTarScaleProbeTests {
                 if operation.hasPrefix("delete") { try updater.remove(entriesAt: [middle.index]) }
                 else { try updater.rename(entryAt: middle.index, to: "renamed/" + middle.name) }
             }
-            var load = [Double](repeating: 0, count: 3), waited = 0
-            _ = getloadavg(&load, 3)
-            while load[0] > 4, loadWaitBudget > 0 {
-                try Task.checkCancellation()
-                Thread.sleep(forTimeInterval: 1)
-                waited += 1; loadWaitBudget -= 1
-                _ = getloadavg(&load, 3)
-            }
+            let (load, waited) = try ScaleProbe.waitForLoad(below: 4, budget: &loadWaitBudget)
             let started = ProcessInfo.processInfo.systemUptime
             let result = try updater.commit(progress: nil)
             let commit = ProcessInfo.processInfo.systemUptime - started
@@ -151,16 +133,15 @@ extension CompressedTarScaleProbeTests {
             let open = ProcessInfo.processInfo.systemUptime - openStart
             XCTAssertEqual(verified.entries.map(\.name), full.entries.map(\.name))
             XCTAssertEqual(verified.entries.map(\.kind), full.entries.map(\.kind))
-            let times = [commit, k5, open].map { String(format: "%.3f", $0 * 1000) }.joined(separator: "\t")
-            let bytes = [result.reencodedImageBytes, result.reencodedOldImageBytes, result.carriedCompressedBytes]
-                .map(String.init).joined(separator: "\t")
-            let counts = "\(statistics.carriedChunks)\t\(statistics.reencodedChunks)"
-            let seconds = [statistics.encodingSeconds, statistics.selfCheckSeconds].map { String(format: "%.6f", $0) }.joined(separator: "\t")
-            let loads = load.map { String(format: "%.2f", $0) }.joined(separator: "\t")
-            TestSupport.report("TAR-XZ-PACKING \(name)\t\(operation)\t" + times + "\t\(result.strategy)\t" + bytes
-                + "\t" + counts + "\t" + seconds + "\t" + loads + "\t\(waited)")
-            if assertsTime, let limit = Self.xzPackingCommitLimit(name: name, operation: operation) {
-                XCTAssertLessThanOrEqual(commit, limit, "\(name) \(operation), load \(load)")
+            let times = [commit, k5, open].map { String(format: "%.3f", $0 * 1000) }
+            let bytes = [result.reencodedImageBytes, result.reencodedOldImageBytes, result.carriedCompressedBytes].map(String.init)
+            let counts = ["\(statistics.carriedChunks)", "\(statistics.reencodedChunks)"]
+            let seconds = [statistics.encodingSeconds, statistics.selfCheckSeconds].map { String(format: "%.6f", $0) }
+            let loads = load.map { String(format: "%.2f", $0) }
+            ScaleProbe.report(tag: "TAR-XZ-PACKING", columns: [name, operation] + times + ["\(result.strategy)"] + bytes
+                + counts + seconds + loads + ["\(waited)"])
+            if let limit = Self.xzPackingCommitLimit(name: name, operation: operation) {
+                ScaleProbe.threshold(commit, limit: limit, assert: assertsTime, "\(name) \(operation), load \(load)")
             }
             return output
         }

@@ -6,9 +6,7 @@ import XCTest
 
 final class TarUpdaterInteropTests: XCTestCase {
     func testRealGitArchiveCommentIsPreserved() throws {
-        guard let repository = ProcessInfo.processInfo.environment["GYOSHUKU_TAR_GIT_REPO"] else {
-            throw XCTSkip("GYOSHUKU_TAR_GIT_REPO is not set")
-        }
+        let repository = try OptInGate.path("GYOSHUKU_TAR_GIT_REPO").path
         let root = try TestSupport.directory("p2-git-archive")
         let source = root.appendingPathComponent("source.tar")
         try TestSupport.run(ReferenceTool.git, ["-C", repository, "archive", "--format=tar", "-o", source.path,

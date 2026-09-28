@@ -273,9 +273,7 @@ final class LiveNameCheckTests: XCTestCase {
     }
 
     func testShiftJISFirstScanWhenEnabled() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_LIVE_NAME_SCALE"] == "1" else {
-            throw XCTSkip("Set GYOSHUKU_LIVE_NAME_SCALE=1 for the 500k Shift-JIS snapshot measurement")
-        }
+        try OptInGate.flag("GYOSHUKU_LIVE_NAME_SCALE")
         let count = 500_000
         let names = (0..<count).map { String(data: Data("d\($0 / 1_000)/s\($0 % 10)/f\($0).txt".utf8), encoding: .shiftJIS)! }
         let excluded = [Bool](repeating: false, count: count)
@@ -284,6 +282,7 @@ final class LiveNameCheckTests: XCTestCase {
         let built = DispatchTime.now().uptimeNanoseconds
         try snapshot.validate("new-file", directory: false, mode: .writer, excluded: excluded, renamed: [:], appended: [])
         let end = DispatchTime.now().uptimeNanoseconds
-        print("LIVE-NAME-SCALE encoding=shiftJIS entries=\(count) snapshot_ms=\(Double(built-start)/1_000_000) first_scan_ms=\(Double(end-start)/1_000_000)")
+        ScaleProbe.report(tag: "LIVE-NAME-SCALE", columns: ["encoding=shiftJIS", "entries=\(count)",
+            "snapshot_ms=\(Double(built-start)/1_000_000)", "first_scan_ms=\(Double(end-start)/1_000_000)"])
     }
 }

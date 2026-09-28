@@ -159,9 +159,7 @@ final class CompressedTarWriterTests: XCTestCase {
     // Opt in on a disk with at least 6 GiB free. Exercise a real public writer
     // and an entry beyond UInt32.max; the source is sparse, the read is bounded.
     func testEntryLargerThanFourGiBThroughPublicWriterAndIndependentReaders() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_LARGE_TAR_TESTS"] == "1" else {
-            throw XCTSkip("Set GYOSHUKU_LARGE_TAR_TESTS=1 for the 4 GiB streaming check")
-        }
+        try OptInGate.flag("GYOSHUKU_LARGE_TAR_TESTS")
         let directory = try TestSupport.directory("compressed-tar-four-gib")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appendingPathComponent("source")

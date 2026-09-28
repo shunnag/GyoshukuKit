@@ -5,7 +5,7 @@ import XCTest
 
 final class LHAUpdaterDifferentialTests: XCTestCase {
     func testFixedSeedModelAndRewriter300Sequences() throws {
-        let iterations = Int(ProcessInfo.processInfo.environment["GYOSHUKU_LHA_DIFF_ITERATIONS"] ?? "300") ?? 300
+        let iterations = OptInGate.integer("GYOSHUKU_LHA_DIFF_ITERATIONS", default: 300)
         var random: UInt64 = 0x20260926
         func next(_ limit: Int) -> Int { random = random &* 6364136223846793005 &+ 1442695040888963407; return Int((random >> 32) % UInt64(limit)) }
         struct Item { let name: String; let data: Data; let directory: Bool }

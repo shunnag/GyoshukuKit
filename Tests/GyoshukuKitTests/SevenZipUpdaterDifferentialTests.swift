@@ -5,7 +5,7 @@ import XCTest
 
 final class SevenZipUpdaterDifferentialTests: XCTestCase {
     func testSeededEditsAgainstIndependentModelAndRewriter() throws {
-        let iterations = Int(ProcessInfo.processInfo.environment["GYOSHUKU_7Z_DIFF_ITERATIONS"] ?? "200") ?? 200
+        let iterations = OptInGate.integer("GYOSHUKU_7Z_DIFF_ITERATIONS", default: 200)
         let root = try TestSupport.directory("7z-differential")
         func canonical(_ item: SevenZipEditSupport.Item) -> SevenZipEditSupport.Item {
             var result = item

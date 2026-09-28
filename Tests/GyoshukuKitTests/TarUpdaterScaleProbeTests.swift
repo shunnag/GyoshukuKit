@@ -7,13 +7,12 @@ import XCTest
 
 final class TarUpdaterScaleProbeTests: XCTestCase {
     func testReleaseScaleTimingsAndIO() throws {
-        guard let text = ProcessInfo.processInfo.environment["GYOSHUKU_TAR_SCALE_ENTRIES"], let count = Int(text), count > 2 else {
-            throw XCTSkip("GYOSHUKU_TAR_SCALE_ENTRIES is not set")
-        }
+        let count = try OptInGate.count("GYOSHUKU_TAR_SCALE_ENTRIES", minimum: 3)
         let root = try TestSupport.directory("p2-scale-\(count)")
         let source = try TarEditTestSupport.fixture(root, count: count, size: 1024)
         func now() -> Double { ProcessInfo.processInfo.systemUptime }
-        TestSupport.report("TAR-SCALE editor\top\tentries\topen_ms\tremove_ms\trename_ms\tadd_ms\tcommit_ms\tverification_ms\tcopy_engine_writes\tverification_reads\toutput_bytes")
+        ScaleProbe.report(tag: "TAR-SCALE", columns: ["editor", "op", "entries", "open_ms", "remove_ms", "rename_ms", "add_ms",
+            "commit_ms", "verification_ms", "copy_engine_writes", "verification_reads", "output_bytes"])
         for operation in ["delete-first", "delete-last", "rename-same", "rename-diff", "append", "replace"] {
             for rewrite in [false, true] {
                 let output = root.appendingPathComponent("\(operation)-\(rewrite).tar")
@@ -47,7 +46,8 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
                 }
                 let commit = now() - time
                 let values = [openTime, remove, rename, add, commit, verification.withLock { $0 }].map { String(format: "%.3f", $0 * 1000) }
-                TestSupport.report("TAR-SCALE \(rewrite ? "rewriter" : "updater")\t\(operation)\t\(count)\t" + values.joined(separator: "\t") + "\t\(writes.bytes)\t\(reads.bytes)\t\(try ZipUpdateSource(url: output).length)")
+                ScaleProbe.report(tag: "TAR-SCALE", columns: [rewrite ? "rewriter" : "updater", operation, "\(count)"] + values
+                    + ["\(writes.bytes)", "\(reads.bytes)", "\(try ZipUpdateSource(url: output).length)"])
                 try FileManager.default.removeItem(at: output)
             }
         }

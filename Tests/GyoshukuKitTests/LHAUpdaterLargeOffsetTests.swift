@@ -7,7 +7,7 @@ import XCTest
 
 final class LHAUpdaterLargeOffsetTests: XCTestCase {
     func testSparseOffsetsPastFourGiB() throws {
-        guard ProcessInfo.processInfo.environment["GYOSHUKU_LHA_LARGE"] == "1" else { throw XCTSkip("Set GYOSHUKU_LHA_LARGE=1") }
+        try OptInGate.flag("GYOSHUKU_LHA_LARGE")
         let root = try TestSupport.directory("lha-large-offset"), source = root.appendingPathComponent("source.lzh")
         FileManager.default.createFile(atPath: source.path, contents: nil)
         let handle = try FileHandle(forWritingTo: source)

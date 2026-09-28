@@ -2,11 +2,13 @@ import Foundation
 import XCTest
 import GyoshukuKit
 
-// 公開 API だけを使い、基準の commit の展開先へそのままコピーして比較する。
+// 公開 API だけを使い、基準の commit の展開先へそのままコピーして比較する。そのため Support/ の `OptInGate` と
+// `ScaleProbe` を使わず、同じ skip の文面と同じ行の形式（tag と列を tab で区切り stderr へ）をここに書く。
 final class ZipUpdaterScaleProbeTests: XCTestCase {
     func testScale() throws {
-        guard let value = ProcessInfo.processInfo.environment["GYOSHUKU_ZIP_SCALE_ENTRIES"],
-              let count = Int(value), count > 1 else { throw XCTSkip("Set GYOSHUKU_ZIP_SCALE_ENTRIES to run ZIP-SCALE") }
+        guard let value = ProcessInfo.processInfo.environment["GYOSHUKU_ZIP_SCALE_ENTRIES"], let count = Int(value), count > 1 else {
+            throw XCTSkip("Set GYOSHUKU_ZIP_SCALE_ENTRIES=<count ≥ 2> to run ZipUpdaterScaleProbeTests; see Tests/README.md")
+        }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("gyoshuku-scale-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -40,7 +42,9 @@ final class ZipUpdaterScaleProbeTests: XCTestCase {
             try updater.commit()
             let ended = DispatchTime.now().uptimeNanoseconds
             func ms(_ delta: UInt64) -> String { String(format: "%.3f", Double(delta) / 1_000_000) }
-            print("ZIP-SCALE entries=\(count) operation=\(operation) open_ms=\(ms(opened-start)) remove_ms=\(ms(removed-opened)) mutate_ms=\(ms(mutated-opened)) commit_ms=\(ms(ended-mutated))")
+            let row = ["ZIP-SCALE", "entries=\(count)", "operation=\(operation)", "open_ms=\(ms(opened-start))", "remove_ms=\(ms(removed-opened))",
+                       "mutate_ms=\(ms(mutated-opened))", "commit_ms=\(ms(ended-mutated))"]
+            FileHandle.standardError.write(Data((row.joined(separator: "\t") + "\n").utf8))
         }
     }
 }

@@ -7,10 +7,7 @@ import XCTest
 
 final class TarUpdaterOracleTests: XCTestCase {
     func testPrototypeIntendedImages() throws {
-        guard let directory = ProcessInfo.processInfo.environment["GYOSHUKU_TAR_ORACLE_DIR"] else {
-            throw XCTSkip("GYOSHUKU_TAR_ORACLE_DIR is not set")
-        }
-        let oracle = URL(fileURLWithPath: directory)
+        let oracle = try OptInGate.path("GYOSHUKU_TAR_ORACLE_DIR")
         let root = try TestSupport.directory("tar-oracle")
         var count = 0
         for corpus in ["headers", "small", "text", "mixed"] {

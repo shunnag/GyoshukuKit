@@ -8,10 +8,7 @@ import XCTest
 // 旧名: ArchiveWriterP2CompatibilityTests
 final class WriterOutputBaselineTests: XCTestCase {
     func testCommittedG1ByteCompatibility() throws {
-        guard let path = ProcessInfo.processInfo.environment["GYOSHUKU_P2_COMPAT_OUTPUT"] else {
-            throw XCTSkip("GYOSHUKU_P2_COMPAT_OUTPUT is not set")
-        }
-        let root = URL(fileURLWithPath: path)
+        let root = try OptInGate.path("GYOSHUKU_P2_COMPAT_OUTPUT")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let date = Date(timeIntervalSince1970: 1700000001)
         let disk = root.appendingPathComponent("disk")
@@ -56,7 +53,7 @@ final class WriterOutputBaselineTests: XCTestCase {
         try updater.add(data: Data([4, 5]), as: "new", modificationDate: date)
         try updater.commit()
         outputs.append("update.zip")
-        if let baseline = ProcessInfo.processInfo.environment["GYOSHUKU_P2_COMPAT_BASELINE"] {
+        if let baseline = OptInGate.value("GYOSHUKU_P2_COMPAT_BASELINE") {
             for name in outputs {
                 XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(name)),
                                try Data(contentsOf: URL(fileURLWithPath: baseline).appendingPathComponent(name)), name)

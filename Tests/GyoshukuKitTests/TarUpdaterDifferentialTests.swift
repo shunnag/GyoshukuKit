@@ -21,7 +21,7 @@ final class TarUpdaterDifferentialTests: XCTestCase {
     private enum Edit { case remove(Int), rename(Int, String), add(String, Data) }
 
     func testSeededArchivesAndOperationOrdersAgainstIndependentModelAndRewriter() throws {
-        let iterations = Int(ProcessInfo.processInfo.environment["GYOSHUKU_TAR_DIFF_ITERATIONS"] ?? "") ?? 300
+        let iterations = OptInGate.integer("GYOSHUKU_TAR_DIFF_ITERATIONS", default: 300)
         let root = try TestSupport.directory("p2-differential")
         var random = Random()
         for iteration in 0..<iterations {
