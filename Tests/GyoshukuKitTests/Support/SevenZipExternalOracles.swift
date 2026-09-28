@@ -9,8 +9,9 @@ enum SevenZipExternalOracles {
     static var available: Bool {
         FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) && FileManager.default.isExecutableFile(atPath: ReferenceTool.bsdtar)
     }
+    /// 7zz か bsdtar が無ければ skip する（黙って何も検査せずに通さない）。
     static func check(_ output: URL, password: String?, permitsStartPosRejection: Bool = false) throws {
-        guard available else { return }
+        guard available else { throw XCTSkip("7zz / bsdtar unavailable") }
         // Keep reference-tool artifacts away from the transaction's cleanup assertions.
         let parent = TestPaths.verification.appendingPathComponent("7z-external-oracles")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
