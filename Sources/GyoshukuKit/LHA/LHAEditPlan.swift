@@ -35,7 +35,7 @@ struct LHAEditPlan {
                 segments[segments.count - 1] = .source(previous.lowerBound..<next.upperBound)
             } else {
                 segments.append(segment)
-                // 追加だけでは元の prefix に継ぎ目がなく、既存 byte を読み戻さない（AC-Gb4）。
+                // 追加だけでは元の prefix に継ぎ目がなく、既存 byte を読み戻さない（design.md §4「LHA の更新」）。
                 if existingChanged, let boundary {
                     boundaries.append(boundary)
                     boundaryBytes = try checkedAdd(boundaryBytes, boundary.length)
