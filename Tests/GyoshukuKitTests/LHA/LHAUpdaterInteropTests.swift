@@ -23,7 +23,6 @@ final class LHAUpdaterInteropTests: XCTestCase {
         return result
     }
     private func compare(tool: String) throws {
-        guard FileManager.default.isExecutableFile(atPath: tool) else { throw XCTSkip("Missing \(tool)") }
         let root = try TestSupport.directory("lha-interop-" + URL(fileURLWithPath: tool).lastPathComponent)
         let lhasa = tool.hasSuffix("/lha"), seven = tool.hasSuffix("/7zz")
         var comparisons = 0

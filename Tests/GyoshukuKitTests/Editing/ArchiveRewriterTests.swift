@@ -15,20 +15,10 @@ final class ArchiveRewriterTests: XCTestCase {
         return directory
     }
 
-    private func tool(_ name: String) throws -> String {
-        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-            + ["/usr/bin", "/opt/homebrew/bin"]
-        for path in paths {
-            let candidate = URL(fileURLWithPath: path).appendingPathComponent(name).path
-            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
-        }
-        throw XCTSkip("独立した検査ツールがありません: \(name)")
-    }
-
     @discardableResult
-    private func run(_ name: String, _ arguments: [String], in directory: URL) throws -> String {
+    private func run(_ tool: String, _ arguments: [String], in directory: URL) throws -> String {
         let environment = ReferenceTool.englishUTF8.merging(["COPYFILE_DISABLE": "1"]) { $1 }
-        return try ReferenceTool.run(try tool(name), arguments, in: directory, log: UUID().uuidString,
+        return try ReferenceTool.run(tool, arguments, in: directory, log: UUID().uuidString,
                                      environment: environment, workingDirectory: directory).utf8Text
     }
 
@@ -98,10 +88,10 @@ final class ArchiveRewriterTests: XCTestCase {
             XCTAssertEqual(actual, expected[previous.index], entry.name)
             XCTAssertFalse(entry.isEncrypted)
         }
-        let seven = try run("7zz", ["t", output.path], in: directory)
+        let seven = try run(ReferenceTool.sevenZip, ["t", output.path], in: directory)
         XCTAssertTrue(seven.contains("Everything is Ok"), seven)
         XCTAssertFalse(seven.contains("Headers Error"), seven)
-        try run("bsdtar", ["-tf", output.path], in: directory)
+        try run(ReferenceTool.bsdtar, ["-tf", output.path], in: directory)
         XCTAssertEqual(try workDirectories(in: directory), [])
     }
 
@@ -114,12 +104,12 @@ final class ArchiveRewriterTests: XCTestCase {
     func testZIPFixtureRewritesToLHA() throws { try verifyZIPFixture(to: .lha) }
 
     func testLHAOutputPassesLhasaWhenAvailable() throws {
-        _ = try tool("lha")
+        _ = try ReferenceTool.optional([ReferenceTool.lhasa])
         let directory = try directory("lhasa")
         let source = try archive(in: directory)
         let output = directory.appendingPathComponent("output.lha")
         try ArchiveRewriter.open(url: source, output: output, format: .lha).commit()
-        try run("lha", ["t", output.path], in: directory)
+        try run(ReferenceTool.lhasa, ["t", output.path], in: directory)
     }
 
     func testRemoveRenameAndAddCarryOnlySurvivorsInIndexOrder() throws {
@@ -175,7 +165,7 @@ final class ArchiveRewriterTests: XCTestCase {
         let secret = directory.appendingPathComponent("secret.txt")
         try Data("encrypted contents\n".utf8).write(to: secret)
         let source = directory.appendingPathComponent("encrypted.zip")
-        try run("zip", ["-q", "-P", "correct-password", "-j", source.path, secret.path], in: directory)
+        try run(ReferenceTool.zip, ["-q", "-P", "correct-password", "-j", source.path, secret.path], in: directory)
         XCTAssertTrue(try ArchiveReader.open(url: source).entries[0].isEncrypted)
         return source
     }
@@ -253,7 +243,7 @@ final class ArchiveRewriterTests: XCTestCase {
         let file = directory.appendingPathComponent("secret")
         try Data("header-encrypted contents".utf8).write(to: file)
         let source = directory.appendingPathComponent("encrypted.7z")
-        try run("7zz", ["a", "-t7z", "-pcorrect-password", "-mhe=on", source.path, file.path], in: directory)
+        try run(ReferenceTool.sevenZip, ["a", "-t7z", "-pcorrect-password", "-mhe=on", source.path, file.path], in: directory)
         let before = try Data(contentsOf: source)
         let output = directory.appendingPathComponent("output.zip")
         for password: String? in [nil, "wrong-password"] {
@@ -274,7 +264,7 @@ final class ArchiveRewriterTests: XCTestCase {
         let files = ["zeta.txt", "alpha.txt", "middle.txt"]
         for name in files { try Data(repeating: UInt8(name.utf8.first!), count: 400_013).write(to: directory.appendingPathComponent(name)) }
         let source = directory.appendingPathComponent("solid.7z")
-        try run("7zz", ["a", "-t7z", "-ms=on", source.path] + files, in: directory)
+        try run(ReferenceTool.sevenZip, ["a", "-t7z", "-ms=on", source.path] + files, in: directory)
         let original = try ArchiveReader.open(url: source)
         XCTAssertEqual(original.entries.count, 3)
         XCTAssertEqual(Set(original.entries.map(\.solidGroup)).count, 1)
@@ -288,7 +278,7 @@ final class ArchiveRewriterTests: XCTestCase {
         for (entry, previous) in zip(reader.entries, original.entries) {
             XCTAssertEqual(try reader.read(entry), try Data(contentsOf: directory.appendingPathComponent(previous.name)))
         }
-        try run("7zz", ["t", output.path], in: directory)
+        try run(ReferenceTool.sevenZip, ["t", output.path], in: directory)
     }
 
     // KaitoKit 0.11 の open は取消し済みの Task で CancellationError を投げる。不正な書庫の誤りに包まない。
@@ -390,7 +380,7 @@ final class ArchiveRewriterTests: XCTestCase {
         try FileManager.default.createSymbolicLink(atPath: directory.appendingPathComponent("link").path,
                                                   withDestinationPath: "target")
         let source = directory.appendingPathComponent("source.tar")
-        try run("bsdtar", ["-cf", source.path, "link"], in: directory)
+        try run(ReferenceTool.bsdtar, ["-cf", source.path, "link"], in: directory)
         try assertUnrepresentable(source, format: .lha, entry: "link")
     }
 
@@ -399,7 +389,7 @@ final class ArchiveRewriterTests: XCTestCase {
         try Data("colon".utf8).write(to: directory.appendingPathComponent("a:b"))
         let source = directory.appendingPathComponent("source.tar")
         // -P がない bsdtar は a: を Windows drive letter と見なして削除する。
-        try run("bsdtar", ["-P", "-cf", source.path, "a:b"], in: directory)
+        try run(ReferenceTool.bsdtar, ["-P", "-cf", source.path, "a:b"], in: directory)
         XCTAssertEqual(try ArchiveReader.open(url: source).entries.map(\.name), ["a:b"])
         try assertUnrepresentable(source, format: .zip, entry: "a:b")
     }
@@ -491,7 +481,7 @@ final class ArchiveRewriterTests: XCTestCase {
         try Data(repeating: 0x37, count: 300_001).write(to: target)
         try FileManager.default.linkItem(at: target, to: directory.appendingPathComponent("hard"))
         let source = directory.appendingPathComponent("source.tar")
-        try run("bsdtar", ["-cf", source.path, "target", "hard"], in: directory)
+        try run(ReferenceTool.bsdtar, ["-cf", source.path, "target", "hard"], in: directory)
         let reader = try ArchiveReader.open(url: source)
         XCTAssertEqual(reader.entries.map(\.kind), [.file, .hardlink])
         XCTAssertEqual(reader.entries[1].formatSpecific["hardLinkTargetIndex"], "0")
@@ -510,7 +500,7 @@ final class ArchiveRewriterTests: XCTestCase {
             XCTAssertEqual(reader.entries.map(\.kind), [.file, .hardlink])
             XCTAssertEqual(reader.entries[1].formatSpecific["linkPath"], "renamed-target")
             XCTAssertEqual(reader.entries[1].formatSpecific["hardLinkTargetIndex"], "0")
-            try run("bsdtar", ["-tf", output.path], in: directory)
+            try run(ReferenceTool.bsdtar, ["-tf", output.path], in: directory)
         }
     }
 
@@ -572,7 +562,7 @@ final class ArchiveRewriterTests: XCTestCase {
         try Data("nested child".utf8).write(to: tree.appendingPathComponent("nested/child.txt"))
         let source = directory.appendingPathComponent("source.tar")
         // cd tree && tar -cf ../source.tar . と同じ root record と ./ 接頭辞を作る。
-        try run("bsdtar", ["-cf", source.path, "-C", tree.path, "."], in: directory)
+        try run(ReferenceTool.bsdtar, ["-cf", source.path, "-C", tree.path, "."], in: directory)
         return source
     }
 

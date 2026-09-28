@@ -62,7 +62,6 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
     }
 
     func testS200SizeAgainstSevenZipDelete() throws {
-        guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
         let root = try TestSupport.directory("7z-solid-s200-size")
         let source = SevenZipEditSupport.fixture("s200"), reference = root.appendingPathComponent("reference.7z")
         try FileManager.default.copyItem(at: source, to: reference)
