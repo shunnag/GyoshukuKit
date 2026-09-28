@@ -242,6 +242,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         do { try await task.value; XCTFail("cancelled writer succeeded") }
         catch { XCTAssertTrue(error is CancellationError, "\(error)") }
         let latency = start.duration(to: .now)
+        // 計測ではなく、取消しが止めてある encoder（最長 5 秒待つ）の完了を待たずに返ることを、余裕のある上限で確かめる。
         XCTAssertLessThan(latency, .milliseconds(250))
         TestSupport.report("PARALLEL CANCELLATION \(format): \(latency)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))

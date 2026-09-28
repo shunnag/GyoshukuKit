@@ -1,3 +1,5 @@
+import Foundation
+import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 
@@ -58,5 +60,49 @@ final class EditPathReservationsTests: XCTestCase {
         }
         for (path, directory) in records { index.remove(path, directory: directory) }
         for path in paths { XCTAssertNoThrow(try index.validate(path, directory: false)) }
+    }
+
+    func testBulkRenamesAfterAddingPreserveEveryPayloadAndReleaseOldPaths() throws {
+        let root = try TestSupport.directory("editing-scale")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for format: GyoshukuKit.ArchiveFormat in [.zip, .tar] {
+            for count in [1_000, 2_000, 4_000] {
+                let archive = root.appendingPathComponent("\(format)-\(count)")
+                let (editor, _) = try Self.bulkRename(archive, format: format, count: count)
+                try editor.commit()
+                let reader = try ArchiveReader.open(url: archive)
+                XCTAssertEqual(reader.entries.count, count + 2)
+                let contents = try Dictionary(uniqueKeysWithValues: reader.entries.map { ($0.name, try reader.read($0)) })
+                XCTAssertEqual(contents["added"], Data("added".utf8))
+                XCTAssertEqual(contents["source/file0"], Data("replacement".utf8))
+                for index in 0..<count {
+                    XCTAssertEqual(contents["renamed/file\(index)"], Data("payload-\(index)".utf8))
+                }
+            }
+        }
+    }
+
+    /// `source/file<i>` を `count` 個持つ `format` の書庫を `archive` に作り、`added` を加えてから全 entry を `renamed/` の下へ改名する。
+    /// 改名の途中で空いた旧名 `source/file0` に別の本文を足す。commit は呼び出し側が行い、改名の区間の経過時間を返す
+    /// （`Probes/EditPathReservationScaleProbeTests` がその時間を測る）。
+    static func bulkRename(_ archive: URL, format: GyoshukuKit.ArchiveFormat, count: Int) throws -> (editor: any ArchiveEditing, renaming: Duration) {
+        let writer = try ArchiveWriter.create(url: archive, format: format, options: .init(compressionMethod: .stored))
+        for index in 0..<count {
+            try writer.add(data: Data("payload-\(index)".utf8), as: "source/file\(index)")
+        }
+        try writer.finish()
+        let editor: any ArchiveEditing = format == .zip
+            ? try ArchiveUpdater.open(url: archive)
+            : try ArchiveRewriter.open(url: archive, format: format)
+        try editor.add(data: Data("added".utf8), as: "added", modificationDate: nil, permissions: nil)
+        let start = ContinuousClock.now
+        for index in 0..<count {
+            try editor.rename(entryAt: index, to: "renamed/file\(index)")
+            if index == count / 2 {
+                try editor.add(data: Data("replacement".utf8), as: "source/file0",
+                               modificationDate: nil, permissions: nil)
+            }
+        }
+        return (editor, start.duration(to: .now))
     }
 }

@@ -94,6 +94,7 @@ final class LH5EncoderTests: XCTestCase {
         try writer.add(data: data, as: "ten-mib.bin", modificationDate: TestSupport.date)
         try writer.finish()
         let elapsed = start.duration(to: .now)
+        // 計測ではなく、一致探索が全履歴の走査へ退行したことを捕まえる緩い上限（debug build で 30 秒）。
         XCTAssertLessThan(elapsed, .seconds(30))
         TestSupport.report("LHA PERFORMANCE: 10 MiB in \(elapsed), debug build; bound 30 seconds")
         XCTAssertEqual(try LHABytes(Data(contentsOf: url)).members.first?.method, "-lh5-")

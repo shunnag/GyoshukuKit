@@ -9,7 +9,7 @@ final class ZipUpdateProbeTests: XCTestCase {
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url, options: .init(compressionMethod: .stored))
-        // Same writer/entry-loop fixture as ArchiveEditingScaleTests; padding makes the CD multi-MiB.
+        // Same writer/entry-loop fixture as EditPathReservationsTests.bulkRename; padding makes the CD multi-MiB.
         let prefix = longNames ? String(repeating: String(repeating: "a", count: 200) + "/", count: 4) : ""
         for index in 0..<count {
             try writer.add(data: Data(), as: prefix + "entry-\(index)", modificationDate: TestSupport.date)
