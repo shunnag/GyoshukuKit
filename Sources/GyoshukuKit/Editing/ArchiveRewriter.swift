@@ -29,13 +29,9 @@ public final class ArchiveRewriter: ArchiveEditing {
     private let options: WriterOptions
     private let source: ArchiveFileSource
     private let reader: ArchiveReader
-    private let names: [String]
+    private let ledger: EntryEditLedger
     private let hardLinkTargets: [Int: Int]
     private let dataTargets: [Int: Int]
-    private var removed: Set<Int> = []
-    private var renamed: [Int: String] = [:]
-    private lazy var pathReservations = EditPathReservations(existingPaths)
-    private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
     private enum Addition {
@@ -85,7 +81,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         self.options = options
         self.source = source
         self.reader = reader
-        self.names = names
+        ledger = EntryEditLedger(names: names, entries: reader.entries)
         self.hardLinkTargets = hardLinkTargets
         self.dataTargets = dataTargets
         sourceFormat = reader.format
@@ -211,23 +207,14 @@ public final class ArchiveRewriter: ArchiveEditing {
     private func reserveAddition(_ path: String, directory: Bool) throws -> String {
         try Task.checkCancellation()
         let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: format)
-        try pathReservations.validate(name, directory: directory)
-        pathReservations.insert(name, directory: directory)
+        try ledger.reserve(name, directory: directory)
         return name
     }
 
     /// open 時の index を削除予約する。重複は一度だけ削除し、子孫は暗黙に削除しない。
     public func remove(entriesAt indices: [Int]) throws {
         try perform {
-            for index in indices { try validateIndex(index) }
-            indexAppendedPaths()
-            for index in indices where !removed.contains(index) {
-                if survives(index) {
-                    pathReservations.remove(finalName(index), directory: reader.entries[index].kind == .directory)
-                }
-                removed.insert(index)
-                renamed.removeValue(forKey: index)
-            }
+            try ledger.remove(indices, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
@@ -235,15 +222,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     /// 子孫や symlink target は変更しない。削除済みの index は指定できない。
     public func rename(entryAt index: Int, to path: String) throws {
         try perform {
-            try validateIndex(index)
-            guard !removed.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
-            let directory = reader.entries[index].kind == .directory
-            let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: format)
-            indexAppendedPaths()
-            if survives(index) { pathReservations.remove(finalName(index), directory: directory) }
-            try pathReservations.validate(name, directory: directory)
-            pathReservations.insert(name, directory: directory)
-            renamed[index] = name
+            try ledger.rename(index, to: path, format: format, appendedBy: writer)
             writerPathsNeedRefresh = true
         }
     }
@@ -270,9 +249,9 @@ public final class ArchiveRewriter: ArchiveEditing {
             let writer = try preparedWriter()
             // 予約名は add の検査専用。carry 自身との衝突は除き、追加済み名は残す。
             writer.replaceExistingPaths([])
-            let survivors = reader.entries.filter { survives($0.index) }
+            let survivors = reader.entries.filter { ledger.survives($0.index) }
             let neededTargets = Set(survivors.compactMap { entry -> Int? in
-                guard let target = hardLinkTargets[entry.index], !isTar || removed.contains(target) else { return nil }
+                guard let target = hardLinkTargets[entry.index], !isTar || ledger.removed.contains(target) else { return nil }
                 return dataTargets[entry.index]
             })
             let meter: CommitProgressMeter?
@@ -328,13 +307,13 @@ public final class ArchiveRewriter: ArchiveEditing {
         var buffered: [Int: BufferedEntry] = [:]
         var done = 0
         for entry in reader.entries.sorted(by: { $0.index < $1.index }) {
-            guard survives(entry.index) || neededTargets.contains(entry.index) else { continue }
+            guard ledger.survives(entry.index) || neededTargets.contains(entry.index) else { continue }
             try autoreleasepool {
                 try Task.checkCancellation()
                 do {
                     if entry.isEncrypted, reader.password == nil { throw KaitoError.passwordRequired }
                     if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry, meter: meter) }
-                    if !survives(entry.index) { return }
+                    if !ledger.survives(entry.index) { return }
                     try carry(entry, writer: writer, buffered: buffered, meter: meter)
                 } catch let error as KaitoError {
                     throw ArchiveRepresentability.map(error, entry: entry.name)
@@ -390,28 +369,11 @@ public final class ArchiveRewriter: ArchiveEditing {
     }
 
     private var isTar: Bool { format.isTar }
-    private func finalName(_ index: Int) -> String { renamed[index] ?? names[index] }
-    private func survives(_ index: Int) -> Bool { !removed.contains(index) && !finalName(index).isEmpty }
-    private var existingPaths: [(String, Bool)] {
-        reader.entries.filter { survives($0.index) }.map { (finalName($0.index), $0.kind == .directory) }
-    }
-
-    private func indexAppendedPaths() {
-        guard let writer else { return }
-        for (path, directory) in writer.appendedPaths.dropFirst(indexedAppendCount) {
-            pathReservations.insert(path, directory: directory)
-        }
-        indexedAppendCount = writer.appendedPaths.count
-    }
-
-    private func validateIndex(_ index: Int) throws {
-        guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
-    }
 
     private func carryInputByteCount(_ entry: ArchiveEntry) -> UInt64 {
         if entry.kind == .directory { return 0 }
         if let target = hardLinkTargets[entry.index] {
-            if isTar, !removed.contains(target) { return 0 }
+            if isTar, !ledger.removed.contains(target) { return 0 }
             return reader.entries[dataTargets[entry.index]!].uncompressedSize ?? 0
         }
         if entry.kind == .symlink, entry.formatSpecific["linkPath"] != nil { return 0 }
@@ -424,7 +386,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             ? (UInt32(entry.formatSpecific["uid"] ?? "") ?? 0, UInt32(entry.formatSpecific["gid"] ?? "") ?? 0) : nil
         func add(size: UInt64, hardLink: String? = nil, read: (Int) throws -> Data) throws {
             if let meter, carryInputByteCount(entry) > 0 {
-                try writer.addEntry(path: finalName(entry.index), mode: ArchiveRepresentability.mode(for: entry), size: size,
+                try writer.addEntry(path: ledger.finalName(entry.index), mode: ArchiveRepresentability.mode(for: entry), size: size,
                                     date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
                                     hardLink: hardLink) { count in
                     let bytes = try read(count)
@@ -432,7 +394,7 @@ public final class ArchiveRewriter: ArchiveEditing {
                     return bytes
                 }
             } else {
-                try writer.addEntry(path: finalName(entry.index), mode: ArchiveRepresentability.mode(for: entry), size: size,
+                try writer.addEntry(path: ledger.finalName(entry.index), mode: ArchiveRepresentability.mode(for: entry), size: size,
                                     date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
                                     hardLink: hardLink, read: read)
             }
@@ -440,8 +402,8 @@ public final class ArchiveRewriter: ArchiveEditing {
         if entry.kind == .directory {
             try add(size: 0) { _ in Data() }
         } else if let target = hardLinkTargets[entry.index] {
-            if isTar, !removed.contains(target) {
-                try add(size: 0, hardLink: finalName(target)) { _ in Data() }
+            if isTar, !ledger.removed.contains(target) {
+                try add(size: 0, hardLink: ledger.finalName(target)) { _ in Data() }
             } else {
                 guard let payload = buffered[dataTargets[entry.index]!] else {
                     throw RewriterError.invalidArchive("hard link の参照先の内容がありません: \(entry.name)")
@@ -508,7 +470,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         if let writer {
             // 改名の予約中は索引だけ更新し、次の add の直前に writer の全名を同期する。
             if writerPathsNeedRefresh {
-                writer.replaceExistingPaths(existingPaths)
+                writer.replaceExistingPaths(ledger.existingPaths)
                 writerPathsNeedRefresh = false
             }
             return writer
@@ -528,7 +490,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         if output == nil {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         }
-        writer.replaceExistingPaths(existingPaths)
+        writer.replaceExistingPaths(ledger.existingPaths)
         writerPathsNeedRefresh = false
         return writer
     }

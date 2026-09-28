@@ -1,7 +1,7 @@
 import Foundation
 internal import KaitoKit
 
-/// tar・圧縮 tar・7z・LHA の updater が共有する、削除・改名の予約と名前の衝突検査の台帳。
+/// tar・圧縮 tar・7z・LHA の updater と ArchiveRewriter が共有する、削除・改名の予約と名前の衝突検査の台帳。
 /// index は open 時の entry の位置（KaitoKit の ArchiveEntry.index と一致する）。names は正規化した出力名で、
 /// 空文字列の root directory は予約に載せない。予約は最初に使う時点の生き残る名前から作り、以後は削除・改名と
 /// writer が追加した名前を反映する。thread-safe ではなく、操作が失敗した後の台帳は使わない。
@@ -18,10 +18,15 @@ final class EntryEditLedger {
         isDirectory = entries.map { $0.kind == .directory }
     }
 
-    /// 削除されず名前が空でない entry の（最終名, directory か）。writer の衝突検査に渡す。
+    /// 改名後の名前。改名していなければ open 時の正規化した名前。
+    func finalName(_ index: Int) -> String { renamed[index] ?? names[index] }
+    /// 削除されず、名前が空でない（出力に残る）entry か。
+    func survives(_ index: Int) -> Bool { !removed.contains(index) && !finalName(index).isEmpty }
+
+    /// 生き残る entry の（最終名, directory か）。writer の衝突検査に渡す。
     var existingPaths: [(String, Bool)] {
         names.indices.compactMap { index in
-            let name = renamed[index] ?? names[index]
+            let name = finalName(index)
             return removed.contains(index) || name.isEmpty ? nil : (name, isDirectory[index])
         }
     }
@@ -35,7 +40,7 @@ final class EntryEditLedger {
         for index in indices { try validateIndex(index) }
         indexAppendedPaths(writer)
         for index in indices where !removed.contains(index) {
-            let name = renamed[index] ?? names[index]
+            let name = finalName(index)
             if !name.isEmpty { reservations.remove(name, directory: isDirectory[index]) }
             removed.insert(index); renamed.removeValue(forKey: index)
         }
@@ -49,12 +54,17 @@ final class EntryEditLedger {
         let directory = isDirectory[index]
         let name = try ArchiveWriter.normalizedPath(path, directory: directory, format: format)
         indexAppendedPaths(writer)
-        let old = renamed[index] ?? names[index]
+        let old = finalName(index)
         if !old.isEmpty { reservations.remove(old, directory: directory) }
-        try reservations.validate(name, directory: directory)
-        reservations.insert(name, directory: directory)
+        try reserve(name, directory: directory)
         renamed[index] = name
         return name
+    }
+
+    /// 正規化済みの name が生き残る名前・予約済みの名前と衝突しなければ予約する。
+    func reserve(_ name: String, directory: Bool) throws {
+        try reservations.validate(name, directory: directory)
+        reservations.insert(name, directory: directory)
     }
 
     // writer が前回から追加した名前を予約に加える。
