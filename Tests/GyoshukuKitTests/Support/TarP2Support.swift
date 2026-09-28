@@ -29,7 +29,7 @@ enum TarP2Support {
         let source = try ZipUpdateSource(url: url)
         let reader = try ArchiveReader.open(source: source, sourceURL: url, options: .init(
             limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
-        let gate = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
+        let gate = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
         let layout = try TarLayout.scan(source: source, length: source.length, entries: reader.entries,
                                         nameEncoding: reader.nameEncoding, hardLinkTargets: gate.hardLinkTargets, dataTargets: gate.dataTargets)
         return (layout, source, reader)

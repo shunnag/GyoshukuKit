@@ -71,7 +71,7 @@ public final class TarUpdater: ArchiveEditing {
         let reader = try ArchiveReader.open(source: snapshot.source, sourceURL: url, options: ReaderOptions(
             limits: ReadLimits(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
         guard reader.format == .tar else { throw UpdaterError.invalidArchive("非圧縮 tar ではありません") }
-        let representable = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
+        let representable = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
         let layout = try TarLayout.scan(source: snapshot.source, length: snapshot.source.length, entries: reader.entries,
                                         nameEncoding: reader.nameEncoding, hardLinkTargets: representable.hardLinkTargets,
                                         dataTargets: representable.dataTargets)

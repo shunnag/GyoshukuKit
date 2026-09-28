@@ -15,7 +15,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
         let data = try ZipUpdateSource(url: source)
         let reader = try ArchiveReader.open(url: source)
         XCTAssertNotNil(reader.nameEncoding)
-        let gate = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
+        let gate = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
         // R10 が先に拒否する入力でも、共有 walk の R6 を独立して確かめる。
         XCTAssertThrowsError(try TarLayout.scan(source: data, length: data.length, entries: reader.entries, nameEncoding: nil,
                                                 hardLinkTargets: gate.hardLinkTargets, dataTargets: gate.dataTargets)) {

@@ -76,7 +76,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
         guard let k1 = snapshot.layout else { throw TarLayout.refuse("layout: \(String(describing: snapshot.layoutUnavailableReason))") }
         guard snapshot.archiveIdentity != nil else { throw TarLayout.refuse("missing archive identity") }
         guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
-        let represented = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: format, reader: reader)
+        let represented = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: format, reader: reader)
         let layout = try TarLayout.scan(source: snapshot.image, length: k1.imageLength, entries: reader.entries,
             nameEncoding: reader.nameEncoding, hardLinkTargets: represented.hardLinkTargets, dataTargets: represented.dataTargets)
         guard layout.memberUnitIndices.count == k1.memberCount, layout.membersEnd == k1.endOfArchiveOffset,
