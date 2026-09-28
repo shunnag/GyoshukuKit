@@ -1,5 +1,7 @@
 import Foundation
 
+/// gzip の TarCompressor。DeflateBlock ごとに OrderedChunkPipeline で並列に deflate し、一つの gzip member に連結する。
+/// ParallelBzip2Compressor / ParallelXZCompressor と同じ並列 sink で、名前にだけ接頭辞を付けない。
 final class GzipCompressor: TarCompressor {
     private let level: Int
     private let blockSize: Int

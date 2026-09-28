@@ -2,6 +2,11 @@ import Foundation
 private import Darwin
 @_spi(TarEditLayout) public import KaitoKit
 
+// 圧縮 tar の区切り単位の更新。経路は
+// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// このファイルは入口。open で構造を照合し、削除・改名・追加を記録して commit で上の経路を走らせる。
+
 /// session reader の復号済み tar と地図を使い、変更を含む区切りだけを符号化する。
 /// 原本のパスは開かない。追加は末尾、運ぶ member は所有者と名前の byte を保つ。
 /// 従来の設定（.beginning / .reset）は open で requiresRewrite を返す。

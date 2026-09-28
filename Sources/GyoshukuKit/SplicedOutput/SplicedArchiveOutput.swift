@@ -31,6 +31,8 @@ fileprivate final class SplicedSegmentWriter {
     func flush() throws { try engine.flush(progress: nil) }
 }
 
+// 再配置する追加や 7z の folder 出力の一時保存。discard() まで名前を保ち、ArchiveOwnedFile.remove で path と fd の一致を確かめて消す。
+// TarSpliceStorage（作成直後に unlink）と LHACompressionSpool（mkstemp + unlink）とは寿命が異なる。copySeconds は 7z の統計に載る。
 final class SplicedScratchFile {
     private let url: URL
     fileprivate let handle: FileHandle
