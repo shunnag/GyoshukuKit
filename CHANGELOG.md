@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+### 変更
+
+- 内部の整理のみ。公開 API・`@_spi`・出力 byte に変更はない。
+  - Sources を役割ごとの階層(API / Writer / Editing / SplicedOutput / Zip / Zip/Update / Tar / CompressedTar / SevenZip / LHA /
+    Compression / Support)に分けた。`Package.swift` は変えていない。設計書 §2.1 に配置の規則を書いた。
+  - `ArchiveWriter` から ZIP の直列化を `ZipWriter` に分け、facade は形式ごとの writer への振り分けだけを持つ。
+    updater の末尾追加は `ArchiveWriter.tarAppend` / `lhaAppend` / `sevenZipAppend` から作り、閉じ方は tar / LHA が `endAppendedMembers()`、7z が `endSevenZipEntries()`。
+  - tar・圧縮 tar・7z・LHA の updater と `ArchiveRewriter` が別々に持っていた削除・改名の予約と名前の衝突検査を
+    `EntryEditLedger` に一本化した。検査の順序と error は変わらない。表現可能性の門番は `ArchiveRepresentability` に置いた。
+  - 形式ごとに Records / Layout / EditPlan / Updater / Writer / SelfCheck の形を揃えた: `TarSelfCheck`、`LHASelfCheck`(旧 `LHAAppendedMemberCheck`)、
+    `ZipAppendedRecordSelfCheck`(旧 `ZipAppendedRecordCheck`)、`SevenZipEditPlan`(旧 `SevenZipUpdatePlan`)、`SevenZipFolderConversion`(旧 `SevenZipReencryption`)、
+    `CompressedTarSpliceOutput`(旧 `CompressedTarSpliceWriter`)、`Bzip2StreamEncoder`(旧 `Bzip2Compressor`)、`ArchiveFileSource`(旧 `ZipUpdateSource`。typealias を残す)。
+  - 出力 inode の所有を `OwnedOutputFile` に、ZIP の header 組立を `ZipHeaderRewrite` に、7z の AES encryptor の作成を `SevenZipAESEncryptor.Factory` に、
+    LHA の大きな member の仮 header・spool・確定を `StreamedMember` に集めた。長い `commit` は段階ごとの private 関数に分けた。
+  - 名前付き定数: `ZipRecords.Signature / ExtraID / FixedLength`、`TarRecords.TypeFlag`、`LHARecords.Method`、`SevenZipEditModel.Coder.aesMethodID / lzma2MethodID`、
+    `DeflateBlock.windowSize`、`IOChunk.size`、`FileMode`、`Range<UInt64>.byteLength`。
+  - 試験用の hook は置き換える対象の型へ移し(`EncryptionPrimitives.testingRandomBytes`、`ArchiveWriter.testingBeforeLstat`)、
+    `testing*`(試験だけが設定)と `*Observer`(本番も使う観測点)で名前を分けた。試験だけの `TarCompressor` 適合と `XZCompressor` の別名を production から外した。
+  - 自己照合の V/R/L 符号の凡例を code に書き、経緯の comment を現在の契約に書き換え、英語の comment を日本語に揃えた。
+- 使われていなかった writer の `identity` 引数と、それだけのために呼んでいた `fstat` を削った。
+- テストの整理: 共有 helper を `Tests/GyoshukuKitTests/Support/`（`TestSupport`・`ReferenceTool`・`TestPaths`・`TestCorpus`・
+  `IOEvents`・`OptInGate`・`ScaleProbe` ほか）に集め、test class を一 file 一 class にして形式ごとの directory に分けた。
+  milestone 名の class を機能名に改めた（`WriterOutputBaselineTests`・`CompressedTarSpecialMembersTests`・`ZipEditTestSupport`・
+  `TarEditTestSupport` ほか）。環境変数で有効にする計測は `Probes/` に置き、閾値の検査は `GYOSHUKU_SCALE_ASSERT=1` のときだけ
+  失敗する（`GYOSHUKU_P14_ASSERT` は別名として残る）。計測行は tab 区切りで stderr に出す。編集予約の時間計測は既定の
+  suite から opt-in の probe に移した。`Tests/README.md` に helper・fixture・環境変数・外部ツールの一覧を書いた。
+  `SevenZipExternalOracles.check` は 7zz / bsdtar が無いとき黙って通らず skip する。
+
 ## [0.6.0] - 2026-09-27
 
 ### 修正

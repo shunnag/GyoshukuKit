@@ -7,8 +7,7 @@ import KaitoKit
 enum LHAUpdateSupport {
     static let accepted = ["tl-S3b", "tl-S2", "tl-S1", "tl-S6", "tl-S7", "tl-S5b", "lh4-small", "lh6-small", "lh7-small",
                            "names-cp932-mixed", "names-ascii", "level1-times", "level0-unix", "maclha-nm-level1"]
-    static let fixtureRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Fixtures/lha-updater")
+    static let fixtureRoot = TestPaths.fixtures.appendingPathComponent("lha-updater")
     struct Fixture: Decodable { let name: String, file: String, storage: String, logicalSize: UInt64, size: Int, sha256: String }
     static func fixture(_ name: String, in root: URL) throws -> URL {
         struct Manifest: Decodable { let fixtures: [Fixture] }
@@ -28,15 +27,14 @@ enum LHAUpdateSupport {
     }
     static func scan(_ url: URL) throws -> (LHALayout, ZipUpdateSource, ArchiveReader) {
         let source = try ZipUpdateSource(url: url)
-        let reader = try ArchiveReader.open(source: source, sourceURL: url, options: .init(
-            limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
+        let reader = try ArchiveReader.open(source: source, sourceURL: url, options: TestSupport.editingReaderOptions)
         return (try LHALayout.scan(source: source, reader: reader), source, reader)
     }
     static func generated(_ root: URL, count: Int = 6, size: Int = 513) throws -> URL {
         let url = root.appendingPathComponent("source.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha, options: .init(compressionThreads: 2))
         for index in 0..<count {
-            try writer.add(data: LHATestSupport.random(size, alphabetMask: 0xFF), as: String(format: "file-%06d", index), modificationDate: ZipTestSupport.date)
+            try writer.add(data: LHATestSupport.random(size, alphabetMask: 0xFF), as: String(format: "file-%06d", index), modificationDate: TestSupport.date)
         }
         try writer.finish()
         return url

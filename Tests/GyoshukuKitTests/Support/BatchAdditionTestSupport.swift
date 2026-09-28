@@ -27,7 +27,7 @@ enum BatchAdditionTestSupport {
             let url = disk.appendingPathComponent("link\(index)")
             try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: "f2")
             items.insert(.init(path: "link\(index)", source: .contents(of: url)), at: 4 + index * 3)
-            items.insert(.init(path: "dir\(index)", source: .directory(modificationDate: ZipTestSupport.date)), at: 3 + index * 3)
+            items.insert(.init(path: "dir\(index)", source: .directory(modificationDate: TestSupport.date)), at: 3 + index * 3)
         }
         for index in 0..<2 {
             let first = try S.file(disk, "hard\(index)", size: 4096)

@@ -1,0 +1,221 @@
+import Foundation
+import KaitoKit
+import XCTest
+@testable import GyoshukuKit
+
+enum SevenZipTestSupport {
+    typealias Expected = ExpectedEntry
+
+    /// 7-Zip を起動する。`success` なら警告と header の異常も失敗にし、`t` / `x` は "Everything is Ok" まで確かめる。
+    @discardableResult
+    static func run(_ arguments: [String], in directory: URL, log: String, success: Bool = true) throws -> String {
+        let output = try ReferenceTool.run(ReferenceTool.sevenZip, arguments, in: directory, log: log,
+                                           expect: success ? .success : .failure,
+                                           environment: ReferenceTool.englishUTF8InUTC)
+        let text = output.utf8Text
+        if success {
+            for marker in ["warning", "headers error", "errors:"] { XCTAssertFalse(text.lowercased().contains(marker), text) }
+            if arguments.first == "t" || arguments.first == "x" { XCTAssertTrue(text.contains("Everything is Ok"), text) }
+        } else {
+            XCTAssertFalse(text.contains("Everything is Ok"), text)
+        }
+        TestSupport.report("7Z REFERENCE \(directory.lastPathComponent)/\(log): exit \(output.status)\n\(text)")
+        return text
+    }
+
+    static func listingEntries(_ text: String) -> [[String: String]] {
+        let body = text.components(separatedBy: "----------\n").last ?? ""
+        return body.components(separatedBy: "\n\n").compactMap { block in
+            var fields: [String: String] = [:]
+            for line in block.components(separatedBy: "\n") {
+                let parts = line.components(separatedBy: " = ")
+                if parts.count == 2 { fields[parts[0]] = parts[1] }
+            }
+            return fields["Path"] == nil ? nil : fields
+        }
+    }
+
+    static func verify(_ archive: URL, expected: [Expected]) throws {
+        let directory = archive.deletingLastPathComponent()
+        try run(["t", archive.path], in: directory, log: "7zz-t")
+        let listing = try run(["l", "-slt", archive.path], in: directory, log: "7zz-l-slt")
+        let listed = listingEntries(listing)
+        XCTAssertEqual(listed.map { Data(($0["Path"] ?? "").utf8) }, expected.map { Data($0.name.utf8) })
+        XCTAssertEqual(listed.map { UInt64($0["Size"] ?? "") }, expected.map { UInt64($0.data.count) })
+        XCTAssertTrue(listing.contains("Solid = -"), listing)
+        let extracted = directory.appendingPathComponent("extracted")
+        try run(["x", "-y", archive.path, "-o" + extracted.path], in: directory, log: "7zz-x")
+        let reader = try TestSupport.assertKaitoKitRoundTrip(archive, expected: expected) { entry, item in
+            XCTAssertFalse(entry.isEncrypted)
+            XCTAssertEqual(entry.solidGroup, -1)
+            if !item.data.isEmpty { XCTAssertEqual(entry.crc32, CRC32.checksum(item.data), item.name) }
+            let restored = extracted.appendingPathComponent(item.name)
+            switch item.kind {
+            case .file:
+                XCTAssertEqual(try Data(contentsOf: restored), item.data, item.name)
+            case .directory:
+                var isDirectory: ObjCBool = false
+                XCTAssertTrue(FileManager.default.fileExists(atPath: restored.path, isDirectory: &isDirectory))
+                XCTAssertTrue(isDirectory.boolValue)
+            case .symlink:
+                XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: restored.path),
+                               String(decoding: item.data, as: UTF8.self))
+            default: XCTFail("Unexpected fixture kind")
+            }
+        }
+        // 名前は正規化せずに byte 列で照合する。
+        XCTAssertEqual(reader.entries.map { Data($0.name.utf8) }, expected.map { Data($0.name.utf8) })
+        XCTAssertEqual(reader.entries.count, expected.count)
+    }
+
+    static func patchCRC(_ data: inout Data, at offset: Int, over range: Range<Int>) {
+        let crc = CRC32.checksum(data.subdata(in: range))
+        for index in 0..<4 { data[offset + index] = UInt8(truncatingIfNeeded: crc >> (index * 8)) }
+    }
+}
+
+// 作成する非 solid subset を独立に読む。CRC の位置や EmptyFile の添字を byte 列の検索だけで判定しない。
+struct SevenZipBytes {
+    let header: Data
+    var packedSizes: [UInt64] = []
+    var unpackedSizes: [UInt64] = []
+    var properties: [UInt8] = []
+    var crcs: [UInt32] = []
+    var fileCount = 0
+    var fileProperties: [UInt8: Data] = [:]
+
+    init(_ data: Data) throws {
+        XCTAssertEqual(Array(data.prefix(8)), [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4])
+        XCTAssertEqual(data.uint32LE(at: 8), CRC32.checksum(data.subdata(in: 12..<32)))
+        let offset = 32 + Int(data.uint64LE(at: 12))
+        let size = Int(data.uint64LE(at: 20))
+        header = data.subdata(in: offset..<(offset + size))
+        XCTAssertEqual(offset + size, data.count)
+        XCTAssertEqual(data.uint32LE(at: 28), CRC32.checksum(header))
+        var cursor = SevenZipNumberCursor(data: header)
+        try cursor.expect(1)
+        if cursor.peek == 4 {
+            try cursor.expect(4)
+            try cursor.expect(6)
+            XCTAssertEqual(try cursor.number(), 0)
+            let count = Int(try cursor.number())
+            try cursor.expect(9)
+            for _ in 0..<count { packedSizes.append(try cursor.number()) }
+            try cursor.expect(0)
+            try cursor.expect(7)
+            try cursor.expect(11)
+            XCTAssertEqual(try cursor.number(), UInt64(count))
+            try cursor.expect(0)
+            for _ in 0..<count {
+                for byte: UInt8 in [1, 0x21, 0x21, 1] { try cursor.expect(byte) }
+                properties.append(try cursor.byte())
+            }
+            try cursor.expect(12)
+            for _ in 0..<count { unpackedSizes.append(try cursor.number()) }
+            // UnpackInfo に CRC が無いことも確認し、SubStreamsInfo の CRC が実際に使われる構成にする。
+            for byte: UInt8 in [0, 8, 10, 1] { try cursor.expect(byte) }
+            for _ in 0..<count { crcs.append(try cursor.take(4).uint32LE(at: 0)) }
+            try cursor.expect(0)
+            try cursor.expect(0)
+        }
+        if cursor.peek == 5 {
+            try cursor.expect(5)
+            fileCount = Int(try cursor.number())
+            while cursor.peek != 0 {
+                let id = try cursor.byte()
+                let size = Int(try cursor.number())
+                fileProperties[id] = try cursor.take(size)
+            }
+            try cursor.expect(0)
+        }
+        try cursor.expect(0)
+        XCTAssertEqual(cursor.offset, header.count)
+    }
+}
+
+// 公開 7z byte 表から folder の coder / bind / size だけを検査する。製品 parser は使わない。
+struct EncryptedSevenZipHeader {
+    struct Folder {
+        var methods: [[UInt8]] = []
+        var properties: [Data] = []
+        var binds: [(UInt64, UInt64)] = []
+        var unpackSizes: [UInt64] = []
+    }
+    let encoded: Bool
+    let packOffset: UInt64
+    let packedSizes: [UInt64]
+    let folders: [Folder]
+
+    init(_ archive: Data) throws {
+        let offset = Int(archive.uint64LE(at: 12)) + 32
+        let size = Int(archive.uint64LE(at: 20))
+        let header = archive.subdata(in: offset..<(offset + size))
+        XCTAssertEqual(CRC32.checksum(archive.subdata(in: 12..<32)), archive.uint32LE(at: 8))
+        XCTAssertEqual(CRC32.checksum(header), archive.uint32LE(at: 28))
+        var cursor = SevenZipNumberCursor(data: header)
+        let type = try cursor.byte()
+        encoded = type == 0x17
+        // Plain header starts 01 04; EncodedHeader starts 17 directly followed by StreamsInfo.
+        if !encoded {
+            guard type == 1 else { throw CocoaError(.fileReadCorruptFile) }
+            try cursor.expect(0x04)
+        }
+        try cursor.expect(0x06)
+        packOffset = try cursor.number()
+        let packCount = Int(try cursor.number())
+        try cursor.expect(0x09)
+        packedSizes = try (0..<packCount).map { _ in try cursor.number() }
+        try cursor.expect(0)
+        try cursor.expect(0x07)
+        try cursor.expect(0x0B)
+        let folderCount = Int(try cursor.number())
+        try cursor.expect(0)
+        var parsed: [Folder] = []
+        for _ in 0..<folderCount {
+            var folder = Folder()
+            let coders = Int(try cursor.number())
+            for _ in 0..<coders {
+                let flags = try cursor.byte()
+                XCTAssertEqual(flags & 0x10, 0)
+                folder.methods.append(Array(try cursor.take(Int(flags & 0x0F))))
+                let propertySize = flags & 0x20 == 0 ? 0 : Int(try cursor.number())
+                folder.properties.append(try cursor.take(propertySize))
+            }
+            for _ in 0..<(coders - 1) { folder.binds.append((try cursor.number(), try cursor.number())) }
+            parsed.append(folder)
+        }
+        try cursor.expect(0x0C)
+        for index in parsed.indices {
+            parsed[index].unpackSizes = try parsed[index].methods.map { _ in try cursor.number() }
+        }
+        folders = parsed
+    }
+}
+
+/// 7z の header を先頭から読む。`number` は 7z の可変長の UINT64（先頭 byte の上位の 1 の数が続く byte 数）。
+/// 製品の parser を使わず、SevenZipBytes と EncryptedSevenZipHeader が共有する。
+private struct SevenZipNumberCursor {
+    let data: Data
+    var offset = 0
+    var peek: UInt8? { offset < data.count ? data[offset] : nil }
+    mutating func byte() throws -> UInt8 { try take(1)[0] }
+    mutating func take(_ count: Int) throws -> Data {
+        guard count >= 0, count <= data.count - offset else { throw CocoaError(.fileReadCorruptFile) }
+        defer { offset += count }
+        return data.subdata(in: offset..<(offset + count))
+    }
+    mutating func expect(_ expected: UInt8) throws {
+        let actual = try byte()
+        XCTAssertEqual(actual, expected)
+        guard actual == expected else { throw CocoaError(.fileReadCorruptFile) }
+    }
+    mutating func number() throws -> UInt64 {
+        let first = try byte()
+        let count: Int = (0..<8).first(where: { first & (0x80 >> $0) == 0 }) ?? 8
+        let low = try take(count)
+        var result: UInt64 = 0
+        for (index, byte) in low.enumerated() { result |= UInt64(byte) << (8 * index) }
+        if count < 8 { result |= UInt64(first & (0x7F >> count)) << (8 * count) }
+        return result
+    }
+}

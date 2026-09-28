@@ -24,7 +24,7 @@ final class ArchiveTestDisk {
 
     private static func command(_ arguments: [String]) throws {
         let process = Process(), pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        process.executableURL = URL(fileURLWithPath: ReferenceTool.hdiutil)
         process.arguments = arguments
         process.standardOutput = pipe
         process.standardError = pipe
