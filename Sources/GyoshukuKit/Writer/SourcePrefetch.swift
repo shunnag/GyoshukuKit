@@ -96,8 +96,3 @@ struct FileJob: Sendable {
         return data
     }
 }
-
-enum ZipWork: Sendable {
-    case block(DeflateBlock)
-    case file(FileJob)
-}

@@ -364,7 +364,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     // rebuild / inPlacePatch / rebuildThenAppend / stagedRebuild。
     // 再暗号化があるときは計器を閉じず、出力を閉じた後の verify に計画と一緒に返す。
     private func commitRebuild(reader: ArchiveReader, reencryption: ZipReencryption?,
-                               appended: (entries: [ZipRecords.Entry], end: UInt64)?,
+                               appended: ZipWriter.AppendedRecords?,
                                progress: ((CommitProgress) throws -> Void)?) throws -> (ZipRebuild.Plan, ZipCommitMeter)? {
         try prepareClone()
         let written = appended.map { appendStart!..<$0.end }
@@ -407,7 +407,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     }
 
     // appendOnly。writer が旧 CD を運びながら追加分の central と EOCD を書く。
-    private func commitAppendOnly(writer: ArchiveWriter, appended: (entries: [ZipRecords.Entry], end: UInt64),
+    private func commitAppendOnly(writer: ArchiveWriter, appended: ZipWriter.AppendedRecords,
                                   progress: ((CommitProgress) throws -> Void)?) throws {
         lastCommitStrategy = .appendOnly
         var size = layout.centralSize
