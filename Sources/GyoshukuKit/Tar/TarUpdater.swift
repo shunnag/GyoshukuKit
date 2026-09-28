@@ -1,5 +1,4 @@
 import Foundation
-private import Darwin
 internal import KaitoKit
 
 /// 非圧縮 tar を別の新規ファイルへ編集する。原本と運ぶ member の byte を保つ。
@@ -163,31 +162,24 @@ public final class TarUpdater: ArchiveEditing {
             let finalLength = plan.isChanged ? try checkedAdd(plan.membersEnd,
                 checkedAdd(appended?.byteLength ?? 0, UInt64(plan.terminal.count))) : snapshot.source.length
             let outputPlan = SplicedCommitPlan(prefix: prefix, appended: appended, terminal: plan.terminal,
-                finalLength: finalLength, formatVerificationUnits: UInt64(plan.boundaries.count) * 1024)
+                finalLength: finalLength, formatVerificationUnits: UInt64(plan.boundaries.count) * TarSelfCheck.boundaryUnits)
             let meter = CommitProgressMeter(total: destination.units(for: outputPlan), progress: { update in
                 try progress?(update)
                 guard self.state == .committing else { throw UpdaterError.invalidState }
             })
             try Task.checkCancellation()
             try meter.start()
-            let fault = Self.faultAction(plan: plan, finalLength: finalLength)
+            let fault = Self.testingFault.map { TarSelfCheck.faultAction($0, plan: plan, finalLength: finalLength) }
             let strategy = try SplicedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
                 try destination.commit(outputPlan, meter: meter) { fd, advance in
-                    try self.verify(plan: plan, appendedPaths: appendedPaths,
-                                    additionLength: appended?.byteLength ?? 0,
-                                    finalLength: finalLength, descriptor: fd, advance: advance)
+                    try TarSelfCheck.verify(plan: plan, appendedPaths: appendedPaths, additionLength: appended?.byteLength ?? 0,
+                                            finalLength: finalLength, descriptor: fd, source: self.snapshot.source,
+                                            layout: self.layout, advance: advance)
                 }
             }
             try meter.finish()
             try Task.checkCancellation()
-            switch strategy {
-            case .unchanged: lastCommitStrategy = .unchanged
-            case .inPlacePatch: lastCommitStrategy = .inPlacePatch
-            case .appendOnly: lastCommitStrategy = removed.isEmpty && plan.changed.isEmpty ? .appendOnly : .splice
-            case .splice: lastCommitStrategy = .splice
-            case .sequential: lastCommitStrategy = .sequential
-            case .relocatedAppend: lastCommitStrategy = .relocatedAppend
-            }
+            lastCommitStrategy = CommitStrategy(strategy, appendWasSplice: !removed.isEmpty || !plan.changed.isEmpty)
             state = .committed
         }
     }
@@ -230,74 +222,6 @@ public final class TarUpdater: ArchiveEditing {
         return writer
     }
 
-    private func verify(plan: TarEditPlan, appendedPaths: [(String, Bool)], additionLength: UInt64,
-                        finalLength: UInt64, descriptor: Int32, advance: (UInt64) throws -> Void) throws {
-        var progressError: Error?
-        do {
-            var info = stat()
-            guard fstat(descriptor, &info) == 0, UInt64(info.st_size) == finalLength else {
-                throw TarUpdaterError.outputVerificationFailed(reason: "V4 length")
-            }
-            guard plan.isChanged else { return }
-            for change in plan.changed {
-                let expected = try TarHeaderRewrite.rewrite(source: snapshot.source, unit: layout.member(change.index),
-                    name: change.name, link: change.link, materializedSize: change.materializedTarget.map { layout.member($0).storedSize })
-                let actual = try SplicedArchiveOutput.read(descriptor, at: change.outputOffset, count: Int(change.headerLength))
-                guard actual == expected else { throw TarUpdaterError.outputVerificationFailed(reason: "V1 header group") }
-                try TarLayout.validateChecksum(Data(actual.suffix(512)))
-            }
-            for boundary in plan.boundaries {
-                try Task.checkCancellation()
-                let source = try SplicedArchiveOutput.read(snapshot.source.descriptor, at: boundary.source, count: 512, counted: true)
-                let output = try SplicedArchiveOutput.read(descriptor, at: boundary.output, count: 512, counted: true)
-                do { try advance(1024) } catch { progressError = error; throw error }
-                guard source == output else { throw TarUpdaterError.outputVerificationFailed(reason: "V2 boundary header") }
-            }
-            if additionLength > 0 {
-                let view = TarOutputView(descriptor: descriptor, length: finalLength)
-                var count = 0
-                let walk = try TarLayout.walk(source: view, range: plan.membersEnd..<(plan.membersEnd + additionLength)) { index, _, group in
-                    guard index < appendedPaths.count, group.name == Data(appendedPaths[index].0.utf8) else {
-                        throw TarUpdaterError.outputVerificationFailed(reason: "V3 added name")
-                    }
-                    count += 1
-                }
-                guard count == appendedPaths.count, walk.membersEnd == plan.membersEnd + additionLength else {
-                    throw TarUpdaterError.outputVerificationFailed(reason: "V3 added bounds")
-                }
-            }
-            let terminal = try SplicedArchiveOutput.read(descriptor, at: plan.membersEnd + additionLength, count: plan.terminal.count)
-            guard terminal == plan.terminal, terminal.count >= 1024 else { throw TarUpdaterError.outputVerificationFailed(reason: "V4 EOF") }
-        } catch {
-            if let progressError { throw progressError }
-            if error is CancellationError { throw error }
-            if let failure = error as? TarUpdaterError, case .outputVerificationFailed = failure { throw failure }
-            throw TarUpdaterError.outputVerificationFailed(reason: "tar verification: \(error)")
-        }
-    }
-
-    private static func faultAction(plan: TarEditPlan, finalLength: UInt64) -> (@Sendable (Int32) throws -> Void)? {
-        guard let fault = testingFault else { return nil }
-        let changedOffset = plan.changed.first?.outputOffset ?? plan.membersEnd
-        let moved = plan.boundaries.first(where: { $0.source != $0.output })?.output ?? 0
-        return { fd in
-            let offset: UInt64
-            switch fault {
-            case .flipWrittenByte(let value): offset = value
-            case .shiftSourceSegment:
-                let bytes = try SplicedArchiveOutput.read(fd, at: moved + 512, count: 512)
-                try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: moved) }
-                return
-            case .corruptWrittenHeader: offset = changedOffset
-            case .dropTerminatorBlock:
-                try FileHandle(fileDescriptor: fd, closeOnDealloc: false).truncate(atOffset: finalLength - 512)
-                return
-            }
-            var byte = try SplicedArchiveOutput.read(fd, at: offset, count: 1)
-            byte[0] ^= 1
-            try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: offset) }
-        }
-    }
     private func perform(_ body: () throws -> Void) throws {
         guard state == .adding else {
             if state == .committing { state = .failed }
@@ -309,13 +233,16 @@ public final class TarUpdater: ArchiveEditing {
     private func cleanup() { writer = nil; destination.discard() }
 }
 
-private struct TarOutputView: ByteSource {
-    let descriptor: Int32
-    let length: UInt64
-    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
-        guard offset < length, !buffer.isEmpty else { return 0 }
-        let bytes = try SplicedArchiveOutput.read(descriptor, at: offset, count: Int(min(UInt64(buffer.count), length - offset)))
-        bytes.withUnsafeBytes { buffer.baseAddress!.copyMemory(from: $0.baseAddress!, byteCount: bytes.count) }
-        return bytes.count
+extension TarUpdater.CommitStrategy {
+    /// 共有 engine の戦略を tar の戦略に写す。engine には追加だけに見える commit でも、削除や header 変更を含めば splice。
+    init(_ shared: SplicedCommitStrategy, appendWasSplice: Bool) {
+        switch shared {
+        case .unchanged: self = .unchanged
+        case .inPlacePatch: self = .inPlacePatch
+        case .appendOnly: self = appendWasSplice ? .splice : .appendOnly
+        case .splice: self = .splice
+        case .sequential: self = .sequential
+        case .relocatedAppend: self = .relocatedAppend
+        }
     }
 }
