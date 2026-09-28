@@ -7,13 +7,12 @@ struct ZipCommitMeter {
     var completedBytes: UInt64 = 0
     let totalBytes: UInt64
     private var notified: UInt64 = 0
-    static let interval: UInt64 = 4 * 1024 * 1024
 
     init(totalBytes: UInt64) { self.totalBytes = totalBytes }
 
     mutating func wrote(_ count: Int, progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         completedBytes += UInt64(count)
-        if let progress, completedBytes - notified >= Self.interval {
+        if let progress, completedBytes - notified >= CommitProgressMeter.notificationInterval {
             try progress(.init(completedBytes: completedBytes, totalBytes: totalBytes))
             notified = completedBytes
         }
@@ -26,6 +25,8 @@ struct ZipCommitMeter {
 }
 
 final class CommitProgressMeter {
+    /// 途中の進捗を通知する最小の byte 間隔。ZipCommitMeter も同じ間隔を使う。
+    static let notificationInterval: UInt64 = 4 * 1024 * 1024
     let total: UInt64
     private(set) var completed: UInt64 = 0
     private var notified: UInt64 = 0
@@ -40,7 +41,7 @@ final class CommitProgressMeter {
     func advance(_ count: UInt64) throws {
         try Task.checkCancellation()
         completed += min(count, total - completed)
-        if completed - notified >= ZipCommitMeter.interval, completed < total {
+        if completed - notified >= Self.notificationInterval, completed < total {
             notified = completed
             try progress?(.init(completedBytes: completed, totalBytes: total))
         }
