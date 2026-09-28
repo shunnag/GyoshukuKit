@@ -10,7 +10,7 @@
   - Sources を役割ごとの階層(API / Writer / Editing / SplicedOutput / Zip / Zip/Update / Tar / CompressedTar / SevenZip / LHA /
     Compression / Support)に分けた。`Package.swift` は変えていない。設計書 §2.1 に配置の規則を書いた。
   - `ArchiveWriter` から ZIP の直列化を `ZipWriter` に分け、facade は形式ごとの writer への振り分けだけを持つ。
-    updater の末尾追加は `ArchiveWriter.tarAppend` / `lhaAppend` / `sevenZipAppend` から作り、閉じ方を `endAppendedMembers()` に一本化した。
+    updater の末尾追加は `ArchiveWriter.tarAppend` / `lhaAppend` / `sevenZipAppend` から作り、閉じ方は tar / LHA が `endAppendedMembers()`、7z が `endSevenZipEntries()`。
   - tar・圧縮 tar・7z・LHA の updater と `ArchiveRewriter` が別々に持っていた削除・改名の予約と名前の衝突検査を
     `EntryEditLedger` に一本化した。検査の順序と error は変わらない。表現可能性の門番は `ArchiveRepresentability` に置いた。
   - 形式ごとに Records / Layout / EditPlan / Updater / Writer / SelfCheck の形を揃えた: `TarSelfCheck`、`LHASelfCheck`(旧 `LHAAppendedMemberCheck`)、

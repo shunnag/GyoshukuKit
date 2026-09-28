@@ -109,11 +109,11 @@ enum SevenZipRecords {
         result.append(number(packOffset))
         result.append(contentsOf: [1, 0x09])
         result.append(number(packedSize))
-        result.append(contentsOf: [0, 0x07, 0x0B, 1, 0, 1]) // UnpackInfo: inline folder, one coder
+        result.append(contentsOf: [0, 0x07, 0x0B, 1, 0, 1]) // UnpackInfo: folder を一つ inline に置き、coder は一つ
         result.append(aesCoder(properties))
         result.append(0x0C)
         result.append(number(unpackedSize))
-        result.append(contentsOf: [0x0A, 1]) // folder CRC verifies decrypted header, including wrong passwords
+        result.append(contentsOf: [0x0A, 1]) // folder CRC は復号した header を照合する。間違った password もここで分かる
         result.le(crc)
         result.append(contentsOf: [0, 0])
         return result

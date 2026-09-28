@@ -589,7 +589,7 @@ public final class ArchiveWriter {
          Int64(info.st_mode)]
     }
 
-    // A combining mark may share a grapheme with /; filesystem separators are bytes.
+    // 結合文字が / と同じ grapheme に入ることがある。filesystem の区切りは byte なので utf8 で分ける。
     static func pathComponents(_ path: String, omittingEmptySubsequences: Bool = true) -> [String] {
         path.utf8.split(separator: 47, omittingEmptySubsequences: omittingEmptySubsequences)
             .map { String(decoding: $0, as: UTF8.self) }

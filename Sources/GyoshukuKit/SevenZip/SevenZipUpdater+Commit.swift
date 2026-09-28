@@ -317,3 +317,33 @@ extension SevenZipUpdater {
 
     func failure(_ reason: String) -> UpdaterRouteError { .outputVerificationFailed(reason: reason) }
 }
+
+/// solid folder を順に復号し、削除 file の byte は読み捨てて CRC だけ取る reader。
+private final class SevenZipSolidInput {
+    let reader: ArchiveReader
+    let files: [Int]
+    let surviving: Set<Int>
+    let advance: (UInt64) throws -> Void
+    var cursor = 0
+    var stream: EntryStream?
+    var crc: UInt32 = 0
+    var crcs: [Int: UInt32] = [:]
+
+    init(reader: ArchiveReader, files: [Int], surviving: [Int], advance: @escaping (UInt64) throws -> Void) {
+        self.reader = reader; self.files = files; self.surviving = Set(surviving); self.advance = advance
+    }
+    func read(_ count: Int) throws -> Data {
+        while cursor < files.count {
+            try Task.checkCancellation()
+            let file = files[cursor]
+            if stream == nil { stream = try reader.stream(reader.entries[file]); crc = 0 }
+            let keep = surviving.contains(file)
+            let bytes = try stream!.readSome(upTo: keep ? count : IOChunk.size)
+            try advance(UInt64(bytes.count))
+            crc = updateCRC(crc, bytes)
+            if bytes.isEmpty { crcs[file] = crc; stream = nil; cursor += 1 }
+            else if keep { return bytes }
+        }
+        return Data()
+    }
+}
