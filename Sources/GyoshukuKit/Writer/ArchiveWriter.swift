@@ -265,31 +265,19 @@ public final class ArchiveWriter {
 
     /// 形式ごとの終端 record を書き、出力を閉じる。成功後の再呼出しは何もしない。
     public func finish() throws {
-        if let lhaWriter {
-            if state == .finished { return }
-            try perform {
-                try lhaWriter.finish()
-                state = .finished
-            }
-            return
-        }
-        if let sevenZipWriter {
-            if state == .finished { return }
-            try perform {
-                try sevenZipWriter.finish()
-                state = .finished
-            }
-            return
-        }
-        if let tarWriter {
-            if state == .finished { return }
-            try perform {
-                try tarWriter.finish()
-                state = .finished
-            }
-            return
-        }
+        if let lhaWriter { return try finishSubWriter { try lhaWriter.finish() } }
+        if let sevenZipWriter { return try finishSubWriter { try sevenZipWriter.finish() } }
+        if let tarWriter { return try finishSubWriter { try tarWriter.finish() } }
         try finish(existingCount: 0, comment: Data()) { _ in }
+    }
+
+    // tar / 7z / LHA の終端は各 writer が書く。成功後の再呼出しは何もしない。
+    private func finishSubWriter(_ finish: () throws -> Void) throws {
+        if state == .finished { return }
+        try perform {
+            try finish()
+            state = .finished
+        }
     }
 
     // 旧 CD は一定量ずつ原本から運ぶ。local/central/EOCD の生成は writer と完全に共有する。
@@ -383,12 +371,7 @@ public final class ArchiveWriter {
             }
             guard status == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
             if let expected, !expected.matches(info) { throw WriterError.sourceChanged(url.path) }
-            var destination = stat()
-            guard fstat(output.fileDescriptor, &destination) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
-            let isOutput = ArchiveOwnedFile.hasAssignedInode(destination.st_ino)
-                ? info.st_dev == destination.st_dev && info.st_ino == destination.st_ino
-                : ArchiveOwnedFile.matches(url: url, descriptor: output.fileDescriptor)
-            guard !isOutput else {
+            guard try !isOutputFile(info, url: url) else {
                 throw WriterError.invalidPath("source contains output archive")
             }
             let session: CommitProgressMeter?
@@ -404,79 +387,98 @@ public final class ArchiveWriter {
             switch info.st_mode & S_IFMT {
             case S_IFDIR:
                 try addEntry(path: path, mode: UInt16(info.st_mode), size: 0, date: date, atime: atime, owners: owners) { _ in Data() }
-                let base = path.hasSuffix("/") ? String(path.dropLast()) : path
-                // 名前は一度だけ取得し、ソート中の Foundation 呼出しを避ける。
-                let children = try autoreleasepool {
-                    try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-                        .map { child in autoreleasepool { (url: child, name: child.lastPathComponent) } }
-                        .sorted(by: { $0.name < $1.name })
-                }
-                for child in children {
-                    try autoreleasepool {
-                        try addDisk(child.url, as: base + "/" + child.name, ownerIDs: ownerIDs, meter: meter, sourceFailure: sourceFailure, read: read)
-                    }
-                }
+                try addDirectoryChildren(url, as: path, ownerIDs: ownerIDs, meter: meter, sourceFailure: sourceFailure, read: read)
             case S_IFLNK:
-                // readlink は NUL を付けない。target を UTF-8 へ再符号化せず byte のまま保存する。
-                var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX) + 1)
-                let count = url.withUnsafeFileSystemRepresentation { pointer in
-                    pointer.map { readlink($0, &buffer, buffer.count) } ?? -1
+                var payload = try url.withUnsafeFileSystemRepresentation { pointer in
+                    guard let pointer else { throw WriterError.io(operation: "readlink", code: errno) }
+                    return try Self.symlinkTarget(at: pointer, url: url)
                 }
-                guard count >= 0 else { throw WriterError.io(operation: "readlink", code: errno) }
-                guard count < buffer.count else { throw WriterError.sourceChanged(url.path) }
-                var payload = Data(buffer.prefix(count))
-                try addEntry(path: path, mode: FileMode.defaultSymlink, size: UInt64(count), date: date, atime: atime, owners: owners) { _ in
+                try addEntry(path: path, mode: FileMode.defaultSymlink, size: UInt64(payload.count), date: date, atime: atime,
+                             owners: owners) { _ in
                     defer { payload = Data() }
                     return payload
                 }
             case S_IFREG:
-                // lstat と open の間に symlink へ置換されても辿らない。
-                let fd = url.withUnsafeFileSystemRepresentation { pointer in
-                    pointer.map { Darwin.open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) } ?? -1
-                }
-                guard fd >= 0 else { throw WriterError.io(operation: "open source", code: errno) }
-                let input = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-                defer { try? input.close() }
-                var opened = stat()
-                guard fstat(fd, &opened) == 0 else { throw WriterError.io(operation: "fstat source", code: errno) }
-                guard opened.st_dev == info.st_dev, opened.st_ino == info.st_ino,
-                      opened.st_mode == info.st_mode, opened.st_size == info.st_size, info.st_size >= 0,
-                      opened.st_mtimespec.tv_sec == info.st_mtimespec.tv_sec,
-                      opened.st_mtimespec.tv_nsec == info.st_mtimespec.tv_nsec else {
-                    throw WriterError.sourceChanged(url.path)
-                }
-                let hardLink = try tarWriter?.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
-                                                            signature: Self.linkSignature(info))
-                if let meter {
-                    try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
-                                 owners: owners, hardLink: hardLink) {
-                        let bytes = try read(input, $0)
-                        try meter.advance(UInt64(bytes.count))
-                        return bytes
-                    }
-                } else {
-                    try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
-                                 owners: owners, hardLink: hardLink) { try read(input, $0) }
-                }
-                var after = stat()
-                guard fstat(fd, &after) == 0 else { throw WriterError.io(operation: "fstat after read", code: errno) }
-                // Finder tag や LaunchServices の xattr 更新でも変わるため ctime は比較しない。
-                guard after.st_dev == info.st_dev, after.st_ino == info.st_ino,
-                      after.st_mode == info.st_mode, after.st_size == info.st_size,
-                      after.st_mtimespec.tv_sec == info.st_mtimespec.tv_sec,
-                      after.st_mtimespec.tv_nsec == info.st_mtimespec.tv_nsec else {
-                    throw WriterError.sourceChanged(url.path)
-                }
-                if info.st_nlink > 1, hardLink == nil, let tarWriter {
-                    tarWriter.rememberHardLink(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
-                                              signature: Self.linkSignature(info),
-                                              path: try Self.normalizedPath(path, directory: false, format: format))
-                }
+                try addRegularFile(url, as: path, info: info, date: date, atime: atime, owners: owners, meter: meter, read: read)
             default:
                 throw WriterError.unsupportedFileType(url.path)
             }
             try session?.finish()
         } catch { sourceFailure?(url); throw error }
+    }
+
+    // 子を名前順に addDisk へ渡す。
+    private func addDirectoryChildren(_ url: URL, as path: String, ownerIDs: ArchiveOwnerIDs?, meter: CommitProgressMeter?,
+                                      sourceFailure: ((URL) -> Void)?, read: (FileHandle, Int) throws -> Data) throws {
+        let base = path.hasSuffix("/") ? String(path.dropLast()) : path
+        // 名前は一度だけ取得し、ソート中の Foundation 呼出しを避ける。
+        let children = try autoreleasepool {
+            try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                .map { child in autoreleasepool { (url: child, name: child.lastPathComponent) } }
+                .sorted(by: { $0.name < $1.name })
+        }
+        for child in children {
+            try autoreleasepool {
+                try addDisk(child.url, as: base + "/" + child.name, ownerIDs: ownerIDs, meter: meter, sourceFailure: sourceFailure, read: read)
+            }
+        }
+    }
+
+    // lstat 済みの通常ファイルを開いて追加する。open 後と読取後の fstat が lstat の結果と違えば sourceChanged。
+    private func addRegularFile(_ url: URL, as path: String, info: stat, date: Date, atime: Date, owners: (UInt32, UInt32)?,
+                                meter: CommitProgressMeter?, read: (FileHandle, Int) throws -> Data) throws {
+        // lstat と open の間に symlink へ置換されても辿らない。
+        let fd = url.withUnsafeFileSystemRepresentation { pointer in
+            pointer.map { Darwin.open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) } ?? -1
+        }
+        guard fd >= 0 else { throw WriterError.io(operation: "open source", code: errno) }
+        let input = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? input.close() }
+        let signature = DiskSignature(info)
+        var opened = stat()
+        guard fstat(fd, &opened) == 0 else { throw WriterError.io(operation: "fstat source", code: errno) }
+        guard signature.matches(opened), info.st_size >= 0 else { throw WriterError.sourceChanged(url.path) }
+        let hardLink = try tarWriter?.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
+                                                    signature: Self.linkSignature(info))
+        if let meter {
+            try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
+                         owners: owners, hardLink: hardLink) {
+                let bytes = try read(input, $0)
+                try meter.advance(UInt64(bytes.count))
+                return bytes
+            }
+        } else {
+            try addEntry(path: path, mode: UInt16(info.st_mode), size: UInt64(info.st_size), date: date, atime: atime,
+                         owners: owners, hardLink: hardLink) { try read(input, $0) }
+        }
+        var after = stat()
+        guard fstat(fd, &after) == 0 else { throw WriterError.io(operation: "fstat after read", code: errno) }
+        // Finder tag や LaunchServices の xattr 更新でも変わるため ctime は比較しない。
+        guard signature.matches(after) else { throw WriterError.sourceChanged(url.path) }
+        if info.st_nlink > 1, hardLink == nil, let tarWriter {
+            tarWriter.rememberHardLink(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
+                                      signature: Self.linkSignature(info),
+                                      path: try Self.normalizedPath(path, directory: false, format: format))
+        }
+    }
+
+    // source が書込み中の出力そのものか。仮 inode の FAT / exFAT では path と descriptor で照合する。
+    private func isOutputFile(_ info: stat, url: URL) throws -> Bool {
+        var destination = stat()
+        guard fstat(output.fileDescriptor, &destination) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
+        return ArchiveOwnedFile.hasAssignedInode(destination.st_ino)
+            ? info.st_dev == destination.st_dev && info.st_ino == destination.st_ino
+            : ArchiveOwnedFile.matches(url: url, descriptor: output.fileDescriptor)
+    }
+
+    // readlink は NUL を付けない。target を UTF-8 へ再符号化せず byte のまま返す。
+    // PATH_MAX に収まらない target は読取中の変更とみなす。
+    private static func symlinkTarget(at path: UnsafePointer<CChar>, url: URL) throws -> Data {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX) + 1)
+        let count = readlink(path, &buffer, buffer.count)
+        guard count >= 0 else { throw WriterError.io(operation: "readlink", code: errno) }
+        guard count < buffer.count else { throw WriterError.sourceChanged(url.path) }
+        return Data(buffer.prefix(count))
     }
 
     // open はせず、追加と同じ名前順で lstat する。symlink の target は数えない。
@@ -607,6 +609,90 @@ extension ArchiveWriter {
         var attribution: AdditionAttribution { AdditionAttribution(index: index, addition: addition) }
     }
 
+    private enum BatchPreparation {
+        // pipeline に渡す項目。job は worker が読む通常ファイルにだけある。
+        case entry(BatchEntry, FileJob?)
+        // directory・一つの block に収まらない通常ファイル・ZipCrypto の通常ファイルは項目別の addDisk へ戻す。
+        case fallBackToDisk(URL, DiskSignature)
+    }
+
+    // 呼出しの thread で lstat と出力自身の検査を行い、名前を予約して BatchEntry と worker の読取 job を作る。
+    private func prepareBatchEntry(index: Int, addition: ArchiveAddition, expected: DiskSignature?,
+                                   limiter: SourcePrefetchLimiter) throws -> BatchPreparation {
+        var info = stat()
+        var cPath: [CChar] = []
+        var inline = Data()
+        let date: Date
+        let atime: Date?
+        let mode: UInt16
+        let size: UInt64
+        let owners: (UInt32, UInt32)?
+        switch addition.source {
+        case let .directory(explicitDate):
+            date = explicitDate ?? Date(); atime = nil; mode = FileMode.defaultDirectory; size = 0
+            owners = addition.ownerIDs.map { ($0.user, $0.group) }
+        case let .contents(url):
+            try FileRead.validateFileURL(url)
+            cPath = url.withUnsafeFileSystemRepresentation { pointer in
+                pointer.map { Array(UnsafeBufferPointer(start: $0, count: strlen($0) + 1)) } ?? []
+            }
+            try Self.testingBeforeLstat?(index, url)
+            guard !cPath.isEmpty, cPath.withUnsafeBufferPointer({ lstat($0.baseAddress!, &info) }) == 0 else {
+                throw WriterError.io(operation: "lstat", code: errno)
+            }
+            if let expected, !expected.matches(info) { throw WriterError.sourceChanged(url.path) }
+            guard try !isOutputFile(info, url: url) else { throw WriterError.invalidPath("source contains output archive") }
+            mode = info.st_mode & S_IFMT == S_IFLNK ? FileMode.defaultSymlink : UInt16(info.st_mode)
+            date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec))
+            atime = Date(timeIntervalSince1970: Double(info.st_atimespec.tv_sec))
+            owners = addition.ownerIDs.map { ($0.user, $0.group) }
+                ?? (options.preserveOwnerIDs ? (info.st_uid, info.st_gid) : nil)
+            let kind = info.st_mode & S_IFMT
+            let threshold = zipWriter?.singleBlockLimit(name: addition.path, mode: mode, size: UInt64(max(0, info.st_size)))
+                ?? DeflateBlock.size
+            if kind == S_IFDIR || (kind == S_IFREG && (info.st_size > threshold || zipWriter?.encryptsWithZipCrypto == true)) {
+                return .fallBackToDisk(url, expected ?? DiskSignature(info))
+            }
+            if kind == S_IFLNK {
+                inline = try cPath.withUnsafeBufferPointer { try Self.symlinkTarget(at: $0.baseAddress!, url: url) }
+                size = UInt64(inline.count)
+            } else if kind == S_IFREG, info.st_size >= 0 {
+                size = UInt64(info.st_size)
+            } else { throw WriterError.unsupportedFileType(url.path) }
+        }
+        let name = try reserveEntryName(addition.path, directory: mode.isDirectoryMode)
+        var hardLink: String?
+        if mode.isRegularFileMode, let tarWriter {
+            hardLink = try tarWriter.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
+                                                 signature: Self.linkSignature(info))
+            if info.st_nlink > 1, hardLink == nil {
+                tarWriter.rememberHardLink(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
+                                          signature: Self.linkSignature(info), path: name)
+            }
+        }
+        let zip = try zipWriter?.makeEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners)
+        let entry = BatchEntry(index: index, addition: addition, name: name, mode: mode, size: size,
+                               date: date, atime: atime, owners: owners, hardLink: hardLink, inline: inline, zip: zip)
+        let job = mode.isRegularFileMode ? FileJob(index: index, addition: addition, path: cPath,
+            expected: DiskSignature(info), size: Int(size), deflate: zip?.method == .deflate, limiter: limiter) : nil
+        return .entry(entry, job)
+    }
+
+    // ZIP は deflate の pipeline、7z はその場で、tar / LHA は先読みの pipeline に渡す。どれも投入順に receive へ届く。
+    private func submitBatchEntry(_ entry: BatchEntry, job: FileJob?,
+                                  prefetch: OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>?,
+                                  emit: (ZipWriter.Tag, Prefetched?) throws -> Void,
+                                  receive: (BatchEntry, Prefetched?) throws -> Void) throws {
+        if let zipWriter {
+            try zipWriter.submit(job, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
+        } else if sevenZipWriter != nil {
+            // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
+            try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
+        } else {
+            try prefetch!.submit(job, tag: entry, weight: entry.inputBytes, emit: receive)
+        }
+    }
+
     /// 項目別 API と同じ byte を出力する、有界の並列先読み。
     /// ownerIDs と directory の日時を指定できる公開の入口。
     /// 名前の予約は open より前。失敗は最小の index に帰属し、events の throw と取消しは包まない。
@@ -685,92 +771,24 @@ extension ArchiveWriter {
                                 try Task.checkCancellation()
                                 guard state == .writing, !additionsClosed else { throw WriterError.invalidState }
                                 try validateOwnerIDs(addition.ownerIDs)
-                                var info = stat()
-                                var cPath: [CChar] = []
-                                var inline = Data()
-                                let date: Date
-                                let atime: Date?
-                                let mode: UInt16
-                                let size: UInt64
-                                let owners: (UInt32, UInt32)?
-                                switch addition.source {
-                                case let .directory(explicitDate):
-                                    date = explicitDate ?? Date(); atime = nil; mode = FileMode.defaultDirectory; size = 0
-                                    owners = addition.ownerIDs.map { ($0.user, $0.group) }
-                                case let .contents(url):
-                                    try FileRead.validateFileURL(url)
-                                    cPath = url.withUnsafeFileSystemRepresentation { pointer in
-                                        pointer.map { Array(UnsafeBufferPointer(start: $0, count: strlen($0) + 1)) } ?? []
-                                    }
-                                    try Self.testingBeforeLstat?(index, url)
-                                    guard !cPath.isEmpty, cPath.withUnsafeBufferPointer({ lstat($0.baseAddress!, &info) }) == 0 else {
-                                        throw WriterError.io(operation: "lstat", code: errno)
-                                    }
-                                    if let signature = expected?[index], !signature.matches(info) { throw WriterError.sourceChanged(url.path) }
-                                    var destination = stat()
-                                    guard fstat(output.fileDescriptor, &destination) == 0 else { throw WriterError.io(operation: "fstat output", code: errno) }
-                                    let isOutput = ArchiveOwnedFile.hasAssignedInode(destination.st_ino)
-                                        ? info.st_dev == destination.st_dev && info.st_ino == destination.st_ino
-                                        : ArchiveOwnedFile.matches(url: url, descriptor: output.fileDescriptor)
-                                    guard !isOutput else { throw WriterError.invalidPath("source contains output archive") }
-                                    mode = info.st_mode & S_IFMT == S_IFLNK ? FileMode.defaultSymlink : UInt16(info.st_mode)
-                                    date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec))
-                                    atime = Date(timeIntervalSince1970: Double(info.st_atimespec.tv_sec))
-                                    owners = addition.ownerIDs.map { ($0.user, $0.group) }
-                                        ?? (options.preserveOwnerIDs ? (info.st_uid, info.st_gid) : nil)
-                                    let kind = info.st_mode & S_IFMT
-                                    let threshold = zipWriter?.singleBlockLimit(name: addition.path, mode: mode, size: UInt64(max(0, info.st_size)))
-                                        ?? DeflateBlock.size
-                                    if kind == S_IFDIR || (kind == S_IFREG && (info.st_size > threshold || zipWriter?.encryptsWithZipCrypto == true)) {
-                                        try drain()
-                                        var failedSource: URL?
-                                        do {
-                                            try addDisk(url, as: addition.path, ownerIDs: addition.ownerIDs,
-                                                        expected: expected?[index] ?? DiskSignature(info),
-                                                        progress: events.map { events in { try additionEvent(.progress(index: index, $0), events) } },
-                                                        meter: meter, sourceFailure: { if failedSource == nil { failedSource = $0 } }) {
-                                                try FileRead.readChunk($0.fileDescriptor, upTo: $1)
-                                            }
-                                            // ZIP の遅延 block の失敗も、この fallback 項目へ帰属させる。
-                                            try zipWriter?.drain(emit: emit)
-                                            try zipWriter?.flushOutput()
-                                        } catch { throw additionFailure(error, index: index, addition: addition, sourceURL: failedSource) }
-                                        try additionEvent(.didFinish(index: index), events)
-                                        return
-                                    }
-                                    if kind == S_IFLNK {
-                                        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX) + 1)
-                                        let count = cPath.withUnsafeBufferPointer { readlink($0.baseAddress!, &buffer, buffer.count) }
-                                        guard count >= 0 else { throw WriterError.io(operation: "readlink", code: errno) }
-                                        guard count < buffer.count else { throw WriterError.sourceChanged(url.path) }
-                                        inline = Data(buffer.prefix(count)); size = UInt64(count)
-                                    } else if kind == S_IFREG, info.st_size >= 0 {
-                                        size = UInt64(info.st_size)
-                                    } else { throw WriterError.unsupportedFileType(url.path) }
-                                }
-                                let name = try reserveEntryName(addition.path, directory: mode.isDirectoryMode)
-                                var hardLink: String?
-                                if mode.isRegularFileMode, let tarWriter {
-                                    hardLink = try tarWriter.hardLinkTarget(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
-                                                                         signature: Self.linkSignature(info))
-                                    if info.st_nlink > 1, hardLink == nil {
-                                        tarWriter.rememberHardLink(device: Int64(info.st_dev), inode: UInt64(info.st_ino),
-                                                                  signature: Self.linkSignature(info), path: name)
-                                    }
-                                }
-                                let zip = try zipWriter?.makeEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners)
-                                let entry = BatchEntry(index: index, addition: addition, name: name, mode: mode, size: size,
-                                                       date: date, atime: atime, owners: owners, hardLink: hardLink, inline: inline, zip: zip)
-                                pendingBatch.append(entry)
-                                let job = mode.isRegularFileMode ? FileJob(index: index, addition: addition, path: cPath,
-                                    expected: DiskSignature(info), size: Int(size), deflate: zip?.method == .deflate, limiter: limiter) : nil
-                                if let zipWriter {
-                                    try zipWriter.submit(job, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
-                                } else if sevenZipWriter != nil {
-                                    // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
-                                    try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
-                                } else {
-                                    try prefetch!.submit(job, tag: entry, weight: entry.inputBytes, emit: receive)
+                                switch try prepareBatchEntry(index: index, addition: addition, expected: expected?[index], limiter: limiter) {
+                                case let .fallBackToDisk(url, signature):
+                                    try drain()
+                                    var failedSource: URL?
+                                    do {
+                                        try addDisk(url, as: addition.path, ownerIDs: addition.ownerIDs, expected: signature,
+                                                    progress: events.map { events in { try additionEvent(.progress(index: index, $0), events) } },
+                                                    meter: meter, sourceFailure: { if failedSource == nil { failedSource = $0 } }) {
+                                            try FileRead.readChunk($0.fileDescriptor, upTo: $1)
+                                        }
+                                        // ZIP の遅延 block の失敗も、この fallback 項目へ帰属させる。
+                                        try zipWriter?.drain(emit: emit)
+                                        try zipWriter?.flushOutput()
+                                    } catch { throw additionFailure(error, index: index, addition: addition, sourceURL: failedSource) }
+                                    try additionEvent(.didFinish(index: index), events)
+                                case let .entry(entry, job):
+                                    pendingBatch.append(entry)
+                                    try submitBatchEntry(entry, job: job, prefetch: prefetch, emit: emit, receive: receive)
                                 }
                             } catch {
                                 if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {

@@ -41,7 +41,7 @@ public final class ArchiveUpdater: ArchiveEditing {
 
     /// commit が選ぶ経路と、それを実行する型。
     /// - unchanged: 削除・改名・追加がない。`commitUnchanged` が output を同期するだけ。
-    /// - appendOnly: 追加だけ。`commitAppendOnly` から `ArchiveWriter.finish(existingCount:…)` が旧 CD を運び、
+    /// - appendOnly: 追加だけ。`commitAppendOnly` から `ArchiveWriter.finish(existingCount:…)`（実体は `ZipWriter.finish`）が旧 CD を運び、
     ///   `ZipCentralDirectory.CopyValidator` が検査する。
     /// - inPlacePatch: 改名だけで record が動かない。`ZipRebuild.plan` が `Plan.inPlace` を立て、`execute` は header を patch する。
     /// - rebuild: 削除・改名・再暗号化で record を詰め直す。`ZipRebuild.plan` / `execute`、変換は `ZipReencryption`。
