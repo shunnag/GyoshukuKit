@@ -24,11 +24,10 @@ enum CompressedTarTestSupport {
         let size = large ? CompressedTarSplicePlan.limits(format, options: WriterOptions()).piece + 129 : 8192
         for name in ["large-A", "large-B"] {
             var body = Data(repeating: 37, count: size)
-            var state: UInt64 = name == "large-A" ? 17 : 31
+            var random = TestCorpus.XorShift64(state: name == "large-A" ? 17 : 31)
             let entropy = ProcessInfo.processInfo.environment["GYOSHUKU_P3_REPETITIVE_FIXTURE"] == "1" ? 0 : min(size, 65536)
             for index in 0..<entropy {
-                state ^= state << 13; state ^= state >> 7; state ^= state << 17
-                body[index] = UInt8(truncatingIfNeeded: state)
+                body[index] = UInt8(truncatingIfNeeded: random.next())
             }
             try writer.add(data: body, as: name, modificationDate: TestSupport.date)
         }

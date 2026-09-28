@@ -78,30 +78,6 @@ enum EncryptionTestSupport {
         return archive
     }
 
-    // 固定 seed の擬似ソースコード。512 KiB ごとの独立した内容を一度繰り返し、
-    // 256 KiB reset では失われる距離の一致を含める。16 MiB 境界は module の間に置く。
-    static func pseudoText(mebibytes: Int) -> Data {
-        var state: UInt64 = 0x4D59_5DF4_D0F3_3173
-        func next() -> UInt64 {
-            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            return state
-        }
-        let halfSize = 512 * 1024
-        var result = Data()
-        result.reserveCapacity(mebibytes * 1024 * 1024)
-        for _ in 0..<mebibytes {
-            var block = Data()
-            block.reserveCapacity(halfSize)
-            while block.count < halfSize {
-                let line = Data("let item_\(String(next(), radix: 16)) = lookup(0x\(String(next(), radix: 16)));\n".utf8)
-                block.append(line.prefix(halfSize - block.count))
-            }
-            result.append(block)
-            result.append(block)
-        }
-        return result
-    }
-
     // 製品の compressor / chunk size を参照せず、Apple の buffer API を一度だけ呼ぶ oracle。
     // XZ framing だけを除き、7z の packed size と比較する（暗号化時の最大 15 byte pad は含める）。
     static func wholeBufferLZMA2(_ input: Data) throws -> XZLZMA2 {

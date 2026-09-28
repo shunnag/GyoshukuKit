@@ -214,7 +214,7 @@ final class EncryptionTests: XCTestCase {
 
     func testFortyMiBSevenZipRoundTripAndCompressionRatio() throws {
         let directory = try TestSupport.directory("encryption-7z-40mib-ratio")
-        let input = EncryptionTestSupport.pseudoText(mebibytes: 40)
+        let input = TestCorpus.pseudoSource(mebibytes: 40)
         XCTAssertEqual(input.count, 40 * 1024 * 1024)
         let reference = try EncryptionTestSupport.wholeBufferLZMA2(input)
         // 単純なゼロ列に退化せず、圧縮可能なテキストであることも確認する。
@@ -251,7 +251,7 @@ final class EncryptionTests: XCTestCase {
 
     func testSevenZipUpToSixteenMiBMatchesWholeBufferDespiteShortReads() throws {
         let directory = try TestSupport.directory("encryption-7z-single-chunk")
-        let corpus = EncryptionTestSupport.pseudoText(mebibytes: 16)
+        let corpus = TestCorpus.pseudoSource(mebibytes: 16)
         for mebibytes in [5, 16] {
             let input = Data(corpus.prefix(mebibytes * 1024 * 1024))
             let reference = try EncryptionTestSupport.wholeBufferLZMA2(input)

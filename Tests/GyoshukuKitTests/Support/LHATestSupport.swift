@@ -87,18 +87,9 @@ enum LHATestSupport {
         }
     }
 
+    /// 多くの試験が使う名前。実体は `TestCorpus.random`（seed 固定）。
     static func random(_ count: Int, alphabetMask: UInt8 = 255) -> Data {
-        // 決定的な擬似乱数を使い、実行ごとの偶然の圧縮率で stored 判定が変わらないようにする。
-        var state: UInt64 = 0xD137_923A_6E25_9B41
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(count)
-        for _ in 0..<count {
-            state ^= state >> 12
-            state ^= state << 25
-            state ^= state >> 27
-            bytes.append(UInt8(truncatingIfNeeded: (state &* 0x2545_F491_4F6C_DD1D) >> 56) & alphabetMask)
-        }
-        return Data(bytes)
+        TestCorpus.random(count, alphabetMask: alphabetMask)
     }
 
     // bitwise の独立実装で CRC table の実装ミスも検出する。
