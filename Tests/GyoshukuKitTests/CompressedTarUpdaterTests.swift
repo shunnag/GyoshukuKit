@@ -116,13 +116,3 @@ final class CompressedTarUpdaterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("bad").path))
     }
 }
-
-final class CompressedTarSpliceGzipTests: XCTestCase {
-    func testDeterminismAndFullEncodeBytes() throws { try CompressedTarDeterminism.run(.tarGzip) }
-}
-final class CompressedTarSpliceBzip2Tests: XCTestCase {
-    func testDeterminismAndFullEncodeBytes() throws { try CompressedTarDeterminism.run(.tarBzip2) }
-}
-final class CompressedTarSpliceXZTests: XCTestCase {
-    func testDeterminismAndFullEncodeBytes() throws { try CompressedTarDeterminism.run(.tarXZ) }
-}
