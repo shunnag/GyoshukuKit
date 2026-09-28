@@ -2,6 +2,7 @@ import Foundation
 internal import KaitoKit
 
 enum TarHeaderRewrite {
+    private typealias TypeFlag = TarRecords.TypeFlag
     static func rewrite(source: any ByteSource, unit: TarLayout.Unit, name: Data?, link: Data?,
                         materializedSize: UInt64?) throws -> Data {
         let group = try TarLayout.group(source: source, unit: unit)
@@ -49,7 +50,7 @@ enum TarHeaderRewrite {
             replace(["linkpath"], key: "linkpath", value: nil)
             replace(["size"], key: "size", value: size > TarRecords.octalSizeLimit ? Data(String(size).utf8) : nil)
             field(157..<257, Data())
-            header[156] = 0x30
+            header[156] = TypeFlag.regular
             TarRecords.number(size, in: &header, at: 124, width: 12)
         } else if let link {
             let fits = link.count <= 100 && !link.contains(where: { $0 >= 128 })
@@ -65,17 +66,17 @@ enum TarHeaderRewrite {
         var extended = Data()
         if !pax.isEmpty {
             extended = TarRecords.Entry(name: TarRecords.extendedHeaderName(for: finalName),
-                                        size: UInt64(pax.count), type: 0x78).ustar()
+                                        size: UInt64(pax.count), type: TypeFlag.pax).ustar()
             extended.append(pax)
             extended.append(Data(count: TarRecords.padding(UInt64(pax.count))))
         }
         var result = Data()
-        if !group.extensions.contains(where: { $0.type == 0x78 || $0.type == 0x58 }) { result.append(extended) }
+        if !group.extensions.contains(where: { $0.type == TypeFlag.pax || $0.type == TypeFlag.paxSolaris }) { result.append(extended) }
         for item in group.extensions {
             switch item.type {
-            case 0x78, 0x58: result.append(extended)
-            case 0x4c: if name == nil { result.append(item.bytes) }
-            case 0x4b: if link == nil && materializedSize == nil { result.append(item.bytes) }
+            case TypeFlag.pax, TypeFlag.paxSolaris: result.append(extended)
+            case TypeFlag.gnuLongName: if name == nil { result.append(item.bytes) }
+            case TypeFlag.gnuLongLink: if link == nil && materializedSize == nil { result.append(item.bytes) }
             default: result.append(item.bytes)
             }
         }

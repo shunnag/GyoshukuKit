@@ -2,6 +2,7 @@ import Foundation
 internal import KaitoKit
 
 struct TarLayout {
+    private typealias TypeFlag = TarRecords.TypeFlag
     @TaskLocal static var testingKaitoKitMismatch = false
 
     struct Unit {
@@ -12,7 +13,7 @@ struct TarLayout {
         let paddedEnd: UInt64
         let typeFlag: UInt8
         let flags: UInt8
-        var isGlobal: Bool { typeFlag == 0x67 }
+        var isGlobal: Bool { typeFlag == TypeFlag.globalPax }
         var isSparse: Bool { flags & 1 != 0 }
         var sparseName: Bool { flags & 2 != 0 }
         var range: Range<UInt64> { groupStart..<paddedEnd }
@@ -87,12 +88,12 @@ struct TarLayout {
             catch { if offset == 0 { throw UpdaterError.invalidArchive("tar header がありません") }; throw error }
             let type = header[156]
             let declared = try number(header, range: 124..<136)
-            let body = try checkedAdd(offset, 512)
-            if [0x78, 0x58, 0x67, 0x4c, 0x4b].contains(type) {
+            let body = try checkedAdd(offset, UInt64(TarRecords.blockSize))
+            if TypeFlag.extensionHeaders.contains(type) {
                 let end = try checkedAdd(body, checkedAdd(declared, UInt64(TarRecords.padding(declared))))
                 guard end <= range.upperBound, declared <= UInt64(Int.max) else { throw refuse("R8: extension bounds") }
                 let payload = try bytes(source, at: body, count: Int(declared))
-                if type == 0x67 {
+                if type == TypeFlag.globalPax {
                     guard extensions.isEmpty, try parsePAX(payload).allSatisfy({ $0.key == "comment" }) else {
                         throw refuse("R1: global pax")
                     }
@@ -102,7 +103,7 @@ struct TarLayout {
                 } else {
                     let raw = header + payload + (try bytes(source, at: body + declared, count: TarRecords.padding(declared)))
                     extensions.append(Extension(type: type, bytes: raw))
-                    if type == 0x78 || type == 0x58 {
+                    if type == TypeFlag.pax || type == TypeFlag.paxSolaris {
                         guard records.isEmpty else { throw refuse("R8: duplicate pax") }
                         records = try parsePAX(payload)
                         for record in records {
@@ -110,23 +111,23 @@ struct TarLayout {
                             if record.value.isEmpty { pax.removeValue(forKey: record.key) }
                             else { pax[record.key] = record.value }
                         }
-                    } else if type == 0x4c { longName = Data(payload.reversed().drop(while: { $0 == 0 }).reversed()) }
+                    } else if type == TypeFlag.gnuLongName { longName = Data(payload.reversed().drop(while: { $0 == 0 }).reversed()) }
                     else { longLink = Data(payload.reversed().drop(while: { $0 == 0 }).reversed()) }
                 }
                 offset = end
                 continue
             }
-            if type == 0x53 { throw refuse("R2: old GNU sparse") }
+            if type == TypeFlag.gnuSparse { throw refuse("R2: old GNU sparse") }
             let effective: UInt64
             if let size = pax["size"] {
                 guard let parsed = UInt64(String(decoding: size, as: UTF8.self)) else { throw refuse("R8: pax size") }
                 effective = parsed
             } else { effective = declared }
-            if type == 0x31, effective != 0 { throw refuse("R3: hard link body") }
-            let stored = (0x32...0x36).contains(type) && pax["size"] == nil ? 0 : effective
+            if type == TypeFlag.hardLink, effective != 0 { throw refuse("R3: hard link body") }
+            let stored = (TypeFlag.symlink...TypeFlag.fifo).contains(type) && pax["size"] == nil ? 0 : effective
             let end = try checkedAdd(body, checkedAdd(stored, UInt64(TarRecords.padding(stored))))
             guard end <= range.upperBound else { throw refuse("R8: body bounds") }
-            let sparse = [0, 0x30, 0x37].contains(type) && pax.keys.contains(where: { $0.hasPrefix("GNU.sparse.") })
+            let sparse = [TypeFlag.oldRegular, TypeFlag.regular, TypeFlag.contiguous].contains(type) && pax.keys.contains(where: { $0.hasPrefix("GNU.sparse.") })
             let sparseName = sparse ? pax["GNU.sparse.name"] : nil
             let name = sparseName ?? pax["path"] ?? longName ?? headerName(header)
             let link = pax["linkpath"] ?? longLink ?? field(header, 157..<257)
@@ -220,11 +221,11 @@ struct TarLayout {
             let expected = try number(UnsafeRawBufferPointer(rebasing: bytes[148..<156]))
             var unsigned: UInt64 = 256
             for index in 0..<148 { unsigned += UInt64(bytes[index]) }
-            for index in 156..<512 { unsigned += UInt64(bytes[index]) }
+            for index in 156..<TarRecords.blockSize { unsigned += UInt64(bytes[index]) }
             if unsigned == expected { return }
             var signed: Int64 = 256
             for index in 0..<148 { signed += Int64(Int8(bitPattern: bytes[index])) }
-            for index in 156..<512 { signed += Int64(Int8(bitPattern: bytes[index])) }
+            for index in 156..<TarRecords.blockSize { signed += Int64(Int8(bitPattern: bytes[index])) }
             guard signed >= 0 && UInt64(signed) == expected else { throw refuse("R8: checksum") }
         }
     }
@@ -243,13 +244,13 @@ struct TarLayout {
         var start: UInt64 = 0
         var data = Data()
         mutating func header(at offset: UInt64) throws -> Data {
-            guard offset <= length, length - offset >= 512 else { throw refuse("R8: header bounds") }
-            if offset < start || offset - start > UInt64(data.count) || UInt64(data.count) - (offset - start) < 512 {
+            guard offset <= length, length - offset >= UInt64(TarRecords.blockSize) else { throw refuse("R8: header bounds") }
+            if offset < start || offset - start > UInt64(data.count) || UInt64(data.count) - (offset - start) < UInt64(TarRecords.blockSize) {
                 start = offset
                 data = try bytes(source, at: offset, count: Int(min(4096, length - offset)))
             }
             let index = Int(offset - start)
-            return data.subdata(in: index..<(index + 512))
+            return data.subdata(in: index..<(index + TarRecords.blockSize))
         }
     }
 }
