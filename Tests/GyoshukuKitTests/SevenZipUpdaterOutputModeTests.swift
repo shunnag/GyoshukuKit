@@ -5,7 +5,7 @@ import XCTest
 @_spi(Testing) @testable import GyoshukuKit
 
 final class SevenZipUpdaterOutputModeTests: XCTestCase {
-    func testHostLifecycle() throws { try lifecycle(ZipTestSupport.directory("7z-lifecycle-host")) }
+    func testHostLifecycle() throws { try lifecycle(TestSupport.directory("7z-lifecycle-host")) }
     func testFAT32() throws { let disk = try ArchiveTestDisk("MS-DOS FAT32"); try lifecycle(disk.mount, permissions: false) }
     func testExFAT() throws { let disk = try ArchiveTestDisk("ExFAT"); try lifecycle(disk.mount, permissions: false) }
     func testHFSPlus() throws { let disk = try ArchiveTestDisk("HFS+"); try lifecycle(disk.mount) }
@@ -25,7 +25,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
                 case "same": try updater!.rename(entryAt: 0, to: "other")
                 case "long": try updater!.rename(entryAt: 0, to: "different-length-日本語")
                 case "add", "relocate", "discard":
-                    try updater!.add(data: Data([1, 2, 3]), as: "new", modificationDate: ZipTestSupport.date)
+                    try updater!.add(data: Data([1, 2, 3]), as: "new", modificationDate: TestSupport.date)
                     if operation == "relocate" { try updater!.remove(entriesAt: [0]) }
                 default: break
                 }
@@ -60,7 +60,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
     }
 
     func testSourceChangeReentryAndForeignOutputAreSafe() throws {
-        let root = try ZipTestSupport.directory("7z-source-lifecycle")
+        let root = try TestSupport.directory("7z-source-lifecycle")
         for mode in ["source", "reentry", "foreign", "throw"] {
             let work = try SevenZipEditSupport.work(root)
             let source = try SevenZipEditSupport.source(work)
@@ -86,7 +86,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
     }
 
     func testCloneWritesOnlyChangedBytes() throws {
-        let root = try ZipTestSupport.directory("7z-write-counts")
+        let root = try TestSupport.directory("7z-write-counts")
         let source = try SevenZipEditSupport.source(root, count: 1002)
         let original = try XCTUnwrap(SevenZipEditModel.read(SevenZipEditSupport.reader(source)))
         for operation in ["rename", "last", "add", "first", "middle"] {
@@ -104,7 +104,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
                 case "last": try updater.remove(entriesAt: [1001])
                 case "first": try updater.remove(entriesAt: [0])
                 case "middle": try updater.remove(entriesAt: [500])
-                default: try updater.add(data: Data([1, 2, 3]), as: "added", modificationDate: ZipTestSupport.date)
+                default: try updater.add(data: Data([1, 2, 3]), as: "added", modificationDate: TestSupport.date)
                 }
                 try updater.commit()
             }
@@ -122,7 +122,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
     }
 
     func testSourceFlagsAndCloneErrors() throws {
-        let root = try ZipTestSupport.directory("7z-source-flags"), source = try SevenZipEditSupport.source(root)
+        let root = try TestSupport.directory("7z-source-flags"), source = try SevenZipEditSupport.source(root)
         for code in [EIO, EPERM, EXDEV, ENOTSUP] {
             let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
             try ArchiveSourceSnapshot.$testingCloneError.withValue(code) {
@@ -148,9 +148,9 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
     }
 
     func testTenThousandDirectoriesAndLongerNameProgress() throws {
-        let root = try ZipTestSupport.directory("7z-directory-progress"), source = root.appendingPathComponent("source.7z")
+        let root = try TestSupport.directory("7z-directory-progress"), source = root.appendingPathComponent("source.7z")
         let writer = try ArchiveWriter.create(url: source, format: .sevenZip)
-        for index in 0..<10000 { try writer.addDirectory("dir-\(index)", modificationDate: ZipTestSupport.date, ownerIDs: nil) }
+        for index in 0..<10000 { try writer.addDirectory("dir-\(index)", modificationDate: TestSupport.date, ownerIDs: nil) }
         try writer.finish()
         let updater = try SevenZipUpdater.open(url: source, output: root.appendingPathComponent("output.7z"))
         try updater.rename(entryAt: 9999, to: String(repeating: "長", count: 150))

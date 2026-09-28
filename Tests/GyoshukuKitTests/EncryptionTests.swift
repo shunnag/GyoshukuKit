@@ -16,7 +16,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     private func checkZip(encryption: ZipEncryption, label: String) throws {
-        let directory = try ZipTestSupport.directory("encryption-\(label)")
+        let directory = try TestSupport.directory("encryption-\(label)")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url, options: WriterOptions(password: password, zipEncryption: encryption))
         try EncryptionTestSupport.writeCorpus(writer, in: directory)
@@ -86,7 +86,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testZipAESOddChunkBoundariesAndAuthentication() throws {
-        let directory = try ZipTestSupport.directory("encryption-aes-chunks")
+        let directory = try TestSupport.directory("encryption-aes-chunks")
         let source = directory.appendingPathComponent("source")
         let data = Data((0..<600_037).map { UInt8(truncatingIfNeeded: $0 &* 17) })
         try data.write(to: source)
@@ -122,7 +122,7 @@ final class EncryptionTests: XCTestCase {
         let name = "private-inventory-2026-秘密.txt"
         let data = Data(repeating: 0x79, count: 1024 * 1024 + 21)
         for headers in [false, true] {
-            let directory = try ZipTestSupport.directory("encryption-7z-headers-\(headers)")
+            let directory = try TestSupport.directory("encryption-7z-headers-\(headers)")
             let url = directory.appendingPathComponent("archive.7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
                 options: WriterOptions(password: password, encryptsSevenZipHeaders: headers))
@@ -176,7 +176,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testSevenZipFolderGraphMatches7zzReference() throws {
-        let directory = try ZipTestSupport.directory("encryption-7z-reference")
+        let directory = try TestSupport.directory("encryption-7z-reference")
         let source = directory.appendingPathComponent("file.txt")
         try Data(repeating: 0x41, count: 8192).write(to: source)
         let reference = directory.appendingPathComponent("reference.7z")
@@ -197,7 +197,7 @@ final class EncryptionTests: XCTestCase {
 
     func testSevenZipEncryptedHeaderWithOnlyEmptyStreams() throws {
         for emptyArchive in [true, false] {
-            let directory = try ZipTestSupport.directory("encryption-empty-header-\(emptyArchive)")
+            let directory = try TestSupport.directory("encryption-empty-header-\(emptyArchive)")
             let url = directory.appendingPathComponent("archive.7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
                 options: WriterOptions(password: password, encryptsSevenZipHeaders: true))
@@ -213,7 +213,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testFortyMiBSevenZipRoundTripAndCompressionRatio() throws {
-        let directory = try ZipTestSupport.directory("encryption-7z-40mib-ratio")
+        let directory = try TestSupport.directory("encryption-7z-40mib-ratio")
         let input = EncryptionTestSupport.pseudoText(mebibytes: 40)
         XCTAssertEqual(input.count, 40 * 1024 * 1024)
         let reference = try EncryptionTestSupport.wholeBufferLZMA2(input)
@@ -245,12 +245,12 @@ final class EncryptionTests: XCTestCase {
                 password: encrypted ? password : nil) { _ in encrypted }
             try EncryptionTestSupport.run(["t"] + (encrypted ? ["-p" + password] : []) + [url.path],
                 archive: url, log: "7zz-40mib-\(encrypted)")
-            ZipTestSupport.report("7Z 40 MiB encrypted=\(encrypted): packed=\(packedSize), whole=\(reference.payload.count), ratio=\(ratio)")
+            TestSupport.report("7Z 40 MiB encrypted=\(encrypted): packed=\(packedSize), whole=\(reference.payload.count), ratio=\(ratio)")
         }
     }
 
     func testSevenZipUpToSixteenMiBMatchesWholeBufferDespiteShortReads() throws {
-        let directory = try ZipTestSupport.directory("encryption-7z-single-chunk")
+        let directory = try TestSupport.directory("encryption-7z-single-chunk")
         let corpus = EncryptionTestSupport.pseudoText(mebibytes: 16)
         for mebibytes in [5, 16] {
             let input = Data(corpus.prefix(mebibytes * 1024 * 1024))
@@ -281,13 +281,13 @@ final class EncryptionTests: XCTestCase {
         let unicodePassword = "合言葉🔑e\u{301}"
         let variants: [(GyoshukuKit.ArchiveFormat, ZipEncryption)] = [(.zip, .aes256), (.zip, .zipCrypto), (.sevenZip, .aes256)]
         for (index, variant) in variants.enumerated() {
-            let directory = try ZipTestSupport.directory("encryption-password-\(index)")
+            let directory = try TestSupport.directory("encryption-password-\(index)")
             var archives: [Data] = []
             for copy in 0..<2 {
                 let url = directory.appendingPathComponent("\(copy).archive")
                 let writer = try ArchiveWriter.create(url: url, format: variant.0,
                     options: WriterOptions(password: unicodePassword, zipEncryption: variant.1))
-                try writer.add(data: Data("password bytes".utf8), as: "file", modificationDate: ZipTestSupport.date)
+                try writer.add(data: Data("password bytes".utf8), as: "file", modificationDate: TestSupport.date)
                 try writer.finish()
                 try EncryptionTestSupport.verify(url, items: [.init(name: "file", data: Data("password bytes".utf8))],
                     password: unicodePassword) { _ in true }
@@ -299,7 +299,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testOptionsAreValidatedBeforeCreatingOrAccessingFiles() throws {
-        let directory = try ZipTestSupport.directory("encryption-options")
+        let directory = try TestSupport.directory("encryption-options")
         let url = directory.appendingPathComponent("missing.archive")
         for format: GyoshukuKit.ArchiveFormat in [.tar, .tarGzip, .tarBzip2, .tarXZ, .lha] {
             let options = WriterOptions(password: password)
@@ -328,7 +328,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testZipCryptoSpoolIsAnonymousWhileAliveAndStillCopiesBytes() throws {
-        let directory = try ZipTestSupport.directory("encryption-anonymous-spool")
+        let directory = try TestSupport.directory("encryption-anonymous-spool")
         defer { try? FileManager.default.removeItem(at: directory) }
         let payload = Data("compressed plaintext spool\n".utf8)
         do {
@@ -348,7 +348,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testZipCryptoSpoolIsAbsentDuringAddAndBeforeFinish() throws {
-        let directory = try ZipTestSupport.directory("encryption-anonymous-add")
+        let directory = try TestSupport.directory("encryption-anonymous-add")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appendingPathComponent("source.bin")
         let payload = Data(repeating: 0x37, count: 600_007)
@@ -373,7 +373,7 @@ final class EncryptionTests: XCTestCase {
 
     func testZipCryptoSpoolRemovedAfterSourceChangesAndCancellation() throws {
         for failure in ["short", "grown", "mtime", "mode", "cancel"] {
-            let directory = try ZipTestSupport.directory("encryption-spool-\(failure)")
+            let directory = try TestSupport.directory("encryption-spool-\(failure)")
             let source = directory.appendingPathComponent("source")
             try Data(repeating: 0x51, count: 600_000).write(to: source)
             let url = directory.appendingPathComponent("archive.zip")
@@ -392,7 +392,7 @@ final class EncryptionTests: XCTestCase {
                         try handle.seekToEnd()
                         try handle.write(contentsOf: Data([1]))
                     case "mtime":
-                        try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date], ofItemAtPath: source.path)
+                        try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: source.path)
                     case "mode": try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: source.path)
                     default: throw CancellationError()
                     }
@@ -409,7 +409,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testZipCryptoSpoolCreationFailureIsWriterIOError() throws {
-        let directory = try ZipTestSupport.directory("encryption-spool-io")
+        let directory = try TestSupport.directory("encryption-spool-io")
         let output = directory.appendingPathComponent("missing-parent/archive.zip")
         XCTAssertThrowsError(try ZipCryptoSpool(nextTo: output)) {
             guard case WriterError.io(let operation, let code) = $0 else { return XCTFail("\($0)") }
@@ -422,7 +422,7 @@ final class EncryptionTests: XCTestCase {
     func testUpdaterEncryptsAdditionsAndPreservesOriginalRecords() throws {
         for originalEncrypted in [false, true] {
             for encryption: ZipEncryption in [.aes256, .zipCrypto] {
-                let directory = try ZipTestSupport.directory("encryption-update-\(originalEncrypted)-\(encryption)")
+                let directory = try TestSupport.directory("encryption-update-\(originalEncrypted)-\(encryption)")
                 let url: URL
                 if originalEncrypted { url = try EncryptionTestSupport.fixture(in: directory) }
                 else {
@@ -471,7 +471,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func testRewriterUsesSeparateInputAndOutputPasswords() throws {
-        let directory = try ZipTestSupport.directory("encryption-rewriter")
+        let directory = try TestSupport.directory("encryption-rewriter")
         let source = try EncryptionTestSupport.fixture(in: directory)
         let original = try Data(contentsOf: source)
         let formats: [(GyoshukuKit.ArchiveFormat, ZipEncryption, Bool)] = [(.zip, .aes256, false),
@@ -503,7 +503,7 @@ final class EncryptionTests: XCTestCase {
 
     func testXattrChangesDuringDiskReadAndBeforeUpdateCommitAreAllowed() throws {
         for variant in 0..<3 {
-            let directory = try ZipTestSupport.directory("encryption-xattr-\(variant)")
+            let directory = try TestSupport.directory("encryption-xattr-\(variant)")
             let source = directory.appendingPathComponent("source")
             let data = Data(repeating: 0x5A, count: 600_007)
             try data.write(to: source)
@@ -544,7 +544,7 @@ final class EncryptionTests: XCTestCase {
     }
 
     func test300MiBStreamingEncryptionAndScratchCleanup() throws {
-        let directory = try ZipTestSupport.directory("encryption-large")
+        let directory = try TestSupport.directory("encryption-large")
         let source = directory.appendingPathComponent("300MiB.bin")
         let size: UInt64 = 300 * 1024 * 1024
         XCTAssertTrue(FileManager.default.createFile(atPath: source.path, contents: nil))

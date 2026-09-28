@@ -59,6 +59,6 @@ final class ArchiveWriterP2CompatibilityTests: XCTestCase {
                                try Data(contentsOf: URL(fileURLWithPath: baseline).appendingPathComponent(name)), name)
             }
         }
-        ZipTestSupport.report("TAR-COMPAT files=\(outputs.count)")
+        TestSupport.report("TAR-COMPAT files=\(outputs.count)")
     }
 }

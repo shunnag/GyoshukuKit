@@ -24,7 +24,7 @@ final class LHAUpdaterInteropTests: XCTestCase {
     }
     private func compare(tool: String) throws {
         guard FileManager.default.isExecutableFile(atPath: tool) else { throw XCTSkip("Missing \(tool)") }
-        let root = try ZipTestSupport.directory("lha-interop-" + URL(fileURLWithPath: tool).lastPathComponent)
+        let root = try TestSupport.directory("lha-interop-" + URL(fileURLWithPath: tool).lastPathComponent)
         let lhasa = tool.hasSuffix("/lha"), seven = tool.hasSuffix("/7zz")
         var comparisons = 0
         for fixture in LHAUpdateSupport.accepted {
@@ -36,7 +36,7 @@ final class LHAUpdaterInteropTests: XCTestCase {
                 let target = original.entries.count / 2
                 if operation == "delete" { try editor.remove(entriesAt: [target]) }
                 if operation == "rename" { try editor.rename(entryAt: target, to: "renamed") }
-                if operation == "append" { try editor.add(data: Data("addition".utf8), as: "added", modificationDate: ZipTestSupport.date) }
+                if operation == "append" { try editor.add(data: Data("addition".utf8), as: "added", modificationDate: TestSupport.date) }
                 try editor.commit()
                 let result = try ArchiveReader.open(url: output)
                 for reader in [original, result] { for entry in reader.entries { _ = try reader.read(entry) } }

@@ -20,7 +20,7 @@ final class ArchiveRewriterSourceProbeTests: XCTestCase {
     }
 
     private func fixture(_ bytes: Data, extension suffix: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("source-probe-\(UUID())")
+        let directory = try TestSupport.directory("source-probe-\(UUID())")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source.\(suffix)")
         try bytes.write(to: url)

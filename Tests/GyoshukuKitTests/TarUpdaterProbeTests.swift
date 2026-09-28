@@ -11,7 +11,7 @@ final class TarUpdaterOracleTests: XCTestCase {
             throw XCTSkip("GYOSHUKU_TAR_ORACLE_DIR is not set")
         }
         let oracle = URL(fileURLWithPath: directory)
-        let root = try ZipTestSupport.directory("p2-oracle")
+        let root = try TestSupport.directory("p2-oracle")
         var count = 0
         for corpus in ["headers", "small", "text", "mixed"] {
             let source = oracle.appendingPathComponent("arc/\(corpus).tar")
@@ -71,7 +71,7 @@ final class TarUpdaterOracleTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(tail.count, 1024)
                 XCTAssertTrue(tail.allSatisfy { $0 == 0 })
                 XCTAssertEqual(bytes.length % 10240, 0)
-                ZipTestSupport.report("TAR-ORACLE \(corpus)-\(edit) bytes=\(bytes.length) equal=\(whole ? "whole" : "members")")
+                TestSupport.report("TAR-ORACLE \(corpus)-\(edit) bytes=\(bytes.length) equal=\(whole ? "whole" : "members")")
                 count += 1
             }
         }
@@ -84,10 +84,10 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
         guard let text = ProcessInfo.processInfo.environment["GYOSHUKU_TAR_SCALE_ENTRIES"], let count = Int(text), count > 2 else {
             throw XCTSkip("GYOSHUKU_TAR_SCALE_ENTRIES is not set")
         }
-        let root = try ZipTestSupport.directory("p2-scale-\(count)")
+        let root = try TestSupport.directory("p2-scale-\(count)")
         let source = try TarP2Support.fixture(root, count: count, size: 1024)
         func now() -> Double { ProcessInfo.processInfo.systemUptime }
-        ZipTestSupport.report("TAR-SCALE editor\top\tentries\topen_ms\tremove_ms\trename_ms\tadd_ms\tcommit_ms\tverification_ms\tcopy_engine_writes\tverification_reads\toutput_bytes")
+        TestSupport.report("TAR-SCALE editor\top\tentries\topen_ms\tremove_ms\trename_ms\tadd_ms\tcommit_ms\tverification_ms\tcopy_engine_writes\tverification_reads\toutput_bytes")
         for operation in ["delete-first", "delete-last", "rename-same", "rename-diff", "append", "replace"] {
             for rewrite in [false, true] {
                 let output = root.appendingPathComponent("\(operation)-\(rewrite).tar")
@@ -109,7 +109,7 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
                 }
                 if operation == "append" || operation == "replace" {
                     let time = now()
-                    try editor.add(data: Data(count: 1024), as: "added", modificationDate: ZipTestSupport.date, permissions: 0o644)
+                    try editor.add(data: Data(count: 1024), as: "added", modificationDate: TestSupport.date, permissions: 0o644)
                     add = now() - time
                 }
                 let writes = ZipIOEvents(), reads = ZipIOEvents(), verification = Mutex(0.0)
@@ -121,7 +121,7 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
                 }
                 let commit = now() - time
                 let values = [openTime, remove, rename, add, commit, verification.withLock { $0 }].map { String(format: "%.3f", $0 * 1000) }
-                ZipTestSupport.report("TAR-SCALE \(rewrite ? "rewriter" : "updater")\t\(operation)\t\(count)\t" + values.joined(separator: "\t") + "\t\(writes.bytes)\t\(reads.bytes)\t\(try ZipUpdateSource(url: output).length)")
+                TestSupport.report("TAR-SCALE \(rewrite ? "rewriter" : "updater")\t\(operation)\t\(count)\t" + values.joined(separator: "\t") + "\t\(writes.bytes)\t\(reads.bytes)\t\(try ZipUpdateSource(url: output).length)")
                 try FileManager.default.removeItem(at: output)
             }
         }
@@ -131,7 +131,7 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
 final class TarUpdaterLargeMemberTests: XCTestCase {
     func testSparseNineGiBOffsetsAndHardLinkMaterialization() throws {
         guard ProcessInfo.processInfo.environment["GYOSHUKU_TAR_LARGE"] == "1" else { throw XCTSkip("GYOSHUKU_TAR_LARGE is not set") }
-        let root = try ZipTestSupport.directory("p2-nine-gib")
+        let root = try TestSupport.directory("p2-nine-gib")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source.tar")
         let size: UInt64 = 9 * 1024 * 1024 * 1024
@@ -161,7 +161,7 @@ final class TarUpdaterLargeMemberTests: XCTestCase {
             XCTAssertEqual(result.member(0).storedSize, size)
             XCTAssertEqual(reader.entries[0].kind, .file)
             if operation == 3 { XCTAssertEqual(reader.entries[0].name, "link") }
-            try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: "large-\(operation)")
+            try TestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: "large-\(operation)")
             try FileManager.default.removeItem(at: output)
         }
     }

@@ -4,7 +4,7 @@ import XCTest
 
 final class ZipCommitCancellationTests: XCTestCase {
     func testChunkCancellationCleansBothModesAndPreservesSource() async throws {
-        let directory = try ZipTestSupport.directory("p1-cancel-chunk")
+        let directory = try TestSupport.directory("p1-cancel-chunk")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory, count: 4, payloadSize: 1024 * 1024)
         let before = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
@@ -32,7 +32,7 @@ final class ZipCommitCancellationTests: XCTestCase {
     }
 
     func testPlanningCancellationAtIndexTwoWritesNothing() async throws {
-        let directory = try ZipTestSupport.directory("p1-cancel-plan")
+        let directory = try TestSupport.directory("p1-cancel-plan")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory)
         let before = try Data(contentsOf: source)

@@ -9,7 +9,7 @@ final class LHAUpdaterDifferentialTests: XCTestCase {
         var random: UInt64 = 0x20260926
         func next(_ limit: Int) -> Int { random = random &* 6364136223846793005 &+ 1442695040888963407; return Int((random >> 32) % UInt64(limit)) }
         struct Item { let name: String; let data: Data; let directory: Bool }
-        let root = try ZipTestSupport.directory("lha-differential")
+        let root = try TestSupport.directory("lha-differential")
         for trial in 0..<iterations {
             let work = try TarP2Support.work(root)
             defer { try? FileManager.default.removeItem(at: work) }
@@ -23,7 +23,7 @@ final class LHAUpdaterDifferentialTests: XCTestCase {
                 let writer = try ArchiveWriter.create(url: source, format: .lha, options: .init(compressionThreads: 1))
                 for item in items {
                     if item.directory { try writer.addDirectory(item.name) }
-                    else { try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
+                    else { try writer.add(data: item.data, as: item.name, modificationDate: TestSupport.date) }
                 }
                 try writer.finish()
             } else {
@@ -41,7 +41,7 @@ final class LHAUpdaterDifferentialTests: XCTestCase {
                 renamed[index] = "改名-\(index)-\(trial)" + (items[index].directory ? "/" : "")
             }
             let additions = (0..<(1 + next(4))).map { Item(name: "added-\($0)", data: Data(repeating: UInt8(next(256)), count: next(64)), directory: false) }
-            func add(_ item: Item) throws { for editor in editors { try editor.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date, permissions: nil) } }
+            func add(_ item: Item) throws { for editor in editors { try editor.add(data: item.data, as: item.name, modificationDate: TestSupport.date, permissions: nil) } }
             let early = trial % 3
             if early > 0 { try add(additions[0]) }
             for editor in editors { try editor.remove(entriesAt: Array(removed)) }

@@ -44,7 +44,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testZIPThreadCountsAndAESAreByteIdenticalAtLevels6And9() throws {
-        let directory = try ZipTestSupport.directory("m8-zip-determinism")
+        let directory = try TestSupport.directory("m8-zip-determinism")
         for level in [6, 9] {
             for encrypted in [false, true] {
                 var expected: Data?
@@ -68,7 +68,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testManySeparateDiskAddsStayInOrderAcrossThreadCounts() throws {
-        let directory = try ZipTestSupport.directory("m8-small-disk-files")
+        let directory = try TestSupport.directory("m8-small-disk-files")
         let source = directory.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         let items = (0..<160).map { index in
@@ -94,7 +94,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testTarThreadCountsAreByteIdentical() throws {
-        let directory = try ZipTestSupport.directory("m8-tar-determinism")
+        let directory = try TestSupport.directory("m8-tar-determinism")
         for format: GyoshukuKit.ArchiveFormat in [.tarGzip, .tarBzip2] {
             let items = format == .tarBzip2 ? Self.bzip2Items : Self.items
             for level in format == .tarGzip ? [6, 9] : [1, 9] {
@@ -117,7 +117,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     func testUnzipIntegrityAndPayload() throws {
         let tool = try ReferenceTool.firstAvailable([ReferenceTool.unzip, "/opt/homebrew/bin/unzip"])
         let url = try fixture("unzip", format: .zip)
-        try ZipTestSupport.run(tool, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
+        try TestSupport.run(tool, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         for (index, item) in Self.items.enumerated() where item.mode & 0xF000 != 0x4000 {
             XCTAssertEqual(try Self.stdout(tool, ["-p", url.path, item.name], beside: url, name: "payload-\(index)"), item.data)
         }
@@ -127,7 +127,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         let tool = try ReferenceTool.firstAvailable([ReferenceTool.ditto])
         let url = try fixture("ditto", format: .zip)
         let extracted = url.deletingLastPathComponent().appendingPathComponent("extracted")
-        try ZipTestSupport.run(tool, ["-x", "-k", url.path, extracted.path], in: url.deletingLastPathComponent(), log: "extract")
+        try TestSupport.run(tool, ["-x", "-k", url.path, extracted.path], in: url.deletingLastPathComponent(), log: "extract")
         try Self.verifyExtracted(extracted, items: Self.items)
     }
 
@@ -137,7 +137,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
             let url = try fixture("bsdtar-\(format)", format: format)
             let extracted = url.deletingLastPathComponent().appendingPathComponent("extracted")
             try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: true)
-            try ZipTestSupport.run(tool, ["-xf", url.path, "-C", extracted.path], in: url.deletingLastPathComponent(), log: "extract")
+            try TestSupport.run(tool, ["-xf", url.path, "-C", extracted.path], in: url.deletingLastPathComponent(), log: "extract")
             try Self.verifyExtracted(extracted, items: format == .tarBzip2 ? Self.bzip2Items : Self.items)
         }
     }
@@ -146,13 +146,13 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         let tool = try ReferenceTool.firstAvailable([ReferenceTool.sevenZip, "/usr/local/bin/7zz"])
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             let url = try fixture("7zz-\(format)", format: format)
-            try ZipTestSupport.run(tool, ["t", url.path], in: url.deletingLastPathComponent(), log: "test")
+            try TestSupport.run(tool, ["t", url.path], in: url.deletingLastPathComponent(), log: "test")
         }
         let url = try fixture("7zz-aes", format: .zip, encrypted: true)
         let directory = url.deletingLastPathComponent()
-        try ZipTestSupport.run(tool, ["t", "-p\(Self.password)", url.path], in: directory, log: "test")
+        try TestSupport.run(tool, ["t", "-p\(Self.password)", url.path], in: directory, log: "test")
         let extracted = directory.appendingPathComponent("extracted")
-        try ZipTestSupport.run(tool, ["x", "-y", "-p\(Self.password)", "-o\(extracted.path)", url.path], in: directory, log: "extract")
+        try TestSupport.run(tool, ["x", "-y", "-p\(Self.password)", "-o\(extracted.path)", url.path], in: directory, log: "extract")
         try Self.verifyExtracted(extracted, items: Self.items)
     }
 
@@ -160,7 +160,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         let gzip = try ReferenceTool.firstAvailable([ReferenceTool.gzip, "/opt/homebrew/bin/gzip"])
         let python = try ReferenceTool.firstAvailable([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
         let url = try fixture("gzip", format: .tarGzip)
-        try ZipTestSupport.run(gzip, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
+        try TestSupport.run(gzip, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         let script = """
         import sys,zlib,struct
         b=open(sys.argv[1],'rb').read()
@@ -178,7 +178,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         let bzip2 = try ReferenceTool.firstAvailable([ReferenceTool.bzip2, "/opt/homebrew/bin/bzip2"])
         let python = try ReferenceTool.firstAvailable([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
         let url = try fixture("bzip2", format: .tarBzip2)
-        try ZipTestSupport.run(bzip2, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
+        try TestSupport.run(bzip2, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         let script = """
         import sys,bz2
         b=open(sys.argv[1],'rb').read(); whole=bz2.decompress(b); parts=[]
@@ -195,7 +195,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testUpdaterAndRewriterZIPOutputUsesParallelFormat() throws {
-        let directory = try ZipTestSupport.directory("m8-edit-shared-writer")
+        let directory = try TestSupport.directory("m8-edit-shared-writer")
         var updated: Data?, rewritten: Data?
         let items = Self.items.filter { $0.mode & 0xF000 == 0x8000 }
         for threads in [1, 4, 8] {
@@ -203,7 +203,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
             let zip = directory.appendingPathComponent("update-\(threads).zip")
             try ArchiveWriter.create(url: zip).finish()
             let updater = try ArchiveUpdater.open(url: zip, options: options)
-            for item in items { try updater.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
+            for item in items { try updater.add(data: item.data, as: item.name, modificationDate: TestSupport.date) }
             try updater.commit()
             let bytes = try Data(contentsOf: zip)
             if let updated { XCTAssertEqual(bytes, updated) } else { updated = bytes }
@@ -222,7 +222,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testShortReadsDoNotChangeDeflateBoundaries() throws {
-        let directory = try ZipTestSupport.directory("m8-short-read")
+        let directory = try TestSupport.directory("m8-short-read")
         let source = directory.appendingPathComponent("source")
         let data = Self.payload
         try data.write(to: source)
@@ -244,7 +244,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     private func fixture(_ label: String, format: GyoshukuKit.ArchiveFormat, encrypted: Bool = false) throws -> URL {
-        let directory = try ZipTestSupport.directory("m8-external-\(label)")
+        let directory = try TestSupport.directory("m8-external-\(label)")
         let url = directory.appendingPathComponent("archive")
         let writer = try Self.writer(url, format: format,
             options: WriterOptions(deflateLevel: 9, password: encrypted ? Self.password : nil, compressionThreads: 4))
@@ -263,7 +263,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
         for item in items {
             var offset = 0
             try writer.addEntry(path: item.name, mode: item.mode, size: UInt64(item.data.count),
-                                date: ZipTestSupport.date, atime: nil, owners: nil) { requested in
+                                date: TestSupport.date, atime: nil, owners: nil) { requested in
                 let count = min(requested, item.data.count - offset)
                 defer { offset += count }
                 return item.data.subdata(in: offset..<(offset + count))

@@ -7,7 +7,7 @@ import XCTest
 
 final class SevenZipWriterByteIdentityTests: XCTestCase {
     func testFrozenWriterBytes() throws {
-        let directory = try ZipTestSupport.directory("7z-frozen-writer")
+        let directory = try TestSupport.directory("7z-frozen-writer")
         let link = directory.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "large")
         let times = [timeval(tv_sec: 1_700_000_001, tv_usec: 0), timeval(tv_sec: 1_700_000_001, tv_usec: 0)]
@@ -32,11 +32,11 @@ final class SevenZipWriterByteIdentityTests: XCTestCase {
                     let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
                         options: WriterOptions(password: mode == 0 ? nil : "secret", encryptsSevenZipHeaders: mode == 2,
                                                compressionThreads: threads))
-                    try writer.add(data: Data(), as: "empty", modificationDate: ZipTestSupport.date)
-                    try writer.addDirectory("directory", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                    try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
+                    try writer.addDirectory("directory", modificationDate: TestSupport.date, ownerIDs: nil)
                     try writer.add(contentsOf: link, as: "link")
-                    try writer.add(data: payload, as: "large", modificationDate: ZipTestSupport.date)
-                    try writer.add(data: Data("日本語".utf8), as: "日本語", modificationDate: ZipTestSupport.date)
+                    try writer.add(data: payload, as: "large", modificationDate: TestSupport.date)
+                    try writer.add(data: Data("日本語".utf8), as: "日本語", modificationDate: TestSupport.date)
                     try writer.finish()
                 }
                 let hash = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
@@ -45,7 +45,7 @@ final class SevenZipWriterByteIdentityTests: XCTestCase {
         }
     }
     func testEmptyWriterBytesRemainUnchanged() throws {
-        let root = try ZipTestSupport.directory("7z-empty-writer-frozen")
+        let root = try TestSupport.directory("7z-empty-writer-frozen")
         let output = root.appendingPathComponent("empty.7z")
         let writer = try ArchiveWriter.create(url: output, format: .sevenZip)
         try writer.finish()

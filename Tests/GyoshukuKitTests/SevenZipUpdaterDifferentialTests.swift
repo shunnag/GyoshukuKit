@@ -6,7 +6,7 @@ import XCTest
 final class SevenZipUpdaterDifferentialTests: XCTestCase {
     func testSeededEditsAgainstIndependentModelAndRewriter() throws {
         let iterations = Int(ProcessInfo.processInfo.environment["GYOSHUKU_7Z_DIFF_ITERATIONS"] ?? "200") ?? 200
-        let root = try ZipTestSupport.directory("7z-differential")
+        let root = try TestSupport.directory("7z-differential")
         func canonical(_ item: SevenZipEditSupport.Item) -> SevenZipEditSupport.Item {
             var result = item
             result.name = item.name.precomposedStringWithCanonicalMapping
@@ -32,11 +32,11 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
                     let name = index % 9 == 0 ? "日本語-\(index)" : index % 11 == 0 ? "e\u{301}-\(index)" : "file-\(index)"
                     let bytes = Data(repeating: UInt8(random(255)), count: index % 7 == 0 ? 0 : 1 + random(3000))
                     if external { try bytes.write(to: input.appendingPathComponent(name)) }
-                    else { try writer!.add(data: bytes, as: name, modificationDate: ZipTestSupport.date) }
+                    else { try writer!.add(data: bytes, as: name, modificationDate: TestSupport.date) }
                     expected.append(.init(name: name.precomposedStringWithCanonicalMapping, kind: .file, data: bytes))
                 }
                 if external { try FileManager.default.createDirectory(at: input.appendingPathComponent("dir"), withIntermediateDirectories: true) }
-                else { try writer!.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil) }
+                else { try writer!.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil) }
                 expected.append(.init(name: "dir/", kind: .directory, data: Data()))
                 if external {
                     let solid = ["on", "16k", "off"][iteration % 3]
@@ -75,12 +75,12 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
                         ? ArchiveRewriter.open(url: source, password: password, output: output, format: .sevenZip, options: options)
                         : SevenZipUpdater.open(url: source, password: password, output: output, options: options)
                     let late = iteration % 2 == 0 && !replacement
-                    if late { try editor.add(data: addition, as: additionName, modificationDate: ZipTestSupport.date, permissions: nil) }
+                    if late { try editor.add(data: addition, as: additionName, modificationDate: TestSupport.date, permissions: nil) }
                     try editor.remove(entriesAt: Array(remove))
                     try editor.rename(entryAt: rename, to: newName)
                     if let reencrypt = editor as? any ArchiveReencrypting, convert { try reencrypt.reencryptExistingEntries(currentPassword: password) }
-                    if !late { try editor.add(data: addition, as: additionName, modificationDate: ZipTestSupport.date, permissions: nil) }
-                    try editor.addDirectory("newdir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                    if !late { try editor.add(data: addition, as: additionName, modificationDate: TestSupport.date, permissions: nil) }
+                    try editor.addDirectory("newdir", modificationDate: TestSupport.date, ownerIDs: nil)
                     try editor.commit()
                     XCTAssertEqual(try SevenZipEditSupport.items(SevenZipEditSupport.reader(output, password: target)).map(canonical), projected, "seed iteration \(iteration) rewrite=\(rewrite)")
                     outputs.append(output)

@@ -10,7 +10,7 @@ final class SevenZipUpdaterScaleProbeTests: XCTestCase {
             throw XCTSkip("Set GYOSHUKU_7Z_SCALE_DIR; use -c release -Xswiftc -enable-testing")
         }
         let fixtureRoot = URL(fileURLWithPath: path)
-        let root = try ZipTestSupport.directory("7z-scale")
+        let root = try TestSupport.directory("7z-scale")
         let selected = ProcessInfo.processInfo.environment["GYOSHUKU_7Z_SCALE_CASE"]
         func now() -> Double { ProcessInfo.processInfo.systemUptime }
         let cases: [(String, [String])] = [("g_real", ["rename", "last", "add", "first", "middle"]),
@@ -41,7 +41,7 @@ final class SevenZipUpdaterScaleProbeTests: XCTestCase {
                         case "first": try editor.remove(entriesAt: [files[0]])
                         case "last": try editor.remove(entriesAt: [files.last!])
                         case "middle": try editor.remove(entriesAt: [files[files.count / 2]])
-                        case "add": try editor.add(data: Data(repeating: 42, count: 1024), as: "probe-added", modificationDate: ZipTestSupport.date, permissions: nil)
+                        case "add": try editor.add(data: Data(repeating: 42, count: 1024), as: "probe-added", modificationDate: TestSupport.date, permissions: nil)
                         case "set", "change", "remove": try (editor as? any ArchiveReencrypting)?.reencryptExistingEntries(currentPassword: password)
                         default: try editor.rename(entryAt: files[files.count / 2], to: "probe-renamed.txt")
                         }
@@ -84,9 +84,9 @@ final class SevenZipUpdaterScaleProbeTests: XCTestCase {
                 options: WriterOptions(password: encrypted ? "original" : nil))
             for index in 0..<64 {
                 let data = try SevenZipProbePayload.data(file: index, size: 4 * 1024 * 1024)
-                try writer.add(data: data, as: String(format: "payload/p%07d.txt", index), modificationDate: ZipTestSupport.date)
+                try writer.add(data: data, as: String(format: "payload/p%07d.txt", index), modificationDate: TestSupport.date)
             }
-            for index in 0..<1000 { try writer.add(data: Data([42]), as: String(format: "d%03d/s%d/f%07d.txt", index / 1000, (index / 100) % 10, index), modificationDate: ZipTestSupport.date) }
+            for index in 0..<1000 { try writer.add(data: Data([42]), as: String(format: "d%03d/s%d/f%07d.txt", index / 1000, (index / 100) % 10, index), modificationDate: TestSupport.date) }
             try writer.finish()
             try measure(source, fixture: encrypted ? "aes256" : "plain256", operations: encrypted ? ["change", "remove"] : ["set"], password: encrypted ? "original" : nil)
         }

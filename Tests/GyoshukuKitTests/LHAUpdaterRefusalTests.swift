@@ -5,7 +5,7 @@ import XCTest
 
 final class LHAUpdaterRefusalTests: XCTestCase {
     func testStructuralRefusalsPreserveSourceAndLeaveNoFiles() throws {
-        let root = try ZipTestSupport.directory("lha-refusals")
+        let root = try TestSupport.directory("lha-refusals")
         let cases = [("os9-k-short-level2", "R8"), ("names-euc-jp", "R10"), ("names-utf8-declared", "R10"),
                      ("names-utf8-undeclared", "R10"), ("sfx", "L1"), ("empty-name-directory-tail", "L2"),
                      ("larc-lzs-eof", "L2"), ("tl-S5", "L3"), ("tl-S11", "L3"), ("anonymous-middle", "L4"),
@@ -32,7 +32,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
         }
     }
     func testSettingsSplitMismatchTrailingAndOtherFormats() throws {
-        let root = try ZipTestSupport.directory("lha-routing")
+        let root = try TestSupport.directory("lha-routing")
         let source = try LHAUpdateSupport.generated(root)
         let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
         func refused(_ url: URL, options: WriterOptions = .init(), reason: String) throws {
@@ -61,7 +61,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
     }
     func testUnrepresentableMethodsAndSymlinks() throws {
-        let root = try ZipTestSupport.directory("lha-unrepresentable")
+        let root = try TestSupport.directory("lha-unrepresentable")
         let work = try TarP2Support.work(root)
         for kind in 0..<2 {
             let source = root.appendingPathComponent("source-\(kind).lzh")
@@ -75,7 +75,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
         }
     }
     func testMacBinaryEnvelopeIsStillUnrepresentable() throws {
-        let root = try ZipTestSupport.directory("lha-macbinary"), work = try TarP2Support.work(root)
+        let root = try TestSupport.directory("lha-macbinary"), work = try TarP2Support.work(root)
         var envelope = Data(count: 256)
         envelope[1] = 6
         envelope.replaceSubrange(2..<8, with: Data("member".utf8))

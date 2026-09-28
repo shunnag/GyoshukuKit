@@ -9,7 +9,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
     private let new = "interop-new"
 
     private func directory(_ name: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("reencrypt-interop-" + name)
+        let directory = try TestSupport.directory("reencrypt-interop-" + name)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }
@@ -202,7 +202,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
         let directory = try directory("mixed")
         let source = try ReencryptionSupport.fixture(directory, password: old, items: [("encrypted", Data([1]))])
         let append = try ArchiveUpdater.open(url: source)
-        try append.add(data: Data([2]), as: "plain", modificationDate: ZipTestSupport.date)
+        try append.add(data: Data([2]), as: "plain", modificationDate: TestSupport.date)
         try append.commit()
         let original = try EncryptionTestSupport.localRecords(source)
         let output = directory.appendingPathComponent("out.zip")

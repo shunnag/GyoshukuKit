@@ -5,7 +5,7 @@ import XCTest
 
 final class SevenZipUpdaterSolidTests: XCTestCase {
     func testFollowingPackMovesUpAndDownWithRelocatedAppend() throws {
-        let root = try ZipTestSupport.directory("7z-solid-size-changes")
+        let root = try TestSupport.directory("7z-solid-size-changes")
         let tailURL = try SevenZipEditSupport.source(root, count: 1)
         let tail = try XCTUnwrap(SevenZipEditModel.read(SevenZipEditSupport.reader(tailURL)))
         let tailBytes = try Data(contentsOf: tailURL)
@@ -41,7 +41,7 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
                     try SevenZipUpdater.open(url: source, output: output)
                 }
                 // The append is already on disk before the reencoded folder's new length is known.
-                try updater.add(data: Data([1, 9]), as: "added", modificationDate: ZipTestSupport.date)
+                try updater.add(data: Data([1, 9]), as: "added", modificationDate: TestSupport.date)
                 try updater.remove(entriesAt: [0])
                 var updates: [ArchiveUpdater.CommitProgress] = []
                 try updater.commit { updates.append($0) }
@@ -63,12 +63,12 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
 
     func testS200SizeAgainstSevenZipDelete() throws {
         guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
-        let root = try ZipTestSupport.directory("7z-solid-s200-size")
+        let root = try TestSupport.directory("7z-solid-s200-size")
         let source = SevenZipEditSupport.fixture("s200"), reference = root.appendingPathComponent("reference.7z")
         try FileManager.default.copyItem(at: source, to: reference)
         let reader = try SevenZipEditSupport.reader(source)
         let index = try XCTUnwrap(reader.entries.firstIndex { ($0.uncompressedSize ?? 0) > 0 })
-        try ZipTestSupport.run(ReferenceTool.sevenZip, ["d", "-y", reference.path, reader.entries[index].name], in: root, log: "7zz-d")
+        try TestSupport.run(ReferenceTool.sevenZip, ["d", "-y", reference.path, reader.entries[index].name], in: root, log: "7zz-d")
         let output = root.appendingPathComponent("output.7z")
         let updater = try SevenZipUpdater.open(url: source, output: output)
         try updater.remove(entriesAt: [index]); try updater.commit()
@@ -80,7 +80,7 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
 
     func testSolidReencodingAndAppendInBothModes() throws {
         for name in ["m", "s200", "z_default", "z_aes", "bcj", "bcj2", "ppmd", "lib", "solid_zero"] {
-            let root = try ZipTestSupport.directory("7z-solid-" + name)
+            let root = try TestSupport.directory("7z-solid-" + name)
             let source = SevenZipEditSupport.fixture(name)
             let original = try SevenZipEditSupport.reader(source)
             let model = try XCTUnwrap(SevenZipEditModel.read(original))
@@ -100,7 +100,7 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
                         try updater.remove(entriesAt: [remove])
                         var expected = before; expected.remove(at: remove)
                         if add {
-                            try updater.add(data: Data([1, 7, 9]), as: "added", modificationDate: ZipTestSupport.date)
+                            try updater.add(data: Data([1, 7, 9]), as: "added", modificationDate: TestSupport.date)
                             expected.append(.init(name: "added", kind: .file, data: Data([1, 7, 9])))
                         }
                         var progress: [ArchiveUpdater.CommitProgress] = []

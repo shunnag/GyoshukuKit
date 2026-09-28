@@ -20,7 +20,7 @@ enum TarP2Support {
         let writer = try ArchiveWriter.create(url: url, format: format)
         for index in 0..<count {
             try writer.add(data: Data(repeating: UInt8(index % 251), count: size), as: String(format: "file-%06d", index),
-                           modificationDate: ZipTestSupport.date)
+                           modificationDate: TestSupport.date)
         }
         try writer.finish()
         return url

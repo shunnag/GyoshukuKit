@@ -6,7 +6,7 @@ import XCTest
 
 final class TarUpdaterRefusalTests: XCTestCase {
     func testHardLinkRawNameGuardAndLegacyEncodingFallback() throws {
-        let root = try ZipTestSupport.directory("p2-raw-link-refusal")
+        let root = try TestSupport.directory("p2-raw-link-refusal")
         let source = root.appendingPathComponent("source.tar")
         let raw = Data([0x93, 0xfa, 0x96, 0x7b])
         let file = TarRecords.Entry(name: raw).ustar()
@@ -31,7 +31,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
     }
 
     func testSettingsNamesAndStructuralRefusalsLeaveNothing() throws {
-        let root = try ZipTestSupport.directory("p2-refusals")
+        let root = try TestSupport.directory("p2-refusals")
         let member = TarRecords.Entry(name: Data("file".utf8)).headers()
         var oldSparse = TarRecords.Entry(name: Data("sparse".utf8), type: 0x53).ustar()
         oldSparse.replaceSubrange(257..<265, with: Data("ustar  \0".utf8))
@@ -69,7 +69,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
     }
 
     func testMismatchEncodingAndKaitoErrorsStayDistinct() throws {
-        let root = try ZipTestSupport.directory("p2-refusal-errors")
+        let root = try TestSupport.directory("p2-refusal-errors")
         let source = try TarP2Support.fixture(root)
         let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.tar")
         try TarLayout.$testingKaitoKitMismatch.withValue(true) {
@@ -106,7 +106,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
 
 final class TarUpdaterOutputModeTests: XCTestCase {
     func testSourceSnapshotFlagsCloneErrorsAndOutputValidation() throws {
-        let root = try ZipTestSupport.directory("p2-output-identity")
+        let root = try TestSupport.directory("p2-output-identity")
         let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
         let output = work.appendingPathComponent("out.tar")
         let original = try ZipP1Support.info(source)
@@ -145,7 +145,7 @@ final class TarUpdaterOutputModeTests: XCTestCase {
         for sequential in [false, true] {
             for action in 0..<4 {
                 try TarUpdater.$testingDisablesClone.withValue(sequential) {
-                    let root = try ZipTestSupport.directory("p2-clean-\(sequential)-\(action)")
+                    let root = try TestSupport.directory("p2-clean-\(sequential)-\(action)")
                     let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
                     let output = work.appendingPathComponent("out.tar")
                     var editor: TarUpdater? = try TarUpdater.open(url: source, output: output)
@@ -172,7 +172,7 @@ final class TarUpdaterOutputModeTests: XCTestCase {
 final class TarUpdaterVerificationFaultTests: XCTestCase {
     func testV1ThroughV5RejectCorruptionAndCleanUp() throws {
         for kind in 0..<5 {
-            let root = try ZipTestSupport.directory("p2-fault-\(kind)")
+            let root = try TestSupport.directory("p2-fault-\(kind)")
             let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
             let before = try Data(contentsOf: source)
             let output = work.appendingPathComponent("out.tar")
@@ -201,7 +201,7 @@ final class TarUpdaterCancellationTests: XCTestCase {
     func testCancellationDuringCommitAndSequentialFirstAdd() async throws {
         for sequential in [false, true] {
             for duringAdd in [false, true] where sequential || !duringAdd {
-                let root = try ZipTestSupport.directory("p2-cancel-\(sequential)-\(duringAdd)")
+                let root = try TestSupport.directory("p2-cancel-\(sequential)-\(duringAdd)")
                 let source = try TarP2Support.fixture(root, count: 8, size: 65536), work = try TarP2Support.work(root)
                 let before = try Data(contentsOf: source)
                 let task = Task {
@@ -226,7 +226,7 @@ final class TarUpdaterCancellationTests: XCTestCase {
 
     func testProgressThrowsAndAllReentrantOperationsInvalidateCommit() throws {
         for action in 0..<6 {
-            let root = try ZipTestSupport.directory("p2-progress-\(action)")
+            let root = try TestSupport.directory("p2-progress-\(action)")
             let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
             let editor = try TarUpdater.open(url: source, output: work.appendingPathComponent("out.tar"))
             try editor.add(data: Data(), as: "added")

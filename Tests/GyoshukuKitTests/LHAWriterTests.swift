@@ -11,7 +11,7 @@ final class LHAWriterTests: XCTestCase {
         let bytes = try Data(contentsOf: url)
         XCTAssertLessThan(bytes.count, data.count / 10)
         XCTAssertEqual(try LHABytes(bytes).members.first?.method, "-lh5-")
-        ZipTestSupport.report("LHA RATIO: \(data.count) bytes -> \(bytes.count) archive bytes")
+        TestSupport.report("LHA RATIO: \(data.count) bytes -> \(bytes.count) archive bytes")
         try LHATestSupport.verify(url, expected: [.init(name: "repetitive.bin", data: data)])
     }
 
@@ -40,14 +40,14 @@ final class LHAWriterTests: XCTestCase {
     }
 
     func testUnrepresentableNamesAreRefusedBeforeReadingOrWriting() throws {
-        let directory = try ZipTestSupport.directory("lha-unrepresentable")
+        let directory = try TestSupport.directory("lha-unrepresentable")
         for (index, name) in ["emoji-🗂.txt", "한글.txt", "bad-🗂/file.txt"].enumerated() {
             let url = directory.appendingPathComponent("\(index).lzh")
             let writer = try ArchiveWriter.create(url: url, format: .lha)
             // 拒否した writer の出力先だけでなく、同じ inode の別名にも有効な書庫を残さない。
             let alias = directory.appendingPathComponent("\(index)-alias.lzh")
             try FileManager.default.linkItem(at: url, to: alias)
-            XCTAssertThrowsError(try LHARecords.Entry(name: name, mode: 0o100644, size: 0, date: ZipTestSupport.date))
+            XCTAssertThrowsError(try LHARecords.Entry(name: name, mode: 0o100644, size: 0, date: TestSupport.date))
             XCTAssertEqual(try Data(contentsOf: alias).count, 0)
             XCTAssertThrowsError(try writer.add(data: Data([1]), as: name)) {
                 guard case .invalidPath = $0 as? WriterError else { return XCTFail("\($0)") }
@@ -59,7 +59,7 @@ final class LHAWriterTests: XCTestCase {
     }
 
     func testSharedPathValidationAndConflictsRemovePartialOutput() throws {
-        let directory = try ZipTestSupport.directory("lha-invalid-paths")
+        let directory = try TestSupport.directory("lha-invalid-paths")
         let paths = ["", "/absolute", "../escape", "a/../b", "a/./b", "a//b", "a\\b", "C:drive", "nul\0name", "file/", String(repeating: "界", count: 22_000)]
         for (index, path) in paths.enumerated() {
             let url = directory.appendingPathComponent("\(index).lzh")
@@ -86,10 +86,10 @@ final class LHAWriterTests: XCTestCase {
         }
         XCTAssertEqual(try LHARecords.timestamp(Date(timeIntervalSince1970: 0)), 0)
         XCTAssertEqual(try LHARecords.timestamp(Date(timeIntervalSince1970: Double(UInt32.max))), UInt32.max)
-        let directory = try ZipTestSupport.directory("lha-subseconds")
+        let directory = try TestSupport.directory("lha-subseconds")
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
-        try writer.add(data: Data([1]), as: "dated", modificationDate: ZipTestSupport.date.addingTimeInterval(0.9))
+        try writer.add(data: Data([1]), as: "dated", modificationDate: TestSupport.date.addingTimeInterval(0.9))
         try writer.finish()
         try LHATestSupport.verify(url, expected: [.init(name: "dated", data: Data([1]))])
     }
@@ -102,23 +102,23 @@ final class LHAWriterTests: XCTestCase {
         XCTAssertEqual(member.header.count, 257)
         XCTAssertEqual(member.header[0], 1)
         try LHATestSupport.verify(url, expected: [item])
-        XCTAssertThrowsError(try LHARecords.Entry(name: String(repeating: "n", count: 65_500), mode: 0o100644, size: 0, date: ZipTestSupport.date)) {
+        XCTAssertThrowsError(try LHARecords.Entry(name: String(repeating: "n", count: 65_500), mode: 0o100644, size: 0, date: TestSupport.date)) {
             XCTAssertEqual($0 as? WriterError, .sizeOverflow)
         }
-        XCTAssertThrowsError(try LHARecords.Entry(name: "large", mode: 0o100644, size: UInt64(UInt32.max) + 1, date: ZipTestSupport.date)) {
+        XCTAssertThrowsError(try LHARecords.Entry(name: "large", mode: 0o100644, size: UInt64(UInt32.max) + 1, date: TestSupport.date)) {
             XCTAssertEqual($0 as? WriterError, .sizeOverflow)
         }
     }
 
     func testDiskRecursionAndExecutableMode() throws {
-        let directory = try ZipTestSupport.directory("lha-disk")
+        let directory = try TestSupport.directory("lha-disk")
         let source = directory.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: source.appendingPathComponent("empty"), withIntermediateDirectories: true)
         let file = source.appendingPathComponent("run")
         let payload = Data("#!/bin/sh\nexit 0\n".utf8)
         try payload.write(to: file)
         for url in [file, source, source.appendingPathComponent("empty")] {
-            try FileManager.default.setAttributes([.posixPermissions: 0o755, .modificationDate: ZipTestSupport.date], ofItemAtPath: url.path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755, .modificationDate: TestSupport.date], ofItemAtPath: url.path)
         }
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
@@ -133,12 +133,12 @@ final class LHAWriterTests: XCTestCase {
     }
 
     func testSimpleArchiveExternalDecodersAndKaito() throws {
-        let directory = try ZipTestSupport.directory("lha-simple")
+        let directory = try TestSupport.directory("lha-simple")
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         let payload = Data(String(repeating: "LHA static Huffman\n", count: 1000).utf8)
-        try writer.add(data: payload, as: "dir/sub/file.txt", modificationDate: ZipTestSupport.date, permissions: 0o755)
-        try writer.add(data: Data(), as: "empty", modificationDate: ZipTestSupport.date)
+        try writer.add(data: payload, as: "dir/sub/file.txt", modificationDate: TestSupport.date, permissions: 0o755)
+        try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
         try writer.addDirectory("folder")
         try writer.finish()
         let bytes = try LHABytes(Data(contentsOf: url))
@@ -158,7 +158,7 @@ final class LHAWriterTests: XCTestCase {
     }
 
     func testJapaneseNamesAreCP932() throws {
-        let directory = try ZipTestSupport.directory("lha-japanese")
+        let directory = try TestSupport.directory("lha-japanese")
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         let items: [LHATestSupport.Expected] = [
@@ -184,7 +184,7 @@ final class LHAWriterTests: XCTestCase {
     }
 
     private func archive(_ label: String, items: [LHATestSupport.Expected]) throws -> URL {
-        let directory = try ZipTestSupport.directory(label)
+        let directory = try TestSupport.directory(label)
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         XCTAssertEqual(writer.format, .lha)

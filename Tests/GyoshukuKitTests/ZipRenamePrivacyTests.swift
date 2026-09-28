@@ -16,7 +16,7 @@ final class ZipRenamePrivacyTests: XCTestCase {
     }
 
     private func fixture(riskyExtra: UInt16? = nil, inLocal: Bool = true, centralTail: Data = Data()) throws -> URL {
-        let directory = try ZipTestSupport.directory("zip-rename-privacy-\(UUID())")
+        let directory = try TestSupport.directory("zip-rename-privacy-\(UUID())")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source.zip")
         var records = Data(), central = Data()

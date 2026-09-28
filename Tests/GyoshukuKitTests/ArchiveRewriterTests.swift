@@ -7,7 +7,7 @@ import XCTest
 
 final class ArchiveRewriterTests: XCTestCase {
     private let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha]
-    private let date = ZipTestSupport.date
+    private let date = TestSupport.date
 
     private func suffix(_ format: GyoshukuKit.ArchiveFormat) -> String {
         switch format {
@@ -22,7 +22,7 @@ final class ArchiveRewriterTests: XCTestCase {
     }
 
     private func directory(_ label: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("rewriter-" + label)
+        let directory = try TestSupport.directory("rewriter-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }

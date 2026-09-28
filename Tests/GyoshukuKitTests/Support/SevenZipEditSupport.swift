@@ -31,10 +31,10 @@ enum SevenZipEditSupport {
         let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
             options: WriterOptions(password: password, encryptsSevenZipHeaders: headers, compressionThreads: 1))
         for i in 0..<count {
-            try writer.add(data: Data(repeating: UInt8(truncatingIfNeeded: i), count: 1000 + i * 100), as: "file\(i)", modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(repeating: UInt8(truncatingIfNeeded: i), count: 1000 + i * 100), as: "file\(i)", modificationDate: TestSupport.date)
         }
-        try writer.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
-        try writer.add(data: Data(), as: "empty", modificationDate: ZipTestSupport.date)
+        try writer.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil)
+        try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
         try writer.finish()
         return url
     }

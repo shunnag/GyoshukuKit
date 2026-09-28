@@ -5,7 +5,7 @@ import XCTest
 
 final class ZipUpdaterOutputModeTests: XCTestCase {
     private func setup(_ label: String) throws -> (URL, URL, URL) {
-        let directory = try ZipTestSupport.directory("p1-output-" + label)
+        let directory = try TestSupport.directory("p1-output-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Support.fixture(directory)
         let parent = directory.appendingPathComponent("work")
@@ -162,7 +162,7 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
                 try FileManager.default.copyItem(at: input, to: replacement)
                 let a = try ArchiveUpdater.open(url: input, output: output), b = try ArchiveUpdater.open(url: replacement)
                 if append {
-                    for updater in [a, b] { try updater.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date) }
+                    for updater in [a, b] { try updater.add(data: Data([1]), as: "added", modificationDate: TestSupport.date) }
                 }
                 try a.commit(); try b.commit()
                 try ZipP1Support.assertEqualFiles(output, replacement)

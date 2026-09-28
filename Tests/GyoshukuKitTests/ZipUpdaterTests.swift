@@ -9,17 +9,17 @@ final class ZipUpdaterTests: XCTestCase {
     private let added = Data("new entry: 凝縮\n".utf8)
 
     private func original(_ label: String) throws -> URL {
-        let directory = try ZipTestSupport.directory(label)
+        let directory = try TestSupport.directory(label)
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
-        try writer.add(data: payload, as: "old.txt", modificationDate: ZipTestSupport.date)
+        try writer.add(data: payload, as: "old.txt", modificationDate: TestSupport.date)
         try writer.finish()
         return url
     }
 
     private func append(_ url: URL) throws {
         let updater = try ArchiveUpdater.open(url: url)
-        try updater.add(data: added, as: "new.txt", modificationDate: ZipTestSupport.date, permissions: 0o755)
+        try updater.add(data: added, as: "new.txt", modificationDate: TestSupport.date, permissions: 0o755)
         try updater.commit()
         try updater.commit()
         XCTAssertThrowsError(try updater.addDirectory("late"))
@@ -46,14 +46,14 @@ final class ZipUpdaterTests: XCTestCase {
         let url = try original("update-writer")
         let old = try Data(contentsOf: url)
         let updater = try ArchiveUpdater.open(url: url)
-        try updater.add(data: added, as: "new.txt", modificationDate: ZipTestSupport.date, permissions: 0o755)
+        try updater.add(data: added, as: "new.txt", modificationDate: TestSupport.date, permissions: 0o755)
         XCTAssertEqual(try Data(contentsOf: url), old)
         try updater.commit()
         try assertPreserved(old, in: url)
         let oracle = url.deletingLastPathComponent().appendingPathComponent("writer.zip")
         let writer = try ArchiveWriter.create(url: oracle)
-        try writer.add(data: payload, as: "old.txt", modificationDate: ZipTestSupport.date)
-        try writer.add(data: added, as: "new.txt", modificationDate: ZipTestSupport.date, permissions: 0o755)
+        try writer.add(data: payload, as: "old.txt", modificationDate: TestSupport.date)
+        try writer.add(data: added, as: "new.txt", modificationDate: TestSupport.date, permissions: 0o755)
         try writer.finish()
         XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: oracle))
         try ZipTestSupport.verify(url, expected: expected)
@@ -65,12 +65,12 @@ final class ZipUpdaterTests: XCTestCase {
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         let file = source.appendingPathComponent("run.sh")
         try added.write(to: file)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755, .modificationDate: ZipTestSupport.date], ofItemAtPath: file.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755, .modificationDate: TestSupport.date], ofItemAtPath: file.path)
         let link = source.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "run.sh")
         let attrs = try FileManager.default.attributesOfItem(atPath: link.path)
         let linkDate = Date(timeIntervalSince1970: floor((attrs[.modificationDate] as! Date).timeIntervalSince1970))
-        try FileManager.default.setAttributes([.posixPermissions: 0o755, .modificationDate: ZipTestSupport.date], ofItemAtPath: source.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755, .modificationDate: TestSupport.date], ofItemAtPath: source.path)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.add(contentsOf: source, as: "tree")
         let before = Date()
@@ -89,16 +89,16 @@ final class ZipUpdaterTests: XCTestCase {
 
     func testAppendDittoDataDescriptorsAndInfoZIP() throws {
         for tool in ["ditto", "infozip"] {
-            let directory = try ZipTestSupport.directory("update-\(tool)")
+            let directory = try TestSupport.directory("update-\(tool)")
             let source = directory.appendingPathComponent("old.txt")
             let sourceDate = Date(timeIntervalSince1970: 1_700_000_000)
             try payload.write(to: source)
             try FileManager.default.setAttributes([.posixPermissions: 0o644, .modificationDate: sourceDate], ofItemAtPath: source.path)
             let url = directory.appendingPathComponent("archive.zip")
             if tool == "ditto" {
-                try ZipTestSupport.run(ReferenceTool.ditto, ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "create")
+                try TestSupport.run(ReferenceTool.ditto, ["-c", "-k", "--norsrc", "--noextattr", source.path, url.path], in: directory, log: "create")
             } else {
-                try ZipTestSupport.run(ReferenceTool.zip, ["-j", url.path, source.path], in: directory, log: "create")
+                try TestSupport.run(ReferenceTool.zip, ["-j", url.path, source.path], in: directory, log: "create")
             }
             let old = try Data(contentsOf: url)
             let bytes = ZipBytes(data: old)
@@ -117,7 +117,7 @@ final class ZipUpdaterTests: XCTestCase {
     }
 
     func testAppendCP932PreservesRawNamesAndFlags() throws {
-        let directory = try ZipTestSupport.directory("update-cp932")
+        let directory = try TestSupport.directory("update-cp932")
         let url = directory.appendingPathComponent("archive.zip")
         // 公開 ZIP byte 表だけで構築。CP932 の名前を zipfile に UTF-8 へ変換させない。
         let script = #"""
@@ -132,14 +132,14 @@ final class ZipUpdaterTests: XCTestCase {
         end = p('IHHHHIIH',0x06054b50,0,0,1,1,len(cd),len(local),0)
         open(sys.argv[1],'wb').write(local+cd+end)
         """#
-        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
-        try ZipTestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path], in: directory, log: "python-create")
+        try TestSupport.run(ReferenceTool.sevenZip, ["l", "-slt", "-mcp=932", url.path], in: directory, log: "original-7zz-l")
         let old = try Data(contentsOf: url)
         let legacy = ZipBytes(data: old)
         let rawName = old.subdata(in: (legacy.central + 46)..<(legacy.central + 46 + Int(legacy.u16(legacy.central + 28))))
         XCTAssertEqual(rawName, Data([0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA, 0x2E, 0x74, 0x78, 0x74]))
         let updater = try ArchiveUpdater.open(url: url)
-        try updater.add(data: added, as: "追加/カ\u{3099}ラス.txt", modificationDate: ZipTestSupport.date)
+        try updater.add(data: added, as: "追加/カ\u{3099}ラス.txt", modificationDate: TestSupport.date)
         try updater.commit()
         try assertPreserved(old, in: url)
         let updated = ZipBytes(data: try Data(contentsOf: url))
@@ -200,13 +200,13 @@ final class ZipUpdaterTests: XCTestCase {
     }
 
     func testAppendCrossesZIP64CountAndUpdatesZIP64Again() throws {
-        let directory = try ZipTestSupport.directory("update-zip64-count")
+        let directory = try TestSupport.directory("update-zip64-count")
         let url = directory.appendingPathComponent("archive.zip")
         let writer = try ArchiveWriter.create(url: url)
         var expected: [ZipTestSupport.Expected] = []
         for index in 0..<65_530 {
             let name = String(format: "entry-%05d", index)
-            try writer.add(data: Data(), as: name, modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(), as: name, modificationDate: TestSupport.date)
             expected.append(.init(name: name))
         }
         try writer.finish()
@@ -217,7 +217,7 @@ final class ZipUpdaterTests: XCTestCase {
         let updater = try ArchiveUpdater.open(url: url)
         for index in 65_530..<65_540 {
             let name = String(format: "entry-%05d", index)
-            try updater.add(data: Data(), as: name, modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data(), as: name, modificationDate: TestSupport.date)
             expected.append(.init(name: name))
         }
         try updater.commit()
@@ -233,14 +233,14 @@ final class ZipUpdaterTests: XCTestCase {
         XCTAssertTrue(listing.contains("65540 files"))
         let seven = try String(contentsOf: directory.appendingPathComponent("7zz-t.log"), encoding: .utf8)
         XCTAssertTrue(seven.contains("Files: 65540"))
-        ZipTestSupport.report("KAITO UPDATE ZIP64 count=65540; all names, bytes, dates, permissions and CRCs verified")
+        TestSupport.report("KAITO UPDATE ZIP64 count=65540; all names, bytes, dates, permissions and CRCs verified")
         try FileManager.default.removeItem(at: directory.appendingPathComponent("ditto"))
         // 既存 ZIP64 の locator を読む経路も別の完成書庫で往復する。
-        let secondDirectory = try ZipTestSupport.directory("update-existing-zip64")
+        let secondDirectory = try TestSupport.directory("update-existing-zip64")
         let second = secondDirectory.appendingPathComponent("archive.zip")
         try FileManager.default.copyItem(at: url, to: second)
         let again = try ArchiveUpdater.open(url: second)
-        try again.add(data: added, as: "new.txt", modificationDate: ZipTestSupport.date)
+        try again.add(data: added, as: "new.txt", modificationDate: TestSupport.date)
         try again.commit()
         try assertPreserved(after.data, in: second)
         expected.append(.init(name: "new.txt", data: added))
@@ -316,7 +316,7 @@ final class ZipUpdaterTests: XCTestCase {
                 e=p('IHHHHIIH',0x06054b50,0,0,0,0,0,0,0)
                 open(sys.argv[1],'wb').write(z+l+e)
                 """#
-                try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path],
+                try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path],
                                        in: url.deletingLastPathComponent(), log: "python-create")
             }
             let comment = Data("ZIP comment: 保存\n".utf8)

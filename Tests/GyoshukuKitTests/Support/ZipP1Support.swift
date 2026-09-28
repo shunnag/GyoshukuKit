@@ -36,11 +36,11 @@ enum ZipP1Support {
             if name.hasSuffix("/") {
                 let disk = directory.appendingPathComponent("fixed-directory")
                 try FileManager.default.createDirectory(at: disk, withIntermediateDirectories: true)
-                try FileManager.default.setAttributes([.modificationDate: ZipTestSupport.date], ofItemAtPath: disk.path)
+                try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: disk.path)
                 try writer.add(contentsOf: disk, as: name)
             } else {
                 try writer.add(data: Data(repeating: UInt8(index % 251), count: payloadSize), as: name,
-                               modificationDate: ZipTestSupport.date)
+                               modificationDate: TestSupport.date)
             }
         }
         try writer.finish()
@@ -52,7 +52,7 @@ enum ZipP1Support {
             switch operation {
             case .remove(let indices): try updater.remove(entriesAt: indices)
             case .rename(let index, let name): try updater.rename(entryAt: index, to: name)
-            case .add(let name, let bytes): try updater.add(data: bytes, as: name, modificationDate: ZipTestSupport.date)
+            case .add(let name, let bytes): try updater.add(data: bytes, as: name, modificationDate: TestSupport.date)
             case .directory(let name, let disk): try updater.add(contentsOf: disk, as: name)
             }
         }
@@ -80,7 +80,7 @@ enum ZipP1Support {
             try writer.prepareAppend(at: layout.centralOffset, existingPaths: [])
             for addition in additions {
                 switch addition {
-                case .add(let name, let bytes): try writer.add(data: bytes, as: name, modificationDate: ZipTestSupport.date)
+                case .add(let name, let bytes): try writer.add(data: bytes, as: name, modificationDate: TestSupport.date)
                 case .directory(let name, let disk): try writer.add(contentsOf: disk, as: name)
                 default: break
                 }

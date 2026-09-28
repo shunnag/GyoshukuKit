@@ -7,7 +7,7 @@ import Darwin
 @MainActor
 final class LHALifecycleTests: XCTestCase {
     func testOptionsExclusiveCreateAndFinishedState() throws {
-        let directory = try ZipTestSupport.directory("lha-options")
+        let directory = try TestSupport.directory("lha-options")
         let url = directory.appendingPathComponent("archive.lzh")
         for options in [WriterOptions(deflateLevel: 10), WriterOptions(preserveOwnerIDs: true), WriterOptions(preserveMacOSMetadata: true)] {
             XCTAssertThrowsError(try ArchiveWriter.create(url: url, format: .lha, options: options))
@@ -16,7 +16,7 @@ final class LHALifecycleTests: XCTestCase {
         // ZIP 専用の圧縮 option / 拡張子 heuristic が LHA の方式を変えないことも確認する。
         let writer = try ArchiveWriter.create(url: url, format: .lha, options: WriterOptions(compressionMethod: .stored))
         let payload = Data(repeating: 0xAA, count: 10_000)
-        try writer.add(data: payload, as: "payload.zip", modificationDate: ZipTestSupport.date)
+        try writer.add(data: payload, as: "payload.zip", modificationDate: TestSupport.date)
         try writer.finish()
         let saved = try Data(contentsOf: url)
         XCTAssertEqual(try LHABytes(saved).members.first?.method, "-lh5-")
@@ -28,7 +28,7 @@ final class LHALifecycleTests: XCTestCase {
     }
 
     func testUnfinishedWriterAndOutputAsSourceAreRemoved() throws {
-        let directory = try ZipTestSupport.directory("lha-unfinished")
+        let directory = try TestSupport.directory("lha-unfinished")
         let url = directory.appendingPathComponent("archive.lzh")
         let alias = directory.appendingPathComponent("alias.lzh")
         do {
@@ -45,7 +45,7 @@ final class LHALifecycleTests: XCTestCase {
     }
 
     func testFailurePreservesReplacementAndInvalidatesOldInode() throws {
-        let directory = try ZipTestSupport.directory("lha-replaced-output")
+        let directory = try TestSupport.directory("lha-replaced-output")
         let url = directory.appendingPathComponent("archive.lzh")
         let moved = directory.appendingPathComponent("moved.lzh")
         let alias = directory.appendingPathComponent("alias.lzh")
@@ -64,7 +64,7 @@ final class LHALifecycleTests: XCTestCase {
     }
 
     func testSymlinksAreRefusedWithoutFollowingThem() throws {
-        let directory = try ZipTestSupport.directory("lha-symlink")
+        let directory = try TestSupport.directory("lha-symlink")
         let link = directory.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "nonexistent-target")
         let url = directory.appendingPathComponent("archive.lzh")
@@ -79,7 +79,7 @@ final class LHALifecycleTests: XCTestCase {
         for (index, name) in ["🗂.txt", "한글/file.txt"].enumerated() {
             try withWriter("lha-preflight-\(index)") { writer, output in
                 var reads = 0
-                XCTAssertThrowsError(try writer.add(name: name, mode: 0o100644, size: 1, date: ZipTestSupport.date) { _ in
+                XCTAssertThrowsError(try writer.add(name: name, mode: 0o100644, size: 1, date: TestSupport.date) { _ in
                     reads += 1
                     return Data([1])
                 })
@@ -89,7 +89,7 @@ final class LHALifecycleTests: XCTestCase {
         }
         try withWriter("lha-size-preflight") { writer, output in
             var reads = 0
-            XCTAssertThrowsError(try writer.add(name: "oversize", mode: 0o100644, size: UInt64(UInt32.max) + 1, date: ZipTestSupport.date) { _ in
+            XCTAssertThrowsError(try writer.add(name: "oversize", mode: 0o100644, size: UInt64(UInt32.max) + 1, date: TestSupport.date) { _ in
                 reads += 1
                 return Data()
             }) { XCTAssertEqual($0 as? WriterError, .sizeOverflow) }
@@ -102,7 +102,7 @@ final class LHALifecycleTests: XCTestCase {
         for (index, chunks) in [[Data()], [Data([1, 2])], [Data([1]), Data([2])]].enumerated() {
             try withWriter("lha-changed-input-\(index)") { writer, output in
                 var index = 0
-                XCTAssertThrowsError(try writer.add(name: "changed", mode: 0o100644, size: 1, date: ZipTestSupport.date) { _ in
+                XCTAssertThrowsError(try writer.add(name: "changed", mode: 0o100644, size: 1, date: TestSupport.date) { _ in
                     defer { index += 1 }
                     return chunks[index]
                 }) { XCTAssertEqual($0 as? WriterError, .sourceChanged("changed")) }
@@ -112,7 +112,7 @@ final class LHALifecycleTests: XCTestCase {
     }
 
     func testPublicCancellationMidWriteInvalidatesCompletedMembersAndAliases() async throws {
-        let directory = try ZipTestSupport.directory("lha-cancel")
+        let directory = try TestSupport.directory("lha-cancel")
         let source = directory.appendingPathComponent("large-source")
         FileManager.default.createFile(atPath: source.path, contents: nil)
         let handle = try FileHandle(forWritingTo: source)
@@ -153,7 +153,7 @@ final class LHALifecycleTests: XCTestCase {
     }
 
     func testCancellationBeforeCreateAndFinish() async throws {
-        let directory = try ZipTestSupport.directory("lha-cancel-finish")
+        let directory = try TestSupport.directory("lha-cancel-finish")
         let url = directory.appendingPathComponent("archive.lzh")
         let alias = directory.appendingPathComponent("alias.lzh")
         let task = Task {
@@ -177,7 +177,7 @@ final class LHALifecycleTests: XCTestCase {
     }
 
     private func withWriter(_ label: String, body: (LHAWriter, FileHandle) throws -> Void) throws {
-        let directory = try ZipTestSupport.directory(label)
+        let directory = try TestSupport.directory(label)
         let url = directory.appendingPathComponent("archive.lzh")
         FileManager.default.createFile(atPath: url.path, contents: nil)
         let output = try FileHandle(forWritingTo: url)

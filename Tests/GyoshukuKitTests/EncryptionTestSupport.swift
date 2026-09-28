@@ -29,7 +29,7 @@ enum EncryptionTestSupport {
                 let link = directory.appendingPathComponent("source-link")
                 try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "size-5.txt")
                 try writer.add(contentsOf: link, as: item.name)
-            default: try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date)
+            default: try writer.add(data: item.data, as: item.name, modificationDate: TestSupport.date)
             }
         }
     }
@@ -59,7 +59,7 @@ enum EncryptionTestSupport {
                 XCTAssertFalse(text.lowercased().contains(marker), text)
             }
         }
-        ZipTestSupport.report("ENCRYPTION REFERENCE \(log): exit \(output.status)")
+        TestSupport.report("ENCRYPTION REFERENCE \(log): exit \(output.status)")
         return text
     }
 

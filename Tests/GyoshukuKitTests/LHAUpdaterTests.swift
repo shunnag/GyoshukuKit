@@ -9,14 +9,14 @@ final class LHAUpdaterTests: XCTestCase {
         for sequential in [false, true] {
             try LHAUpdater.$testingDisablesClone.withValue(sequential) {
                 for operation in 0..<13 {
-                    let root = try ZipTestSupport.directory("lha-edit-\(sequential)-\(operation)")
+                    let root = try TestSupport.directory("lha-edit-\(sequential)-\(operation)")
                     let source = try LHAUpdateSupport.generated(root)
                     let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
                     let old = try LHAUpdateSupport.scan(source)
                     let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
                     let updater = try LHAUpdater.open(url: source, output: output)
                     var removed = Set<Int>(), renamed = [Int: String]()
-                    if operation == 5 || operation == 6 { try updater.add(data: Data([33]), as: "added", modificationDate: ZipTestSupport.date) }
+                    if operation == 5 || operation == 6 { try updater.add(data: Data([33]), as: "added", modificationDate: TestSupport.date) }
                     switch operation {
                     case 1: removed = [5]
                     case 2, 6: renamed[2] = "edit-000002"
@@ -31,7 +31,7 @@ final class LHAUpdaterTests: XCTestCase {
                     }
                     try updater.remove(entriesAt: Array(removed) + Array(removed))
                     for (index, name) in renamed { try updater.rename(entryAt: index, to: name) }
-                    if operation == 12 { try updater.add(data: Data([33]), as: "added", modificationDate: ZipTestSupport.date) }
+                    if operation == 12 { try updater.add(data: Data([33]), as: "added", modificationDate: TestSupport.date) }
                     let writes = ZipIOEvents(), reads = ZipIOEvents()
                     var progress: [ArchiveUpdater.CommitProgress] = []
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
@@ -74,14 +74,14 @@ final class LHAUpdaterTests: XCTestCase {
         }
     }
     func testFrozenFixtureDeletesAppendAndFirstHeaderDetection() throws {
-        let root = try ZipTestSupport.directory("lha-frozen-operations")
+        let root = try TestSupport.directory("lha-frozen-operations")
         for name in LHAUpdateSupport.accepted {
             let source = try LHAUpdateSupport.fixture(name, in: root), old = try LHAUpdateSupport.scan(source)
             for index in Set([0, old.0.count / 2, old.0.count - 1]) where index >= 0 {
                 let output = root.appendingPathComponent("out-\(name)-\(index).lzh")
                 let editor = try LHAUpdater.open(url: source, output: output)
                 try editor.remove(entriesAt: [index])
-                try editor.add(data: Data([3]), as: "new-member", modificationDate: ZipTestSupport.date)
+                try editor.add(data: Data([3]), as: "new-member", modificationDate: TestSupport.date)
                 try editor.commit()
                 let reader = try ArchiveReader.open(url: output), bytes = try ZipUpdateSource(url: output)
                 for previous in old.2.entries where previous.index != index {
@@ -99,7 +99,7 @@ final class LHAUpdaterTests: XCTestCase {
         }
     }
     func testEmptyRootDirectoriesSizesAndReservationOrders() throws {
-        let root = try ZipTestSupport.directory("lha-add-sizes")
+        let root = try TestSupport.directory("lha-add-sizes")
         for sequential in [false, true] {
             try LHAUpdater.$testingDisablesClone.withValue(sequential) {
                 let source = root.appendingPathComponent("source-\(sequential).lzh")
@@ -107,9 +107,9 @@ final class LHAUpdaterTests: XCTestCase {
                 let output = root.appendingPathComponent("out-\(sequential).lzh")
                 let editor = try LHAUpdater.open(url: source, output: output)
                 for size in [0, 1, 1 << 20, 3 << 20] {
-                    try editor.add(data: Data(repeating: 65, count: size), as: "file-\(size)", modificationDate: ZipTestSupport.date)
+                    try editor.add(data: Data(repeating: 65, count: size), as: "file-\(size)", modificationDate: TestSupport.date)
                 }
-                try editor.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                try editor.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil)
                 try editor.rename(entryAt: 0, to: "root-renamed")
                 try editor.commit()
                 let reader = try ArchiveReader.open(url: output)
@@ -132,7 +132,7 @@ final class LHAUpdaterTests: XCTestCase {
         }
     }
     func testCloneIO500Members() throws {
-        let root = try ZipTestSupport.directory("lha-io")
+        let root = try TestSupport.directory("lha-io")
         let source = try LHAUpdateSupport.generated(root, count: 500, size: 65536)
         let (layout, _, _) = try LHAUpdateSupport.scan(source)
         for operation in 0..<4 {
@@ -164,7 +164,7 @@ final class LHAUpdaterTests: XCTestCase {
         }
     }
     func testRootCarryDirectoryLevelsNoopAndDiskAdd() throws {
-        let root = try ZipTestSupport.directory("lha-root-and-directories"), source = root.appendingPathComponent("source.lzh")
+        let root = try TestSupport.directory("lha-root-and-directories"), source = root.appendingPathComponent("source.lzh")
         var bytes = LHAHeaderBuilder.member(level: 0, name: ".", directory: true)
         for level: UInt8 in 0...2 { bytes += LHAHeaderBuilder.member(level: level, name: "dir-\(level)/", directory: true) }
         try (bytes + Data([0])).write(to: source)

@@ -7,7 +7,7 @@ import XCTest
 
 final class SevenZipReencryptionTests: XCTestCase {
     func testFixtureSetChangeRemoveAndCarryBytes() throws {
-        let root = try ZipTestSupport.directory("7z-reencrypt-fixtures")
+        let root = try TestSupport.directory("7z-reencrypt-fixtures")
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
             SevenZipEditSupport.fixtures.appendingPathComponent("expected-decrypted.json"))) as? [String: Any])
         let expectedDecrypted = try XCTUnwrap(json["archives"] as? [String: [[String: Any]]])
@@ -57,7 +57,7 @@ final class SevenZipReencryptionTests: XCTestCase {
     }
 
     func testFixedIVAttachmentMatchesWriter() throws {
-        let root = try ZipTestSupport.directory("7z-reencrypt-fixed-iv")
+        let root = try TestSupport.directory("7z-reencrypt-fixed-iv")
         let plain = try SevenZipEditSupport.source(root)
         for headers in [false, true] {
             let makeIV: @Sendable () -> Data = { Data(repeating: 0xA5, count: 16) }
@@ -77,7 +77,7 @@ final class SevenZipReencryptionTests: XCTestCase {
     }
 
     func testPasswordFailuresAndMixedPasswords() throws {
-        let root = try ZipTestSupport.directory("7z-reencrypt-passwords")
+        let root = try TestSupport.directory("7z-reencrypt-passwords")
         for (name, password): (String, String?) in [("g_aes", "wrong"), ("g_aes", nil), ("mix", "secret"), ("mix", "secret2"), ("copyaes", "wrong")] {
             for target: String? in [nil, "new"] {
                 let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
@@ -93,17 +93,17 @@ final class SevenZipReencryptionTests: XCTestCase {
     }
 
     func testPartialEncryptionAndOperationsAfterAdd() throws {
-        let root = try ZipTestSupport.directory("7z-partial-encryption")
+        let root = try TestSupport.directory("7z-partial-encryption")
         let source = try SevenZipEditSupport.source(root)
         let mixed = root.appendingPathComponent("mixed.7z")
         let add = try SevenZipUpdater.open(url: source, output: mixed, options: WriterOptions(password: "secret"))
-        try add.add(data: Data([4, 9]), as: "secret", modificationDate: ZipTestSupport.date); try add.commit()
+        try add.add(data: Data([4, 9]), as: "secret", modificationDate: TestSupport.date); try add.commit()
         let initial = try SevenZipEditSupport.reader(mixed)
         XCTAssertEqual(initial.entries.filter(\.isEncrypted).count, 1)
         var expected = try SevenZipEditSupport.items(initial)
         let output = root.appendingPathComponent("converted.7z")
         let update = try SevenZipUpdater.open(url: mixed, password: "unused", output: output, options: WriterOptions(password: "new"))
-        try update.add(data: Data([8]), as: "new", modificationDate: ZipTestSupport.date)
+        try update.add(data: Data([8]), as: "new", modificationDate: TestSupport.date)
         expected.append(.init(name: "new", kind: .file, data: Data([8])))
         try update.remove(entriesAt: [0]); expected.remove(at: 0)
         try update.reencryptExistingEntries(currentPassword: "secret")
@@ -113,7 +113,7 @@ final class SevenZipReencryptionTests: XCTestCase {
         try SevenZipExternalOracles.check(output, password: "new")
     }
     func testLargeAESCopyWrongPasswordLimitAndSolidCurrentPassword() throws {
-        let root = try ZipTestSupport.directory("7z-aes-copy-limit")
+        let root = try TestSupport.directory("7z-aes-copy-limit")
         let source = SevenZipEditSupport.fixture("copyaes")
         let input = try SevenZipEditSupport.reader(source)
         let small = input.entries.first { ($0.uncompressedSize ?? 0) <= 65536 }!.index

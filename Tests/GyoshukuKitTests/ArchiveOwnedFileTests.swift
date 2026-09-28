@@ -16,7 +16,7 @@ final class ArchiveOwnedFileTests: XCTestCase {
 
     func testReplacedCloneIsNotAdoptedForCleanup() throws {
         for foreign in [Data(), Data([77])] {
-            let root = try ZipTestSupport.directory("owned-clone-\(foreign.count)")
+            let root = try TestSupport.directory("owned-clone-\(foreign.count)")
             defer { try? FileManager.default.removeItem(at: root) }
             let source = root.appendingPathComponent("source.bin")
             let original = Data([1, 2, 3])

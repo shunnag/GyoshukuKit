@@ -10,7 +10,7 @@ final class FATVolumeTests: XCTestCase {
     func testHFSPlus() async throws { try await onDisk("HFS+", clusterInodes: false) }
 
     func testHostVolume() async throws {
-        let root = try ZipTestSupport.directory("fat-regressions-host")
+        let root = try TestSupport.directory("fat-regressions-host")
         defer { try? FileManager.default.removeItem(at: root) }
         try await exercise(root, clusterInodes: false)
     }

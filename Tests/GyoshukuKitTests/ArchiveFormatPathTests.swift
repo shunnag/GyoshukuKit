@@ -10,7 +10,7 @@ final class ArchiveFormatPathTests: XCTestCase {
     private let carried = [("a:b", Data("colon payload".utf8)), ("dir\\name", Data([0, 58, 92, 255]))]
 
     private func fixture(_ label: String) throws -> URL {
-        let directory = try ZipTestSupport.directory("format-path-" + label)
+        let directory = try TestSupport.directory("format-path-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source.tar")
         var bytes = Data()
@@ -62,7 +62,7 @@ final class ArchiveFormatPathTests: XCTestCase {
     }
 
     func testTarWriterAddsDiskNamesAndRemembersHardLinkTargets() throws {
-        let directory = try ZipTestSupport.directory("format-path-disk")
+        let directory = try TestSupport.directory("format-path-disk")
         defer { try? FileManager.default.removeItem(at: directory) }
         let name = "1:2 recipe.txt"
         let file = directory.appendingPathComponent(name)

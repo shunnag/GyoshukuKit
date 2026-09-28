@@ -9,7 +9,7 @@ enum LHATestSupport {
         var data = Data()
         var kind: EntryKind = .file
         var mode: UInt16 = 0o644
-        var date: Date? = ZipTestSupport.date
+        var date: Date? = TestSupport.date
     }
 
     /// Lhasa または 7-Zip を `directory` で起動する。終了値は `clean` か呼び出し側が確かめる。
@@ -17,7 +17,7 @@ enum LHATestSupport {
     static func run(_ tool: String, _ arguments: [String], in directory: URL, log: String) throws -> ReferenceTool.Output {
         let result = try ReferenceTool.run(tool, arguments, in: directory, log: log, expect: .unchecked,
                                            environment: ReferenceTool.englishUTF8InUTC, workingDirectory: directory)
-        ZipTestSupport.report("LHA DECODER \(directory.lastPathComponent)/\(log): exit \(result.status)\n\(result.text.suffix(700))")
+        TestSupport.report("LHA DECODER \(directory.lastPathComponent)/\(log): exit \(result.status)\n\(result.text.suffix(700))")
         return result
     }
 

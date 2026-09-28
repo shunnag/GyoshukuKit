@@ -9,7 +9,7 @@ enum SevenZipTestSupport {
         var data = Data()
         var kind: EntryKind = .file
         var mode: UInt16 = 0o644
-        var date: Date? = ZipTestSupport.date
+        var date: Date? = TestSupport.date
     }
 
     /// 7-Zip を起動する。`success` なら警告と header の異常も失敗にし、`t` / `x` は "Everything is Ok" まで確かめる。
@@ -25,7 +25,7 @@ enum SevenZipTestSupport {
         } else {
             XCTAssertFalse(text.contains("Everything is Ok"), text)
         }
-        ZipTestSupport.report("7Z REFERENCE \(directory.lastPathComponent)/\(log): exit \(output.status)\n\(text)")
+        TestSupport.report("7Z REFERENCE \(directory.lastPathComponent)/\(log): exit \(output.status)\n\(text)")
         return text
     }
 

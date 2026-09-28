@@ -5,7 +5,7 @@ import XCTest
 
 final class ArchiveRewriterCollisionTests: XCTestCase {
     private func fixture(_ names: [String], directoryIndices: Set<Int> = []) throws -> URL {
-        let directory = try ZipTestSupport.directory("rewriter-carried-\(UUID())")
+        let directory = try TestSupport.directory("rewriter-carried-\(UUID())")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source.zip")
         // Independent zipfile fixture: the product writer deliberately cannot create duplicate names.
@@ -19,7 +19,7 @@ final class ArchiveRewriterCollisionTests: XCTestCase {
                 info.external_attr=((0o40755 if i in directories else 0o100644)<<16)|(0x10 if i in directories else 0)
                 z.writestr(info,b'' if i in directories else ('payload-%d'%i).encode())
         """#
-        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path,
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path,
             directoryIndices.sorted().map(String.init).joined(separator: ",")] + names,
             in: directory, log: "create")
         XCTAssertEqual(try ArchiveReader.open(url: url).entries.count, names.count)
@@ -38,13 +38,13 @@ final class ArchiveRewriterCollisionTests: XCTestCase {
             }
             XCTAssertEqual(name, entry, file: file, line: line)
             XCTAssertTrue(reason.contains("衝突"), reason, file: file, line: line)
-            ZipTestSupport.report("G6 unrepresentable: \(name): \(reason)")
+            TestSupport.report("G6 unrepresentable: \(name): \(reason)")
         }
         if let accepted {
             // Red-run evidence: the old implementation carries the first entry before discovering the collision.
             var carried = 0
             XCTAssertThrowsError(try accepted.commit { done, _ in carried = done }) {
-                ZipTestSupport.report("G6 RED late collision after \(carried) carried entries: \($0)")
+                TestSupport.report("G6 RED late collision after \(carried) carried entries: \($0)")
                 XCTAssertTrue($0 is WriterError)
             }
             XCTAssertGreaterThan(carried, 0, "red-run fixture must reach a partial write", file: file, line: line)

@@ -23,13 +23,13 @@ final class CompressedTarWriterTests: XCTestCase {
         pathlib.Path(target).write_bytes(payload)
         print(len(payload))
         """
-        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, archive.path, decoded.path, suffix(format)],
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, archive.path, decoded.path, suffix(format)],
                                in: directory, log: "python-stream")
         XCTAssertEqual(try Data(contentsOf: decoded), expected)
-        try ZipTestSupport.run(format == .tarBzip2 ? ReferenceTool.bzip2 : ReferenceTool.xz,
+        try TestSupport.run(format == .tarBzip2 ? ReferenceTool.bzip2 : ReferenceTool.xz,
                                ["-t", archive.path], in: directory, log: "native-stream")
         let output = directory.appendingPathComponent("seven-stream")
-        try ZipTestSupport.run(ReferenceTool.sevenZip, ["x", "-y", archive.path, "-o" + output.path],
+        try TestSupport.run(ReferenceTool.sevenZip, ["x", "-y", archive.path, "-o" + output.path],
                                in: directory, log: "seven-stream")
         let files = try FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil)
         XCTAssertEqual(files.count, 1)
@@ -44,7 +44,7 @@ final class CompressedTarWriterTests: XCTestCase {
             .init(name: "empty")
         ]
         for format in formats {
-            let directory = try ZipTestSupport.directory("compressed-tar-members-\(format)")
+            let directory = try TestSupport.directory("compressed-tar-members-\(format)")
             let archive = directory.appendingPathComponent("archive.tar." + suffix(format))
             let plain = directory.appendingPathComponent("plain.tar")
             for (url, kind) in [(archive, format), (plain, .tar)] {
@@ -59,7 +59,7 @@ final class CompressedTarWriterTests: XCTestCase {
             try verifyStream(archive, expected: expected, format: format)
             try TarTestSupport.verify(archive, expected: items)
             let sevenEntries = directory.appendingPathComponent("seven-entries")
-            try ZipTestSupport.run(ReferenceTool.sevenZip, ["x", "-y", directory.appendingPathComponent("decoded.tar").path,
+            try TestSupport.run(ReferenceTool.sevenZip, ["x", "-y", directory.appendingPathComponent("decoded.tar").path,
                                    "-o" + sevenEntries.path], in: directory, log: "seven-entries")
             for item in items { XCTAssertEqual(try Data(contentsOf: sevenEntries.appendingPathComponent(item.name)), item.data) }
         }
@@ -68,12 +68,12 @@ final class CompressedTarWriterTests: XCTestCase {
     func testEmptyAndTarBlockBoundaries() throws {
         for format in formats {
             for size in [nil, 0, 1, 511, 512, 513, 8_704, 8_705, 9_216] as [Int?] {
-                let directory = try ZipTestSupport.directory("compressed-tar-boundary-\(format)-\(size ?? -1)")
+                let directory = try TestSupport.directory("compressed-tar-boundary-\(format)-\(size ?? -1)")
                 let archive = directory.appendingPathComponent("archive.tar." + suffix(format))
                 let plain = directory.appendingPathComponent("plain.tar")
                 for (url, kind) in [(archive, format), (plain, .tar)] {
                     let writer = try ArchiveWriter.create(url: url, format: kind)
-                    if let size { try writer.add(data: Data(repeating: 0x41, count: size), as: "file", modificationDate: ZipTestSupport.date) }
+                    if let size { try writer.add(data: Data(repeating: 0x41, count: size), as: "file", modificationDate: TestSupport.date) }
                     try writer.finish()
                 }
                 try verifyStream(archive, expected: Data(contentsOf: plain), format: format)
@@ -85,14 +85,14 @@ final class CompressedTarWriterTests: XCTestCase {
     }
 
     func testBzip2LevelsAndInvalidOptionsBeforeCreatingOutput() throws {
-        let directory = try ZipTestSupport.directory("compressed-tar-levels")
+        let directory = try TestSupport.directory("compressed-tar-levels")
         for level in 1...9 {
             let archive = directory.appendingPathComponent("level\(level).tar.bz2")
             let writer = try ArchiveWriter.create(url: archive, format: .tarBzip2, options: WriterOptions(bzip2Level: level))
             try writer.add(data: LHATestSupport.random(190_123), as: "file")
             try writer.finish()
             XCTAssertEqual(try Data(contentsOf: archive).prefix(4), Data("BZh\(level)".utf8))
-            try ZipTestSupport.run(ReferenceTool.bzip2, ["-t", archive.path], in: directory, log: "level-\(level)")
+            try TestSupport.run(ReferenceTool.bzip2, ["-t", archive.path], in: directory, log: "level-\(level)")
         }
         XCTAssertEqual(WriterOptions().bzip2Level, 9)
         for level in [Int.min, 0, 10, Int.max] {
@@ -108,7 +108,7 @@ final class CompressedTarWriterTests: XCTestCase {
         let input = LHATestSupport.random(1_200_123)
         for format in formats {
             for chunk in [1, 3, 37, 262_144] {
-                let directory = try ZipTestSupport.directory("compressed-tar-chunks-\(format)-\(chunk)")
+                let directory = try TestSupport.directory("compressed-tar-chunks-\(format)-\(chunk)")
                 let archive = directory.appendingPathComponent("stream." + suffix(format))
                 let compressor: any TarCompressor = format == .tarBzip2 ? try Bzip2StreamEncoder(level: 1) : try ParallelXZCompressor()
                 var encoded = Data()
@@ -126,7 +126,7 @@ final class CompressedTarWriterTests: XCTestCase {
 
     func testCancellationDuringCompressedPayloadRemovesOutput() async throws {
         for format in formats {
-            let directory = try ZipTestSupport.directory("compressed-tar-cancel-\(format)")
+            let directory = try TestSupport.directory("compressed-tar-cancel-\(format)")
             let source = directory.appendingPathComponent("source")
             FileManager.default.createFile(atPath: source.path, contents: LHATestSupport.random(16 * 1_024 * 1_024))
             let handle = try FileHandle(forWritingTo: source)
@@ -162,7 +162,7 @@ final class CompressedTarWriterTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["GYOSHUKU_LARGE_TAR_TESTS"] == "1" else {
             throw XCTSkip("Set GYOSHUKU_LARGE_TAR_TESTS=1 for the 4 GiB streaming check")
         }
-        let directory = try ZipTestSupport.directory("compressed-tar-four-gib")
+        let directory = try TestSupport.directory("compressed-tar-four-gib")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appendingPathComponent("source")
         let length = UInt64(UInt32.max) + 514
@@ -196,12 +196,12 @@ final class CompressedTarWriterTests: XCTestCase {
             try writer.add(contentsOf: source, as: "large")
             try writer.add(data: Data("after large entry".utf8), as: "after")
             try writer.finish()
-            let oracle = try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, archive.path, source.path],
+            let oracle = try TestSupport.run(ReferenceTool.python3, ["-c", script, archive.path, source.path],
                                                 in: directory, log: "large-python-\(format)")
             let referenceHash = try XCTUnwrap(oracle.split(separator: " ").last?.trimmingCharacters(in: .whitespacesAndNewlines))
-            let listing = try ZipTestSupport.run(ReferenceTool.bsdtar, ["-tf", archive.path], in: directory, log: "large-bsdtar-\(format)")
+            let listing = try TestSupport.run(ReferenceTool.bsdtar, ["-tf", archive.path], in: directory, log: "large-bsdtar-\(format)")
             XCTAssertEqual(listing, "large\nafter\n")
-            try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", archive.path], in: directory, log: "large-seven-\(format)")
+            try TestSupport.run(ReferenceTool.sevenZip, ["t", archive.path], in: directory, log: "large-seven-\(format)")
             // A raised explicit limit is required; the application's default stays 4 GiB.
             let limits = ReadLimits(maxEntrySize: length + 1_048_576, maxTotalUncompressedSize: length + 1_048_576,
                                     maxInMemorySize: 1_048_576, inMemorySingleFileLimit: 1_048_576)

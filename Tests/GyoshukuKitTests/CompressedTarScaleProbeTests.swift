@@ -11,12 +11,12 @@ final class CompressedTarScaleProbeTests: XCTestCase {
             throw XCTSkip("Set GYOSHUKU_SCALE_PROBES=1 and GYOSHUKU_SCALE_CORPUS to p3val")
         }
         let corpus = URL(fileURLWithPath: corpusPath).appendingPathComponent("arc")
-        let root = try ZipTestSupport.directory("p3-scale")
+        let root = try TestSupport.directory("p3-scale")
         let raw = corpus.appendingPathComponent("mixed.tar")
         let options = WriterOptions(compressionThreads: 8)
         // 合計 3 分待っても下がらない負荷は、そのまま記録し、時間の閾値は変えない。
         var loadWaitBudget = 180
-        ZipTestSupport.report("TAR-SCALE layout\tcodec\toperation\tstage\twall_ms\tplan_ms\tencode_worker_ms\tcopy_ms\tselfcheck_ms\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\tencoded_chunks\tscratch_bytes\toutput_bytes\tload1\tload5\tload15\tlimit_ms\tload_wait_s")
+        TestSupport.report("TAR-SCALE layout\tcodec\toperation\tstage\twall_ms\tplan_ms\tencode_worker_ms\tcopy_ms\tselfcheck_ms\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\tencoded_chunks\tscratch_bytes\toutput_bytes\tload1\tload5\tload15\tlimit_ms\tload_wait_s")
         for format in CompressedTarTestSupport.formats {
             let suffix = format == .tarGzip ? "tgz" : format == .tarBzip2 ? "tbz" : "txz"
             let fresh: URL
@@ -39,7 +39,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                     let output = root.appendingPathComponent("\(layout)-\(operation).\(suffix)")
                     let updater = try CompressedTarUpdater.open(reader: reader.reopen(), output: output, format: format, options: options)
                     if operation == "append" {
-                        try updater.add(data: Data(repeating: 65, count: 4096), as: "added.txt", modificationDate: ZipTestSupport.date)
+                        try updater.add(data: Data(repeating: 65, count: 4096), as: "added.txt", modificationDate: TestSupport.date)
                     } else if operation == "delete-small" { try updater.remove(entriesAt: [entry.index]) }
                     else if operation == "rename-text256" {
                         let text = try XCTUnwrap(reader.entries.first { $0.name == "text256.txt" })
@@ -76,7 +76,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                     let counts = "\(statistics.carriedChunks)\t\(statistics.reencodedChunks)\t\(statistics.scratchBytes)\t\(result.output.size)"
                     let loads = load.map { String(format: "%.2f", $0) }.joined(separator: "\t")
                     for (stage, seconds) in [("commit", elapsed), ("k5", k5)] {
-                        ZipTestSupport.report("TAR-SCALE \(layout)\t\(suffix)\t\(operation)\t\(stage)\t" + String(format: "%.3f", seconds * 1000)
+                        TestSupport.report("TAR-SCALE \(layout)\t\(suffix)\t\(operation)\t\(stage)\t" + String(format: "%.3f", seconds * 1000)
                             + "\t" + stats + "\t" + bytes + "\t" + counts + "\t" + loads + "\t" + String(format: "%.3f", limit * 1000) + "\t\(waited)")
                     }
                     XCTAssertLessThanOrEqual(elapsed, limit, "\(layout) \(suffix) \(operation), load \(load)")
@@ -100,11 +100,11 @@ extension CompressedTarScaleProbeTests {
         }
         let assertsTime = ProcessInfo.processInfo.environment["GYOSHUKU_P14_ASSERT"] == "1"
         let archives = URL(fileURLWithPath: path)
-        let root = try ZipTestSupport.directory("p14-scale")
+        let root = try TestSupport.directory("p14-scale")
         defer { try? FileManager.default.removeItem(at: root) }
         let options = WriterOptions(compressionThreads: 8)
         var loadWaitBudget = 180, sequence = 0
-        ZipTestSupport.report("TAR-P14 archive\toperation\tcommit_ms\tk5_ms\topen_ms\tstrategy\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\treencoded_chunks\tencodingSeconds\tselfCheckSeconds\tload1\tload5\tload15\tload_wait_s")
+        TestSupport.report("TAR-P14 archive\toperation\tcommit_ms\tk5_ms\topen_ms\tstrategy\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\treencoded_chunks\tencodingSeconds\tselfCheckSeconds\tload1\tload5\tload15\tload_wait_s")
 
         // 親 commit へこのファイルだけを写しても実行できる API に限る。
         func run(_ source: URL, name: String, operation: String) throws -> URL {
@@ -120,7 +120,7 @@ extension CompressedTarScaleProbeTests {
             let updater = try CompressedTarUpdater.open(reader: reader.reopen(), output: output, format: .tarXZ, options: options)
             switch operation {
             case "append":
-                try updater.add(data: Data(repeating: 65, count: 4096), as: "p14-added.txt", modificationDate: ZipTestSupport.date)
+                try updater.add(data: Data(repeating: 65, count: 4096), as: "p14-added.txt", modificationDate: TestSupport.date)
             case "rename-folder":
                 let folder = try XCTUnwrap(reader.entries.first { $0.kind == .directory && $0.name == prefix })
                 try updater.rename(entryAt: folder.index, to: "r" + prefix.dropFirst())
@@ -157,7 +157,7 @@ extension CompressedTarScaleProbeTests {
             let counts = "\(statistics.carriedChunks)\t\(statistics.reencodedChunks)"
             let seconds = [statistics.encodingSeconds, statistics.selfCheckSeconds].map { String(format: "%.6f", $0) }.joined(separator: "\t")
             let loads = load.map { String(format: "%.2f", $0) }.joined(separator: "\t")
-            ZipTestSupport.report("TAR-P14 \(name)\t\(operation)\t" + times + "\t\(result.strategy)\t" + bytes
+            TestSupport.report("TAR-P14 \(name)\t\(operation)\t" + times + "\t\(result.strategy)\t" + bytes
                 + "\t" + counts + "\t" + seconds + "\t" + loads + "\t\(waited)")
             if assertsTime, let limit = Self.p14CommitLimit(name: name, operation: operation) {
                 XCTAssertLessThanOrEqual(commit, limit, "\(name) \(operation), load \(load)")

@@ -47,7 +47,7 @@ final class ArchivePathValidationTests: XCTestCase {
     }
 
     func testCombiningMarkChildConflictsWithAFileParentInEitherOrder() throws {
-        let root = try ZipTestSupport.directory("combining-path-validation")
+        let root = try TestSupport.directory("combining-path-validation")
         defer { try? FileManager.default.removeItem(at: root) }
         for parentFirst in [false, true] {
             let archive = root.appendingPathComponent("writer-\(parentFirst).zip")

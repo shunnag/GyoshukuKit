@@ -15,11 +15,11 @@ final class LHACRCTests: XCTestCase {
     }
 
     func testHeaderCRCValueAndCorruptionRejectedByKaito() throws {
-        let directory = try ZipTestSupport.directory("lha-header-crc")
+        let directory = try TestSupport.directory("lha-header-crc")
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         let payload = Data("header CRC fixture".utf8)
-        try writer.add(data: payload, as: "ascii.txt", modificationDate: ZipTestSupport.date)
+        try writer.add(data: payload, as: "ascii.txt", modificationDate: TestSupport.date)
         try writer.finish()
         var data = try Data(contentsOf: url)
         let member = try XCTUnwrap(LHABytes(data).members.first)
@@ -45,12 +45,12 @@ final class LHACRCTests: XCTestCase {
     }
 
     func testDataCRCCorruptionReportsDamagedMemberInBothTools() throws {
-        let directory = try ZipTestSupport.directory("lha-data-crc")
+        let directory = try TestSupport.directory("lha-data-crc")
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         let payload = Data(repeating: 0x61, count: 4096)
-        try writer.add(data: payload, as: "damaged.txt", modificationDate: ZipTestSupport.date)
-        try writer.add(data: Data("unaffected".utf8), as: "intact.txt", modificationDate: ZipTestSupport.date)
+        try writer.add(data: payload, as: "damaged.txt", modificationDate: TestSupport.date)
+        try writer.add(data: Data("unaffected".utf8), as: "intact.txt", modificationDate: TestSupport.date)
         try writer.finish()
         var data = try Data(contentsOf: url)
         let member = try XCTUnwrap(LHABytes(data).members.first)

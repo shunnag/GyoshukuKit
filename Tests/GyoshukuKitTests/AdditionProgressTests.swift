@@ -8,7 +8,7 @@ final class AdditionProgressTests: XCTestCase {
 
     func testWriterAndEditorSessionsAndBytesInEveryFormat() throws {
         for format in S.formats {
-            let root = try ZipTestSupport.directory("p6-add-\(format)")
+            let root = try TestSupport.directory("p6-add-\(format)")
             let large = try S.file(root, "large", size: 9 * S.mib + 1)
             let empty = try S.file(root, "empty", size: 0)
             let special = root.appendingPathComponent("special")
@@ -43,7 +43,7 @@ final class AdditionProgressTests: XCTestCase {
     func testRecursiveTotalsAndGrowthAfterPrewalk() throws {
         for format in S.formats {
             for grow in [false, true] {
-                let root = try ZipTestSupport.directory("p6-walk-\(format)-\(grow)")
+                let root = try TestSupport.directory("p6-walk-\(format)-\(grow)")
                 let tree = root.appendingPathComponent("tree")
                 try FileManager.default.createDirectory(at: tree.appendingPathComponent("one/two"), withIntermediateDirectories: true)
                 var total: UInt64 = 0
@@ -77,7 +77,7 @@ final class AdditionProgressTests: XCTestCase {
     }
 
     func testNilProgressDoesNotPrewalkAndLHASymlinkDoesNotFinish() throws {
-        let root = try ZipTestSupport.directory("p6-nil-prewalk")
+        let root = try TestSupport.directory("p6-nil-prewalk")
         let tree = root.appendingPathComponent("tree")
         try FileManager.default.createDirectory(at: tree, withIntermediateDirectories: true)
         let writer = try ArchiveWriter.create(url: root.appendingPathComponent("nil.tar"), format: .tar)
@@ -99,7 +99,7 @@ final class AdditionProgressTests: XCTestCase {
         for format in S.formats {
             for rewrite in [false, true] {
                 for cancel in [false, true] {
-                    let root = try ZipTestSupport.directory("p6-add-failure-\(format)-\(rewrite)-\(cancel)")
+                    let root = try TestSupport.directory("p6-add-failure-\(format)-\(rewrite)-\(cancel)")
                     let source = try S.source(root, format: format)
                     let original = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
                     let disk = try S.file(root, "disk", size: 9 * S.mib + 1)
@@ -144,7 +144,7 @@ final class AdditionProgressTests: XCTestCase {
     func testWriterCallbackAndTaskCancellationUseExistingCleanup() async throws {
         for format in S.formats {
             for phase in ["add", "drain", "task"] {
-                let root = try ZipTestSupport.directory("p6-writer-failure-\(format)-\(phase)")
+                let root = try TestSupport.directory("p6-writer-failure-\(format)-\(phase)")
                 let disk = try S.file(root, "disk", size: 9 * S.mib + 1)
                 let output = root.appendingPathComponent("output")
                 let task = Task {
@@ -153,7 +153,7 @@ final class AdditionProgressTests: XCTestCase {
                     do {
                         if phase == "drain" {
                             for index in 0..<8 {
-                                try writer.add(data: Data(repeating: 0x61, count: S.mib), as: "new-\(index)", modificationDate: ZipTestSupport.date)
+                                try writer.add(data: Data(repeating: 0x61, count: S.mib), as: "new-\(index)", modificationDate: TestSupport.date)
                             }
                             try writer.finishAdditions(progress: { p in
                                 if p.completedBytes > 0 || p.totalBytes == 0 { fired = true; throw S.Failure.callback }

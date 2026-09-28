@@ -4,7 +4,7 @@ import XCTest
 
 final class SevenZipSharedOutputGateTests: XCTestCase {
     func testIdenticalScratchPrefixIsNotWrittenTwice() throws {
-        let root = try ZipTestSupport.directory("p5-generated-prefix-gate")
+        let root = try TestSupport.directory("p5-generated-prefix-gate")
         let source = root.appendingPathComponent("source.bin")
         let path = root.appendingPathComponent("output.bin")
         try Data(count: 64).write(to: source)

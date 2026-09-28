@@ -8,7 +8,7 @@ import XCTest
 final class SevenZipUpdaterCancellationTests: XCTestCase {
     func testCancellationDuringScratchConversionVerificationAndRelocation() async throws {
         for phase in ["scratch", "generated", "verification", "relocation", "relocation-return"] {
-            let root = try ZipTestSupport.directory("7z-cancel-" + phase)
+            let root = try TestSupport.directory("7z-cancel-" + phase)
             let source = phase == "scratch" ? SevenZipEditSupport.fixture("m") : try SevenZipEditSupport.source(root)
             let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
             let fired = Mutex(false)

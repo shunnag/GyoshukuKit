@@ -5,7 +5,7 @@ import XCTest
 
 final class ZipInPlaceRenameTests: XCTestCase {
     func testOneAndThousandRenamesOnlyWriteHeaderPatches() throws {
-        let directory = try ZipTestSupport.directory("p1-in-place")
+        let directory = try TestSupport.directory("p1-in-place")
         defer { try? FileManager.default.removeItem(at: directory) }
         for count in [1, 1000] {
             let source = try ZipP1Support.fixture(directory, name: "source-\(count).zip", count: count, payloadSize: 32)
@@ -34,7 +34,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
     }
 
     func testNoncanonicalEndsGapsAndCentralNameLengthUseGeneralPath() throws {
-        let directory = try ZipTestSupport.directory("p1-in-place-fallback")
+        let directory = try TestSupport.directory("p1-in-place-fallback")
         defer { try? FileManager.default.removeItem(at: directory) }
         for variant in ["redundant", "gap", "tailgap", "cdname"] {
             let source = try ZipP1Corpus.crafted(directory, variant: variant)

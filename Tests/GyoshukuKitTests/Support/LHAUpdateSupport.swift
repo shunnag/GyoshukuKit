@@ -35,7 +35,7 @@ enum LHAUpdateSupport {
         let url = root.appendingPathComponent("source.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha, options: .init(compressionThreads: 2))
         for index in 0..<count {
-            try writer.add(data: LHATestSupport.random(size, alphabetMask: 0xFF), as: String(format: "file-%06d", index), modificationDate: ZipTestSupport.date)
+            try writer.add(data: LHATestSupport.random(size, alphabetMask: 0xFF), as: String(format: "file-%06d", index), modificationDate: TestSupport.date)
         }
         try writer.finish()
         return url

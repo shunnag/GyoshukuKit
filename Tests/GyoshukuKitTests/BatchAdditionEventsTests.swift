@@ -9,7 +9,7 @@ final class BatchAdditionEventsTests: XCTestCase {
     private typealias B = BatchAdditionTestSupport
 
     func testCallerThreadOrderSessionsAndBoundedWindow() throws {
-        let root = try ZipTestSupport.directory("p7-events")
+        let root = try TestSupport.directory("p7-events")
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try B.fixture(root, full: false)
         for format in S.formats {
@@ -57,7 +57,7 @@ final class BatchAdditionEventsTests: XCTestCase {
     }
 
     func testEveryCallbackFailureIsUnwrappedAndWillStartFailureNeverOpensItem() throws {
-        let root = try ZipTestSupport.directory("p7-event-errors")
+        let root = try TestSupport.directory("p7-event-errors")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.small(root, count: 12)
         for phase in ["start", "progress", "finish"] {
@@ -124,7 +124,7 @@ final class BatchAdditionEventsTests: XCTestCase {
     }
 
     func testCancellationAt300JoinsDescriptorsBeforeReturning() async throws {
-        let root = try ZipTestSupport.directory("p7-cancel")
+        let root = try TestSupport.directory("p7-cancel")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.small(root, count: 1000)
         for format in [ArchiveFormat.zip, .tarGzip, .sevenZip] {
@@ -155,7 +155,7 @@ final class BatchAdditionEventsTests: XCTestCase {
     }
 
     func testFinishAdditionsRejectsBatchWithoutPoisoningInstance() throws {
-        let root = try ZipTestSupport.directory("p7-closed")
+        let root = try TestSupport.directory("p7-closed")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try B.small(root)
         for format in S.formats {

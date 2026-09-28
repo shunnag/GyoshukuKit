@@ -18,7 +18,7 @@ final class ZipModernMethodEditingTests: XCTestCase {
     }
 
     func testAppendPreservesXZAndLegacyZstandardLocalRecords() throws {
-        let directory = try ZipTestSupport.directory("modern-method-append")
+        let directory = try TestSupport.directory("modern-method-append")
         defer { try? FileManager.default.removeItem(at: directory) }
         for name in fixtures {
             let url = try fixture(name, below: directory)
@@ -36,7 +36,7 @@ final class ZipModernMethodEditingTests: XCTestCase {
     }
 
     func testRenameAndRemovePreserveCompressedAndEncryptedPayloads() throws {
-        let directory = try ZipTestSupport.directory("modern-method-rename")
+        let directory = try TestSupport.directory("modern-method-rename")
         defer { try? FileManager.default.removeItem(at: directory) }
         for name in fixtures {
             let url = try fixture(name, below: directory)

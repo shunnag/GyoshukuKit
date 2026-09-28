@@ -9,7 +9,7 @@ final class RewriterCommitProgressTests: XCTestCase {
     func testBothPlacementsUseFixedBudgetAndPreserveBytesAndDidCarry() throws {
         for format in S.formats {
             for placement in [AdditionPlacement.beginning, .end] {
-                let root = try ZipTestSupport.directory("p6-rewrite-\(format)-\(placement)")
+                let root = try TestSupport.directory("p6-rewrite-\(format)-\(placement)")
                 let source = try S.source(root, format: .tar, size: 9 * S.mib + 1)
                 let disk = try S.file(root, "disk", size: 5 * S.mib + 1)
                 let tree = root.appendingPathComponent("tree")
@@ -31,8 +31,8 @@ final class RewriterCommitProgressTests: XCTestCase {
                     try existential.add(contentsOf: disk, as: "added", ownerIDs: nil, progress: observed ? addition.record : nil)
                     if observed { addition.check(total: placement == .end ? 0 : UInt64(5 * S.mib + 1)) }
                     try existential.add(contentsOf: tree, as: "tree")
-                    try existential.add(data: Data(repeating: 0x64, count: 17), as: "data", modificationDate: ZipTestSupport.date, permissions: nil)
-                    try existential.addDirectory("dir", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+                    try existential.add(data: Data(repeating: 0x64, count: 17), as: "data", modificationDate: TestSupport.date, permissions: nil)
+                    try existential.addDirectory("dir", modificationDate: TestSupport.date, ownerIDs: nil)
                     if observed {
                         let pending = editor.pendingInputBytes
                         let closing = S.Session()
@@ -63,7 +63,7 @@ final class RewriterCommitProgressTests: XCTestCase {
     func testHardLinkMaterializationAndBufferReadsAreIncluded() throws {
         for format in [GyoshukuKit.ArchiveFormat.tar, .zip] {
             for removeTarget in [false, true] {
-                let root = try ZipTestSupport.directory("p6-rewrite-links-\(format)-\(removeTarget)")
+                let root = try TestSupport.directory("p6-rewrite-links-\(format)-\(removeTarget)")
                 let source = root.appendingPathComponent("source.tar")
                 let size = 5 * S.mib + 1, payload = Data(repeating: 0x61, count: size)
                 try TarP2Support.archive([
@@ -83,7 +83,7 @@ final class RewriterCommitProgressTests: XCTestCase {
     }
 
     func testUnknownSizeGzipDoesNotCountReads() throws {
-        let root = try ZipTestSupport.directory("p6-rewrite-unknown")
+        let root = try TestSupport.directory("p6-rewrite-unknown")
         let source = root.appendingPathComponent("single.gz")
         var bytes = Data()
         try GzipCompressor(level: 6).write(Data(repeating: 0x61, count: 9 * S.mib + 1), finish: true) { bytes.append($0) }
@@ -102,7 +102,7 @@ final class RewriterCommitProgressTests: XCTestCase {
     func testCarryAndDrainErrorsPrecedePublicationAndPreserveOriginal() throws {
         for phase in ["carry", "drain", "finish"] {
             for failure in ["cancel", "custom", "mapped", "kaito"] {
-                let root = try ZipTestSupport.directory("p6-rewrite-fail-\(phase)-\(failure)")
+                let root = try TestSupport.directory("p6-rewrite-fail-\(phase)-\(failure)")
                 let source = try S.source(root, format: .tar, size: 40 * S.mib)
                 let bytes = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
                 let editor = try ArchiveRewriter.open(url: source, format: .tarXZ, options: S.options)

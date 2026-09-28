@@ -5,7 +5,7 @@ import XCTest
 
 final class SevenZipSelfCheckFaultTests: XCTestCase {
     func testEveryFaultIsDetectedAndCleaned() throws {
-        let root = try ZipTestSupport.directory("7z-faults")
+        let root = try TestSupport.directory("7z-faults")
         let simple = try SevenZipEditSupport.source(root)
         let faults: [SevenZipUpdater.Fault] = [.flipMovedPackByte, .flipAppendedPackByte, .flipReencodedPackByte,
             .flipConvertedPackByte, .corruptSerializedName, .dropLastPackFromModel]

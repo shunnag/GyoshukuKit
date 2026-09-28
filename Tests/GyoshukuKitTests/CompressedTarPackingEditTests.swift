@@ -7,7 +7,7 @@ final class CompressedTarPackingEditTests: XCTestCase {
     private let limits = TarChunkLimits(packing: 4 * 1024 * 1024, piece: 16 * 1024 * 1024)
 
     func testMediumRenameDeleteAndPackedDeletePreserveBodies() throws {
-        let root = try ZipTestSupport.directory("p14-packing-edits")
+        let root = try TestSupport.directory("p14-packing-edits")
         let source = try CompressedTarTestSupport.packingFixture(root)
         let reader = try CompressedTarTestSupport.open(source)
         let medium = try XCTUnwrap(reader.entries.first { $0.name == "medium" })
@@ -38,7 +38,7 @@ final class CompressedTarPackingEditTests: XCTestCase {
     }
 
     func testOldPackingEditsRepartitionEncodedBridges() throws {
-        let root = try ZipTestSupport.directory("p14-old-packing")
+        let root = try TestSupport.directory("p14-old-packing")
         let source = try CompressedTarTestSupport.packingFixture(root, oldPacking: true, bodyExcess: 129)
         let reader = try CompressedTarTestSupport.open(source)
         let entry = try XCTUnwrap(reader.entries.first { $0.name == "medium" })
@@ -53,13 +53,13 @@ final class CompressedTarPackingEditTests: XCTestCase {
     }
 
     func testOldFolderRenameFullEncodeSeparatesEveryHeaderAndBody() throws {
-        let root = try ZipTestSupport.directory("p14-old-folder")
+        let root = try TestSupport.directory("p14-old-folder")
         let raw = root.appendingPathComponent("folder.tar"), source = root.appendingPathComponent("old.tar.xz")
         let writer = try ArchiveWriter.create(url: raw, format: .tar)
-        try writer.addDirectory("folder/", modificationDate: ZipTestSupport.date, ownerIDs: nil)
+        try writer.addDirectory("folder/", modificationDate: TestSupport.date, ownerIDs: nil)
         let size = limits.packing + 100_000
         for index in 0..<3 {
-            try writer.add(data: Data(repeating: UInt8(index), count: size), as: "folder/file-\(index)", modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(repeating: UInt8(index), count: size), as: "folder/file-\(index)", modificationDate: TestSupport.date)
         }
         try writer.finish()
         try CompressedTarTestSupport.compress(raw, to: source, format: .tarXZ, packingSize: limits.piece)

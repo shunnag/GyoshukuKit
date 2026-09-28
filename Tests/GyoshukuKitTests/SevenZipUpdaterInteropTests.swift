@@ -7,7 +7,7 @@ import XCTest
 final class SevenZipUpdaterInteropTests: XCTestCase {
     func testExternalReadersAndExtractionHashes() throws {
         guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
-        let root = try ZipTestSupport.directory("7z-interop")
+        let root = try TestSupport.directory("7z-interop")
         for name in ["g_plain", "g_aes", "g_aesh", "z_default", "z_aes", "z_aesh", "z_aesonlyh", "z_special", "anti", "lib", "bcj", "bcj2", "ppmd", "solid_zero"] {
             let source = SevenZipEditSupport.fixture(name)
             let old = try XCTUnwrap(SevenZipEditModel.read(SevenZipEditSupport.reader(source)))
@@ -30,7 +30,7 @@ final class SevenZipUpdaterInteropTests: XCTestCase {
     // require the same rejection only while a StartPos entry remains. No other exception.
     func testStartPosBaselineAndPreservation() throws {
         guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
-        let root = try ZipTestSupport.directory("7z-startpos-interop")
+        let root = try TestSupport.directory("7z-startpos-interop")
         let source = SevenZipEditSupport.fixture("startpos")
         let original = try SevenZipEditSupport.reader(source)
         let model = try XCTUnwrap(SevenZipEditModel.read(original))
@@ -72,14 +72,14 @@ enum SevenZipExternalOracles {
     static func check(_ output: URL, password: String?, permitsStartPosRejection: Bool = false) throws {
         guard available else { return }
         // Keep reference-tool artifacts away from the transaction's cleanup assertions.
-        let parent = ZipTestSupport.root.appendingPathComponent("7z-external-oracles")
+        let parent = TestPaths.verification.appendingPathComponent("7z-external-oracles")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let work = try SevenZipEditSupport.work(parent)
         let reader = try SevenZipEditSupport.reader(output, password: password)
         let model = try XCTUnwrap(SevenZipEditModel.read(reader))
         let items = try SevenZipEditSupport.items(reader)
         let passwordArguments = password.map { ["-p" + $0] } ?? []
-        try ZipTestSupport.run(ReferenceTool.sevenZip, ["t", "-y"] + passwordArguments + [output.path], in: work, log: "7zz-t")
+        try TestSupport.run(ReferenceTool.sevenZip, ["t", "-y"] + passwordArguments + [output.path], in: work, log: "7zz-t")
         let readers = model.header.encrypted || model.folders.contains(where: \.isEncrypted) ? ["7zz"] : ["7zz", "bsdtar"]
         for tool in readers {
             let target = work.appendingPathComponent(tool)
@@ -93,9 +93,9 @@ enum SevenZipExternalOracles {
                     XCTAssertFalse(text.contains("Headers Error"), text)
                     continue
                 }
-                try ZipTestSupport.run(ReferenceTool.sevenZip, arguments, in: work, log: "7zz-x")
+                try TestSupport.run(ReferenceTool.sevenZip, arguments, in: work, log: "7zz-x")
             } else {
-                try ZipTestSupport.run(ReferenceTool.bsdtar, ["-xf", output.path, "-C", target.path], in: work, log: "bsdtar-x")
+                try TestSupport.run(ReferenceTool.bsdtar, ["-xf", output.path, "-C", target.path], in: work, log: "bsdtar-x")
             }
             for (index, item) in items.enumerated() {
                 let path = target.appendingPathComponent(item.name)

@@ -8,7 +8,7 @@ import XCTest
 final class CompressedTarUpdaterTests: XCTestCase {
     func testOperationsMatchP2AndK5ForAllCodecs() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try ZipTestSupport.directory("p3-ops-\(format)")
+            let root = try TestSupport.directory("p3-ops-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
             for operation in ["unchanged", "delete-first", "delete-last", "rename-same", "rename-long", "append", "replace", "all"] {
                 let output = root.appendingPathComponent(operation + "." + TarP2Support.suffix(format))
@@ -18,9 +18,9 @@ final class CompressedTarUpdaterTests: XCTestCase {
                     case "delete-last": try editor.remove(entriesAt: [26])
                     case "rename-same": try editor.rename(entryAt: 0, to: "large-C")
                     case "rename-long": try editor.rename(entryAt: 2, to: String(repeating: "r", count: 180))
-                    case "append": try editor.add(data: Data(repeating: 77, count: 4096), as: "added", modificationDate: ZipTestSupport.date, permissions: nil)
+                    case "append": try editor.add(data: Data(repeating: 77, count: 4096), as: "added", modificationDate: TestSupport.date, permissions: nil)
                     case "replace":
-                        try editor.add(data: Data([3]), as: "new", modificationDate: ZipTestSupport.date, permissions: nil)
+                        try editor.add(data: Data([3]), as: "new", modificationDate: TestSupport.date, permissions: nil)
                         try editor.remove(entriesAt: [0, 3]); try editor.rename(entryAt: 1, to: "next")
                     case "all": try editor.remove(entriesAt: Array(0..<27))
                     default: break
@@ -32,21 +32,21 @@ final class CompressedTarUpdaterTests: XCTestCase {
                 } else if operation == "all" {
                     XCTAssertEqual(result.strategy, .fullEncode(.noReusableChunk))
                     _ = try CompressedTarTestSupport.edit(output, format: format, output: root.appendingPathComponent("from-empty")) {
-                        try $0.add(data: Data([1]), as: "restored", modificationDate: ZipTestSupport.date, permissions: nil)
+                        try $0.add(data: Data([1]), as: "restored", modificationDate: TestSupport.date, permissions: nil)
                     }
                 } else if operation != "replace" {
                     guard case .splice = result.strategy else { return XCTFail("expected splice: \(format) \(operation) \(result.strategy)") }
                     if operation == "append" { XCTAssertEqual(result.reencodedOldImageBytes, 0) }
                     if operation == "delete-first", format != .tarGzip {
                         XCTAssertEqual(result.reencodedOldImageBytes, 0)
-                        ZipTestSupport.report("TAR-WHOLE-DELETE \(format)\treencoded_old=\(result.reencodedOldImageBytes)\treencoded=\(result.reencodedImageBytes)")
+                        TestSupport.report("TAR-WHOLE-DELETE \(format)\treencoded_old=\(result.reencodedOldImageBytes)\treencoded=\(result.reencodedImageBytes)")
                     }
                 }
             }
         }
     }
     func testOpenGatesCreateNothingAndAssessmentIsReadOnly() throws {
-        let root = try ZipTestSupport.directory("p3-gates")
+        let root = try TestSupport.directory("p3-gates")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let output = root.appendingPathComponent("output")
         let before = Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
@@ -69,7 +69,7 @@ final class CompressedTarUpdaterTests: XCTestCase {
         XCTAssertNil(CompressedTarUpdater.assess(reader: try ArchiveReader.open(url: source)))
     }
     func testMissingIdentityRecoveryAndLegacyNamesRequireRewrite() throws {
-        let root = try ZipTestSupport.directory("p3-gates-layout")
+        let root = try TestSupport.directory("p3-gates-layout")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let output = root.appendingPathComponent("bad")
         let memory = try ArchiveReader.open(source: DataByteSource(data: Data(contentsOf: source)), sourceURL: source,
@@ -99,14 +99,14 @@ final class CompressedTarUpdaterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
     func testOwnerDateAndReservationsUseAppendFactory() throws {
-        let root = try ZipTestSupport.directory("p3-owners")
+        let root = try TestSupport.directory("p3-owners")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let disk = root.appendingPathComponent("disk")
         try Data([7, 8]).write(to: disk)
         _ = try CompressedTarTestSupport.edit(source, format: .tarGzip, output: root.appendingPathComponent("out")) {
             try $0.remove(entriesAt: [2])
             try $0.add(contentsOf: disk, as: "item-000", ownerIDs: .init(user: 123, group: 456))
-            try $0.addDirectory("folder", modificationDate: ZipTestSupport.date, ownerIDs: .init(user: 789, group: 987))
+            try $0.addDirectory("folder", modificationDate: TestSupport.date, ownerIDs: .init(user: 789, group: 987))
         }
         let reader = try CompressedTarTestSupport.open(root.appendingPathComponent("out"))
         XCTAssertEqual(reader.entries.suffix(2).map { $0.formatSpecific["uid"] }, ["123", "789"])
@@ -128,7 +128,7 @@ final class CompressedTarSpliceXZTests: XCTestCase {
 }
 enum CompressedTarDeterminism {
     static func run(_ format: GyoshukuKit.ArchiveFormat) throws {
-        let root = try ZipTestSupport.directory("p3-determinism-\(format)")
+        let root = try TestSupport.directory("p3-determinism-\(format)")
         let source = try CompressedTarTestSupport.fixture(root, format)
         var expected: Data?
         for threads in [1, 4, 8] {
@@ -146,12 +146,12 @@ enum CompressedTarDeterminism {
                 let output = root.appendingPathComponent("size-\(operation)-\(force)")
                 let result = try CompressedTarTestSupport.edit(source, format: format, output: output, force: force) {
                     if operation == "delete" { try $0.remove(entriesAt: [0]) }
-                    else { try $0.add(data: Data(repeating: 65, count: 4096), as: "added", modificationDate: ZipTestSupport.date, permissions: nil) }
+                    else { try $0.add(data: Data(repeating: 65, count: 4096), as: "added", modificationDate: TestSupport.date, permissions: nil) }
                 }
                 sizes.append(result.output.size)
             }
             XCTAssertLessThanOrEqual(abs(Double(sizes[0]) - Double(sizes[1])), 4096 + Double(sizes[1]) * 0.0005)
-            ZipTestSupport.report("TAR-SIZE \(format)\t\(operation)\tsplice=\(sizes[0])\tfull=\(sizes[1])")
+            TestSupport.report("TAR-SIZE \(format)\t\(operation)\tsplice=\(sizes[0])\tfull=\(sizes[1])")
         }
     }
 }

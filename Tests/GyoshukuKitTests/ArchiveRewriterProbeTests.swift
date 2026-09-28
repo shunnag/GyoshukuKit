@@ -6,7 +6,7 @@ import XCTest
 /// 一覧で判定できる条件について、entries 版 probe と open の受理・拒否と理由を照合する。
 final class ArchiveRewriterProbeTests: XCTestCase {
     private func fixture(_ names: [String], directoryIndices: Set<Int> = []) throws -> URL {
-        let directory = try ZipTestSupport.directory("rewriter-probe-\(UUID())")
+        let directory = try TestSupport.directory("rewriter-probe-\(UUID())")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source.zip")
         let script = #"""
@@ -19,7 +19,7 @@ final class ArchiveRewriterProbeTests: XCTestCase {
                 info.external_attr=((0o40755 if i in directories else 0o100644)<<16)|(0x10 if i in directories else 0)
                 z.writestr(info,b'' if i in directories else ('payload-%d'%i).encode())
         """#
-        try ZipTestSupport.run(ReferenceTool.python3, ["-c", script, url.path,
+        try TestSupport.run(ReferenceTool.python3, ["-c", script, url.path,
             directoryIndices.sorted().map(String.init).joined(separator: ",")] + names,
             in: directory, log: "create")
         return url

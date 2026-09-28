@@ -30,13 +30,13 @@ enum CompressedTarTestSupport {
                 state ^= state << 13; state ^= state >> 7; state ^= state << 17
                 body[index] = UInt8(truncatingIfNeeded: state)
             }
-            try writer.add(data: body, as: name, modificationDate: ZipTestSupport.date)
+            try writer.add(data: body, as: name, modificationDate: TestSupport.date)
         }
         for index in 0..<24 {
-            try writer.add(data: Data(repeating: UInt8(index), count: 65536), as: String(format: "item-%03d", index), modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data(repeating: UInt8(index), count: 65536), as: String(format: "item-%03d", index), modificationDate: TestSupport.date)
         }
         let path = "cafe\u{301}/" + String(repeating: "n", count: 120)
-        try writer.add(data: Data([99]), as: path, modificationDate: ZipTestSupport.date)
+        try writer.add(data: Data([99]), as: path, modificationDate: TestSupport.date)
         try writer.finish()
         let output = root.appendingPathComponent("source." + TarP2Support.suffix(format))
         try compress(raw, to: output, format: format, aligned: aligned)
@@ -84,8 +84,8 @@ enum CompressedTarTestSupport {
         func add(_ name: String, size: Int) throws {
             var body = Data(repeating: 37, count: size)
             body.replaceSubrange(0..<min(size, seed.count), with: seed.prefix(size))
-            try plain.add(data: body, as: name, modificationDate: ZipTestSupport.date)
-            try writer?.add(data: body, as: name, modificationDate: ZipTestSupport.date)
+            try plain.add(data: body, as: name, modificationDate: TestSupport.date)
+            try writer?.add(data: body, as: name, modificationDate: TestSupport.date)
         }
         for index in 0..<12 { try add("before-\(index)", size: 128 * 1024) }
         try add("medium", size: size)

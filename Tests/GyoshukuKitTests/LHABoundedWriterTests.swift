@@ -5,7 +5,7 @@ import XCTest
 
 final class LHABoundedWriterTests: XCTestCase {
     func testChunkBoundariesAndStoredFallbackPreserveFollowingMembers() throws {
-        let directory = try ZipTestSupport.directory("lha-bounded-members")
+        let directory = try TestSupport.directory("lha-bounded-members")
         let url = directory.appendingPathComponent("archive.lzh")
         let writer = try ArchiveWriter.create(url: url, format: .lha)
         let items: [LHATestSupport.Expected] = [
@@ -17,7 +17,7 @@ final class LHABoundedWriterTests: XCTestCase {
             .init(name: "compressed.bin", data: LHATestSupport.random(2_097_181, alphabetMask: 63)),
             .init(name: "after.txt", data: Data("after".utf8))
         ]
-        for item in items { try writer.add(data: item.data, as: item.name, modificationDate: ZipTestSupport.date) }
+        for item in items { try writer.add(data: item.data, as: item.name, modificationDate: TestSupport.date) }
         try writer.finish()
         let members = try LHABytes(Data(contentsOf: url)).members
         XCTAssertEqual(members.map(\.method), ["-lh0-", "-lh5-", "-lh5-", "-lh5-", "-lh0-", "-lh5-", "-lh0-"])
@@ -26,7 +26,7 @@ final class LHABoundedWriterTests: XCTestCase {
     }
 
     func testShortReadsStillProduceOneContinuousBitstream() throws {
-        let directory = try ZipTestSupport.directory("lha-short-reads")
+        let directory = try TestSupport.directory("lha-short-reads")
         let data = LHATestSupport.random(2_097_171, alphabetMask: 31)
         let source = directory.appendingPathComponent("source.bin"), url = directory.appendingPathComponent("archive.lzh")
         try data.write(to: source)
@@ -47,7 +47,7 @@ final class LHABoundedWriterTests: XCTestCase {
 
     func testMidstreamSourceFailuresEraseOutputAndHardlinkWithoutSpoolLeaks() throws {
         for earlyEOF in [false, true] {
-            let directory = try ZipTestSupport.directory("lha-stream-failure-\(earlyEOF)")
+            let directory = try TestSupport.directory("lha-stream-failure-\(earlyEOF)")
             let data = Data(repeating: 81, count: 3_145_751)
             let source = directory.appendingPathComponent("source.bin"), url = directory.appendingPathComponent("archive.lzh")
             let alias = directory.appendingPathComponent("alias.lzh")
@@ -74,7 +74,7 @@ final class LHABoundedWriterTests: XCTestCase {
     }
 
     func testCancellationAfterFirstSpoolChunkRemovesPartialArchive() async throws {
-        let directory = try ZipTestSupport.directory("lha-stream-cancel")
+        let directory = try TestSupport.directory("lha-stream-cancel")
         let source = directory.appendingPathComponent("source.bin"), url = directory.appendingPathComponent("archive.lzh")
         try Data(repeating: 67, count: 3_145_751).write(to: source)
         let task = Task.detached {

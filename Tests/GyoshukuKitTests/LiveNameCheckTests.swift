@@ -41,12 +41,12 @@ final class LiveNameCheckTests: XCTestCase {
         try writer.prepareAppend(at: 0, existingPaths: paths)
         return try outcome {
             if directory { try writer.addDirectory(name) }
-            else { try writer.add(data: Data([1]), as: name, modificationDate: ZipTestSupport.date) }
+            else { try writer.add(data: Data([1]), as: name, modificationDate: TestSupport.date) }
         }
     }
 
     private func checkOracle(_ mode: LiveNameCheck.Mode) throws {
-        let root = try ZipTestSupport.directory("live-name-oracle-\(mode)")
+        let root = try TestSupport.directory("live-name-oracle-\(mode)")
         defer { try? FileManager.default.removeItem(at: root) }
         var random = Random()
         let names = adversarialNames
@@ -106,7 +106,7 @@ final class LiveNameCheckTests: XCTestCase {
     func testWriterAgreesWithRealWriterForTenThousandCandidates() throws { try checkOracle(.writer) }
 
     func testEmptyComponentsCanonicalEquivalenceAndErrorPriority() throws {
-        let root = try ZipTestSupport.directory("live-name-fixed")
+        let root = try TestSupport.directory("live-name-fixed")
         defer { try? FileManager.default.removeItem(at: root) }
         let cases: [([(String, Bool)], String, Bool, Outcome, Outcome)] = [
             ([("a//b/c", false)], "a/b", false, .accepted, .invalid(Array("a/b".utf8))),
@@ -142,14 +142,14 @@ final class LiveNameCheckTests: XCTestCase {
         let source = root.appendingPathComponent("source.zip")
         let writer = try ArchiveWriter.create(url: source, options: .init(compressionMethod: .stored))
         for index in 0..<count {
-            try writer.add(data: Data([UInt8(index % 256)]), as: "file\(index)", modificationDate: ZipTestSupport.date)
+            try writer.add(data: Data([UInt8(index % 256)]), as: "file\(index)", modificationDate: TestSupport.date)
         }
         try writer.finish()
         return source
     }
 
     private func compareUpdates(_ label: String, _ edits: (ArchiveUpdater, Int) throws -> Void) throws {
-        let root = try ZipTestSupport.directory("live-name-\(label)")
+        let root = try TestSupport.directory("live-name-\(label)")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = try fixture(root)
         var outputs: [Data] = []
@@ -171,12 +171,12 @@ final class LiveNameCheckTests: XCTestCase {
     func testFourAdditionsScanAndFifthBuildsWriterTable() throws {
         try compareUpdates("addition-budget") { updater, budget in
             for index in 0..<4 {
-                try updater.add(data: Data([1]), as: "added\(index)", modificationDate: ZipTestSupport.date)
+                try updater.add(data: Data([1]), as: "added\(index)", modificationDate: TestSupport.date)
             }
             XCTAssertEqual(updater.nameCheckScanCount, budget == 0 ? 0 : 4)
             XCTAssertEqual(updater.writerUsesLiveNameCheck, budget != 0)
             XCTAssertFalse(updater.hasPathReservations)
-            try updater.add(data: Data([1]), as: "added4", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data([1]), as: "added4", modificationDate: TestSupport.date)
             XCTAssertEqual(updater.writerUsesLiveNameCheck, budget == Int.max)
             XCTAssertEqual(updater.nameCheckScanCount, budget == 0 ? 0 : budget == 4 ? 4 : 5)
         }
@@ -198,25 +198,25 @@ final class LiveNameCheckTests: XCTestCase {
             try updater.remove(entriesAt: [7, 7])
             XCTAssertEqual(updater.nameCheckScanCount, 0)
             XCTAssertFalse(updater.hasPathReservations)
-            try updater.add(data: Data([1]), as: "file7", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data([1]), as: "file7", modificationDate: TestSupport.date)
             try updater.rename(entryAt: 0, to: "temporary")
             try updater.rename(entryAt: 0, to: "changed")
             try updater.remove(entriesAt: [0])
-            try updater.add(data: Data([2]), as: "file0", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data([2]), as: "file0", modificationDate: TestSupport.date)
             XCTAssertEqual(updater.nameCheckScanCount, budget == 0 ? 0 : 4)
             try updater.rename(entryAt: 1, to: "temporary")
             XCTAssertEqual(updater.hasPathReservations, budget != Int.max)
-            try updater.add(data: Data([3]), as: "changed", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data([3]), as: "changed", modificationDate: TestSupport.date)
             XCTAssertEqual(updater.writerUsesLiveNameCheck, budget == Int.max)
             try updater.rename(entryAt: 2, to: "file1")
             try updater.remove(entriesAt: [1])
-            try updater.add(data: Data([4]), as: "temporary", modificationDate: ZipTestSupport.date)
+            try updater.add(data: Data([4]), as: "temporary", modificationDate: TestSupport.date)
         }
     }
 
     func testDefaultMinimumEntryBoundary() throws {
         for count in [2_047, 2_048] {
-            let root = try ZipTestSupport.directory("live-name-minimum-\(count)")
+            let root = try TestSupport.directory("live-name-minimum-\(count)")
             defer { try? FileManager.default.removeItem(at: root) }
             let updater = try ArchiveUpdater.open(url: fixture(root, count: count))
             try updater.add(data: Data([1]), as: "added")
@@ -231,8 +231,8 @@ final class LiveNameCheckTests: XCTestCase {
         case add(String), directory(String), rename(Int, String), remove([Int])
         func apply(to updater: ArchiveUpdater) throws {
             switch self {
-            case .add(let name): try updater.add(data: Data([42]), as: name, modificationDate: ZipTestSupport.date)
-            case .directory(let name): try updater.addDirectory(name, modificationDate: ZipTestSupport.date, ownerIDs: nil)
+            case .add(let name): try updater.add(data: Data([42]), as: name, modificationDate: TestSupport.date)
+            case .directory(let name): try updater.addDirectory(name, modificationDate: TestSupport.date, ownerIDs: nil)
             case .rename(let index, let name): try updater.rename(entryAt: index, to: name)
             case .remove(let indices): try updater.remove(entriesAt: indices)
             }
@@ -252,7 +252,7 @@ final class LiveNameCheckTests: XCTestCase {
             try compareUpdates("bytes-\(index)") { updater, _ in
                 for edit in script { try edit.apply(to: updater) }
             }
-            let root = try ZipTestSupport.directory("live-name-rejection-\(index)")
+            let root = try TestSupport.directory("live-name-rejection-\(index)")
             defer { try? FileManager.default.removeItem(at: root) }
             let source = try fixture(root), original = try Data(contentsOf: source)
             for budget in [0, 4, Int.max] {
