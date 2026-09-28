@@ -111,14 +111,14 @@ public final class ArchiveRewriter: ArchiveEditing {
                 appleDoublePolicy: .expose))
             try source.checkUnchanged(at: url)
         } catch let error as KaitoError {
-            throw map(error, entry: nil)
+            throw ArchiveRepresentability.map(error, entry: nil)
         } catch let error as CancellationError {
             // KaitoKit 0.11 の open は取消し済みの Task で CancellationError を投げる。不正な書庫とは区別する。
             throw error
         } catch {
             throw RewriterError.invalidArchive(String(describing: error))
         }
-        let plan = try validateRepresentability(entries: reader.entries, format: format, reader: reader)
+        let plan = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: format, reader: reader)
         return ArchiveRewriter(url: url, output: output, format: format, options: options,
                                source: source, reader: reader, names: plan.names,
                                hardLinkTargets: plan.hardLinkTargets, dataTargets: plan.dataTargets)
@@ -131,105 +131,21 @@ public final class ArchiveRewriter: ArchiveEditing {
     /// 復号可否（password）、`WriterOptions`、原本の同一性は検査しない。暗号化の有無は
     /// `entries.contains(\.isEncrypted)` で呼出側が判断する。
     public static func probe(entries: [ArchiveEntry], format: ArchiveFormat) throws {
-        _ = try validateRepresentability(entries: entries, format: format)
+        _ = try ArchiveRepresentability.validateRepresentability(entries: entries, format: format)
     }
 
     /// `open` と同じ検査。reader は appleDoublePolicy .expose で開くこと。
     /// MacLHA の候補だけ stream の初期長を調べ、envelope を失う entry を拒否する。
     /// 全本文の復号・CRC、password、WriterOptions、原本の同一性は検査しない。
     public static func probe(reader: ArchiveReader, format: ArchiveFormat) throws {
-        _ = try validateRepresentability(entries: reader.entries, format: format, reader: reader)
+        _ = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: format, reader: reader)
     }
 
-    private static func validateSource(_ entry: ArchiveEntry, reader: ArchiveReader?) throws {
-        func refuse(_ reason: String) -> RewriterError {
-            .unrepresentable(entry: entry.name, reason: reason)
-        }
-        if entry.formatSpecific["headerLevel"] != nil {
-            let method = entry.formatSpecific["method"] ?? entry.methodDescription
-            switch method {
-            case "-lh0-", "-lz4-", "-pm0-", "-lhd-", "-lh1-",
-                 "-lh4-", "-lh5-", "-lh6-", "-lh7-", "-lhx-", "-lz5-", "-lzs-": break
-            default: throw refuse("未対応の LHA 圧縮方式は再圧縮できません: \(method)")
-            }
-            if let reader, entry.kind != .directory, entry.formatSpecific["osID"] == "m",
-               ["1", "2"].contains(entry.formatSpecific["headerLevel"]) {
-                do {
-                    let stream = try reader.stream(entry)
-                    guard let size = entry.uncompressedSize, stream.remaining == size else {
-                        throw refuse("MacBinary の envelope・resource fork を保持できないため再圧縮できません")
-                    }
-                } catch let error as KaitoError {
-                    throw map(error, entry: entry.name)
-                }
-            }
-        }
-        // KaitoKit は未知の coder ID をこの表記で公開する。既知の coder の allowlist は持たない。
-        if let method = entry.methodDescription.split(separator: "+").first(where: { $0.hasPrefix("7z method 0x") }) {
-            throw refuse("未対応の 7z 圧縮方式は再圧縮できません: \(method)")
-        }
-    }
-
-    // open と probe で検査順と拒否理由を共有する。
+    // 検査本体は ArchiveRepresentability。7z / LHA の updater が切り替えるまでの転送。
     static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat,
-                                                reader: ArchiveReader? = nil) throws
+                                         reader: ArchiveReader? = nil) throws
         -> (names: [String], hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
-        var names: [String] = []
-        let carriedPaths = EditPathReservations([])
-        var hardLinkTargets: [Int: Int] = [:]
-        var dataTargets: [Int: Int] = [:]
-        for entry in entries {
-            func refuse(_ reason: String) -> RewriterError {
-                .unrepresentable(entry: entry.name, reason: reason)
-            }
-            guard entry.formatSpecific["fork"] != "resource" else {
-                throw refuse("resource fork の擬似 entry は書き込めません。reader を appleDoublePolicy .expose で開いてください")
-            }
-            try validateSource(entry, reader: reader)
-            let carried = entry.pathComponents.drop(while: { $0 == "." }).joined(separator: "/")
-            let name: String
-            // ./ や . の directory は書庫の root。改名された時だけ通常の directory として運ぶ。
-            do {
-                name = carried.isEmpty && entry.kind == .directory ? ""
-                    : try ArchiveWriter.normalizedPath(carried, directory: entry.kind == .directory, format: format)
-            } catch { throw refuse("出力名に空の要素・禁止文字・不正な相対パスが含まれています") }
-            guard entry.kind != .other else { throw refuse("この entry 種別は書き込めません") }
-            if entry.kind == .symlink, format == .lha { throw refuse("LHA は symlink を保存できません") }
-            if entry.kind == .hardlink {
-                guard let text = entry.formatSpecific["hardLinkTargetIndex"], let index = Int(text),
-                      index >= 0, index < entry.index, entries.indices.contains(index),
-                      entries[index].kind == .file || dataTargets[index] != nil else {
-                    throw refuse("hard link の参照先が欠けているか、先行する通常ファイルではありません")
-                }
-                hardLinkTargets[entry.index] = index
-                dataTargets[entry.index] = dataTargets[index] ?? index
-            }
-            let date = entry.modificationDate ?? Date()
-            do {
-                switch format {
-                case .zip: _ = try ZipRecords.timestamp(date)
-                case .sevenZip: _ = try SevenZipRecords.timestamp(date)
-                case .lha: _ = try LHARecords.timestamp(date)
-                case .tar, .tarGzip, .tarBzip2, .tarXZ: _ = try TarRecords.timestamp(date)
-                }
-            } catch { throw refuse("更新日時が出力形式の表現範囲外です") }
-            if format == .lha {
-                // writer と同じ CP932 往復・header 長・サイズの検査を、出力作成前に行う。
-                let size = dataTargets[entry.index].map { entries[$0].uncompressedSize }
-                    ?? entry.uncompressedSize
-                do {
-                    _ = try LHARecords.Entry(name: name, mode: mode(for: entry), size: size ?? 0, date: date)
-                } catch { throw refuse("LHA の CP932 名・header 長・32 bit サイズで表現できません") }
-            }
-            if !name.isEmpty {
-                let directory = entry.kind == .directory
-                do { try carriedPaths.validate(name, directory: directory) }
-                catch { throw refuse("正規化した出力名が他の entry と衝突しています: \(name)") }
-                carriedPaths.insert(name, directory: directory)
-            }
-            names.append(name)
-        }
-        return (names, hardLinkTargets, dataTargets)
+        try ArchiveRepresentability.validateRepresentability(entries: entries, format: format, reader: reader)
     }
 
     public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
@@ -368,72 +284,15 @@ public final class ArchiveRewriter: ArchiveEditing {
             })
             let meter: CommitProgressMeter?
             if let progress {
-                var reads: UInt64 = 0
-                for entry in survivors { reads = try checkedAdd(reads, carryInputByteCount(entry)) }
-                for index in neededTargets { reads = try checkedAdd(reads, reader.entries[index].uncompressedSize ?? 0) }
-                for addition in additions {
-                    let count: UInt64
-                    switch addition {
-                    case let .disk(url, _, _, signature):
-                        count = signature.isDirectory ? try ArchiveWriter.inputByteCount(url) : signature.inputByteCount
-                    case let .data(data, _, _, _): count = UInt64(data.count)
-                    case .directory: count = 0
-                    }
-                    reads = try checkedAdd(reads, count)
-                }
-                let drain = min(try checkedAdd(reads, writer.pendingInputBytes), options.maximumPendingInputBytes(for: format))
-                meter = CommitProgressMeter(total: try checkedAdd(reads, drain), progress: { update in
+                meter = CommitProgressMeter(total: try commitBudget(survivors: survivors, neededTargets: neededTargets, writer: writer),
+                                            progress: { update in
                     do { try progress(update) } catch { progressError = error; throw error }
                     guard self.state == .committing else { throw RewriterError.invalidState }
                 })
                 try meter?.start()
             } else { meter = nil }
-            var buffered: [Int: BufferedEntry] = [:]
-            var done = 0
-            for entry in reader.entries.sorted(by: { $0.index < $1.index }) {
-                guard survives(entry.index) || neededTargets.contains(entry.index) else { continue }
-                try autoreleasepool {
-                    try Task.checkCancellation()
-                    do {
-                        if entry.isEncrypted, reader.password == nil { throw KaitoError.passwordRequired }
-                        if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry, meter: meter) }
-                        if !survives(entry.index) { return }
-                        try carry(entry, writer: writer, buffered: buffered, meter: meter)
-                    } catch let error as KaitoError {
-                        throw Self.map(error, entry: entry.name)
-                    } catch WriterError.sourceChanged(let name) {
-                        throw RewriterError.invalidArchive("entry のサイズが一致しません: \(name)")
-                    }
-                    done += 1
-                    try didCarry?(done, survivors.count)
-                }
-            }
-            var batch: [ArchiveAddition] = []
-            var signatures: [DiskSignature?] = []
-            func flush() throws {
-                guard !batch.isEmpty else { return }
-                // commit の既存のエラー契約は項目別の原因をそのまま返す。
-                do { try writer.add(batch, expected: signatures, meter: meter, events: nil) }
-                catch let error as ArchiveAdditionError { throw error.underlying }
-                batch.removeAll(keepingCapacity: true)
-                signatures.removeAll(keepingCapacity: true)
-            }
-            for addition in additions {
-                try Task.checkCancellation()
-                switch addition {
-                case let .disk(url, path, ids, signature):
-                    batch.append(.init(path: path, source: .contents(of: url), ownerIDs: ids))
-                    signatures.append(signature)
-                case let .data(data, path, date, mode):
-                    try flush()
-                    try writer.add(data: data, as: path, modificationDate: date, permissions: mode, meter: meter)
-                case let .directory(path, date, ids):
-                    batch.append(.init(path: path, source: .directory(modificationDate: date), ownerIDs: ids))
-                    signatures.append(nil)
-                }
-            }
-            try flush()
-            additions.removeAll()
+            try carrySurvivors(survivors, neededTargets: neededTargets, writer: writer, meter: meter, didCarry: didCarry)
+            try flushAdditions(writer: writer, meter: meter)
             let quarantine = output == nil ? try readQuarantine() : nil
             try checkUnchanged()
             try Task.checkCancellation()
@@ -445,19 +304,96 @@ public final class ArchiveRewriter: ArchiveEditing {
             try meter?.finish()
             try Task.checkCancellation()
             if meter != nil { try checkUnchanged() }
-            if output == nil {
-                _ = try FileManager.default.replaceItemAt(url, withItemAt: destination!)
-                try FileManager.default.setAttributes([.posixPermissions: source.mode], ofItemAtPath: url.path)
-                if let quarantine {
-                    let status = quarantine.withUnsafeBytes {
-                        setxattr(url.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW)
-                    }
-                    guard status == 0 else { throw WriterError.io(operation: "restore quarantine", code: errno) }
-                }
-            }
+            if output == nil { try publish(quarantine: quarantine) }
             state = .committed
             cleanup()
         } } catch { throw progressError ?? error }
+    }
+
+    /// total = carry と退避の読取 + 記録した追加の読取 + 有界の圧縮待ち予算。
+    private func commitBudget(survivors: [ArchiveEntry], neededTargets: Set<Int>, writer: ArchiveWriter) throws -> UInt64 {
+        var reads: UInt64 = 0
+        for entry in survivors { reads = try checkedAdd(reads, carryInputByteCount(entry)) }
+        for index in neededTargets { reads = try checkedAdd(reads, reader.entries[index].uncompressedSize ?? 0) }
+        for addition in additions {
+            let count: UInt64
+            switch addition {
+            case let .disk(url, _, _, signature):
+                count = signature.isDirectory ? try ArchiveWriter.inputByteCount(url) : signature.inputByteCount
+            case let .data(data, _, _, _): count = UInt64(data.count)
+            case .directory: count = 0
+            }
+            reads = try checkedAdd(reads, count)
+        }
+        let drain = min(try checkedAdd(reads, writer.pendingInputBytes), options.maximumPendingInputBytes(for: format))
+        return try checkedAdd(reads, drain)
+    }
+
+    /// 生き残る entry を open 時の index 順に運ぶ。削除された hard link の参照先は先に退避し、didCarry は entry ごとに呼ぶ。
+    private func carrySurvivors(_ survivors: [ArchiveEntry], neededTargets: Set<Int>, writer: ArchiveWriter,
+                                meter: CommitProgressMeter?, didCarry: ((Int, Int) throws -> Void)?) throws {
+        var buffered: [Int: BufferedEntry] = [:]
+        var done = 0
+        for entry in reader.entries.sorted(by: { $0.index < $1.index }) {
+            guard survives(entry.index) || neededTargets.contains(entry.index) else { continue }
+            try autoreleasepool {
+                try Task.checkCancellation()
+                do {
+                    if entry.isEncrypted, reader.password == nil { throw KaitoError.passwordRequired }
+                    if neededTargets.contains(entry.index) { buffered[entry.index] = try buffer(entry, meter: meter) }
+                    if !survives(entry.index) { return }
+                    try carry(entry, writer: writer, buffered: buffered, meter: meter)
+                } catch let error as KaitoError {
+                    throw ArchiveRepresentability.map(error, entry: entry.name)
+                } catch WriterError.sourceChanged(let name) {
+                    throw RewriterError.invalidArchive("entry のサイズが一致しません: \(name)")
+                }
+                done += 1
+                try didCarry?(done, survivors.count)
+            }
+        }
+    }
+
+    /// 記録した追加を書く。disk と directory は batch にまとめ、data はその場で書く。
+    private func flushAdditions(writer: ArchiveWriter, meter: CommitProgressMeter?) throws {
+        var batch: [ArchiveAddition] = []
+        var signatures: [DiskSignature?] = []
+        func flush() throws {
+            guard !batch.isEmpty else { return }
+            // commit の既存のエラー契約は項目別の原因をそのまま返す。
+            do { try writer.add(batch, expected: signatures, meter: meter, events: nil) }
+            catch let error as ArchiveAdditionError { throw error.underlying }
+            batch.removeAll(keepingCapacity: true)
+            signatures.removeAll(keepingCapacity: true)
+        }
+        for addition in additions {
+            try Task.checkCancellation()
+            switch addition {
+            case let .disk(url, path, ids, signature):
+                batch.append(.init(path: path, source: .contents(of: url), ownerIDs: ids))
+                signatures.append(signature)
+            case let .data(data, path, date, mode):
+                try flush()
+                try writer.add(data: data, as: path, modificationDate: date, permissions: mode, meter: meter)
+            case let .directory(path, date, ids):
+                batch.append(.init(path: path, source: .directory(modificationDate: date), ownerIDs: ids))
+                signatures.append(nil)
+            }
+        }
+        try flush()
+        additions.removeAll()
+    }
+
+    /// 一時出力で原本を置換し、mode と quarantine を戻す。
+    private func publish(quarantine: Data?) throws {
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: destination!)
+        try FileManager.default.setAttributes([.posixPermissions: source.mode], ofItemAtPath: url.path)
+        if let quarantine {
+            let status = quarantine.withUnsafeBytes {
+                setxattr(url.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW)
+            }
+            guard status == 0 else { throw WriterError.io(operation: "restore quarantine", code: errno) }
+        }
     }
 
     private var isTar: Bool { format.isTar }
@@ -479,10 +415,8 @@ public final class ArchiveRewriter: ArchiveEditing {
         guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
     }
 
-    static func mode(for entry: ArchiveEntry) -> UInt16 {
-        let type: UInt16 = entry.kind == .directory ? FileMode.directory : entry.kind == .symlink ? FileMode.symlink : FileMode.regular
-        return type | ((entry.posixPermissions ?? (entry.kind == .directory ? 0o755 : 0o644)) & 0o7777)
-    }
+    // LHA の updater が切り替えるまでの転送。
+    static func mode(for entry: ArchiveEntry) -> UInt16 { ArchiveRepresentability.mode(for: entry) }
 
     private func carryInputByteCount(_ entry: ArchiveEntry) -> UInt64 {
         if entry.kind == .directory { return 0 }
@@ -500,7 +434,7 @@ public final class ArchiveRewriter: ArchiveEditing {
             ? (UInt32(entry.formatSpecific["uid"] ?? "") ?? 0, UInt32(entry.formatSpecific["gid"] ?? "") ?? 0) : nil
         func add(size: UInt64, hardLink: String? = nil, read: (Int) throws -> Data) throws {
             if let meter, carryInputByteCount(entry) > 0 {
-                try writer.addEntry(path: finalName(entry.index), mode: Self.mode(for: entry), size: size,
+                try writer.addEntry(path: finalName(entry.index), mode: ArchiveRepresentability.mode(for: entry), size: size,
                                     date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
                                     hardLink: hardLink) { count in
                     let bytes = try read(count)
@@ -508,7 +442,7 @@ public final class ArchiveRewriter: ArchiveEditing {
                     return bytes
                 }
             } else {
-                try writer.addEntry(path: finalName(entry.index), mode: Self.mode(for: entry), size: size,
+                try writer.addEntry(path: finalName(entry.index), mode: ArchiveRepresentability.mode(for: entry), size: size,
                                     date: entry.modificationDate ?? Date(), atime: nil, owners: owners,
                                     hardLink: hardLink, read: read)
             }
@@ -624,13 +558,6 @@ public final class ArchiveRewriter: ArchiveEditing {
         }
         guard actual == count else { throw WriterError.io(operation: "read quarantine", code: errno) }
         return value
-    }
-
-    private static func map(_ error: KaitoError, entry: String?) -> RewriterError {
-        switch error {
-        case .passwordRequired, .wrongPassword: .password(entry: entry)
-        default: .invalidArchive(String(describing: error))
-        }
     }
 
     private func performAddition(_ body: () throws -> Void) throws {

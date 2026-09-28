@@ -3,6 +3,7 @@ private import Darwin
 
 // 名前の検証・衝突検査・ディスク探索は ArchiveWriter と共有し、ここでは tar だけを扱う。
 final class TarWriter {
+    private typealias TypeFlag = TarRecords.TypeFlag
     private let output: FileHandle
     private let url: URL
     private let compressor: (any TarCompressor)?
@@ -49,31 +50,31 @@ final class TarWriter {
         try Task.checkCancellation()
         var entry = TarRecords.Entry(name: Data(name.utf8), mode: mode, size: size,
                                      mtime: try TarRecords.timestamp(date), uid: owners?.0 ?? 0, gid: owners?.1 ?? 0)
-        if mode & 0xF000 == 0x4000 {
-            entry.type = 0x35
+        if mode.isDirectoryMode {
+            entry.type = TypeFlag.directory
             entry.size = 0
-        } else if mode & 0xF000 == 0xA000 {
+        } else if mode & FileMode.typeMask == FileMode.symlink {
             // link は payload ではない。readlink 由来の byte をそのまま linkname / pax に置く。
             guard size <= UInt64(PATH_MAX) else { throw WriterError.invalidPath(name) }
             entry.link = try read(Int(size))
             guard entry.link.count == Int(size), !entry.link.contains(0), try read(1).isEmpty else {
                 throw WriterError.sourceChanged(name)
             }
-            entry.type = 0x32
+            entry.type = TypeFlag.symlink
             entry.size = 0
         } else if let hardLink {
-            entry.type = 0x31
+            entry.type = TypeFlag.hardLink
             entry.link = Data(hardLink.utf8)
             entry.size = 0
         }
         let headers = try entry.headers()
-        let bodyLength = entry.type == 0x30 ? try checkedAdd(size, UInt64(TarRecords.padding(size))) : 0
+        let bodyLength = entry.type == TypeFlag.regular ? try checkedAdd(size, UInt64(TarRecords.padding(size))) : 0
         let groupStart = position
         let dataStart = try checkedAdd(position, UInt64(headers.count))
         _ = try checkedAdd(dataStart, bodyLength)
         compressor?.beginMember(headerLength: UInt64(headers.count), bodyLength: bodyLength)
         try write(headers)
-        if entry.type == 0x30 {
+        if entry.type == TypeFlag.regular {
             var remaining = size
             while remaining > 0 {
                 try Task.checkCancellation()
@@ -100,7 +101,7 @@ final class TarWriter {
         try Task.checkCancellation()
         // 終端の二 block を必ず置き、その後を従来の blocking factor 20 までゼロで埋める。
         compressor?.beginEndOfArchive()
-        try write(Data(count: 2 * TarRecords.blockSize))
+        try write(Data(count: TarRecords.endOfArchiveSize))
         let padding = (UInt64(TarRecords.recordSize) - position % UInt64(TarRecords.recordSize)) % UInt64(TarRecords.recordSize)
         try write(Data(count: Int(padding)))
         if let compressor { try compressor.write(Data(), finish: true, emit: emit) }

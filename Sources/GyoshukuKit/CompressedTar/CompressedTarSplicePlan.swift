@@ -1,6 +1,10 @@
 import Foundation
 @_spi(TarEditLayout) internal import KaitoKit
 
+// 圧縮 tar の区切り単位の更新。経路は
+// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// このファイルは計画。新 image のどの区間を運ぶ chunk（reused）にし、どこを橋として再符号化するかを決める。
 struct CompressedTarSplicePlan {
     struct Part: Sendable {
         var image: Range<UInt64>
@@ -42,7 +46,7 @@ struct CompressedTarSplicePlan {
                 for index in low..<chunks.count {
                     let chunk = chunks[index]
                     if chunk.imageRange.upperBound > oldEnd { break }
-                    let window = format == .tarGzip && !ignoresWindow ? min(32768, chunk.imageRange.lowerBound) : 0
+                    let window = format == .tarGzip && !ignoresWindow ? min(UInt64(DeflateBlock.windowSize), chunk.imageRange.lowerBound) : 0
                     guard chunk.imageRange.lowerBound - window >= span.offset, !chunk.imageRange.isEmpty else { continue }
                     // 変更後の終端は必ず literal。旧 gzip の BFINAL は運ばない。
                     if format == .tarGzip, index == chunks.count - 1 { continue }

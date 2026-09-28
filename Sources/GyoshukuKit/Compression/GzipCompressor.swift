@@ -1,5 +1,7 @@
 import Foundation
 
+/// gzip の TarCompressor。DeflateBlock ごとに OrderedChunkPipeline で並列に deflate し、一つの gzip member に連結する。
+/// ParallelBzip2Compressor / ParallelXZCompressor と同じ並列 sink で、名前にだけ接頭辞を付けない。
 final class GzipCompressor: TarCompressor {
     private let level: Int
     private let blockSize: Int
@@ -86,9 +88,9 @@ final class GzipCompressor: TarCompressor {
         let block = DeflateBlock(input: input, dictionary: dictionary, final: final)
         if final {
             dictionary = Data()
-        } else if layout.hasHints && input.count < 32 * 1024 {
+        } else if layout.hasHints && input.count < DeflateBlock.windowSize {
             // 短い header 群をまたいでも、直前の全入力から 32 KiB を残す。
-            dictionary = Data(dictionary.suffix(32 * 1024 - input.count))
+            dictionary = Data(dictionary.suffix(DeflateBlock.windowSize - input.count))
             dictionary.append(input)
         } else {
             dictionary = DeflateBlock.dictionary(from: input)

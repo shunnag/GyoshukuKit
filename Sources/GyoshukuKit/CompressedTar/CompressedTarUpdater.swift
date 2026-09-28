@@ -2,6 +2,11 @@ import Foundation
 private import Darwin
 @_spi(TarEditLayout) public import KaitoKit
 
+// 圧縮 tar の区切り単位の更新。経路は
+// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// このファイルは入口。open で構造を照合し、削除・改名・追加を記録して commit で上の経路を走らせる。
+
 /// session reader の復号済み tar と地図を使い、変更を含む区切りだけを符号化する。
 /// 原本のパスは開かない。追加は末尾、運ぶ member は所有者と名前の byte を保つ。
 /// 従来の設定（.beginning / .reset）は open で requiresRewrite を返す。
@@ -76,7 +81,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
         guard let k1 = snapshot.layout else { throw TarLayout.refuse("layout: \(String(describing: snapshot.layoutUnavailableReason))") }
         guard snapshot.archiveIdentity != nil else { throw TarLayout.refuse("missing archive identity") }
         guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
-        let represented = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: format, reader: reader)
+        let represented = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: format, reader: reader)
         let layout = try TarLayout.scan(source: snapshot.image, length: k1.imageLength, entries: reader.entries,
             nameEncoding: reader.nameEncoding, hardLinkTargets: represented.hardLinkTargets, dataTargets: represented.dataTargets)
         guard layout.memberUnitIndices.count == k1.memberCount, layout.membersEnd == k1.endOfArchiveOffset,

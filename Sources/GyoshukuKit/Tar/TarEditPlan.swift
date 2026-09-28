@@ -88,10 +88,11 @@ struct TarEditPlan {
             }
         }
         let end = try checkedAdd(position, additionLength)
-        let afterEOF = try checkedAdd(end, 1024)
-        let fill = (10240 - afterEOF % 10240) % 10240
+        let afterEOF = try checkedAdd(end, UInt64(TarRecords.endOfArchiveSize))
+        let record = UInt64(TarRecords.recordSize)
+        let fill = (record - afterEOF % record) % record
         return TarEditPlan(prefix: segments, membersEnd: position, unitOffsets: offsets, changed: changed,
-                           boundaries: boundaries, terminal: isChanged ? Data(count: Int(1024 + fill)) : Data(),
+                           boundaries: boundaries, terminal: isChanged ? Data(count: TarRecords.endOfArchiveSize + Int(fill)) : Data(),
                            isChanged: isChanged)
     }
 }

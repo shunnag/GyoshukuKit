@@ -2,6 +2,7 @@ import Foundation
 private import Darwin
 
 // 追加と literal だけを保存する。名前は空 inode の間に安全に外し、以後は fd だけを持つ。
+// SplicedScratchFile（discard() まで名前を保つ）とは寿命が異なり、失敗時に消すべき名前を残さない。
 final class TarSpliceStorage {
     @TaskLocal static var testingFreeSpaceReserve: UInt64?
     @TaskLocal static var testingCreated: (@Sendable (Int32) -> Void)?

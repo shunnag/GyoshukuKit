@@ -4,7 +4,28 @@ import Foundation
 enum TarRecords {
     static let blockSize = 512
     static let recordSize = 20 * blockSize
+    /// 書庫の終端を示す空 block 二つ。
+    static let endOfArchiveSize = 2 * blockSize
     static let octalSizeLimit: UInt64 = 0o77777777777
+
+    /// header[156] の種別。ustar の '0'–'7' と、次の member に適用される pax / GNU の拡張 header の文字。
+    enum TypeFlag {
+        static let oldRegular: UInt8 = 0       // NUL: 旧 tar の通常ファイル
+        static let regular: UInt8 = 0x30       // '0'
+        static let hardLink: UInt8 = 0x31      // '1'
+        static let symlink: UInt8 = 0x32       // '2'
+        static let directory: UInt8 = 0x35     // '5'
+        static let fifo: UInt8 = 0x36          // '6'
+        static let contiguous: UInt8 = 0x37    // '7'
+        static let globalPax: UInt8 = 0x67     // 'g'
+        static let pax: UInt8 = 0x78           // 'x'
+        static let paxSolaris: UInt8 = 0x58    // 'X'
+        static let gnuLongName: UInt8 = 0x4c   // 'L'
+        static let gnuLongLink: UInt8 = 0x4b   // 'K'
+        static let gnuSparse: UInt8 = 0x53     // 'S'
+        /// member に先行する拡張 header。本文を持ち、それ自身は member ではない。
+        static let extensionHeaders: [UInt8] = [pax, paxSolaris, globalPax, gnuLongName, gnuLongLink]
+    }
 
     struct Entry {
         var name: Data
@@ -13,7 +34,7 @@ enum TarRecords {
         var mtime: Int64 = 0
         var uid: UInt32 = 0
         var gid: UInt32 = 0
-        var type: UInt8 = 0x30
+        var type: UInt8 = TypeFlag.regular
         var link = Data()
 
         func headers() -> Data {
@@ -46,7 +67,7 @@ enum TarRecords {
                 // tar はこの名前で実体を取り出すため、固定名だと複数の拡張 header が
                 // 同名で衝突する。ustar の 100 byte に収まらない場合だけ葉を詰める。
                 let extended = Entry(name: TarRecords.extendedHeaderName(for: name),
-                                     size: UInt64(pax.count), type: 0x78)
+                                     size: UInt64(pax.count), type: TypeFlag.pax)
                 result.append(extended.ustar())
                 result.append(pax)
                 result.append(Data(count: TarRecords.padding(UInt64(pax.count))))
