@@ -115,7 +115,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testUnzipIntegrityAndPayload() throws {
-        let tool = try ReferenceTool.firstAvailable([ReferenceTool.unzip, "/opt/homebrew/bin/unzip"])
+        let tool = try ReferenceTool.require([ReferenceTool.unzip, "/opt/homebrew/bin/unzip"])
         let url = try fixture("unzip", format: .zip)
         try TestSupport.run(tool, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         for (index, item) in Self.items.enumerated() where !item.mode.isDirectoryMode {
@@ -124,7 +124,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testDittoExtraction() throws {
-        let tool = try ReferenceTool.firstAvailable([ReferenceTool.ditto])
+        let tool = try ReferenceTool.require([ReferenceTool.ditto])
         let url = try fixture("ditto", format: .zip)
         let extracted = url.deletingLastPathComponent().appendingPathComponent("extracted")
         try TestSupport.run(tool, ["-x", "-k", url.path, extracted.path], in: url.deletingLastPathComponent(), log: "extract")
@@ -132,7 +132,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testBSDTarExtractionForEveryFormat() throws {
-        let tool = try ReferenceTool.firstAvailable([ReferenceTool.bsdtar, ReferenceTool.tar, "/opt/homebrew/bin/bsdtar"])
+        let tool = try ReferenceTool.require([ReferenceTool.bsdtar, ReferenceTool.tar, "/opt/homebrew/bin/bsdtar"])
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             let url = try fixture("bsdtar-\(format)", format: format)
             let extracted = url.deletingLastPathComponent().appendingPathComponent("extracted")
@@ -143,7 +143,7 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testSevenZipIntegrityAndAESExtraction() throws {
-        let tool = try ReferenceTool.firstAvailable([ReferenceTool.sevenZip, "/usr/local/bin/7zz"])
+        let tool = try ReferenceTool.require([ReferenceTool.sevenZip, "/usr/local/bin/7zz"])
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tarGzip, .tarBzip2] {
             let url = try fixture("7zz-\(format)", format: format)
             try TestSupport.run(tool, ["t", url.path], in: url.deletingLastPathComponent(), log: "test")
@@ -157,8 +157,8 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testGzipIntegrityAndSingleMemberTrailer() throws {
-        let gzip = try ReferenceTool.firstAvailable([ReferenceTool.gzip, "/opt/homebrew/bin/gzip"])
-        let python = try ReferenceTool.firstAvailable([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
+        let gzip = try ReferenceTool.require([ReferenceTool.gzip, "/opt/homebrew/bin/gzip"])
+        let python = try ReferenceTool.require([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
         let url = try fixture("gzip", format: .tarGzip)
         try TestSupport.run(gzip, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         let script = """
@@ -175,8 +175,8 @@ final class ParallelDeflateBzip2WriterTests: XCTestCase {
     }
 
     func testBzip2IntegrityAndConcatenatedStreamSizes() throws {
-        let bzip2 = try ReferenceTool.firstAvailable([ReferenceTool.bzip2, "/opt/homebrew/bin/bzip2"])
-        let python = try ReferenceTool.firstAvailable([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
+        let bzip2 = try ReferenceTool.require([ReferenceTool.bzip2, "/opt/homebrew/bin/bzip2"])
+        let python = try ReferenceTool.require([ReferenceTool.python3, "/opt/homebrew/bin/python3"])
         let url = try fixture("bzip2", format: .tarBzip2)
         try TestSupport.run(bzip2, ["-t", url.path], in: url.deletingLastPathComponent(), log: "test")
         let script = """
