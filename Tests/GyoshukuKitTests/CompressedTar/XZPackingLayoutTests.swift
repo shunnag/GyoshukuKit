@@ -25,7 +25,7 @@ final class XZPackingLayoutTests: XCTestCase {
             let map = try XCTUnwrap(reader.tarEditingSnapshot()?.chunkMap)
             let lengths = map.chunks.map { Int($0.imageRange.byteLength) }
             XCTAssertEqual(Array(lengths.dropLast()), expected, name)
-            XCTAssertEqual(lengths, try TarChunkLayoutTestSupport.expectedLengths(url, format: .tarXZ,
+            XCTAssertEqual(lengths, try TarChunkCutterTestSupport.expectedLengths(url, format: .tarXZ,
                 limits: .init(packing: packing, piece: piece)))
             for (entry, size) in zip(reader.entries, sizes) { XCTAssertEqual(try reader.read(entry).count, size) }
             let listing = try TestSupport.run(xz, ["--robot", "-lvv", url.path], in: root, log: name + "-blocks")

@@ -5,7 +5,7 @@ import Foundation
 final class GzipCompressor: TarCompressor {
     private let level: Int
     private let blockSize: Int
-    private var layout: TarChunkLayout
+    private var layout: TarChunkCutter
     private let pipeline: OrderedChunkPipeline<DeflateBlock, Data, Void>
     private var input = Data()
     private var dictionary = Data()
@@ -27,7 +27,7 @@ final class GzipCompressor: TarCompressor {
         precondition((1...DeflateBlock.size).contains(blockSize))
         self.level = level
         self.blockSize = blockSize
-        layout = TarChunkLayout(limit: blockSize)
+        layout = TarChunkCutter(limit: blockSize)
         pipeline = OrderedChunkPipeline(threads: threads) { try encoder($0, level) }
     }
 

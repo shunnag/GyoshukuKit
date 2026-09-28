@@ -5,7 +5,7 @@ import XCTest
 import zlib
 @testable import GyoshukuKit
 
-enum TarChunkLayoutTestSupport {
+enum TarChunkCutterTestSupport {
     typealias Member = (groupStart: Int, dataStart: Int, end: Int)
 
     static func members(in raw: Data) throws -> [Member] {
@@ -134,7 +134,7 @@ enum TarChunkLayoutTestSupport {
     }
 }
 
-final class TarChunkLayoutTests: XCTestCase {
+final class TarChunkCutterTests: XCTestCase {
     private struct Item {
         let name: String
         let data: Data
@@ -190,9 +190,9 @@ final class TarChunkLayoutTests: XCTestCase {
     }
 
     private func verifyLayout(_ url: URL, format: GyoshukuKit.ArchiveFormat, limits: TarChunkLimits) throws -> Data {
-        let decoded = try TarChunkLayoutTestSupport.decode(url, format: format)
-        let members = try TarChunkLayoutTestSupport.members(in: decoded.raw)
-        let expected = TarChunkLayoutTestSupport.ranges(members: members, total: decoded.raw.count, limits: limits)
+        let decoded = try TarChunkCutterTestSupport.decode(url, format: format)
+        let members = try TarChunkCutterTestSupport.members(in: decoded.raw)
+        let expected = TarChunkCutterTestSupport.ranges(members: members, total: decoded.raw.count, limits: limits)
         XCTAssertEqual(decoded.lengths, expected.map(\.count))
         XCTAssertTrue(expected.dropLast().allSatisfy { $0.count <= limits.piece })
         let eof = members.last?.end ?? 0
@@ -237,7 +237,7 @@ final class TarChunkLayoutTests: XCTestCase {
             let size = limits(format).packing
             let lengths = [(511, size - 511), (512, size - 511), (513, 2 * size - 513),
                            (size + 1, 7), (512, 5 * size / 2 - 512), (512, 0)]
-            var raw = Data(), members: [TarChunkLayoutTestSupport.Member] = []
+            var raw = Data(), members: [TarChunkCutterTestSupport.Member] = []
             for (header, body) in lengths {
                 let start = raw.count
                 let seed = LHATestSupport.random(4096)
@@ -248,7 +248,7 @@ final class TarChunkLayoutTests: XCTestCase {
             }
             let eof = raw.count
             raw.append(Data(count: 10_240))
-            let ranges = TarChunkLayoutTestSupport.ranges(members: members, total: raw.count, limits: limits(format))
+            let ranges = TarChunkCutterTestSupport.ranges(members: members, total: raw.count, limits: limits(format))
             let compressor = try compressor(format, small: true)
             var actual = Data()
             for member in members {
@@ -260,7 +260,7 @@ final class TarChunkLayoutTests: XCTestCase {
             try compressor.write(raw[eof...], finish: true) { actual.append($0) }
             let url = directory.appendingPathComponent("\(format)")
             try actual.write(to: url)
-            let decoded = try TarChunkLayoutTestSupport.decode(url, format: format)
+            let decoded = try TarChunkCutterTestSupport.decode(url, format: format)
             XCTAssertEqual(decoded.raw, raw)
             XCTAssertEqual(decoded.lengths, ranges.map(\.count))
             if format == .tarGzip {
@@ -328,7 +328,7 @@ final class TarChunkLayoutTests: XCTestCase {
             }
             try writer.finish()
             let raw = try verifyLayout(url, format: .tarBzip2, limit: 500_000)
-            let member = try XCTUnwrap(TarChunkLayoutTestSupport.members(in: raw).first)
+            let member = try XCTUnwrap(TarChunkCutterTestSupport.members(in: raw).first)
             XCTAssertGreaterThan(member.dataStart - member.groupStart, 500_000)
             let bytes = try Data(contentsOf: url)
             if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
@@ -353,7 +353,7 @@ final class TarChunkLayoutTests: XCTestCase {
                 }
             }
             try writer.finish()
-            let expected = enabled ? try TarChunkLayoutTestSupport.members(in: Data(contentsOf: url)) : []
+            let expected = enabled ? try TarChunkCutterTestSupport.members(in: Data(contentsOf: url)) : []
             XCTAssertEqual(writer.memberLayouts.map { [$0.groupStart, $0.dataStart, $0.end] },
                            expected.map { [UInt64($0.groupStart), UInt64($0.dataStart), UInt64($0.end)] })
         }
@@ -378,7 +378,7 @@ final class TarChunkLayoutTests: XCTestCase {
             }
             try writer.finish()
             let raw = try verifyLayout(url, format: .tarXZ, limits: limits)
-            let member = try XCTUnwrap(TarChunkLayoutTestSupport.members(in: raw).first)
+            let member = try XCTUnwrap(TarChunkCutterTestSupport.members(in: raw).first)
             XCTAssertGreaterThan(member.dataStart - member.groupStart, limits.piece)
             let bytes = try Data(contentsOf: url)
             if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
