@@ -6,7 +6,7 @@ import XCTest
 final class CompressedTarSnapshotTests: XCTestCase {
     func testMapsSurviveShortReadsStagingAndReopen() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TestSupport.directory("p3-snapshot-\(format)")
+            let root = try TestSupport.directory("compressed-tar-snapshot-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format, large: false)
             let baseline = try XCTUnwrap(CompressedTarTestSupport.open(source).tarEditingSnapshot())
             let expected = try XCTUnwrap(baseline.chunkMap, "\(format): \(String(describing: baseline.chunkMapUnavailableReason))")

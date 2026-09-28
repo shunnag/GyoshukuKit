@@ -333,7 +333,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         try requireLarge()
         let directory = try directory("large-reads"), source = directory.appendingPathComponent("source.zip")
         try sparse(source, size: 300 * 1024 * 1024)
-        let inode = UInt64(try ZipP1Support.info(source).st_ino)
+        let inode = UInt64(try ZipEditTestSupport.info(source).st_ino)
         let updater = try ArchiveUpdater.open(url: source, options: .init(password: "new", zipEncryption: .zipCrypto))
         try updater.reencryptExistingEntries(currentPassword: nil)
         let events = ZipIOEvents()

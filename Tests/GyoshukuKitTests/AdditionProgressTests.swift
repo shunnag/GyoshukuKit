@@ -101,7 +101,7 @@ final class AdditionProgressTests: XCTestCase {
                 for cancel in [false, true] {
                     let root = try TestSupport.directory("p6-add-failure-\(format)-\(rewrite)-\(cancel)")
                     let source = try S.source(root, format: format)
-                    let original = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
+                    let original = try Data(contentsOf: source), inode = try ZipEditTestSupport.info(source).st_ino
                     let disk = try S.file(root, "disk", size: 9 * S.mib + 1)
                     let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output")
                     var options = S.options
@@ -118,7 +118,7 @@ final class AdditionProgressTests: XCTestCase {
                     XCTAssertEqual(calls, 2)
                     XCTAssertThrowsError(try editor.commit())
                     XCTAssertEqual(try Data(contentsOf: source), original)
-                    XCTAssertEqual(try ZipP1Support.info(source).st_ino, inode)
+                    XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, inode)
                     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
                 }
             }

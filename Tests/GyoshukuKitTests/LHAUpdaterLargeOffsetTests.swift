@@ -36,7 +36,7 @@ final class LHAUpdaterLargeOffsetTests: XCTestCase {
                 let result = try LHATestSupport.run(ReferenceTool.sevenZip, ["l", output.path], in: root, log: "list-\(operation)")
                 XCTAssertEqual(result.status, 0, result.text)
             }
-            print("LHA-LARGE\toperation=\(operation)\tbytes=\(try ZipP1Support.info(output).st_size)")
+            print("LHA-LARGE\toperation=\(operation)\tbytes=\(try ZipEditTestSupport.info(output).st_size)")
             try FileManager.default.removeItem(at: output)
         }
         try FileManager.default.removeItem(at: source)

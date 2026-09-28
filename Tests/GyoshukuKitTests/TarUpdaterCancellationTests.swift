@@ -9,7 +9,7 @@ final class TarUpdaterCancellationTests: XCTestCase {
         for sequential in [false, true] {
             for duringAdd in [false, true] where sequential || !duringAdd {
                 let root = try TestSupport.directory("p2-cancel-\(sequential)-\(duringAdd)")
-                let source = try TarP2Support.fixture(root, count: 8, size: 65536), work = try TestSupport.work(in: root)
+                let source = try TarEditTestSupport.fixture(root, count: 8, size: 65536), work = try TestSupport.work(in: root)
                 let before = try Data(contentsOf: source)
                 let task = Task {
                     try TarUpdater.$testingDisablesClone.withValue(sequential) {
@@ -34,7 +34,7 @@ final class TarUpdaterCancellationTests: XCTestCase {
     func testProgressThrowsAndAllReentrantOperationsInvalidateCommit() throws {
         for action in 0..<6 {
             let root = try TestSupport.directory("p2-progress-\(action)")
-            let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
+            let source = try TarEditTestSupport.fixture(root), work = try TestSupport.work(in: root)
             let editor = try TarUpdater.open(url: source, output: work.appendingPathComponent("out.tar"))
             try editor.add(data: Data(), as: "added")
             XCTAssertThrowsError(try editor.commit { update in

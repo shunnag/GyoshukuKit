@@ -11,11 +11,11 @@ final class TarUpdaterOracleTests: XCTestCase {
             throw XCTSkip("GYOSHUKU_TAR_ORACLE_DIR is not set")
         }
         let oracle = URL(fileURLWithPath: directory)
-        let root = try TestSupport.directory("p2-oracle")
+        let root = try TestSupport.directory("tar-oracle")
         var count = 0
         for corpus in ["headers", "small", "text", "mixed"] {
             let source = oracle.appendingPathComponent("arc/\(corpus).tar")
-            let (layout, _, reader) = try TarP2Support.scan(source)
+            let (layout, _, reader) = try TarEditTestSupport.scan(source)
             let files = reader.entries.filter { $0.formatSpecific["typeFlag"] == "0" }
             for edit in ["append", "delete-mid", "delete-big", "delete-huge", "rename-same", "rename-diff"] {
                 let intended = oracle.appendingPathComponent("out/\(corpus)-\(edit).intended.tar")
@@ -23,7 +23,7 @@ final class TarUpdaterOracleTests: XCTestCase {
                 let output = root.appendingPathComponent("\(corpus)-\(edit).tar")
                 let updater = try TarUpdater.open(url: source, output: output)
                 if edit == "append" {
-                    let (_, _, expected) = try TarP2Support.scan(intended)
+                    let (_, _, expected) = try TarEditTestSupport.scan(intended)
                     for entry in expected.entries.suffix(3) {
                         try updater.add(data: expected.read(entry), as: entry.name,
                                         modificationDate: Date(timeIntervalSince1970: 1700000000), permissions: 0o644)
@@ -48,7 +48,7 @@ final class TarUpdaterOracleTests: XCTestCase {
                     var name = (parent.isEmpty ? "" : parent + "/") + prefix + components.last!
                     // headers の保存済み神託は、現行 script の 60 個より前の 20 個の z を使う。
                     if corpus == "headers", edit == "rename-diff" {
-                        let (_, _, frozen) = try TarP2Support.scan(intended)
+                        let (_, _, frozen) = try TarEditTestSupport.scan(intended)
                         let historical = name.replacingOccurrences(of: String(repeating: "z", count: 60), with: String(repeating: "z", count: 20))
                         XCTAssertEqual(frozen.entries[member.index].name, historical)
                         name = historical
@@ -56,7 +56,7 @@ final class TarUpdaterOracleTests: XCTestCase {
                     try updater.rename(entryAt: member.index, to: name)
                 }
                 try updater.commit()
-                let (result, bytes, _) = try TarP2Support.scan(output)
+                let (result, bytes, _) = try TarEditTestSupport.scan(output)
                 let golden = try ZipUpdateSource(url: intended)
                 let whole = edit == "append" || edit == "rename-same"
                 let length = whole ? golden.length : result.membersEnd

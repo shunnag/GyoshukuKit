@@ -52,21 +52,21 @@ final class FATVolumeTests: XCTestCase {
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         defer { try? handle.close() }
-        let empty = try ZipP1Support.info(path)
+        let empty = try ZipEditTestSupport.info(path)
         if clusterInodes {
             XCTAssertGreaterThanOrEqual(empty.st_ino, ino_t(1) << 63)
             XCTAssertFalse(ArchiveOwnedFile.hasAssignedInode(empty.st_ino))
         }
         XCTAssertTrue(ArchiveOwnedFile.matches(url: path, descriptor: fd))
         try handle.write(contentsOf: Data(repeating: 1, count: 4096))
-        let filled = try ZipP1Support.info(path)
+        let filled = try ZipEditTestSupport.info(path)
         XCTAssertTrue(ArchiveOwnedFile.hasAssignedInode(filled.st_ino))
         if clusterInodes { XCTAssertNotEqual(empty.st_ino, filled.st_ino) }
         let recorded = try ArchiveOwnedFile(url: path, descriptor: fd)
         XCTAssertTrue(ArchiveOwnedFile.matches(url: path, descriptor: fd))
         try handle.truncate(atOffset: 0)
         if clusterInodes {
-            let truncated = try ZipP1Support.info(path)
+            let truncated = try ZipEditTestSupport.info(path)
             XCTAssertGreaterThanOrEqual(truncated.st_ino, ino_t(1) << 63)
             XCTAssertFalse(ArchiveOwnedFile.hasAssignedInode(truncated.st_ino))
             recorded.remove()
@@ -77,7 +77,7 @@ final class FATVolumeTests: XCTestCase {
         try FileManager.default.moveItem(at: path, to: moved)
         try Data().write(to: path)
         if clusterInodes {
-            let replacement = try ZipP1Support.info(path)
+            let replacement = try ZipEditTestSupport.info(path)
             XCTAssertGreaterThanOrEqual(replacement.st_ino, ino_t(1) << 63)
             XCTAssertFalse(ArchiveOwnedFile.hasAssignedInode(replacement.st_ino))
         }
@@ -96,8 +96,8 @@ final class FATVolumeTests: XCTestCase {
 
     private func tarCommits(_ root: URL) throws {
         for operation in ["delete-first", "delete-last", "rename-same", "rename-different", "add", "relocate", "unchanged", "delete-all"] {
-            let work = try directory(root, operation), source = try TarP2Support.fixture(work, size: 65536)
-            let original = try Data(contentsOf: source), identity = try ZipP1Support.info(source)
+            let work = try directory(root, operation), source = try TarEditTestSupport.fixture(work, size: 65536)
+            let original = try Data(contentsOf: source), identity = try ZipEditTestSupport.info(source)
             let output = work.appendingPathComponent("archive.tar")
             var names = (0..<6).map { String(format: "file-%06d", $0) }
             var bodies = (0..<6).map { Data(repeating: UInt8($0), count: 65536) }
@@ -128,7 +128,7 @@ final class FATVolumeTests: XCTestCase {
 
     private func unchanged(_ source: URL, _ bytes: Data, _ identity: stat) throws {
         XCTAssertEqual(try Data(contentsOf: source), bytes)
-        let after = try ZipP1Support.info(source)
+        let after = try ZipEditTestSupport.info(source)
         XCTAssertEqual(after.st_ino, identity.st_ino)
         XCTAssertEqual(after.st_mtimespec.tv_sec, identity.st_mtimespec.tv_sec)
         XCTAssertEqual(after.st_mtimespec.tv_nsec, identity.st_mtimespec.tv_nsec)
@@ -142,8 +142,8 @@ final class FATVolumeTests: XCTestCase {
 
     private func tarFailures(_ root: URL) async throws {
         for action in ["cancel", "discard", "fault", "final-progress"] {
-            let work = try directory(root, action), source = try TarP2Support.fixture(work, size: 65536)
-            let original = try Data(contentsOf: source), identity = try ZipP1Support.info(source)
+            let work = try directory(root, action), source = try TarEditTestSupport.fixture(work, size: 65536)
+            let original = try Data(contentsOf: source), identity = try ZipEditTestSupport.info(source)
             let output = work.appendingPathComponent("archive.tar")
             if action == "cancel" {
                 let task = Task {
@@ -271,7 +271,7 @@ final class FATVolumeTests: XCTestCase {
                 abandoned = nil
                 XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
             }
-            let source = try TarP2Support.fixture(work, count: 2)
+            let source = try TarEditTestSupport.fixture(work, count: 2)
             for placement in [AdditionPlacement.beginning, .end] {
                 let editor = try ArchiveRewriter.open(url: source, output: output, format: format,
                                                      options: .init(additionPlacement: placement))
@@ -290,7 +290,7 @@ final class FATVolumeTests: XCTestCase {
     private func zipUpdater(_ root: URL) throws {
         let work = try directory(root, "zip-updater")
         let source = try ReencryptionSupport.fixture(work, items: [("old", Data([1, 2])), ("keep", Data([3, 4]))])
-        let original = try Data(contentsOf: source), identity = try ZipP1Support.info(source)
+        let original = try Data(contentsOf: source), identity = try ZipEditTestSupport.info(source)
         let output = work.appendingPathComponent("output.zip")
         let updater = try ArchiveUpdater.open(url: source, output: output)
         try updater.add(data: Data([5]), as: "added")

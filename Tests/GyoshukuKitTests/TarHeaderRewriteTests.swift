@@ -45,9 +45,9 @@ final class TarHeaderRewriteTests: XCTestCase {
             var header = TarRecords.Entry(name: Data("old".utf8)).ustar()
             header.replaceSubrange(257..<265, with: magic)
             header.replaceSubrange(345..<500, with: Data(repeating: 55, count: 155))
-            TarP2Support.checksum(&header)
-            let longLink = TarP2Support.extensionBytes(0x4b, Data(String(repeating: "k", count: 150).utf8) + Data([0]))
-            let longName = TarP2Support.extensionBytes(0x4c, Data(String(repeating: "old", count: 50).utf8) + Data([0]))
+            TarEditTestSupport.checksum(&header)
+            let longLink = TarEditTestSupport.extensionBytes(0x4b, Data(String(repeating: "k", count: 150).utf8) + Data([0]))
+            let longName = TarEditTestSupport.extensionBytes(0x4c, Data(String(repeating: "old", count: 50).utf8) + Data([0]))
             let bytes = longLink + longName + header
             let unit = TarLayout.Unit(groupStart: 0, headerStart: UInt64(bytes.count - 512), dataStart: UInt64(bytes.count),
                                       storedSize: 0, paddedEnd: UInt64(bytes.count), typeFlag: 0x30, flags: 0)
@@ -81,13 +81,13 @@ final class TarHeaderRewriteTests: XCTestCase {
                 let pax = fields.reduce(Data()) { $0 + TarRecords.paxRecord($1.0, value: Data($1.1.utf8)) }
                 let source = root.appendingPathComponent("\(version)-\(named).tar")
                 let header = TarRecords.Entry(name: Data("old-parent/GNUSparseFile.123/old-leaf".utf8), size: UInt64(payload.count)).ustar()
-                let bytes = TarP2Support.extensionBytes(0x58, pax) + header + payload + Data(count: TarRecords.padding(UInt64(payload.count))) + Data(count: 1024)
+                let bytes = TarEditTestSupport.extensionBytes(0x58, pax) + header + payload + Data(count: TarRecords.padding(UInt64(payload.count))) + Data(count: 1024)
                 try bytes.write(to: source)
                 let output = root.appendingPathComponent("out-\(version)-\(named).tar")
                 let updater = try TarUpdater.open(url: source, output: output)
                 try updater.rename(entryAt: 0, to: "new-parent/new-leaf")
                 try updater.commit()
-                let (layout, data, reader) = try TarP2Support.scan(output)
+                let (layout, data, reader) = try TarEditTestSupport.scan(output)
                 XCTAssertEqual(reader.entries[0].name, "new-parent/new-leaf")
                 XCTAssertEqual(try reader.read(reader.entries[0]), Data("ab".utf8) + Data(count: 6) + Data("cd".utf8))
                 let group = try TarLayout.group(source: data, unit: layout.member(0))

@@ -1,7 +1,8 @@
 import Foundation
 import CommonCrypto
 
-// P0b と同じ単語・AES-CTR の生成規則（seed 20260925 + file index）。
+// KaitoFinder の性能 probe（KaitoFinderTests/Probes/ArchivePerformanceProbe.swift）と同じ単語・AES-CTR の生成規則
+// （seed 20260925 + file index）。
 enum SevenZipProbePayload {
     static let words = WordList()
 

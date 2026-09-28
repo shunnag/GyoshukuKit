@@ -12,7 +12,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
 
     private func lifecycle(_ root: URL, permissions: Bool = true) throws {
         let source = try SevenZipEditSupport.source(root)
-        let before = try Data(contentsOf: source), originalInfo = try ZipP1Support.info(source)
+        let before = try Data(contentsOf: source), originalInfo = try ZipEditTestSupport.info(source)
         for sequential in [false, true] {
             for operation in ["first", "last", "same", "long", "add", "relocate", "unchanged", "cancel", "discard", "fault"] {
                 let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
@@ -40,7 +40,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
                     try updater!.commit()
                     let attrs = try FileManager.default.attributesOfItem(atPath: output.path)
                     if permissions { XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600, operation) }
-                    let info = try ZipP1Support.info(output)
+                    let info = try ZipEditTestSupport.info(output)
                     for fd: Int32 in 0..<256 {
                         var opened = stat()
                         if fstat(fd, &opened) == 0 { XCTAssertFalse(opened.st_dev == info.st_dev && opened.st_ino == info.st_ino, "open output fd \(fd), \(operation)") }
@@ -49,7 +49,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
                     if operation == "unchanged" { XCTAssertEqual(try Data(contentsOf: output), before) }
                 }
                 XCTAssertEqual(try Data(contentsOf: source), before, operation)
-                let after = try ZipP1Support.info(source)
+                let after = try ZipEditTestSupport.info(source)
                 XCTAssertEqual(after.st_ino, originalInfo.st_ino, operation)
                 XCTAssertEqual(after.st_mtimespec.tv_sec, originalInfo.st_mtimespec.tv_sec, operation)
                 XCTAssertEqual(after.st_mtimespec.tv_nsec, originalInfo.st_mtimespec.tv_nsec, operation)

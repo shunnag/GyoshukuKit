@@ -9,7 +9,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
         for format in formats {
             for placement in [AdditionPlacement.end, .beginning] {
                 let root = try TestSupport.directory("p2-placement-\(format)-\(placement)")
-                let source = try TarP2Support.fixture(root, count: 3)
+                let source = try TarEditTestSupport.fixture(root, count: 3)
                 let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output." + format.testFileExtension)
                 let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format,
                                                        options: .init(additionPlacement: placement))
@@ -35,7 +35,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
     func testQueuedSourceIdentityAndImmediateReservationFailures() throws {
         for mutation in 0..<5 {
             let root = try TestSupport.directory("p2-queued-source-\(mutation)")
-            let source = try TarP2Support.fixture(root)
+            let source = try TarEditTestSupport.fixture(root)
             let before = try Data(contentsOf: source)
             let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
             let disk = root.appendingPathComponent("disk")

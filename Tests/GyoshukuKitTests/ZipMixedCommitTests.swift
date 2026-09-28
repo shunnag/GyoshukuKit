@@ -7,9 +7,9 @@ final class ZipMixedCommitTests: XCTestCase {
     func testFourOrdersShrinkGrowAndWrittenOverlapMatchLegacy() throws {
         let directory = try TestSupport.directory("p1-mixed")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory, payloadSize: 512)
+        let source = try ZipEditTestSupport.fixture(directory, payloadSize: 512)
         let payload = Data(repeating: 77, count: 6000)
-        let cases: [([ZipP1Support.Operation], ArchiveUpdater.CommitStrategy)] = [
+        let cases: [([ZipEditTestSupport.Operation], ArchiveUpdater.CommitStrategy)] = [
             ([.remove([0]), .add("added", payload)], .rebuildThenAppend),
             ([.add("added", payload), .remove([0])], .stagedRebuild),
             ([.remove([0]), .add("added", payload), .rename(1, "longer-name.txt")], .stagedRebuild),
@@ -18,21 +18,21 @@ final class ZipMixedCommitTests: XCTestCase {
             ([.rename(0, "much-longer-name.txt"), .add("added", payload)], .rebuildThenAppend)
         ]
         for (index, item) in cases.enumerated() {
-            try ZipP1Support.compare(source, operations: item.0, label: "order-\(index)", expectedStrategy: item.1)
+            try ZipEditTestSupport.compare(source, operations: item.0, label: "order-\(index)", expectedStrategy: item.1)
         }
         // 削除で空いた長さを改名で戻し、後続 record の start == lb と W の交差を同時に作る。
         let updater = try ArchiveUpdater.open(url: source)
         let first = try XCTUnwrap(updater.validatedLayout(at: 0))
         let length = Int(first.recordRange.upperBound - first.recordRange.lowerBound)
         let longName = String(repeating: "n", count: "middle.txt".utf8.count + length)
-        try ZipP1Support.compare(source, operations: [.remove([0]), .add("added", payload), .rename(1, longName)],
+        try ZipEditTestSupport.compare(source, operations: [.remove([0]), .add("added", payload), .rename(1, longName)],
                                 label: "written-overlap", expectedStrategy: .stagedRebuild)
     }
 
     func testAppOrderDoesNotRereadOriginalCentralOrUnmovedPayload() throws {
         let directory = try TestSupport.directory("p1-mixed-read-bound")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory, count: 20, payloadSize: 256 * 1024)
+        let source = try ZipEditTestSupport.fixture(directory, count: 20, payloadSize: 256 * 1024)
         let updater = try ArchiveUpdater.open(url: source)
         try updater.remove(entriesAt: [19])
         try updater.add(data: Data([1]), as: "added", modificationDate: TestSupport.date)
@@ -49,8 +49,8 @@ final class ZipMixedCommitTests: XCTestCase {
         let directory = try TestSupport.directory("p1-mixed-exact-reads")
         defer { try? FileManager.default.removeItem(at: directory) }
         for staged in [false, true] {
-            let source = try ZipP1Support.fixture(directory, name: "large-\(staged).zip", count: 3, payloadSize: 8 * 1024 * 1024)
-            let inode = try ZipP1Support.info(source).st_ino
+            let source = try ZipEditTestSupport.fixture(directory, name: "large-\(staged).zip", count: 3, payloadSize: 8 * 1024 * 1024)
+            let inode = try ZipEditTestSupport.info(source).st_ino
             let updater = try ArchiveUpdater.open(url: source, options: .init(compressionMethod: .stored))
             let survivors = try [1, 2].map { try XCTUnwrap(updater.validatedLayout(at: $0)).recordRange }
             let moved = survivors.reduce(UInt64(0)) { $0 + $1.upperBound - $1.lowerBound }
@@ -67,7 +67,7 @@ final class ZipMixedCommitTests: XCTestCase {
         }
         let source = try ZipP1Corpus.crafted(directory, variant: "gap")
         let output = directory.appendingPathComponent("gap-output.zip"), oracle = directory.appendingPathComponent("gap-oracle.zip")
-        try ZipP1Support.legacy(source: source, output: oracle, operations: [.remove([4])])
+        try ZipEditTestSupport.legacy(source: source, output: oracle, operations: [.remove([4])])
         let updater = try ArchiveUpdater.open(url: source, output: output)
         let gap = try XCTUnwrap(updater.validatedLayout(at: 0)).recordRange.upperBound..<XCTUnwrap(updater.validatedLayout(at: 1)).recordRange.lowerBound
         try updater.remove(entriesAt: [4])
@@ -83,8 +83,8 @@ final class ZipMixedCommitTests: XCTestCase {
         let directory = try TestSupport.directory("p1-mixed-corruption")
         defer { try? FileManager.default.removeItem(at: directory) }
         for bypass in [false, true] {
-            let source = try ZipP1Support.fixture(directory, name: "source-\(bypass).zip")
-            let before = try Data(contentsOf: source), identity = try ZipP1Support.info(source)
+            let source = try ZipEditTestSupport.fixture(directory, name: "source-\(bypass).zip")
+            let before = try Data(contentsOf: source), identity = try ZipEditTestSupport.info(source)
             let output = directory.appendingPathComponent("output-\(bypass).zip")
             let updater = try ArchiveUpdater.open(url: source, output: output)
             try updater.remove(entriesAt: [0])
@@ -98,7 +98,7 @@ final class ZipMixedCommitTests: XCTestCase {
                 }
             }
             XCTAssertEqual(try Data(contentsOf: source), before)
-            XCTAssertEqual(try ZipP1Support.info(source).st_ino, identity.st_ino)
+            XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, identity.st_ino)
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         }
     }
@@ -106,7 +106,7 @@ final class ZipMixedCommitTests: XCTestCase {
     func testDeleteDefersReservationsAndLaterMutationsKeepCollisionRules() throws {
         let directory = try TestSupport.directory("p1-lazy-paths")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory)
+        let source = try ZipEditTestSupport.fixture(directory)
         for order in 0..<3 {
             let updater = try ArchiveUpdater.open(url: source)
             XCTAssertFalse(updater.hasPathReservations)

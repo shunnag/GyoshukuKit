@@ -6,8 +6,8 @@ final class ZipCommitCancellationTests: XCTestCase {
     func testChunkCancellationCleansBothModesAndPreservesSource() async throws {
         let directory = try TestSupport.directory("p1-cancel-chunk")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory, count: 4, payloadSize: 1024 * 1024)
-        let before = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
+        let source = try ZipEditTestSupport.fixture(directory, count: 4, payloadSize: 1024 * 1024)
+        let before = try Data(contentsOf: source), inode = try ZipEditTestSupport.info(source).st_ino
         for outputMode in [false, true] {
             let parent = directory.appendingPathComponent("work-\(outputMode)")
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -25,7 +25,7 @@ final class ZipCommitCancellationTests: XCTestCase {
             do { try await task.value; XCTFail("expected cancellation") }
             catch { XCTAssertTrue(error is CancellationError, "\(error)") }
             XCTAssertEqual(try Data(contentsOf: source), before)
-            XCTAssertEqual(try ZipP1Support.info(source).st_ino, inode)
+            XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, inode)
             XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent.path), [])
             XCTAssertEqual(events.bytes, 32 * 1024)
         }
@@ -34,7 +34,7 @@ final class ZipCommitCancellationTests: XCTestCase {
     func testPlanningCancellationAtIndexTwoWritesNothing() async throws {
         let directory = try TestSupport.directory("p1-cancel-plan")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory)
+        let source = try ZipEditTestSupport.fixture(directory)
         let before = try Data(contentsOf: source)
         let events = ZipIOEvents()
         let task = Task {

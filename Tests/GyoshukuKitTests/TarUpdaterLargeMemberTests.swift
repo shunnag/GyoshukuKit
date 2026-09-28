@@ -21,7 +21,7 @@ final class TarUpdaterLargeMemberTests: XCTestCase {
         try file.write(contentsOf: TarRecords.Entry(name: Data("link".utf8), type: 0x31, link: Data("huge".utf8)).headers())
         try file.write(contentsOf: Data(count: 1024))
         try file.close()
-        let (layout, _, _) = try TarP2Support.scan(source)
+        let (layout, _, _) = try TarEditTestSupport.scan(source)
         XCTAssertEqual(layout.member(0).storedSize, size)
         XCTAssertGreaterThan(layout.member(1).groupStart, UInt64(UInt32.max))
         for operation in 0..<4 {
@@ -34,7 +34,7 @@ final class TarUpdaterLargeMemberTests: XCTestCase {
             default: try editor.remove(entriesAt: [0, 1])
             }
             try editor.commit()
-            let (result, _, reader) = try TarP2Support.scan(output)
+            let (result, _, reader) = try TarEditTestSupport.scan(output)
             XCTAssertEqual(result.member(0).storedSize, size)
             XCTAssertEqual(reader.entries[0].kind, .file)
             if operation == 3 { XCTAssertEqual(reader.entries[0].name, "link") }

@@ -10,9 +10,9 @@ final class TarUpdaterTests: XCTestCase {
             try TarUpdater.$testingDisablesClone.withValue(sequential) {
                 for operation in 0..<9 {
                     let root = try TestSupport.directory("p2-edit-\(sequential)-\(operation)")
-                    let source = try TarP2Support.fixture(root)
+                    let source = try TarEditTestSupport.fixture(root)
                     let before = try Data(contentsOf: source)
-                    let (layout, _, old) = try TarP2Support.scan(source)
+                    let (layout, _, old) = try TarEditTestSupport.scan(source)
                     let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
                     let updater = try TarUpdater.open(url: source, output: output)
                     var expected = old.entries.map(\.name)
@@ -43,14 +43,14 @@ final class TarUpdaterTests: XCTestCase {
                     XCTAssertEqual(progress.last?.completedBytes, progress.last?.totalBytes)
                     XCTAssertEqual(Set(progress.map(\.totalBytes)).count, 1)
                     XCTAssertEqual(progress.map(\.completedBytes), progress.map(\.completedBytes).sorted())
-                    let outputInfo = try ZipP1Support.info(output)
+                    let outputInfo = try ZipEditTestSupport.info(output)
                     for fd: Int32 in 0..<256 {
                         var opened = stat()
                         if fstat(fd, &opened) == 0 {
                             XCTAssertFalse(opened.st_dev == outputInfo.st_dev && opened.st_ino == outputInfo.st_ino, "output descriptor \(fd) is still open")
                         }
                     }
-                    let (after, _, reader) = try TarP2Support.scan(output)
+                    let (after, _, reader) = try TarEditTestSupport.scan(output)
                     XCTAssertEqual(reader.entries.map(\.name), expected)
                     let bytes = try Data(contentsOf: output)
                     for entry in old.entries where !changed.contains(entry.index) {
@@ -60,8 +60,8 @@ final class TarUpdaterTests: XCTestCase {
                         XCTAssertEqual(try old.read(entry), try reader.read(reader.entries[newIndex]))
                     }
                     XCTAssertEqual(try Data(contentsOf: source), before)
-                    XCTAssertEqual(try ZipP1Support.info(output).st_mode & 0o777, 0o600)
-                    XCTAssertEqual(try ZipP1Support.info(output).st_flags, 0)
+                    XCTAssertEqual(try ZipEditTestSupport.info(output).st_mode & 0o777, 0o600)
+                    XCTAssertEqual(try ZipEditTestSupport.info(output).st_flags, 0)
                     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), ["out.tar"])
                     if operation == 0 || operation == 8 {
                         XCTAssertEqual(bytes, before)
@@ -82,11 +82,11 @@ final class TarUpdaterTests: XCTestCase {
 
     func testRawNamesRootCommentTrailingBytesAndEmptyArchives() throws {
         let root = try TestSupport.directory("p2-raw")
-        let comment = TarP2Support.extensionBytes(0x67, TarRecords.paxRecord("comment", value: Data(String(repeating: "a", count: 40).utf8)))
+        let comment = TarEditTestSupport.extensionBytes(0x67, TarRecords.paxRecord("comment", value: Data(String(repeating: "a", count: 40).utf8)))
         for (index, names) in [[String](), ["./", "./a", "/b", "double//c", "cafe\u{301}"]].enumerated() {
             for tailSize in [512, 1024, 10240] {
                 let source = root.appendingPathComponent("source-\(index)-\(tailSize).tar")
-                try TarP2Support.archive(names.map { (TarRecords.Entry(name: Data($0.utf8), type: $0 == "./" ? 0x35 : 0x30), Data()) },
+                try TarEditTestSupport.archive(names.map { (TarRecords.Entry(name: Data($0.utf8), type: $0 == "./" ? 0x35 : 0x30), Data()) },
                                          at: source, prefix: comment, tail: Data(count: tailSize) + Data("TAIL".utf8))
                 let before = try Data(contentsOf: source)
                 let unchanged = root.appendingPathComponent("unchanged-\(index)-\(tailSize).tar")
@@ -97,7 +97,7 @@ final class TarUpdaterTests: XCTestCase {
                 try updater.add(data: Data(), as: "new", modificationDate: TestSupport.date)
                 try updater.commit()
                 let bytes = try Data(contentsOf: output)
-                let (layout, _, reader) = try TarP2Support.scan(source)
+                let (layout, _, reader) = try TarEditTestSupport.scan(source)
                 XCTAssertEqual(bytes.prefix(Int(layout.membersEnd)), before.prefix(Int(layout.membersEnd)))
                 XCTAssertEqual(try ArchiveReader.open(url: output).entries.map(\.rawName.bytes), reader.entries.map(\.rawName.bytes) + [Array("new".utf8)])
                 XCTAssertNil(bytes.range(of: Data("TAIL".utf8)))
@@ -114,8 +114,8 @@ final class TarUpdaterTests: XCTestCase {
 
     func testWrittenAndCopiedBytes500Members() throws {
         let root = try TestSupport.directory("p2-io")
-        let source = try TarP2Support.fixture(root, count: 500, size: 64 * 1024)
-        let (layout, _, _) = try TarP2Support.scan(source)
+        let source = try TarEditTestSupport.fixture(root, count: 500, size: 64 * 1024)
+        let (layout, _, _) = try TarEditTestSupport.scan(source)
         for operation in 0..<4 {
             let output = root.appendingPathComponent("out-\(operation).tar")
             let updater = try TarUpdater.open(url: source, output: output)
@@ -134,7 +134,7 @@ final class TarUpdaterTests: XCTestCase {
             }
             if operation == 3 {
                 let moved = layout.membersEnd - layout.member(251).groupStart
-                let (result, _, _) = try TarP2Support.scan(output)
+                let (result, _, _) = try TarEditTestSupport.scan(output)
                 XCTAssertEqual(reads.bytes, moved)
                 XCTAssertEqual(writes.bytes, moved + (try ZipUpdateSource(url: output)).length - result.membersEnd)
             }

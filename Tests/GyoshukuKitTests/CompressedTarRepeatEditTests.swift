@@ -6,7 +6,7 @@ import XCTest
 final class CompressedTarRepeatEditTests: XCTestCase {
     func testFiftySeededEditsUsingAdoptedAndReopenedSnapshots() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TestSupport.directory("p3-repeat-\(format)")
+            let root = try TestSupport.directory("compressed-tar-repeat-\(format)")
             var current = try CompressedTarTestSupport.fixture(root, format)
             var plainURL = root.appendingPathComponent("input.tar")
             var reader = try CompressedTarTestSupport.open(current)

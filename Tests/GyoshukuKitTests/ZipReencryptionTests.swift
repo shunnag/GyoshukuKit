@@ -74,14 +74,14 @@ enum ReencryptionSupport {
         let parent = source.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: parent) }
-        let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
+        let before = try Data(contentsOf: source), info = try ZipEditTestSupport.info(source)
         let updater = try ArchiveUpdater.open(url: source, output: parent.appendingPathComponent("output.zip"),
             options: .init(password: password, zipEncryption: encryption))
         try updater.reencryptExistingEntries(currentPassword: current)
         try modify(updater)
         XCTAssertThrowsError(try updater.commit(), "Expected failure") { check($0) }
         XCTAssertEqual(try Data(contentsOf: source), before)
-        XCTAssertEqual(try ZipP1Support.info(source).st_ino, info.st_ino)
+        XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, info.st_ino)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent.path), [])
     }
 }
@@ -191,7 +191,7 @@ final class ZipReencryptionTests: XCTestCase {
         var results: [Data] = []
         for order in 0..<3 {
             let output = directory.appendingPathComponent("out-\(order).zip")
-            try EncryptionPrimitives.$testingRandomBytes.withValue(ZipP1Support.salt) {
+            try EncryptionPrimitives.$testingRandomBytes.withValue(ZipEditTestSupport.salt) {
                 let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(password: ReencryptionSupport.new))
                 if order == 0 { try updater.reencryptExistingEntries(currentPassword: nil) }
                 if order == 2 { try updater.add(data: Data([4, 5]), as: "added", modificationDate: TestSupport.date) }
@@ -217,7 +217,7 @@ final class ZipReencryptionTests: XCTestCase {
             var results: [Data] = [], strategies: [ArchiveUpdater.CommitStrategy?] = []
             for reserve in [false, true] {
                 let output = directory.appendingPathComponent("\(mode)-\(reserve).zip")
-                try EncryptionPrimitives.$testingRandomBytes.withValue(ZipP1Support.salt) {
+                try EncryptionPrimitives.$testingRandomBytes.withValue(ZipEditTestSupport.salt) {
                     let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(password: "same"))
                     if reserve { try updater.reencryptExistingEntries(currentPassword: "same") }
                     if mode == 0 { try updater.rename(entryAt: 0, to: "size-X") }
@@ -376,7 +376,7 @@ final class ZipReencryptionTests: XCTestCase {
         try writer.finish()
         let input = try ReencryptionSupport.reader(source)
         let raw = try XCTUnwrap(input.zipRawRecordLayout(at: 100))
-        let inode = UInt64(try ZipP1Support.info(source).st_ino)
+        let inode = UInt64(try ZipEditTestSupport.info(source).st_ino)
         let updater = try ArchiveUpdater.open(url: source)
         try updater.reencryptExistingEntries(currentPassword: "old")
         let events = ZipIOEvents()

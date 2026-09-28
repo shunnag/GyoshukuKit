@@ -11,7 +11,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
             throw XCTSkip("Set GYOSHUKU_SCALE_PROBES=1 and GYOSHUKU_SCALE_CORPUS to p3val")
         }
         let corpus = URL(fileURLWithPath: corpusPath).appendingPathComponent("arc")
-        let root = try TestSupport.directory("p3-scale")
+        let root = try TestSupport.directory("compressed-tar-scale")
         let raw = corpus.appendingPathComponent("mixed.tar")
         let options = WriterOptions(compressionThreads: 8)
         // 合計 3 分待っても下がらない負荷は、そのまま記録し、時間の閾値は変えない。
@@ -62,7 +62,7 @@ final class CompressedTarScaleProbeTests: XCTestCase {
                     let elapsed = ProcessInfo.processInfo.systemUptime - started
                     let statistics = try XCTUnwrap(updater.lastCommitStatistics)
                     let verifyStart = ProcessInfo.processInfo.systemUptime
-                    let verified = try CompressedTarTestSupport.k5(output, base: base, result: result)
+                    let verified = try CompressedTarTestSupport.spliceVerifiedReader(output, base: base, result: result)
                     let k5 = ProcessInfo.processInfo.systemUptime - verifyStart
                     let limit: Double
                     if format == .tarGzip { limit = layout == "new" ? 0.6 : 0.9 }
@@ -100,11 +100,11 @@ extension CompressedTarScaleProbeTests {
         }
         let assertsTime = ProcessInfo.processInfo.environment["GYOSHUKU_P14_ASSERT"] == "1"
         let archives = URL(fileURLWithPath: path)
-        let root = try TestSupport.directory("p14-scale")
+        let root = try TestSupport.directory("xz-packing-scale")
         defer { try? FileManager.default.removeItem(at: root) }
         let options = WriterOptions(compressionThreads: 8)
         var loadWaitBudget = 180, sequence = 0
-        TestSupport.report("TAR-P14 archive\toperation\tcommit_ms\tk5_ms\topen_ms\tstrategy\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\treencoded_chunks\tencodingSeconds\tselfCheckSeconds\tload1\tload5\tload15\tload_wait_s")
+        TestSupport.report("TAR-XZ-PACKING archive\toperation\tcommit_ms\tk5_ms\topen_ms\tstrategy\treencoded_bytes\treencoded_old_bytes\tcarried_bytes\tcarried_chunks\treencoded_chunks\tencodingSeconds\tselfCheckSeconds\tload1\tload5\tload15\tload_wait_s")
 
         // 親 commit へこのファイルだけを写しても実行できる API に限る。
         func run(_ source: URL, name: String, operation: String) throws -> URL {
@@ -144,7 +144,7 @@ extension CompressedTarScaleProbeTests {
             let commit = ProcessInfo.processInfo.systemUptime - started
             let statistics = try XCTUnwrap(updater.lastCommitStatistics)
             let k5Start = ProcessInfo.processInfo.systemUptime
-            let verified = try CompressedTarTestSupport.k5(output, base: base, result: result)
+            let verified = try CompressedTarTestSupport.spliceVerifiedReader(output, base: base, result: result)
             let k5 = ProcessInfo.processInfo.systemUptime - k5Start
             let openStart = ProcessInfo.processInfo.systemUptime
             let full = try CompressedTarTestSupport.open(output)
@@ -157,9 +157,9 @@ extension CompressedTarScaleProbeTests {
             let counts = "\(statistics.carriedChunks)\t\(statistics.reencodedChunks)"
             let seconds = [statistics.encodingSeconds, statistics.selfCheckSeconds].map { String(format: "%.6f", $0) }.joined(separator: "\t")
             let loads = load.map { String(format: "%.2f", $0) }.joined(separator: "\t")
-            TestSupport.report("TAR-P14 \(name)\t\(operation)\t" + times + "\t\(result.strategy)\t" + bytes
+            TestSupport.report("TAR-XZ-PACKING \(name)\t\(operation)\t" + times + "\t\(result.strategy)\t" + bytes
                 + "\t" + counts + "\t" + seconds + "\t" + loads + "\t\(waited)")
-            if assertsTime, let limit = Self.p14CommitLimit(name: name, operation: operation) {
+            if assertsTime, let limit = Self.xzPackingCommitLimit(name: name, operation: operation) {
                 XCTAssertLessThanOrEqual(commit, limit, "\(name) \(operation), load \(load)")
             }
             return output
@@ -190,7 +190,7 @@ extension CompressedTarScaleProbeTests {
         }
     }
 
-    private static func p14CommitLimit(name: String, operation: String) -> Double? {
+    private static func xzPackingCommitLimit(name: String, operation: String) -> Double? {
         if name == "old-mixed" {
             if operation == "delete-small" { return 1.6 }
             if operation == "delete-small-second" { return 1.2 }

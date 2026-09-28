@@ -66,7 +66,7 @@ final class RewriterCommitProgressTests: XCTestCase {
                 let root = try TestSupport.directory("p6-rewrite-links-\(format)-\(removeTarget)")
                 let source = root.appendingPathComponent("source.tar")
                 let size = 5 * S.mib + 1, payload = Data(repeating: 0x61, count: size)
-                try TarP2Support.archive([
+                try TarEditTestSupport.archive([
                     (.init(name: Data("target".utf8), size: UInt64(size), mtime: 1_700_000_001), payload),
                     (.init(name: Data("hard".utf8), mtime: 1_700_000_001, type: 0x31, link: Data("target".utf8)), Data()),
                     (.init(name: Data("link".utf8), mode: 0o120755, mtime: 1_700_000_001, type: 0x32, link: Data("target".utf8)), Data())
@@ -104,7 +104,7 @@ final class RewriterCommitProgressTests: XCTestCase {
             for failure in ["cancel", "custom", "mapped", "kaito"] {
                 let root = try TestSupport.directory("p6-rewrite-fail-\(phase)-\(failure)")
                 let source = try S.source(root, format: .tar, size: 40 * S.mib)
-                let bytes = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
+                let bytes = try Data(contentsOf: source), inode = try ZipEditTestSupport.info(source).st_ino
                 let editor = try ArchiveRewriter.open(url: source, format: .tarXZ, options: S.options)
                 var fired = false
                 XCTAssertThrowsError(try editor.commit(progress: { p in
@@ -132,7 +132,7 @@ final class RewriterCommitProgressTests: XCTestCase {
                 XCTAssertTrue(fired)
                 XCTAssertThrowsError(try editor.commit()) { XCTAssertEqual($0 as? RewriterError, .invalidState) }
                 XCTAssertEqual(try Data(contentsOf: source), bytes)
-                XCTAssertEqual(try ZipP1Support.info(source).st_ino, inode)
+                XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, inode)
                 XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [source.lastPathComponent])
             }
         }

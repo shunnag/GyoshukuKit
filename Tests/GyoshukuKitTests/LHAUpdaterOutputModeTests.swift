@@ -16,7 +16,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
             for action in ["unchanged", "first", "last", "same", "long", "add", "relocate", "discard", "cancel", "fault", "foreign"] {
                 let work = try TestSupport.work(in: root), source = try LHAUpdateSupport.generated(work)
                 let output = work.appendingPathComponent("out.lzh"), saved = work.appendingPathComponent("saved")
-                let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
+                let before = try Data(contentsOf: source), info = try ZipEditTestSupport.info(source)
                 let context = "\(root.path) sequential=\(sequential) action=\(action)"
                 try LHAUpdater.$testingDisablesClone.withValue(sequential) {
                     var updater: LHAUpdater? = try LHAUpdater.open(url: source, output: output)
@@ -38,8 +38,8 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
                     } else if action != "discard" {
                         try updater!.commit()
                         if action == "unchanged" { XCTAssertEqual(try Data(contentsOf: output), before, context) }
-                        if permissions { XCTAssertEqual(try ZipP1Support.info(output).st_mode & 0o777, 0o600, context) }
-                        let outputInfo = try ZipP1Support.info(output)
+                        if permissions { XCTAssertEqual(try ZipEditTestSupport.info(output).st_mode & 0o777, 0o600, context) }
+                        let outputInfo = try ZipEditTestSupport.info(output)
                         for fd: Int32 in 0..<256 {
                             var open = stat()
                             if fstat(fd, &open) == 0 { XCTAssertFalse(open.st_dev == outputInfo.st_dev && open.st_ino == outputInfo.st_ino, "open output fd \(fd) \(context)") }
@@ -51,7 +51,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
                 }
                 if action == "foreign" { XCTAssertEqual(try Data(contentsOf: output), Data([99]), context); try FileManager.default.removeItem(at: saved) }
                 XCTAssertEqual(try Data(contentsOf: source), before, context)
-                let after = try ZipP1Support.info(source)
+                let after = try ZipEditTestSupport.info(source)
                 XCTAssertEqual(after.st_ino, info.st_ino, context)
                 XCTAssertEqual(after.st_mtimespec.tv_sec, info.st_mtimespec.tv_sec, context)
                 XCTAssertEqual(after.st_mtimespec.tv_nsec, info.st_mtimespec.tv_nsec, context)

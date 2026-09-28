@@ -3,7 +3,9 @@ import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 
-enum TarP2Support {
+/// 非圧縮 tar の編集（`TarUpdater`）の試験が共有する fixture、`TarLayout` の走査、手組みの member 列と header の部品。
+// 旧名: TarP2Support（Documentation/verification の記録はこの名前で書いている）
+enum TarEditTestSupport {
     static func fixture(_ root: URL, count: Int = 6, size: Int = 513, format: GyoshukuKit.ArchiveFormat = .tar) throws -> URL {
         let url = root.appendingPathComponent("source." + format.testFileExtension)
         let writer = try ArchiveWriter.create(url: url, format: format)

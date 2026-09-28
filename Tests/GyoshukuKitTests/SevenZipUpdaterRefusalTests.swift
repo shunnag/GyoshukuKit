@@ -12,7 +12,7 @@ final class SevenZipUpdaterRefusalTests: XCTestCase {
             ("comment", "header: unknownFileProperty(0x16)"), ("unknown_1a", "header: unknownFileProperty(0x1A)")] {
             let source = SevenZipEditSupport.fixture(name)
             let before = try Data(contentsOf: source)
-            let info = try ZipP1Support.info(source)
+            let info = try ZipEditTestSupport.info(source)
             let work = try TestSupport.work(in: root)
             XCTAssertThrowsError(try SevenZipUpdater.open(url: source, output: work.appendingPathComponent("output.7z")), name) {
                 XCTAssertEqual($0 as? UpdaterRouteError, .requiresRewrite(reason: reason), name)
@@ -23,7 +23,7 @@ final class SevenZipUpdaterRefusalTests: XCTestCase {
             XCTAssertEqual(assessment?.canReencrypt, false, name)
             XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
             XCTAssertEqual(try Data(contentsOf: source), before)
-            let after = try ZipP1Support.info(source)
+            let after = try ZipEditTestSupport.info(source)
             XCTAssertEqual(after.st_ino, info.st_ino)
             XCTAssertEqual(after.st_mtimespec.tv_sec, info.st_mtimespec.tv_sec)
             XCTAssertEqual(after.st_mtimespec.tv_nsec, info.st_mtimespec.tv_nsec)

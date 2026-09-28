@@ -11,7 +11,7 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
             throw XCTSkip("GYOSHUKU_TAR_SCALE_ENTRIES is not set")
         }
         let root = try TestSupport.directory("p2-scale-\(count)")
-        let source = try TarP2Support.fixture(root, count: count, size: 1024)
+        let source = try TarEditTestSupport.fixture(root, count: count, size: 1024)
         func now() -> Double { ProcessInfo.processInfo.systemUptime }
         TestSupport.report("TAR-SCALE editor\top\tentries\topen_ms\tremove_ms\trename_ms\tadd_ms\tcommit_ms\tverification_ms\tcopy_engine_writes\tverification_reads\toutput_bytes")
         for operation in ["delete-first", "delete-last", "rename-same", "rename-diff", "append", "replace"] {

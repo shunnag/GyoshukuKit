@@ -8,9 +8,9 @@ import XCTest
 final class CompressedTarSelfCheckFaultTests: XCTestCase {
     func testSelfCheckFaultsAndK5Separation() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TestSupport.directory("p3-fault-\(format)")
+            let root = try TestSupport.directory("compressed-tar-fault-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
-            let original = try Data(contentsOf: source), originalID = try ZipP1Support.info(source).st_ino
+            let original = try Data(contentsOf: source), originalID = try ZipEditTestSupport.info(source).st_ino
             let faults: [CompressedTarUpdater.Fault] = format == .tarGzip
                 ? [.trailerCRC, .missingDictionaryProtection, .flipEncodedByte, .shiftLedger]
                 : format == .tarBzip2 ? [.dropBzip2Stream, .flipEncodedByte, .shiftLedger]
@@ -32,7 +32,7 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
                 XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
                 XCTAssertThrowsError(try editor.commit())
                 XCTAssertEqual(try Data(contentsOf: source), original)
-                XCTAssertEqual(try ZipP1Support.info(source).st_ino, originalID)
+                XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, originalID)
             }
             let oracle = root.appendingPathComponent("expected")
             let plain = try TarUpdater.open(url: root.appendingPathComponent("input.tar"), output: oracle)
@@ -46,7 +46,7 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
                     try CompressedTarUpdater.$testingFault.withValue(fault) { try editor.commit(progress: nil) }
                 }
                 do {
-                    let verified = try CompressedTarTestSupport.k5(output, base: base, result: result)
+                    let verified = try CompressedTarTestSupport.spliceVerifiedReader(output, base: base, result: result)
                     XCTAssertTrue(fault == .dropBzip2Stream || fault == .dropXZBlock, "K5 accepted \(fault)")
                     let image = verified.tarEditingSnapshot()!.image
                     let wanted = try FileByteSource(url: oracle)
@@ -72,14 +72,14 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
             let editor = try CompressedTarUpdater.open(reader: reader, output: output, format: format)
             try editor.rename(entryAt: 0, to: "large-C")
             let result = try CompressedTarUpdater.$testingFault.withValue(.flipReusedByte) { try editor.commit(progress: nil) }
-            XCTAssertThrowsError(try CompressedTarTestSupport.k5(output, base: base, result: result)) {
+            XCTAssertThrowsError(try CompressedTarTestSupport.spliceVerifiedReader(output, base: base, result: result)) {
                 XCTAssertEqual(($0 as? TarSpliceVerificationError)?.reason, .reusedBytesDiffer)
             }
         }
     }
     func testV4SeesSameInodeSameSizeRestoredMtimeChanges() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TestSupport.directory("p3-v4-\(format)")
+            let root = try TestSupport.directory("compressed-tar-v4-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
             try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: source.path)
             let reader = try CompressedTarTestSupport.open(source), base = reader.tarEditingSnapshot()!

@@ -12,7 +12,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
                      ("level3", "L5"), ("data-directories", "L7"), ("lhark-lh7", "L8"), ("level1-large-packed", "L9")]
         for (name, reason) in cases {
             let source = try LHAUpdateSupport.fixture(name, in: root)
-            let before = try ZipP1Support.info(source)
+            let before = try ZipEditTestSupport.info(source)
             // L9 is sparse: compare its stored prefix and stat, without reading a 4 GiB hole.
             let bytes = try ZipUpdateSource(url: source).bytes(at: 0, count: min(Int(before.st_size), 65536))
             let reader = try ArchiveReader.open(url: source, options: TestSupport.editingReaderOptions)
@@ -23,7 +23,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
                 if reason == "R8" { XCTAssertNil(LHAUpdater.rewriteReason(reader: reader)) }
                 else { XCTAssertEqual(LHAUpdater.rewriteReason(reader: reader), text, name) }
             }
-            let after = try ZipP1Support.info(source)
+            let after = try ZipEditTestSupport.info(source)
             XCTAssertEqual(before.st_ino, after.st_ino); XCTAssertEqual(before.st_size, after.st_size)
             XCTAssertEqual(before.st_mtimespec.tv_sec, after.st_mtimespec.tv_sec)
             XCTAssertEqual(before.st_mtimespec.tv_nsec, after.st_mtimespec.tv_nsec)

@@ -3,11 +3,14 @@ import Foundation
 import XCTest
 @_spi(Testing) @testable import GyoshukuKit
 
-final class CompressedTarP2OracleTests: XCTestCase {
+/// hard link・pax の global header・GNU sparse・二つの chunk にまたがる旧い終端・python / GNU / bsd tar が書いた入力を
+/// 圧縮 tar のまま編集し、同じ編集を `TarUpdater` にかけた tar と照合する（照合は `CompressedTarTestSupport.edit`）。
+// 旧名: CompressedTarP2OracleTests
+final class CompressedTarSpecialMembersTests: XCTestCase {
     func testHardLinksGlobalSparseAndNameTransitions() throws {
-        let root = try TestSupport.directory("p3-p2-special")
+        let root = try TestSupport.directory("compressed-tar-special-members")
         let raw = root.appendingPathComponent("special.tar")
-        let comment = TarP2Support.extensionBytes(0x67, TarRecords.paxRecord("comment", value: Data("keep me".utf8)))
+        let comment = TarEditTestSupport.extensionBytes(0x67, TarRecords.paxRecord("comment", value: Data("keep me".utf8)))
         let map = Data("2\n0\n2\n8\n2\n".utf8)
         let payload = map + Data(count: 512 - map.count) + Data("abcd".utf8)
         let pax = [("GNU.sparse.major", "1"), ("GNU.sparse.minor", "0"), ("GNU.sparse.realsize", "10"), ("GNU.sparse.name", "sparse")]
@@ -19,7 +22,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
                                       type: link.isEmpty ? 0x30 : 0x31, link: Data(link.utf8)).headers()
             bytes += body + Data(count: TarRecords.padding(UInt64(body.count)))
         }
-        bytes += TarP2Support.extensionBytes(0x78, pax)
+        bytes += TarEditTestSupport.extensionBytes(0x78, pax)
         bytes += TarRecords.Entry(name: Data("GNUSparseFile.1/sparse".utf8), size: UInt64(payload.count)).headers()
         bytes += payload + Data(count: TarRecords.padding(UInt64(payload.count)))
         bytes += TarRecords.Entry(name: Data(("cafe\u{301}/" + String(repeating: "n", count: 140)).utf8)).headers()
@@ -42,7 +45,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
     }
     func testLegacyTerminatorStraddlesTwoChunks() throws {
         for (format, size) in zip(CompressedTarTestSupport.formats, [1_047_552, 4_499_456, 16_776_192]) {
-            let root = try TestSupport.directory("p3-straddle-\(format)")
+            let root = try TestSupport.directory("compressed-tar-straddle-\(format)")
             let raw = root.appendingPathComponent("straddle.tar")
             let writer = try ArchiveWriter.create(url: raw, format: .tar)
             try writer.add(data: Data(repeating: 55, count: size), as: "file", modificationDate: TestSupport.date)
@@ -56,7 +59,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
         }
     }
     func testPythonPaxGNUAndBSDArchives() throws {
-        let root = try TestSupport.directory("p3-p2-tools")
+        let root = try TestSupport.directory("compressed-tar-tool-inputs")
         let script = """
         import io,tarfile,sys
         with tarfile.open(sys.argv[1],'w',format=tarfile.PAX_FORMAT if sys.argv[2]=='pax' else tarfile.GNU_FORMAT) as t:

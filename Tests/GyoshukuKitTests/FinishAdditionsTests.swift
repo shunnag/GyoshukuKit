@@ -190,7 +190,7 @@ final class FinishAdditionsTests: XCTestCase {
             for cancel in [false, true] {
                 let root = try TestSupport.directory("p6-drain-error-\(format)-\(cancel)")
                 let source = try S.source(root, format: format)
-                let bytes = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
+                let bytes = try Data(contentsOf: source), inode = try ZipEditTestSupport.info(source).st_ino
                 let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output")
                 let editor = try S.editor(source, output: output, format: format)
                 for index in 0..<8 {
@@ -211,7 +211,7 @@ final class FinishAdditionsTests: XCTestCase {
                 XCTAssertThrowsError(try editor.commit())
                 XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
                 XCTAssertEqual(try Data(contentsOf: source), bytes)
-                XCTAssertEqual(try ZipP1Support.info(source).st_ino, inode)
+                XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, inode)
             }
         }
     }

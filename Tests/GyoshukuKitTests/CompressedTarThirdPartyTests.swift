@@ -5,7 +5,7 @@ import XCTest
 
 final class CompressedTarThirdPartyTests: XCTestCase {
     func testThirdPartyFramingAndMixedBzip2Levels() throws {
-        let root = try TestSupport.directory("p3-third-party")
+        let root = try TestSupport.directory("compressed-tar-third-party")
         _ = try CompressedTarTestSupport.fixture(root, .tarGzip)
         let raw = root.appendingPathComponent("input.tar")
         let script = """

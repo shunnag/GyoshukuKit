@@ -7,7 +7,7 @@ final class ZipCentralFastPathTests: XCTestCase {
     func testCanonicalClassificationAndFastBytes() throws {
         let directory = try TestSupport.directory("p1-central-fast")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let sources = try [ZipP1Support.fixture(directory), ZipP1Corpus.forceZIP64(directory)]
+        let sources = try [ZipEditTestSupport.fixture(directory), ZipP1Corpus.forceZIP64(directory)]
             + ["redundant", "sentinel", "marker", "padding", "unicode"].map { try ZipP1Corpus.crafted(directory, variant: $0) }
         for url in sources {
             let source = try ZipUpdateSource(url: url)
@@ -39,7 +39,7 @@ final class ZipCentralFastPathTests: XCTestCase {
     func testValidateReadsCentralOnceAndEnforcesLimit() throws {
         let directory = try TestSupport.directory("p1-central-io")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let url = try ZipP1Support.fixture(directory, count: 100, payloadSize: 32)
+        let url = try ZipEditTestSupport.fixture(directory, count: 100, payloadSize: 32)
         let source = try ZipUpdateSource(url: url), layout = try ZipUpdateLayout(source: source)
         let reader = try ArchiveReader.open(source: source, options: ArchiveUpdater.readerOptions)
         let events = ZipIOEvents()

@@ -8,7 +8,7 @@ final class TarUpdaterVerificationFaultTests: XCTestCase {
     func testV1ThroughV5RejectCorruptionAndCleanUp() throws {
         for kind in 0..<5 {
             let root = try TestSupport.directory("p2-fault-\(kind)")
-            let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
+            let source = try TarEditTestSupport.fixture(root), work = try TestSupport.work(in: root)
             let before = try Data(contentsOf: source)
             let output = work.appendingPathComponent("out.tar")
             let editor = try TarUpdater.open(url: source, output: output)

@@ -7,7 +7,7 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
     private func setup(_ label: String) throws -> (URL, URL, URL) {
         let directory = try TestSupport.directory("p1-output-" + label)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory)
+        let source = try ZipEditTestSupport.fixture(directory)
         let parent = directory.appendingPathComponent("work")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         return (source, parent.appendingPathComponent("output.zip"), parent)
@@ -21,7 +21,7 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
         }
         XCTAssertEqual(chflags(source.path, UInt32(UF_NODUMP)), 0)
         defer { _ = chflags(source.path, 0) }
-        let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
+        let before = try Data(contentsOf: source), info = try ZipEditTestSupport.info(source)
         let replacement = source.deletingLastPathComponent().appendingPathComponent("replace.zip")
         try FileManager.default.copyItem(at: source, to: replacement)
         let replace = try ArchiveUpdater.open(url: replacement)
@@ -32,19 +32,19 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
             let snapshots = try FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)
             XCTAssertEqual(snapshots.count, 1, "APFS must create one source snapshot")
             let snapshot = try XCTUnwrap(snapshots.first)
-            XCTAssertEqual(try ZipP1Support.info(snapshot).st_flags, 0)
-            let inode = try ZipP1Support.info(snapshot).st_ino
+            XCTAssertEqual(try ZipEditTestSupport.info(snapshot).st_flags, 0)
+            let inode = try ZipEditTestSupport.info(snapshot).st_ino
             try updater.remove(entriesAt: [0]); try updater.commit()
             XCTAssertTrue(events.events.allSatisfy { $0.inode == inode })
         }
         try XCTAssertFilesEqual(output, replacement)
         XCTAssertEqual(try Data(contentsOf: source), before)
-        let after = try ZipP1Support.info(source)
+        let after = try ZipEditTestSupport.info(source)
         XCTAssertEqual(info.st_ino, after.st_ino)
         XCTAssertEqual(info.st_mtimespec.tv_sec, after.st_mtimespec.tv_sec)
         XCTAssertEqual(info.st_mtimespec.tv_nsec, after.st_mtimespec.tv_nsec)
-        XCTAssertEqual(try ZipP1Support.info(output).st_mode & 0o7777, 0o600)
-        XCTAssertEqual(try ZipP1Support.info(output).st_flags, 0)
+        XCTAssertEqual(try ZipEditTestSupport.info(output).st_mode & 0o7777, 0o600)
+        XCTAssertEqual(try ZipEditTestSupport.info(output).st_flags, 0)
         for key in ["com.apple.quarantine", "org.gyoshuku.test"] {
             func value(_ url: URL) -> Data {
                 let count = getxattr(url.path, key, nil, 0, 0, 0)
@@ -107,7 +107,7 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
                 try updater.remove(entriesAt: [0]); try updater.commit()
             }
             let oracle = parent.appendingPathComponent("oracle.zip")
-            try ZipP1Support.legacy(source: source, output: oracle, operations: [.remove([0])])
+            try ZipEditTestSupport.legacy(source: source, output: oracle, operations: [.remove([0])])
             try XCTAssertFilesEqual(output, oracle)
             try FileManager.default.removeItem(at: output); try FileManager.default.removeItem(at: oracle)
         }

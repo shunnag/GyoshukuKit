@@ -6,8 +6,8 @@ final class ZipCommitProgressTests: XCTestCase {
     func testAllSixStrategiesCountExactlyWrittenBytesWithBoundedNotifications() throws {
         let directory = try TestSupport.directory("p1-progress")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory, count: 3, payloadSize: 5 * 1024 * 1024)
-        let cases: [([ZipP1Support.Operation], ArchiveUpdater.CommitStrategy)] = [
+        let source = try ZipEditTestSupport.fixture(directory, count: 3, payloadSize: 5 * 1024 * 1024)
+        let cases: [([ZipEditTestSupport.Operation], ArchiveUpdater.CommitStrategy)] = [
             ([], .unchanged), ([.add("added", Data([1]))], .appendOnly),
             ([.rename(0, "other-000000.txt")], .inPlacePatch), ([.remove([0])], .rebuild),
             ([.remove([0]), .add("added", Data([1]))], .rebuildThenAppend),
@@ -16,7 +16,7 @@ final class ZipCommitProgressTests: XCTestCase {
         for (index, item) in cases.enumerated() {
             let output = directory.appendingPathComponent("out-\(index).zip")
             let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(compressionMethod: .stored))
-            try ZipP1Support.mutate(updater, item.0)
+            try ZipEditTestSupport.mutate(updater, item.0)
             let events = ZipIOEvents()
             var progress: [ArchiveUpdater.CommitProgress] = []
             try ZipCopyEngine.$writeObserver.withValue(events.write) {
@@ -36,8 +36,8 @@ final class ZipCommitProgressTests: XCTestCase {
     func testThrowAtInitialIntermediateAndFinalProgressRemovesOutput() throws {
         let directory = try TestSupport.directory("p1-progress-throw")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory, count: 3, payloadSize: 5 * 1024 * 1024)
-        let original = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
+        let source = try ZipEditTestSupport.fixture(directory, count: 3, payloadSize: 5 * 1024 * 1024)
+        let original = try Data(contentsOf: source), inode = try ZipEditTestSupport.info(source).st_ino
         for when in 0..<3 {
             let parent = directory.appendingPathComponent("work-\(when)")
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -49,7 +49,7 @@ final class ZipCommitProgressTests: XCTestCase {
                     || (when == 2 && progress.completedBytes == progress.totalBytes) { throw WriterError.sizeOverflow }
             }) { XCTAssertEqual($0 as? WriterError, .sizeOverflow) }
             XCTAssertEqual(try Data(contentsOf: source), original)
-            XCTAssertEqual(try ZipP1Support.info(source).st_ino, inode)
+            XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, inode)
             XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent.path), [])
             XCTAssertThrowsError(try updater.commit())
         }

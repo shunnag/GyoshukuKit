@@ -14,7 +14,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
             ("zipcrypto", WriterOptions(password: "pass", zipEncryption: .zipCrypto), 256),
             ("ae1", WriterOptions(password: "pass"), 7),
             ("ae2", WriterOptions(password: "pass"), 256)
-        ] { corpus.append(try ZipP1Support.fixture(directory, name: label + ".zip", payloadSize: size, options: options)) }
+        ] { corpus.append(try ZipEditTestSupport.fixture(directory, name: label + ".zip", payloadSize: size, options: options)) }
         for variant in ["plain", "redundant", "sentinel", "marker", "order", "gap", "tailgap", "padding", "unicode", "cdname"] {
             corpus.append(try ZipP1Corpus.crafted(directory, variant: variant))
         }
@@ -37,7 +37,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
             }
             let file = try XCTUnwrap(reader.entries.first { $0.kind == .file })
             let same = String(repeating: "n", count: file.rawName.bytes.count)
-            var operations: [[ZipP1Support.Operation]] = [
+            var operations: [[ZipEditTestSupport.Operation]] = [
                 [.remove([0])], [.remove([count / 2])], [.remove([count - 1])],
                 [.remove([0, count - 1])], [.remove(Array(0..<count))],
                 [.rename(file.index, same)], [.rename(file.index, "x")],
@@ -53,7 +53,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
                 operations.append([.rename(folder.index, "changed/"), .rename(child.index, "changed/file.txt")])
             }
             for (index, ops) in operations.enumerated() {
-                let output = try ZipP1Support.compare(source, operations: ops, label: "\(source.deletingPathExtension().lastPathComponent)-\(index)")
+                let output = try ZipEditTestSupport.compare(source, operations: ops, label: "\(source.deletingPathExtension().lastPathComponent)-\(index)")
                 try FileManager.default.removeItem(at: output)
             }
             TestSupport.report("ZIP-ORACLE \(source.lastPathComponent): \(operations.count) byte-identical edits")
@@ -63,14 +63,14 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
     func testMixedStoredDeflateAESZipCryptoAndFixedDirectory() throws {
         let directory = try TestSupport.directory("p1-equivalence-additions")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory)
+        let source = try ZipEditTestSupport.fixture(directory)
         let disk = directory.appendingPathComponent("fixed-directory")
-        let operations: [ZipP1Support.Operation] = [.remove([0]), .rename(1, "renamed.txt"),
+        let operations: [ZipEditTestSupport.Operation] = [.remove([0]), .rename(1, "renamed.txt"),
             .add("tiny.txt", Data([1, 2, 3])), .add("large.txt", Data(repeating: 42, count: 4096)), .directory("added-dir/", disk)]
         let variants = [WriterOptions(compressionMethod: .stored), WriterOptions(compressionMethod: .deflate),
                         WriterOptions(password: "pass"), WriterOptions(password: "pass", zipEncryption: .zipCrypto)]
         for (index, options) in variants.enumerated() {
-            try ZipP1Support.compare(source, operations: operations, label: "append-\(index)", options: options,
+            try ZipEditTestSupport.compare(source, operations: operations, label: "append-\(index)", options: options,
                 expectedStrategy: .rebuildThenAppend, byteIdentical: options.password == nil || options.zipEncryption != .zipCrypto)
         }
     }
@@ -78,18 +78,18 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
     func testZIP64CountCorpusMatchesLegacy() throws {
         let directory = try TestSupport.directory("p1-equivalence-count64")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let source = try ZipP1Support.fixture(directory, count: 65_536, payloadSize: 0)
-        try ZipP1Support.compare(source, operations: [.remove([0, 1, 65_535])], label: "down")
-        try ZipP1Support.compare(source, operations: [.rename(0, "entry-999999.txt"), .add("added", Data([1]))], label: "mixed")
+        let source = try ZipEditTestSupport.fixture(directory, count: 65_536, payloadSize: 0)
+        try ZipEditTestSupport.compare(source, operations: [.remove([0, 1, 65_535])], label: "down")
+        try ZipEditTestSupport.compare(source, operations: [.rename(0, "entry-999999.txt"), .add("added", Data([1]))], label: "mixed")
     }
 
     func testSparse4GiBUpAndDownMixedMatchesLegacyInChunks() throws {
         let directory = try TestSupport.directory("p1-equivalence-offset64")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Corpus.sparse(directory)
-        let up = try ZipP1Support.compare(source, operations: [.rename(0, "longer-first-name"), .add("added", Data([1]))],
+        let up = try ZipEditTestSupport.compare(source, operations: [.rename(0, "longer-first-name"), .add("added", Data([1]))],
                                          label: "up", expectedStrategy: .rebuildThenAppend)
-        try ZipP1Support.compare(up, operations: [.add("second", Data([2])), .remove([0])],
+        try ZipEditTestSupport.compare(up, operations: [.add("second", Data([2])), .remove([0])],
                                 label: "down", expectedStrategy: .stagedRebuild)
     }
 }

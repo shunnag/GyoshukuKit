@@ -8,7 +8,7 @@ import XCTest
 final class CompressedTarUpdaterTests: XCTestCase {
     func testOperationsMatchP2AndK5ForAllCodecs() throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TestSupport.directory("p3-ops-\(format)")
+            let root = try TestSupport.directory("compressed-tar-ops-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
             for operation in ["unchanged", "delete-first", "delete-last", "rename-same", "rename-long", "append", "replace", "all"] {
                 let output = root.appendingPathComponent(operation + "." + format.testFileExtension)
@@ -46,7 +46,7 @@ final class CompressedTarUpdaterTests: XCTestCase {
         }
     }
     func testOpenGatesCreateNothingAndAssessmentIsReadOnly() throws {
-        let root = try TestSupport.directory("p3-gates")
+        let root = try TestSupport.directory("compressed-tar-gates")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let output = root.appendingPathComponent("output")
         let before = Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
@@ -69,7 +69,7 @@ final class CompressedTarUpdaterTests: XCTestCase {
         XCTAssertNil(CompressedTarUpdater.assess(reader: try ArchiveReader.open(url: source)))
     }
     func testMissingIdentityRecoveryAndLegacyNamesRequireRewrite() throws {
-        let root = try TestSupport.directory("p3-gates-layout")
+        let root = try TestSupport.directory("compressed-tar-gates-layout")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let output = root.appendingPathComponent("bad")
         let memory = try ArchiveReader.open(source: DataByteSource(data: Data(contentsOf: source)), sourceURL: source,
@@ -83,7 +83,7 @@ final class CompressedTarUpdaterTests: XCTestCase {
         for legacy in [true, false] {
             let raw = root.appendingPathComponent("gate-\(legacy).tar")
             let name = legacy ? Data([0x93, 0xfa, 0x96, 0x7b]) : Data("name".utf8)
-            let global = legacy ? Data() : TarP2Support.extensionBytes(0x67, TarRecords.paxRecord("uname", value: Data("alice".utf8)))
+            let global = legacy ? Data() : TarEditTestSupport.extensionBytes(0x67, TarRecords.paxRecord("uname", value: Data("alice".utf8)))
             try (global + TarRecords.Entry(name: name).ustar() + Data(count: 1024)).write(to: raw)
             let compressed = root.appendingPathComponent("gate-\(legacy).tar.gz")
             try CompressedTarTestSupport.compress(raw, to: compressed, format: .tarGzip, aligned: false)
@@ -99,7 +99,7 @@ final class CompressedTarUpdaterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
     func testOwnerDateAndReservationsUseAppendFactory() throws {
-        let root = try TestSupport.directory("p3-owners")
+        let root = try TestSupport.directory("compressed-tar-owners")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let disk = root.appendingPathComponent("disk")
         try Data([7, 8]).write(to: disk)

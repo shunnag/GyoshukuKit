@@ -11,7 +11,7 @@ final class LHAUpdaterTests: XCTestCase {
                 for operation in 0..<13 {
                     let root = try TestSupport.directory("lha-edit-\(sequential)-\(operation)")
                     let source = try LHAUpdateSupport.generated(root)
-                    let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
+                    let before = try Data(contentsOf: source), info = try ZipEditTestSupport.info(source)
                     let old = try LHAUpdateSupport.scan(source)
                     let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
                     let updater = try LHAUpdater.open(url: source, output: output)
@@ -64,9 +64,9 @@ final class LHAUpdaterTests: XCTestCase {
                     }
                     if operation == 7 { XCTAssertEqual(bytes, Data([0])) }
                     XCTAssertEqual(try Data(contentsOf: source), before)
-                    XCTAssertEqual(try ZipP1Support.info(source).st_ino, info.st_ino)
-                    XCTAssertEqual(try ZipP1Support.info(source).st_mtimespec.tv_sec, info.st_mtimespec.tv_sec)
-                    XCTAssertEqual(try ZipP1Support.info(output).st_mode & 0o777, 0o600)
+                    XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, info.st_ino)
+                    XCTAssertEqual(try ZipEditTestSupport.info(source).st_mtimespec.tv_sec, info.st_mtimespec.tv_sec)
+                    XCTAssertEqual(try ZipEditTestSupport.info(output).st_mode & 0o777, 0o600)
                     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), ["out.lzh"])
                     try updater.commit()
                 }
@@ -139,7 +139,7 @@ final class LHAUpdaterTests: XCTestCase {
             let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
             let editor = try LHAUpdater.open(url: source, output: output)
             let snapshot = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first)
-            let inode = UInt64(try ZipP1Support.info(snapshot).st_ino)
+            let inode = UInt64(try ZipEditTestSupport.info(snapshot).st_ino)
             if operation == 0 { try editor.remove(entriesAt: [499]) }
             if operation == 1 { try editor.rename(entryAt: 250, to: "edit-000250") }
             if operation == 2 { try editor.add(data: Data(count: 1024), as: "new") }

@@ -4,7 +4,10 @@ import KaitoKit
 import XCTest
 @_spi(Testing) @testable import GyoshukuKit
 
-enum ZipP1Support {
+/// ZIP の編集（`ArchiveUpdater`）の試験が共有する fixture、編集操作の列、c0df9fb の実装（`LegacyZipRebuild`）で作った
+/// 期待書庫との byte 比較（`compare`）。
+// 旧名: ZipP1Support（Documentation/verification の記録はこの名前で書いている）
+enum ZipEditTestSupport {
     enum Operation {
         case remove([Int]), rename(Int, String), add(String, Data), directory(String, URL)
     }

@@ -61,7 +61,7 @@ final class TarUpdaterDifferentialTests: XCTestCase {
                 """
                 try TestSupport.run(ReferenceTool.python3, ["-c", script, json.path, source.path, String(iteration)], in: directory, log: "python-fixture")
             } else {
-                try TarP2Support.archive(members.map { member in
+                try TarEditTestSupport.archive(members.map { member in
                     (.init(name: Data(member.name.utf8), size: UInt64(member.data.count), mtime: 1700000001, uid: 501, gid: 20,
                            type: member.directory ? 0x35 : member.target == nil ? 0x30 : 0x31,
                            link: member.target.map { Data(members[$0].name.utf8) } ?? Data()), member.data)
@@ -111,8 +111,8 @@ final class TarUpdaterDifferentialTests: XCTestCase {
             }
             func finalName(_ index: Int) -> String { renamed[index] ?? members[index].name }
             let survivors = members.indices.filter { !removed.contains($0) }
-            let (oldLayout, oldBytes, _) = try TarP2Support.scan(source)
-            let (layout, bytes, reader) = try TarP2Support.scan(output)
+            let (oldLayout, oldBytes, _) = try TarEditTestSupport.scan(source)
+            let (layout, bytes, reader) = try TarEditTestSupport.scan(output)
             let rewriteReader = try ArchiveReader.open(url: rewritten, options: .init(appleDoublePolicy: .expose))
             let expectedNames = survivors.map(finalName) + additions.map(\.name)
             XCTAssertEqual(reader.entries.map(\.name), expectedNames, "seed iteration \(iteration)")

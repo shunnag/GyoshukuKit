@@ -13,7 +13,7 @@ final class TarUpdaterInteropTests: XCTestCase {
         let source = root.appendingPathComponent("source.tar")
         try TestSupport.run(ReferenceTool.git, ["-C", repository, "archive", "--format=tar", "-o", source.path,
                                                "9fb6ee2", "Sources/GyoshukuKit"], in: root, log: "git-archive")
-        let (layout, data, reader) = try TarP2Support.scan(source)
+        let (layout, data, reader) = try TarEditTestSupport.scan(source)
         let first = try XCTUnwrap(layout.units.first)
         XCTAssertTrue(first.isGlobal)
         let output = root.appendingPathComponent("out.tar")

@@ -7,7 +7,7 @@ final class CompressedTarCompatibilityTests: XCTestCase {
     func testNewAndOldLayoutsThroughIndependentTools() throws {
         for format in CompressedTarTestSupport.formats {
             for aligned in [false, true] {
-                let root = try TestSupport.directory("p3-compat-\(format)-\(aligned)")
+                let root = try TestSupport.directory("compressed-tar-compat-\(format)-\(aligned)")
                 let source = try CompressedTarTestSupport.fixture(root, format, aligned: aligned)
                 let output = root.appendingPathComponent("out." + format.testFileExtension)
                 _ = try CompressedTarTestSupport.edit(source, format: format, output: output) {

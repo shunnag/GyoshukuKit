@@ -3,7 +3,10 @@ import Darwin
 import XCTest
 @testable import GyoshukuKit
 
-final class ArchiveWriterP2CompatibilityTests: XCTestCase {
+/// 全形式の writer・rewriter と ZIP の updater の出力を `GYOSHUKU_P2_COMPAT_OUTPUT` へ書き出し、
+/// `GYOSHUKU_P2_COMPAT_BASELINE` があれば別の build が書いた同名の file と byte 単位で比べる。
+// 旧名: ArchiveWriterP2CompatibilityTests
+final class WriterOutputBaselineTests: XCTestCase {
     func testCommittedG1ByteCompatibility() throws {
         guard let path = ProcessInfo.processInfo.environment["GYOSHUKU_P2_COMPAT_OUTPUT"] else {
             throw XCTSkip("GYOSHUKU_P2_COMPAT_OUTPUT is not set")

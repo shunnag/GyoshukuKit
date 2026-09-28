@@ -8,7 +8,7 @@ import XCTest
 final class CompressedTarLifecycleTests: XCTestCase {
     func testUnchangedCopyStageWithoutChunkMap() throws {
         for format in [GyoshukuKit.ArchiveFormat.tarGzip, .tarXZ] {
-            let root = try TestSupport.directory("p3-mapless-cancellation-\(format)")
+            let root = try TestSupport.directory("compressed-tar-mapless-cancellation-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format, large: false)
             try FileManager.default.removeItem(at: root.appendingPathComponent("input.tar"))
             let reason: ChunkMapUnavailableReason
@@ -65,7 +65,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
 
     func testCancellationAndProgressFailureRemoveOnlyOwnedOutput() throws {
         enum Stop: Error { case requested }
-        let root = try TestSupport.directory("p3-cancellation")
+        let root = try TestSupport.directory("compressed-tar-cancellation")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip)
         let original = try Data(contentsOf: source)
         for stage in [CompressedTarUpdater.Stage.planned, .encoding, .copying, .selfCheck] {
@@ -98,7 +98,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: moved.path))
     }
     func testTaskCancellationDuringEncodingAndCopy() async throws {
-        let root = try TestSupport.directory("p3-task-cancellation")
+        let root = try TestSupport.directory("compressed-tar-task-cancellation")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip)
         for encoding in [true, false] {
             let output = root.appendingPathComponent("cancel-\(encoding)")
@@ -126,14 +126,14 @@ final class CompressedTarLifecycleTests: XCTestCase {
         }
     }
     func testSourceChangesPathReplacementDiscardAndSpace() throws {
-        let root = try TestSupport.directory("p3-lifecycle")
+        let root = try TestSupport.directory("compressed-tar-lifecycle")
         let source = try CompressedTarTestSupport.fixture(root, .tarGzip, large: false)
         let original = try Data(contentsOf: source)
         let output = root.appendingPathComponent("output")
         var discarded: CompressedTarUpdater? = try CompressedTarUpdater.open(reader: CompressedTarTestSupport.open(source), output: output, format: .tarGzip)
         try discarded!.add(data: Data([1]), as: "added"); discarded = nil
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
-        let originalID = try ZipP1Support.info(source).st_ino
+        let originalID = try ZipEditTestSupport.info(source).st_ino
         let beforeSpaceFailure = Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
         let scratchFD = Mutex<Int32>(-1)
         let failed = try CompressedTarUpdater.open(reader: CompressedTarTestSupport.open(source), output: output, format: .tarGzip)
@@ -148,7 +148,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
         XCTAssertEqual(errno, EBADF)
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         XCTAssertEqual(try Data(contentsOf: source), original)
-        XCTAssertEqual(try ZipP1Support.info(source).st_ino, originalID)
+        XCTAssertEqual(try ZipEditTestSupport.info(source).st_ino, originalID)
         XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)), beforeSpaceFailure)
         XCTAssertThrowsError(try failed.commit()) { XCTAssertEqual($0 as? UpdaterError, .invalidState) }
         let changed = try CompressedTarUpdater.open(reader: CompressedTarTestSupport.open(source), output: output, format: .tarGzip)
@@ -167,7 +167,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
     func testFAT32() throws { try onDisk("MS-DOS FAT32") }
     func testExFAT() throws { try onDisk("ExFAT") }
     func testHostVolume() throws {
-        try onVolume(TestSupport.directory("p3-host-lifecycle"), label: "host", expectsSmallVolume: false)
+        try onVolume(TestSupport.directory("compressed-tar-host-lifecycle"), label: "host", expectsSmallVolume: false)
     }
     private func onDisk(_ fileSystem: String) throws {
         let disk = try ArchiveTestDisk(fileSystem)

@@ -31,7 +31,7 @@ final class SevenZipSharedOutputGateTests: XCTestCase {
         let strategy = try ZipCopyEngine.$writeObserver.withValue(writes.write) {
             try output.commit(plan, meter: meter) { _, _ in }
         }
-        print("P5-GATE strategy=\(strategy) units=\(units) commitWritten=\(writes.bytes)")
+        print("7Z-GATE strategy=\(strategy) units=\(units) commitWritten=\(writes.bytes)")
         XCTAssertEqual(try Data(contentsOf: path), Data(repeating: 9, count: 32) + Data([1, 2, 3, 4, 5, 6, 7]))
         XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)), ["source.bin", "output.bin"])
         XCTAssertEqual(strategy, .sequential, "Unchanged scratch prefix must not relocate the appended block")

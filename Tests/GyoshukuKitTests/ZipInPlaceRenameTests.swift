@@ -8,16 +8,16 @@ final class ZipInPlaceRenameTests: XCTestCase {
         let directory = try TestSupport.directory("p1-in-place")
         defer { try? FileManager.default.removeItem(at: directory) }
         for count in [1, 1000] {
-            let source = try ZipP1Support.fixture(directory, name: "source-\(count).zip", count: count, payloadSize: 32)
+            let source = try ZipEditTestSupport.fixture(directory, name: "source-\(count).zip", count: count, payloadSize: 32)
             let reader = try ArchiveReader.open(url: source)
             let input = try ZipUpdateSource(url: source), layout = try ZipUpdateLayout(source: input)
             let validated = try ZipCentralDirectory.validate(source: input, reader: reader, centralOffset: layout.centralOffset, centralSize: layout.centralSize)
-            let operations = (0..<count).map { ZipP1Support.Operation.rename($0, String(format: "other-%06d.txt", $0)) }
+            let operations = (0..<count).map { ZipEditTestSupport.Operation.rename($0, String(format: "other-%06d.txt", $0)) }
             let output = directory.appendingPathComponent("output-\(count).zip")
             let oracle = directory.appendingPathComponent("oracle-\(count).zip")
-            try ZipP1Support.legacy(source: source, output: oracle, operations: operations)
+            try ZipEditTestSupport.legacy(source: source, output: oracle, operations: operations)
             let updater = try ArchiveUpdater.open(url: source, output: output)
-            try ZipP1Support.mutate(updater, operations)
+            try ZipEditTestSupport.mutate(updater, operations)
             let events = ZipIOEvents()
             try ZipCopyEngine.$writeObserver.withValue(events.write) { try updater.commit() }
             XCTAssertEqual(updater.lastCommitStrategy, .inPlacePatch)
@@ -38,7 +38,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         for variant in ["redundant", "gap", "tailgap", "cdname"] {
             let source = try ZipP1Corpus.crafted(directory, variant: variant)
-            try ZipP1Support.compare(source, operations: [.rename(0, "newer.txt")], label: variant, expectedStrategy: .rebuild)
+            try ZipEditTestSupport.compare(source, operations: [.rename(0, "newer.txt")], label: variant, expectedStrategy: .rebuild)
         }
         for variant in ["sentinel-end", "extended-end", "madeby-end"] {
             let url = try ZipP1Corpus.crafted(directory, variant: variant)
@@ -55,12 +55,12 @@ final class ZipInPlaceRenameTests: XCTestCase {
             }
             bytes.append(ending)
             try bytes.write(to: url)
-            try ZipP1Support.compare(url, operations: [.rename(0, "newer.txt")], label: variant, expectedStrategy: .rebuild)
+            try ZipEditTestSupport.compare(url, operations: [.rename(0, "newer.txt")], label: variant, expectedStrategy: .rebuild)
         }
         let force = try ZipP1Corpus.forceZIP64(directory)
-        try ZipP1Support.compare(force, operations: [.rename(0, "newer.txt")], label: "force64-patch", expectedStrategy: .inPlacePatch)
-        let source = try ZipP1Support.fixture(directory)
-        try ZipP1Support.compare(source, operations: [.rename(0, "newer.txt"), .add("added", Data())],
+        try ZipEditTestSupport.compare(force, operations: [.rename(0, "newer.txt")], label: "force64-patch", expectedStrategy: .inPlacePatch)
+        let source = try ZipEditTestSupport.fixture(directory)
+        try ZipEditTestSupport.compare(source, operations: [.rename(0, "newer.txt"), .add("added", Data())],
                                 label: "with-add", expectedStrategy: .rebuildThenAppend)
     }
 }

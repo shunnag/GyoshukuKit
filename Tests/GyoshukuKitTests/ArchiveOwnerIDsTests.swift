@@ -8,7 +8,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
         for preserve in [false, true] {
             let root = try TestSupport.directory("p2-tar-owner-policy-\(preserve)")
             let source = root.appendingPathComponent("source.tar")
-            try TarP2Support.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
+            try TarEditTestSupport.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
             let disk = root.appendingPathComponent("disk")
             try Data([1]).write(to: disk)
             let output = root.appendingPathComponent("out.tar")
@@ -18,7 +18,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
             let reader = try ArchiveReader.open(url: output)
             XCTAssertEqual(reader.entries[0].formatSpecific["uid"], "123")
             XCTAssertEqual(reader.entries[0].formatSpecific["gid"], "456")
-            let info = try ZipP1Support.info(disk)
+            let info = try ZipEditTestSupport.info(disk)
             XCTAssertEqual(reader.entries[1].formatSpecific["uid"], preserve ? String(info.st_uid) : "0")
             XCTAssertEqual(reader.entries[1].formatSpecific["gid"], preserve ? String(info.st_gid) : "0")
         }
@@ -30,7 +30,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
                 for preserve in [false, true] {
                     let root = try TestSupport.directory("p2-owners-\(format)-\(keep)-\(preserve)")
                     let source = root.appendingPathComponent("source.tar")
-                    try TarP2Support.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
+                    try TarEditTestSupport.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
                     let disk = root.appendingPathComponent("disk")
                     try Data([1]).write(to: disk)
                     let output = root.appendingPathComponent("output." + format.testFileExtension)
@@ -41,7 +41,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
                     let reader = try ArchiveReader.open(url: output)
                     XCTAssertEqual(reader.entries[0].formatSpecific["uid"], keep ? "123" : "0")
                     XCTAssertEqual(reader.entries[0].formatSpecific["gid"], keep ? "456" : "0")
-                    let info = try ZipP1Support.info(disk)
+                    let info = try ZipEditTestSupport.info(disk)
                     XCTAssertEqual(reader.entries[1].formatSpecific["uid"], preserve ? String(info.st_uid) : "0")
                     XCTAssertEqual(reader.entries[1].formatSpecific["gid"], preserve ? String(info.st_gid) : "0")
                 }
@@ -53,7 +53,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
         for mode in 0..<5 {
             let root = try TestSupport.directory("p2-explicit-owners-\(mode)")
             let format: GyoshukuKit.ArchiveFormat = mode == 0 ? .zip : .tar
-            let source = try TarP2Support.fixture(root, count: 1, format: format)
+            let source = try TarEditTestSupport.fixture(root, count: 1, format: format)
             let output = root.appendingPathComponent("out")
             let editor: any ArchiveEditing
             switch mode {
@@ -93,7 +93,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
         for format in [GyoshukuKit.ArchiveFormat.sevenZip, .lha] {
             for placement in [AdditionPlacement.end, .beginning] {
                 let root = try TestSupport.directory("p2-unsupported-owners-\(format)-\(placement)")
-                let source = try TarP2Support.fixture(root)
+                let source = try TarEditTestSupport.fixture(root)
                 let editor: any ArchiveEditing = try ArchiveRewriter.open(url: source, output: root.appendingPathComponent("out"), format: format,
                                                                           options: .init(additionPlacement: placement))
                 XCTAssertThrowsError(try editor.addDirectory("dir", modificationDate: nil, ownerIDs: .init(user: 1, group: 2))) {

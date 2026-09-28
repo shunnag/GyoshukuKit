@@ -7,15 +7,15 @@ import XCTest
 final class TarUpdaterOutputModeTests: XCTestCase {
     func testSourceSnapshotFlagsCloneErrorsAndOutputValidation() throws {
         let root = try TestSupport.directory("p2-output-identity")
-        let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
+        let source = try TarEditTestSupport.fixture(root), work = try TestSupport.work(in: root)
         let output = work.appendingPathComponent("out.tar")
-        let original = try ZipP1Support.info(source)
+        let original = try ZipEditTestSupport.info(source)
         let reads = ZipIOEvents()
         var updater: TarUpdater? = try ZipUpdateSource.$readObserver.withValue(reads.read) { try TarUpdater.open(url: source, output: output) }
         XCTAssertFalse(reads.events.isEmpty)
         XCTAssertTrue(reads.events.allSatisfy { $0.inode != UInt64(original.st_ino) })
         let snapshot = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first)
-        XCTAssertEqual(try ZipP1Support.info(snapshot).st_flags, 0)
+        XCTAssertEqual(try ZipEditTestSupport.info(snapshot).st_flags, 0)
         updater = nil
         XCTAssertNil(updater)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
@@ -46,7 +46,7 @@ final class TarUpdaterOutputModeTests: XCTestCase {
             for action in 0..<4 {
                 try TarUpdater.$testingDisablesClone.withValue(sequential) {
                     let root = try TestSupport.directory("p2-clean-\(sequential)-\(action)")
-                    let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
+                    let source = try TarEditTestSupport.fixture(root), work = try TestSupport.work(in: root)
                     let output = work.appendingPathComponent("out.tar")
                     var editor: TarUpdater? = try TarUpdater.open(url: source, output: output)
                     if action != 0 { try editor!.add(data: Data([7]), as: "added") }
