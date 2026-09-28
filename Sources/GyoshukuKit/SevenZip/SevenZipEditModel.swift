@@ -81,8 +81,8 @@ struct SevenZipEditModel: Sendable, Equatable {
     var filePropertyOrder: [UInt8] = []
     var unrepresentedReason: String?
 
-    // 7-Zip updates keep an absent attributes vector absent for new/replacement items.
-    // Empty archives use writer defaults. A partially defined source remains unchanged.
+    // 7-Zip の更新は、属性 vector の無い元には新規・置換 item にも属性を置かない。
+    // 空の書庫は writer の既定に従い、一部だけ定義された元はその形のまま保つ。
     var storesAttributesForAdditions: Bool { files.isEmpty || files.contains { $0.attributes != nil } }
 
     static func readerOptions(password: String?) -> ReaderOptions {

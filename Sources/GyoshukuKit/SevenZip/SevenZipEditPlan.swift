@@ -63,6 +63,8 @@ struct SevenZipEditPlan {
         first.map { Array($0.utf16) } == second.map { Array($0.utf16) }
     }
 
+    /// works の順に出力の model を組み立てる。帳簿の不一致（置換の欠落、substream 数、追加 pack 長、layout）は
+    /// 自己照合の V0 として outputVerificationFailed("V0 …") で返す。
     func assemble(original: Model, filesByFolder: [[Int]], replacements: [Int: Replacement],
                   additions: [SevenZipWriter.AppendedEntry]) throws -> Assembly {
         var model = Model()

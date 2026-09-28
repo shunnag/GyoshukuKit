@@ -18,6 +18,11 @@ extension SevenZipUpdater {
         return units
     }
 
+    /// 出力の自己照合。失敗理由の先頭の符号（design.md §9「P5-G: SevenZipUpdater」）:
+    /// V0 計画・組み立ての帳簿（EditPlan.assemble / makePrefix / validLayout が出す）、
+    /// V1 dup した descriptor 上で KaitoKit が解析した model と期待 model の一致、
+    /// V2 共有出力の V5（動かした source 範囲の byte 比較。SplicedArchiveOutput が行う）、
+    /// V3 追加・再圧縮 folder の全 substream の復号、V3a 変換 folder の圧縮済み平文の長さと CRC。
     func selfCheck(fd: Int32, plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly,
                    advance: (UInt64) throws -> Void, statistics: inout SevenZipCommitStatistics) throws {
         let start = ProcessInfo.processInfo.systemUptime
