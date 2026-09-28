@@ -33,8 +33,7 @@ final class CompressedTarSpliceOutput {
     let snapshot: TarEditingSnapshot
     let format: ArchiveFormat
     let options: WriterOptions
-    private var handle: FileHandle?
-    private var owned: ArchiveOwnedFile?
+    private let file: OwnedOutputFile
     private var retained = false
     private var encodingSeconds = 0.0, copyingSeconds = 0.0, checkingSeconds = 0.0
     private var carriedCount = 0, encodedCount = 0
@@ -47,24 +46,15 @@ final class CompressedTarSpliceOutput {
 
     init(output: URL, snapshot: TarEditingSnapshot, format: ArchiveFormat, options: WriterOptions) {
         self.output = output; self.snapshot = snapshot; self.format = format; self.options = options
+        file = OwnedOutputFile(url: output)
     }
     deinit { if !retained { discard() } }
     func keep() { retained = true }
-    func discard() {
-        if let handle { ArchiveOwnedFile.remove(url: output, descriptor: handle.fileDescriptor) }
-        else { owned?.remove() }
-        try? handle?.close(); handle = nil; owned = nil
-    }
+    func discard() { file.discard() }
     private func create() throws {
         try Task.checkCancellation()
         guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
-        let fd = Darwin.open(output.path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw WriterError.io(operation: "create compressed tar", code: errno) }
-        handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        try checkOutput()
-    }
-    private func checkOutput() throws {
-        guard let handle, ArchiveOwnedFile.matches(url: output, descriptor: handle.fileDescriptor) else { throw UpdaterError.sourceChanged }
+        try file.open(flags: O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, operation: "create compressed tar")
     }
     static func encode(_ input: Input, format: ArchiveFormat, options: WriterOptions) throws -> Encoded {
         let start = ProcessInfo.processInfo.systemUptime
@@ -159,7 +149,7 @@ final class CompressedTarSpliceOutput {
         let meter = CommitProgressMeter(total: try checkedAdd(try checkedAdd(reencoded, carried), verification), progress: progress)
         try meter.start()
         try create()
-        var engine = ZipCopyEngine(descriptor: handle!.fileDescriptor, totalBytes: 0)
+        var engine = ZipCopyEngine(descriptor: file.descriptor, totalBytes: 0)
         var cursor: UInt64 = 0
         let header = format == .tarGzip ? GzipFraming.header(level: options.deflateLevel) : format == .tarXZ ? XZFraming.streamHeader : Data()
         try engine.append(header, at: cursor, progress: nil); cursor += UInt64(header.count)
@@ -221,11 +211,11 @@ final class CompressedTarSpliceOutput {
         try engine.flush(progress: nil)
         finalLength = cursor
         try injectFault()
-        try handle!.synchronize()
+        try file.synchronize()
         guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
         let checkStart = ProcessInfo.processInfo.systemUptime
         if !CompressedTarUpdater.testingSkipsSelfCheck {
-            try CompressedTarSelfCheck.verify(writer: self, image: image, plan: plan, descriptor: handle!.fileDescriptor, meter: meter)
+            try CompressedTarSelfCheck.verify(writer: self, image: image, plan: plan, descriptor: file.descriptor, meter: meter)
         }
         checkingSeconds = ProcessInfo.processInfo.systemUptime - checkStart
         let strategy: CompressedTarStrategy = plan.reason.map { .fullEncode($0) } ?? .splice(carriedChunks: carriedCount, reencodedChunks: encodedCount)
@@ -250,16 +240,15 @@ final class CompressedTarSpliceOutput {
         try Task.checkCancellation()
         try meter.finish()
         try Task.checkCancellation()
-        try checkOutput()
+        try file.checkOutput()
         guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
         var info = stat()
-        guard fstat(handle!.fileDescriptor, &info) == 0, info.st_size >= 0, UInt64(info.st_size) == finalLength else {
+        guard fstat(file.descriptor, &info) == 0, info.st_size >= 0, UInt64(info.st_size) == finalLength else {
             throw TarUpdaterError.outputVerificationFailed(reason: "V3 size")
         }
         let identity = CompressedTarCommitResult.OutputIdentity(device: UInt64(UInt32(bitPattern: info.st_dev)), inode: info.st_ino,
             size: UInt64(info.st_size), modificationSeconds: Int64(info.st_mtimespec.tv_sec), modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec))
-        owned = try ArchiveOwnedFile(url: output, descriptor: handle!.fileDescriptor)
-        try handle!.close(); handle = nil
+        try file.adopt()
         return CompressedTarCommitResult(strategy: strategy, output: identity, segments: segments,
             reencodedImageBytes: reencoded, reencodedOldImageBytes: old, carriedCompressedBytes: carried)
     }
@@ -267,7 +256,7 @@ final class CompressedTarSpliceOutput {
     private func unchanged(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws -> CompressedTarCommitResult {
         let meter = CommitProgressMeter(total: snapshot.archive.length, progress: progress)
         try meter.start(); try create()
-        var engine = ZipCopyEngine(descriptor: handle!.fileDescriptor, meter: meter)
+        var engine = ZipCopyEngine(descriptor: file.descriptor, meter: meter)
         let start = ProcessInfo.processInfo.systemUptime
         var cursor: UInt64 = 0
         let chunks = snapshot.chunkMap?.chunks ?? []
@@ -286,7 +275,7 @@ final class CompressedTarSpliceOutput {
         let range = try unchangedPayload(chunks)
         segments = [.reused(output: range, base: range)]
         carriedCount = chunks.count
-        try handle!.synchronize()
+        try file.synchronize()
         return try finish(strategy: .unchanged, reencoded: 0, old: 0, carried: range.byteLength, meter: meter)
     }
 
@@ -328,10 +317,10 @@ final class CompressedTarSpliceOutput {
         // encoded の注入は先頭 block の予約済み BTYPE=3 にし、V1 の拒否を確実に検証する。
         let invalidDeflate = format == .tarGzip && !reused
         let offset = part.output.lowerBound + (invalidDeflate ? 0 : part.output.byteLength / 2)
-        var byte = try SplicedArchiveOutput.read(handle!.fileDescriptor, at: offset, count: 1)
+        var byte = try SplicedArchiveOutput.read(file.descriptor, at: offset, count: 1)
         if invalidDeflate { byte[0] = (byte[0] & ~UInt8(6)) | 6 }
         else { byte[0] ^= 1 }
-        try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(handle!.fileDescriptor, bytes: $0, at: offset) }
+        try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(file.descriptor, bytes: $0, at: offset) }
     }
 
     func statistics(planning: Double, scratch: UInt64, result: CompressedTarCommitResult) -> CompressedTarCommitStatistics {

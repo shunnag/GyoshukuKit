@@ -73,8 +73,7 @@ final class SplicedArchiveOutput {
     private let output: URL
     private let pathExtension: String
     let isCloneMode: Bool
-    private var owned: ArchiveOwnedFile?
-    private var handle: FileHandle?
+    private let file: OwnedOutputFile
     private var scratch: [SplicedScratchFile] = []
     private var initialPrefix: [SplicedSegment]?
     private var committed = false
@@ -83,42 +82,29 @@ final class SplicedArchiveOutput {
         self.snapshot = snapshot
         self.output = output
         self.pathExtension = pathExtension
+        file = OwnedOutputFile(url: output)
         isCloneMode = !sequential && snapshot.snapshot != nil
     }
     deinit { if !committed { discard() } }
 
+    // clone 出力は clone した inode を先に所有し、開いた fd がその inode であることを OwnedOutputFile.open が確かめる。
     private func create() throws {
-        guard handle == nil else { return }
+        guard file.handle == nil else { return }
         try snapshot.checkUnchanged()
         if isCloneMode {
             guard fclonefileat(snapshot.source.descriptor, AT_FDCWD, output.path,
                               UInt32(CLONE_NOFOLLOW | CLONE_NOOWNERCOPY)) == 0 else {
                 throw WriterError.io(operation: "clone output", code: errno)
             }
-            owned = try ArchiveOwnedFile(url: output)
+            file.expectClone(try ArchiveOwnedFile(url: output))
             try Self.testingDidCloneOutput?(output)
         }
         let flags = O_RDWR | O_CLOEXEC | O_NOFOLLOW | (isCloneMode ? 0 : O_CREAT | O_EXCL)
-        let fd = Darwin.open(output.path, flags, 0o600)
-        guard fd >= 0 else { throw WriterError.io(operation: "open output", code: errno) }
-        let opened = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        if let owned {
-            var info = stat()
-            guard fstat(fd, &info) == 0, owned.identity.matchesInode(info) else { throw UpdaterError.sourceChanged }
-        }
-        handle = opened
-        try checkOutput()
-        guard fchflags(fd, 0) == 0, fchmod(fd, 0o600) == 0 else {
+        try file.open(flags: flags, operation: "open output")
+        guard fchflags(file.descriptor, 0) == 0, fchmod(file.descriptor, 0o600) == 0 else {
             throw WriterError.io(operation: "output attributes", code: errno)
         }
         try snapshot.checkUnchanged()
-    }
-
-    private func checkOutput() throws {
-        guard let handle else { throw UpdaterError.invalidState }
-        guard ArchiveOwnedFile.matches(url: output, descriptor: handle.fileDescriptor) else {
-            throw UpdaterError.sourceChanged
-        }
     }
 
     func beginAppend(at offset: UInt64, prefix: [SplicedSegment]) throws -> FileHandle {
@@ -128,7 +114,7 @@ final class SplicedArchiveOutput {
             guard prefix.reduce(UInt64(0), { $0 + $1.length }) == offset else { throw WriterError.invalidState }
             if !isCloneMode { try execute(prefix, meter: nil) }
             initialPrefix = prefix
-            let fd = dup(handle!.fileDescriptor)
+            let fd = dup(file.descriptor)
             guard fd >= 0 else { throw WriterError.io(operation: "dup output", code: errno) }
             let result = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
             try result.seek(toOffset: offset)
@@ -197,7 +183,7 @@ final class SplicedArchiveOutput {
     }
 
     private func execute(_ segments: [SplicedSegment], meter: CommitProgressMeter?) throws {
-        let writer = SplicedSegmentWriter(descriptor: handle!.fileDescriptor, meter: meter)
+        let writer = SplicedSegmentWriter(descriptor: file.descriptor, meter: meter)
         for segment in segments {
             try Task.checkCancellation()
             let end = try checkedAdd(writer.position, segment.length)
@@ -225,57 +211,52 @@ final class SplicedArchiveOutput {
         do {
             try validateScratch(plan.prefix)
             try create()
-            try checkOutput()
+            try file.checkOutput()
             let relocate = relocated(plan)
             let prefixEnd = plan.prefix.reduce(UInt64(0)) { $0 + $1.length }
             var spool: SplicedScratchFile?
             if relocate, let appended = plan.appended {
-                let file = try makeScratch(tag: "append")
-                let source = try ArchiveFileSource(duplicating: handle!.fileDescriptor)
-                let writer = SplicedSegmentWriter(descriptor: file.handle.fileDescriptor, meter: meter)
+                let scratchFile = try makeScratch(tag: "append")
+                let source = try ArchiveFileSource(duplicating: file.descriptor)
+                let writer = SplicedSegmentWriter(descriptor: scratchFile.handle.fileDescriptor, meter: meter)
                 try writer.copy(appended, from: source)
                 try writer.flush()
-                file.length = writer.position
-                spool = file
+                scratchFile.length = writer.position
+                spool = scratchFile
                 if isCloneMode {
-                    ArchiveOwnedFile.remove(url: output, descriptor: handle!.fileDescriptor)
-                    try handle?.close()
-                    handle = nil
-                    owned = nil
+                    try file.reset()
                     try create()
-                } else { try handle!.truncate(atOffset: 0) }
+                } else { try file.truncate(atOffset: 0) }
             }
             if isCloneMode || plan.appended == nil || relocate { try execute(plan.prefix, meter: meter) }
-            let tail = SplicedSegmentWriter(descriptor: handle!.fileDescriptor, position: prefixEnd, meter: meter)
+            let tail = SplicedSegmentWriter(descriptor: file.descriptor, position: prefixEnd, meter: meter)
             if let spool { try tail.copy(0..<spool.length, from: spool.source()) }
             else if let appended = plan.appended { tail.position += appended.byteLength }
             try tail.write(plan.terminal)
             try tail.flush()
             guard tail.position == plan.finalLength else { throw UpdaterRouteError.outputVerificationFailed(reason: "final length plan") }
-            try handle!.truncate(atOffset: plan.finalLength)
-            try Self.testingBeforeSynchronize?(handle!.fileDescriptor)
-            try handle!.synchronize()
+            try file.truncate(atOffset: plan.finalLength)
+            try Self.testingBeforeSynchronize?(file.descriptor)
+            try file.synchronize()
             Self.testingDidSynchronize?()
             if let patch = plan.finalPatch {
                 guard try checkedAdd(patch.offset, UInt64(patch.bytes.count)) <= plan.finalLength else {
                     throw UpdaterRouteError.outputVerificationFailed(reason: "final patch bounds")
                 }
-                var engine = ZipCopyEngine(descriptor: handle!.fileDescriptor, meter: meter)
+                var engine = ZipCopyEngine(descriptor: file.descriptor, meter: meter)
                 try engine.patch(patch.bytes, at: patch.offset, progress: nil)
-                try handle!.synchronize()
+                try file.synchronize()
                 Self.testingDidSynchronize?()
             }
             try snapshot.checkUnchanged()
             let verificationStart = ProcessInfo.processInfo.systemUptime
             try verifySources(plan.prefix, meter: meter)
-            try verify(handle!.fileDescriptor, meter.advance)
+            try verify(file.descriptor, meter.advance)
             Self.testingVerificationElapsed?(ProcessInfo.processInfo.systemUptime - verificationStart)
             try Task.checkCancellation()
             try snapshot.checkUnchanged()
-            try checkOutput()
-            owned = try ArchiveOwnedFile(url: output, descriptor: handle!.fileDescriptor)
-            try handle!.close()
-            handle = nil
+            try file.checkOutput()
+            try file.adopt()
             scratch.forEach { $0.discard() }
             scratch.removeAll()
             snapshot.cleanup()
@@ -310,7 +291,7 @@ final class SplicedArchiveOutput {
                 try Task.checkCancellation()
                 let count = Int(min(4 * 1024 * 1024, segment.length - cursor))
                 let original = try Self.read(snapshot.source.descriptor, at: range.lowerBound + cursor, count: count, counted: true)
-                let written = try Self.read(handle!.fileDescriptor, at: outputOffset + cursor, count: count, counted: true)
+                let written = try Self.read(file.descriptor, at: outputOffset + cursor, count: count, counted: true)
                 try meter.advance(UInt64(count) * 2)
                 guard original == written else { throw UpdaterRouteError.outputVerificationFailed(reason: "V5 source bytes") }
                 cursor += UInt64(count)
@@ -325,11 +306,7 @@ final class SplicedArchiveOutput {
     }
 
     func discard() {
-        if let handle { ArchiveOwnedFile.remove(url: output, descriptor: handle.fileDescriptor) }
-        else { owned?.remove() }
-        try? handle?.close()
-        handle = nil
-        owned = nil
+        file.discard()
         scratch.forEach { $0.discard() }
         scratch.removeAll()
         snapshot.cleanup()
