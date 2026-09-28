@@ -85,14 +85,14 @@ struct ArchiveOwnedFile {
 // 形式に依存せず、開いた原本の descriptor から snapshot を作る。tar updater も共有する。
 final class ArchiveSourceSnapshot {
     @TaskLocal static var testingCloneError: Int32?
-    let original: ZipUpdateSource
-    let source: ZipUpdateSource
+    let original: ArchiveFileSource
+    let source: ArchiveFileSource
     let originalURL: URL
     let snapshot: ArchiveOwnedFile?
 
     init(url: URL, directory: URL, pathExtension: String, disablesClone: Bool = false) throws {
         originalURL = url
-        original = try ZipUpdateSource(url: url)
+        original = try ArchiveFileSource(url: url)
         let refused = UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND)
         guard original.flags & refused == 0 else { throw WriterError.io(operation: "source flags", code: EPERM) }
         let target = directory.appendingPathComponent(".gyoshuku-source-\(UUID().uuidString).\(pathExtension)")
@@ -111,7 +111,7 @@ final class ArchiveSourceSnapshot {
         }
         let owned = try ArchiveOwnedFile(url: target)
         do {
-            let cloned = try ZipUpdateSource(url: target)
+            let cloned = try ArchiveFileSource(url: target)
             var info = stat()
             guard fstat(cloned.descriptor, &info) == 0, owned.identity.matchesInode(info) else {
                 throw UpdaterError.sourceChanged

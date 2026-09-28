@@ -19,7 +19,7 @@ enum SplicedSegment {
 struct SplicedSink {
     fileprivate let writer: SplicedSegmentWriter
     func write(_ bytes: Data) throws { try writer.write(bytes) }
-    func copy(_ range: Range<UInt64>, from source: ZipUpdateSource) throws { try writer.copy(range, from: source) }
+    func copy(_ range: Range<UInt64>, from source: ArchiveFileSource) throws { try writer.copy(range, from: source) }
 }
 
 struct SplicedCommitPlan {
@@ -32,34 +32,6 @@ struct SplicedCommitPlan {
 }
 
 enum SplicedCommitStrategy { case unchanged, inPlacePatch, appendOnly, splice, sequential, relocatedAppend }
-
-final class CommitProgressMeter {
-    let total: UInt64
-    private(set) var completed: UInt64 = 0
-    private var notified: UInt64 = 0
-    private var finished = false
-    private let progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?
-
-    init(total: UInt64, progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) {
-        self.total = total
-        self.progress = progress
-    }
-    func start() throws { try progress?(.init(completedBytes: 0, totalBytes: total)) }
-    func advance(_ count: UInt64) throws {
-        try Task.checkCancellation()
-        completed += min(count, total - completed)
-        if completed - notified >= ZipCommitMeter.interval, completed < total {
-            notified = completed
-            try progress?(.init(completedBytes: completed, totalBytes: total))
-        }
-    }
-    func finish() throws {
-        guard !finished else { return }
-        finished = true
-        completed = total
-        try progress?(.init(completedBytes: total, totalBytes: total))
-    }
-}
 
 fileprivate final class SplicedSegmentWriter {
     var engine: ZipCopyEngine
@@ -76,7 +48,7 @@ fileprivate final class SplicedSegmentWriter {
         try engine.append(bytes, at: position, progress: nil)
         position = end
     }
-    func copy(_ range: Range<UInt64>, from source: ZipUpdateSource) throws {
+    func copy(_ range: Range<UInt64>, from source: ArchiveFileSource) throws {
         let end = try checkedAdd(position, range.byteLength)
         guard end <= limit else { throw TarUpdaterError.outputVerificationFailed(reason: "segment length") }
         try engine.copy(range, from: source, to: position, progress: nil)
@@ -105,8 +77,8 @@ final class SplicedScratchFile {
         try writer.flush()
         length = writer.position
     }
-    func source() throws -> ZipUpdateSource {
-        try ZipUpdateSource(duplicating: handle.fileDescriptor)
+    func source() throws -> ArchiveFileSource {
+        try ArchiveFileSource(duplicating: handle.fileDescriptor)
     }
     fileprivate func discard() {
         guard !discarded else { return }
@@ -285,7 +257,7 @@ final class SplicedArchiveOutput {
             var spool: SplicedScratchFile?
             if relocate, let appended = plan.appended {
                 let file = try makeScratch(tag: "append")
-                let source = try ZipUpdateSource(duplicating: handle!.fileDescriptor)
+                let source = try ArchiveFileSource(duplicating: handle!.fileDescriptor)
                 let writer = SplicedSegmentWriter(descriptor: file.handle.fileDescriptor, meter: meter)
                 try writer.copy(appended, from: source)
                 try writer.flush()

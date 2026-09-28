@@ -21,10 +21,10 @@ extension SevenZipUpdater {
     func selfCheck(fd: Int32, plan: SevenZipUpdatePlan, assembly: SevenZipUpdatePlan.Assembly,
                    advance: (UInt64) throws -> Void, statistics: inout SevenZipCommitStatistics) throws {
         let start = ProcessInfo.processInfo.systemUptime
-        let source = try ZipUpdateSource(duplicating: fd)
+        let source = try ArchiveFileSource(duplicating: fd)
         let descriptor = source.descriptor
         let bytesRead = Mutex<UInt64>(0)
-        let previous = ZipUpdateSource.readObserver
+        let previous = ArchiveFileSource.readObserver
         var stage = "V1", index = -1
         var progressError: Error?
         func advancing(_ count: UInt64) throws {
@@ -35,7 +35,7 @@ extension SevenZipUpdater {
             statistics.verificationReadBytes += bytesRead.withLock { $0 }
         }
         do {
-            try ZipUpdateSource.$readObserver.withValue({ fd, offset, count in
+            try ArchiveFileSource.$readObserver.withValue({ fd, offset, count in
                 previous?(fd, offset, count)
                 if fd == descriptor { bytesRead.withLock { $0 += UInt64(count) } }
             }) {
@@ -64,7 +64,7 @@ extension SevenZipUpdater {
                     let input = try outputReader.stream(outputReader.entries[file])
                     while true {
                         try Task.checkCancellation()
-                        let bytes = try SevenZipReencryption.read(input, count: IOChunk.size)
+                        let bytes = try input.readSome(upTo: IOChunk.size)
                         try advancing(UInt64(bytes.count))
                         if bytes.isEmpty { break }
                     }
@@ -84,7 +84,7 @@ extension SevenZipUpdater {
                         try Task.checkCancellation()
                         let count = Int(min(4 * 1024 * 1024, converted.plaintextLength - position))
                         let bytes: Data
-                        if let input { bytes = try SevenZipReencryption.read(input, count: count) }
+                        if let input { bytes = try input.readSome(upTo: count) }
                         else {
                             bytes = try SplicedArchiveOutput.read(fd, at: pack.lowerBound + position, count: count, counted: true)
                             bytesRead.withLock { $0 += UInt64(count) }
@@ -93,7 +93,7 @@ extension SevenZipUpdater {
                         crc = updateCRC(crc, bytes); position += UInt64(bytes.count)
                         try advancing(UInt64(bytes.count))
                     }
-                    if let input, !(try SevenZipReencryption.read(input, count: 1)).isEmpty { throw failure("V3a length \(index)") }
+                    if let input, !(try input.readSome(upTo: 1)).isEmpty { throw failure("V3a length \(index)") }
                     guard position == converted.plaintextLength, crc == converted.plaintextCRC else { throw failure("V3a CRC \(index)") }
                 }
                 statistics.v3aSeconds = ProcessInfo.processInfo.systemUptime - v3a

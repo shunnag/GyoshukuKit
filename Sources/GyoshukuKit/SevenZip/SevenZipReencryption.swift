@@ -50,7 +50,7 @@ final class SevenZipReencryption {
                             streams: Array(model.substreams[original.substreamIndices]))
     }
 
-    func write(reader: ArchiveReader, source: ZipUpdateSource, model: SevenZipEditModel,
+    func write(reader: ArchiveReader, source: ArchiveFileSource, model: SevenZipEditModel,
                write: (Data) throws -> Void) throws {
         do {
             try Task.checkCancellation()
@@ -61,14 +61,14 @@ final class SevenZipReencryption {
                 try Task.checkCancellation()
                 let count = Int(min(4 * 1024 * 1024, plaintextLength - position))
                 let bytes: Data
-                if let stream { bytes = try Self.read(stream, count: count) }
+                if let stream { bytes = try stream.readSome(upTo: count) }
                 else { bytes = try source.bytes(at: originalRange.lowerBound + position, count: count) }
                 guard !bytes.isEmpty else { throw KaitoError.truncated }
                 crc = updateCRC(crc, bytes)
                 position += UInt64(bytes.count)
                 try write(aes.map { try $0.encrypt(bytes) } ?? bytes)
             }
-            if let stream, !(try Self.read(stream, count: 1)).isEmpty { throw KaitoError.malformed("7z AES length") }
+            if let stream, !(try stream.readSome(upTo: 1)).isEmpty { throw KaitoError.malformed("7z AES length") }
             if let aes { try write(aes.finish()) }
             plaintextCRC = crc
         } catch {
@@ -90,7 +90,7 @@ final class SevenZipReencryption {
                 try Task.checkCancellation()
                 let stream = try reader.stream(reader.entries[index])
                 repeat {
-                    let bytes = try read(stream, count: min(remaining, 64 * 1024))
+                    let bytes = try stream.readSome(upTo: min(remaining, 64 * 1024))
                     remaining -= bytes.count
                     if bytes.isEmpty { break }
                 } while remaining > 0
@@ -98,12 +98,5 @@ final class SevenZipReencryption {
             }
         } catch KaitoError.malformed { throw KaitoError.wrongPassword }
         catch KaitoError.truncated { throw KaitoError.wrongPassword }
-    }
-
-    static func read(_ stream: EntryStream, count: Int) throws -> Data {
-        var data = Data(count: max(1, count))
-        let count = try data.withUnsafeMutableBytes { try stream.read(into: $0) }
-        data.removeSubrange(count..<data.count)
-        return data
     }
 }

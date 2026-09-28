@@ -29,7 +29,7 @@ enum ZipRebuild {
     }
 
     // 予約時の予測では seam と改名拒否を使わず、header の長さだけを見る。
-    static func predictedEnd(source: ZipUpdateSource, directory: ZipValidatedDirectory,
+    static func predictedEnd(source: ArchiveFileSource, directory: ZipValidatedDirectory,
                              removed: Set<Int>, renamed: [Int: String]) throws -> UInt64 {
         var position: UInt64 = 0
         for (index, record) in directory.records.enumerated() where !removed.contains(index) {
@@ -44,7 +44,7 @@ enum ZipRebuild {
         return position
     }
 
-    static func plan(source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader,
+    static func plan(source: ArchiveFileSource, layout: ZipUpdateLayout, reader: ArchiveReader,
                      directory: ZipValidatedDirectory, removed: Set<Int>, renamed: [Int: String],
                      writtenRange: Range<UInt64>? = nil, appended: [ZipRecords.Entry] = [],
                      reencryption: ZipReencryption? = nil,
@@ -165,8 +165,8 @@ enum ZipRebuild {
                     finalEnd: finalEnd, trailer: trailer, inPlace: patchable, totalBytes: total)
     }
 
-    static func execute(_ plan: Plan, source: ZipUpdateSource, directory: ZipValidatedDirectory,
-                        layout: ZipUpdateLayout, stagedSource: ZipUpdateSource?, writtenRange: Range<UInt64>?,
+    static func execute(_ plan: Plan, source: ArchiveFileSource, directory: ZipValidatedDirectory,
+                        layout: ZipUpdateLayout, stagedSource: ArchiveFileSource?, writtenRange: Range<UInt64>?,
                         reencryption: ZipReencryption? = nil,
                         engine: inout ZipCopyEngine, progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         try executeLocal(plan, source: source, reencryption: reencryption, engine: &engine, progress: progress)
@@ -176,7 +176,7 @@ enum ZipRebuild {
         try executeCentral(plan, directory: directory, layout: layout, engine: &engine, progress: progress)
     }
 
-    private static func executeLocal(_ plan: Plan, source: ZipUpdateSource, reencryption: ZipReencryption?, engine: inout ZipCopyEngine,
+    private static func executeLocal(_ plan: Plan, source: ArchiveFileSource, reencryption: ZipReencryption?, engine: inout ZipCopyEngine,
                              progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         try Task.checkCancellation()
         var pending: (range: Range<UInt64>, offset: UInt64)?
@@ -247,7 +247,7 @@ enum ZipRebuild {
         let extra: Data
         var hasZIP64: Bool { extraFields(extra).contains { $0.id == 1 } }
 
-        init(source: ZipUpdateSource, layout raw: ZipRecordLayout) throws {
+        init(source: ArchiveFileSource, layout raw: ZipRecordLayout) throws {
             let length = raw.payloadRange.lowerBound - raw.recordRange.lowerBound
             guard length >= 30, length <= UInt64(Int.max) else {
                 throw UpdaterError.invalidArchive("local header と rawRecord の payload 位置が一致しません")
@@ -283,7 +283,7 @@ enum ZipRebuild {
         let comment: Data
         var byteCount: Int { 46 + name.count + extra.count + comment.count }
 
-        init(source: ZipUpdateSource, at offset: UInt64, end: UInt64) throws {
+        init(source: ArchiveFileSource, at offset: UInt64, end: UInt64) throws {
             guard offset <= end, end - offset >= 46 else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
             fixed = try source.bytes(at: offset, count: 46)
             guard fixed.zip32(0) == 0x02014B50 else { throw UpdaterError.invalidArchive("CD signature がありません") }

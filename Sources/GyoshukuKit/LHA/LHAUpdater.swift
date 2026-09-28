@@ -257,7 +257,7 @@ public final class LHAUpdater: ArchiveEditing {
             var info = stat()
             guard fstat(descriptor, &info) == 0, info.st_size >= 0, UInt64(info.st_size) == finalLength else { throw failure("V4 length") }
             guard plan.isChanged else { return }
-            let source = try ZipUpdateSource(duplicating: descriptor)
+            let source = try ArchiveFileSource(duplicating: descriptor)
             for change in plan.changed {
                 try Task.checkCancellation()
                 let actual = try SplicedArchiveOutput.read(descriptor, at: change.outputOffset, count: change.header.count)

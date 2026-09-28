@@ -43,7 +43,7 @@ final class TarSpliceStorage {
         try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(handle.fileDescriptor, bytes: $0, at: start) }
         return start..<written
     }
-    func source() throws -> ZipUpdateSource { try ZipUpdateSource(duplicating: handle.fileDescriptor) }
+    func source() throws -> ArchiveFileSource { try ArchiveFileSource(duplicating: handle.fileDescriptor) }
 }
 
 struct TarImageSource: ByteSource {

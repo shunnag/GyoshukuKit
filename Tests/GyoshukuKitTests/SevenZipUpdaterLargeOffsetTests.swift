@@ -59,7 +59,7 @@ final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
                 let stream = try reader.stream(reader.entries[0])
                 var read: UInt64 = 0
                 while true {
-                    let bytes = try SevenZipReencryption.read(stream, count: 4 * 1024 * 1024)
+                    let bytes = try stream.readSome(upTo: 4 * 1024 * 1024)
                     if bytes.isEmpty { break }
                     XCTAssertFalse(bytes.contains { $0 != 0 }); read += UInt64(bytes.count)
                 }

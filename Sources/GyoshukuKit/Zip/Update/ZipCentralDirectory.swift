@@ -85,7 +85,7 @@ enum ZipCentralDirectory {
 
     // validate 自体は取消しを検査しない。KaitoKit の解析は取消し済み Task で CancellationError を投げる。
     @discardableResult
-    static func validate(source: ZipUpdateSource, reader: ArchiveReader,
+    static func validate(source: ArchiveFileSource, reader: ArchiveReader,
                          centralOffset: UInt64, centralSize: UInt64,
                          maximumCentralSize: UInt64 = ReadLimits().maxTotalMetadataSize) throws -> ZipValidatedDirectory {
         guard centralOffset <= source.length, centralSize <= source.length - centralOffset else {

@@ -4,7 +4,7 @@ import Foundation
 enum LHAAppendedMemberCheck {
     static func verify(descriptor: Int32, at outputStart: UInt64, originalStart: UInt64,
                        length: UInt64, records: [LHAWriter.MemberRecord], advance: (UInt64) throws -> Void) throws {
-        let source = try ZipUpdateSource(duplicating: descriptor)
+        let source = try ArchiveFileSource(duplicating: descriptor)
         let end = try checkedAdd(outputStart, length)
         var originalSizes: [UInt64] = []
         let walked = try LHALayout.walk(source: source, range: outputStart..<end) { index, header in
@@ -49,7 +49,7 @@ enum LHAAppendedMemberCheck {
     private static func failure(_ reason: String) -> UpdaterRouteError { .outputVerificationFailed(reason: "V3 \(reason)") }
 
     private struct AppendedView: ByteSource {
-        let source: ZipUpdateSource
+        let source: ArchiveFileSource
         let range: Range<UInt64>
         var length: UInt64 { range.byteLength + 1 }
         func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {

@@ -2,28 +2,6 @@ import Foundation
 private import Darwin
 internal import KaitoKit
 
-struct ZipCommitMeter {
-    var completedBytes: UInt64 = 0
-    let totalBytes: UInt64
-    private var notified: UInt64 = 0
-    static let interval: UInt64 = 4 * 1024 * 1024
-
-    init(totalBytes: UInt64) { self.totalBytes = totalBytes }
-
-    mutating func wrote(_ count: Int, progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
-        completedBytes += UInt64(count)
-        if let progress, completedBytes - notified >= Self.interval {
-            try progress(.init(completedBytes: completedBytes, totalBytes: totalBytes))
-            notified = completedBytes
-        }
-    }
-
-    func finish(progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
-        try progress?(.init(completedBytes: completedBytes,
-                            totalBytes: completedBytes == totalBytes ? totalBytes : completedBytes))
-    }
-}
-
 // buffer を満たす範囲だけを読み、飛び越える範囲と patch の前に flush する。
 struct ZipCopyEngine {
     @TaskLocal static var writeObserver: (@Sendable (UInt64, Int) -> Void)?
@@ -117,7 +95,7 @@ struct ZipCopyEngine {
         }
     }
 
-    mutating func copy(_ range: Range<UInt64>, from source: ZipUpdateSource, to offset: UInt64,
+    mutating func copy(_ range: Range<UInt64>, from source: ArchiveFileSource, to offset: UInt64,
                        progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
         try move(to: offset, progress: progress)
         var cursor = range.lowerBound

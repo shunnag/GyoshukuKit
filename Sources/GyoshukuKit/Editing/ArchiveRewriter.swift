@@ -27,7 +27,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     private let output: URL?
     private let format: ArchiveFormat
     private let options: WriterOptions
-    private let source: ZipUpdateSource
+    private let source: ArchiveFileSource
     private let reader: ArchiveReader
     private let names: [String]
     private let hardLinkTargets: [Int: Int]
@@ -77,7 +77,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     public var volumeSet: ArchiveVolumeSet? { reader.volumeSet }
 
     private init(url: URL, output: URL?, format: ArchiveFormat, options: WriterOptions,
-                 source: ZipUpdateSource, reader: ArchiveReader, names: [String],
+                 source: ArchiveFileSource, reader: ArchiveReader, names: [String],
                  hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
         self.url = url
         self.output = output
@@ -100,10 +100,10 @@ public final class ArchiveRewriter: ArchiveEditing {
     public static func open(url: URL, password: String? = nil, output: URL? = nil,
                             format: ArchiveFormat, options: WriterOptions = WriterOptions()) throws -> ArchiveRewriter {
         try options.validate(for: format)
-        let source: ZipUpdateSource
+        let source: ArchiveFileSource
         let reader: ArchiveReader
         do {
-            source = try ZipUpdateSource(url: url)
+            source = try ArchiveFileSource(url: url)
             // sidecar を保持し、index の詰め直しと resource fork の擬似 entry を編集に持ち込まない。
             reader = try ArchiveReader.open(url: url, options: ReaderOptions(
                 limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
@@ -540,7 +540,7 @@ public final class ArchiveRewriter: ArchiveEditing {
                 try withBuffered(payload) { size, read in try add(size: size, read: read) }
             } else if let size = entry.uncompressedSize {
                 let stream = try reader.stream(entry)
-                try add(size: size) { try Self.read(stream, count: $0) }
+                try add(size: size) { try stream.readFully(upTo: min($0, IOChunk.size)) }
             } else {
                 let payload = try buffer(entry)
                 defer { try? FileManager.default.removeItem(at: payload.url) }
@@ -561,7 +561,7 @@ public final class ArchiveRewriter: ArchiveEditing {
         let stream = try reader.stream(entry)
         var size: UInt64 = 0
         while true {
-            let chunk = try Self.read(stream, count: IOChunk.size)
+            let chunk = try stream.readFully(upTo: IOChunk.size)
             if chunk.isEmpty { break }
             size = try checkedAdd(size, UInt64(chunk.count))
             try file.write(contentsOf: chunk)
@@ -578,22 +578,6 @@ public final class ArchiveRewriter: ArchiveEditing {
             try Task.checkCancellation()
             return try FileRead.readChunk(file.fileDescriptor, upTo: min($0, IOChunk.size))
         }
-    }
-
-    private static func read(_ stream: EntryStream, count: Int) throws -> Data {
-        var data = Data(count: min(count, IOChunk.size))
-        var filled = 0
-        let capacity = data.count
-        try data.withUnsafeMutableBytes { storage in
-            while filled < capacity {
-                try Task.checkCancellation()
-                let count = try stream.read(into: UnsafeMutableRawBufferPointer(rebasing: storage[filled..<capacity]))
-                if count == 0 { break }
-                filled += count
-            }
-        }
-        data.count = filled
-        return data
     }
 
     private func preparedWriter() throws -> ArchiveWriter {

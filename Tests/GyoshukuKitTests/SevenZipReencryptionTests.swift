@@ -149,7 +149,7 @@ final class SevenZipReencryptionTests: XCTestCase {
             let stream = try reader.sevenZipDecryptedPackedStream(folder: index, packedInput: 0)
             var result = Data()
             while true {
-                let chunk = try SevenZipReencryption.read(stream, count: 256 * 1024)
+                let chunk = try stream.readSome(upTo: 256 * 1024)
                 if chunk.isEmpty { return result }; result.append(chunk)
             }
         }

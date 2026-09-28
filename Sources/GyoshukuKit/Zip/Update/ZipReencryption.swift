@@ -39,7 +39,7 @@ final class ZipConversion {
         .reencryptionFailed(index: index, name: name, reason: reason)
     }
 
-    func assemble(source: ZipUpdateSource, header: ZipRebuild.CentralHeader, offset: UInt64, name newName: String?) throws {
+    func assemble(source: ArchiveFileSource, header: ZipRebuild.CentralHeader, offset: UInt64, name newName: String?) throws {
         let original = try ZipRebuild.LocalHeader(source: source, layout: raw)
         let aes = ZipRebuild.extraFields(header.extra).filter { $0.id == 0x9901 }
         if let version = raw.encryption.aesVersion {
@@ -238,7 +238,7 @@ final class ZipReencryption {
         try Task.checkCancellation()
     }
 
-    func withKeys(records: [ZipRebuild.PlannedRecord], source: ZipUpdateSource,
+    func withKeys(records: [ZipRebuild.PlannedRecord], source: ArchiveFileSource,
                   emit: (ZipRebuild.PlannedRecord, Keys?) throws -> Void) throws {
         let pipeline = OrderedChunkPipeline<Job, Keys, (ZipRebuild.PlannedRecord, Job?)>(threads: options.resolvedCompressionThreads) { job in
             let input = try job.input.map { try ZipAESKeyMaterial.derive(passwordBytes: $0.password, salt: $0.salt, strength: $0.strength) }
@@ -398,7 +398,7 @@ final class ZipReencryption {
         var active: ZipConversion?
         do {
             try Self.observe(.v0, -1)
-            let source = try ZipUpdateSource(url: url)
+            let source = try ArchiveFileSource(url: url)
             let layout = try ZipUpdateLayout(source: source)
             var settings = ArchiveUpdater.readerOptions
             settings.password = options.password

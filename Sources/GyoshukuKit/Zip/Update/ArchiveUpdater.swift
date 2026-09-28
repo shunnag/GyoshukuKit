@@ -12,7 +12,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     private let outputURL: URL?
     private let sourceSnapshot: ArchiveSourceSnapshot?
     private let directory: ZipValidatedDirectory
-    private let source: ZipUpdateSource
+    private let source: ArchiveFileSource
     private let layout: ZipUpdateLayout
     private let reader: ArchiveReader?
     private var removed: Set<Int> = []
@@ -68,7 +68,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     private var state = State.adding
     private var additionsClosed = false
 
-    private init(url: URL, output: URL?, options: WriterOptions, source: ZipUpdateSource,
+    private init(url: URL, output: URL?, options: WriterOptions, source: ArchiveFileSource,
                  sourceSnapshot: ArchiveSourceSnapshot?, layout: ZipUpdateLayout, reader: ArchiveReader?,
                  directory: ZipValidatedDirectory) {
         self.url = url
@@ -102,7 +102,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     /// CD 全体の walk と local record の対応検査は open だけが行う。probe は tail の読取量を維持する。
     /// entry 内容・読取制限の検査は reader の責務。同じ書庫への操作は直列化する。
     public static func probe(url: URL) throws -> Probe {
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         try source.checkUnchanged(at: url)
         return Probe(entryCount: layout.count)
@@ -120,7 +120,7 @@ public final class ArchiveUpdater: ArchiveEditing {
         let snapshot = try output.map {
             try ArchiveSourceSnapshot(url: url, directory: $0.deletingLastPathComponent(), pathExtension: "zip")
         }
-        let source = try snapshot?.source ?? ZipUpdateSource(url: url)
+        let source = try snapshot?.source ?? ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         let reader: ArchiveReader?
         let directory: ZipValidatedDirectory
@@ -320,13 +320,13 @@ public final class ArchiveUpdater: ArchiveEditing {
                 let plan = try ZipRebuild.plan(source: source, layout: layout, reader: reader, directory: directory,
                     removed: removed, renamed: renamed, writtenRange: written,
                     appended: appended?.entries ?? [], reencryption: reencryption, recordLayout: recordLayout)
-                var stagedSource: ZipUpdateSource?
+                var stagedSource: ArchiveFileSource?
                 if let written, plan.end != written.lowerBound {
                     let parent = outputURL?.deletingLastPathComponent() ?? replacementDirectory!
                     let staged = parent.appendingPathComponent(".gyoshuku-staged-\(UUID().uuidString).zip")
                     try FileManager.default.copyItem(at: replacement!, to: staged)
                     stagedSnapshot = try ArchiveOwnedFile(url: staged)
-                    stagedSource = try ZipUpdateSource(url: staged)
+                    stagedSource = try ArchiveFileSource(url: staged)
                     lastCommitStrategy = .stagedRebuild
                 } else if appended != nil { lastCommitStrategy = .rebuildThenAppend }
                 else { lastCommitStrategy = plan.inPlace ? .inPlacePatch : .rebuild }
