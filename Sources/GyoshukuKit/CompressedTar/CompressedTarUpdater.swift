@@ -68,7 +68,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     @TaskLocal static var testingStage: (@Sendable (Stage) throws -> Void)?
 
     public let entryNames: [String]
-    private var snapshot: TarEditingSnapshot?
+    private var editingSnapshot: TarEditingSnapshot?
     private let entries: [ArchiveEntry]
     private let output: URL
     private let format: ArchiveFormat
@@ -80,16 +80,16 @@ public final class CompressedTarUpdater: ArchiveEditing {
     private lazy var reservations = EditPathReservations(existingPaths)
     private var indexedAppendCount = 0, writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?, tarWriter: TarWriter?, storage: TarSpliceStorage?
-    private var destination: CompressedTarSpliceWriter?
+    private var destination: CompressedTarSpliceOutput?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
     private var additionsClosed = false
     private var result: CompressedTarCommitResult?
 
-    private init(snapshot: TarEditingSnapshot, entries: [ArchiveEntry], output: URL, format: ArchiveFormat,
+    private init(editingSnapshot: TarEditingSnapshot, entries: [ArchiveEntry], output: URL, format: ArchiveFormat,
                  options: WriterOptions, layout: TarLayout, names: [String],
                  hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
-        self.snapshot = snapshot; self.entries = entries; entryNames = entries.map(\.name)
+        self.editingSnapshot = editingSnapshot; self.entries = entries; entryNames = entries.map(\.name)
         self.output = output; self.format = format; self.options = options; self.layout = layout
         self.names = names; rawNames = entries.map { Data($0.rawName.bytes) }
         self.hardLinkTargets = hardLinkTargets; self.dataTargets = dataTargets
@@ -133,7 +133,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
                   unit.dataStart == member.headerRange.upperBound else { throw TarLayout.refuse("R8: layout mismatch") }
         }
         guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
-        return CompressedTarUpdater(snapshot: snapshot, entries: reader.entries, output: output, format: format,
+        return CompressedTarUpdater(editingSnapshot: snapshot, entries: reader.entries, output: output, format: format,
             options: options, layout: layout, names: represented.names,
             hardLinkTargets: represented.hardLinkTargets, dataTargets: represented.dataTargets)
     }
@@ -213,7 +213,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
         try perform {
             state = .committing
             let started = ProcessInfo.processInfo.systemUptime
-            let snapshot = self.snapshot!
+            let snapshot = self.editingSnapshot!
             guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
             let additionLength = try writer?.endTarMembers() ?? 0
             let additions = tarWriter?.memberLayouts ?? []
@@ -232,7 +232,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
             let planning = ProcessInfo.processInfo.systemUptime - started
             try Self.testingStage?(.planned)
             try Task.checkCancellation()
-            let destination = CompressedTarSpliceWriter(output: output, snapshot: snapshot, format: format, options: options)
+            let destination = CompressedTarSpliceOutput(output: output, snapshot: snapshot, format: format, options: options)
             self.destination = destination
             let committed = try destination.commit(image: image, plan: splice, progress: { update in
                 try progress?(update)
@@ -242,7 +242,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
             lastCommitStatistics = destination.statistics(planning: planning, scratch: storage?.written ?? 0, result: committed)
             result = committed
             destination.keep()
-            self.destination = nil; storage = nil; self.snapshot = nil
+            self.destination = nil; storage = nil; self.editingSnapshot = nil
             state = .committed
         }
         return result!
@@ -299,6 +299,6 @@ public final class CompressedTarUpdater: ArchiveEditing {
     }
     private func cleanup() {
         writer = nil; tarWriter = nil; storage = nil
-        destination?.discard(); destination = nil; snapshot = nil
+        destination?.discard(); destination = nil; editingSnapshot = nil
     }
 }

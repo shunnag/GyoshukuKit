@@ -3,8 +3,8 @@ import Synchronization
 @_spi(SevenZipEditLayout) internal import KaitoKit
 
 extension SevenZipUpdater {
-    static func verificationUnits(assembly: SevenZipUpdatePlan.Assembly, plan: SevenZipUpdatePlan,
-                                  conversions: [Int: SevenZipReencryption]) -> UInt64 {
+    static func verificationUnits(assembly: SevenZipEditPlan.Assembly, plan: SevenZipEditPlan,
+                                  conversions: [Int: SevenZipFolderConversion]) -> UInt64 {
         let model = assembly.model
         var units = model.plainHeaderLength
         for index in assembly.firstAddedFolder..<model.folders.count { units += model.folders[index].size }
@@ -18,7 +18,7 @@ extension SevenZipUpdater {
         return units
     }
 
-    func selfCheck(fd: Int32, plan: SevenZipUpdatePlan, assembly: SevenZipUpdatePlan.Assembly,
+    func selfCheck(fd: Int32, plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly,
                    advance: (UInt64) throws -> Void, statistics: inout SevenZipCommitStatistics) throws {
         let start = ProcessInfo.processInfo.systemUptime
         let source = try ArchiveFileSource(duplicating: fd)
@@ -106,7 +106,7 @@ extension SevenZipUpdater {
         }
     }
 
-    static func faultAction(plan: SevenZipUpdatePlan, assembly: SevenZipUpdatePlan.Assembly)
+    static func faultAction(plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly)
         -> (@Sendable (Int32) throws -> Void)? {
         guard let fault = testingFault else { return nil }
         var offset: UInt64?

@@ -38,7 +38,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     var writer: ArchiveWriter?
     var appendStart: UInt64?
     var reencoded: [Int: SevenZipReencodedFolder] = [:]
-    var conversions: [Int: SevenZipReencryption] = [:]
+    var conversions: [Int: SevenZipFolderConversion] = [:]
     var passwordChecked: Set<Int> = []
     enum State { case adding, committing, committed, failed }
     var state = State.adding
@@ -180,8 +180,8 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         }
     }
 
-    func makePlan(additions: Int = 0) -> SevenZipUpdatePlan {
-        SevenZipUpdatePlan.make(model: model, filesByFolder: filesByFolder, names: names, removed: removed, renamed: renamed,
+    func makePlan(additions: Int = 0) -> SevenZipEditPlan {
+        SevenZipEditPlan.make(model: model, filesByFolder: filesByFolder, names: names, removed: removed, renamed: renamed,
             additions: additions, reencrypt: reencrypt, currentPassword: currentPassword, headerPassword: headerPassword, options: options)
     }
     private var existingPaths: [(String, Bool)] {

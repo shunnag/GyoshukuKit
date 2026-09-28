@@ -2,7 +2,7 @@ import Foundation
 private import Darwin
 @_spi(TarEditLayout) internal import KaitoKit
 
-final class CompressedTarSpliceWriter {
+final class CompressedTarSpliceOutput {
     struct Encoded: Sendable {
         let bytes: Data
         let crc: UInt32
@@ -342,8 +342,8 @@ final class CompressedTarSpliceWriter {
     }
 }
 
-private extension CompressedTarSpliceWriter.Metadata {
-    init(_ encoded: CompressedTarSpliceWriter.Encoded, length: UInt64) {
+private extension CompressedTarSpliceOutput.Metadata {
+    init(_ encoded: CompressedTarSpliceOutput.Encoded, length: UInt64) {
         self.init(length: length, crc: encoded.crc, headerSize: encoded.headerSize,
                   payloadSize: encoded.payloadSize, unpaddedSize: encoded.unpaddedSize)
     }

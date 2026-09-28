@@ -118,7 +118,7 @@ final class SevenZipUpdaterHeaderTests: XCTestCase {
                                            mtime: try SevenZipRecords.timestamp(ZipTestSupport.date))
         record.properties = encoded.properties; record.crc = CRC32.checksum(data)
         record.compressedSize = UInt64(encoded.payload.count); record.packedSize = record.compressedSize
-        let plan = SevenZipUpdatePlan.make(model: empty, filesByFolder: [], names: [], removed: [], renamed: [:],
+        let plan = SevenZipEditPlan.make(model: empty, filesByFolder: [], names: [], removed: [], renamed: [:],
             additions: 1, reencrypt: false, currentPassword: nil, headerPassword: nil, options: WriterOptions())
         let model = try plan.assemble(original: empty, filesByFolder: [], replacements: [:],
             additions: [.init(record: record, packRange: 32..<(32 + record.packedSize))]).model

@@ -5,7 +5,7 @@ internal import KaitoKit
 struct SevenZipReencodedFolder {
     let files: [Int]
     let scratch: SplicedScratchFile
-    let replacement: SevenZipUpdatePlan.Replacement
+    let replacement: SevenZipEditPlan.Replacement
 }
 
 private final class SevenZipSolidInput {
@@ -38,17 +38,17 @@ private final class SevenZipSolidInput {
 }
 
 extension SevenZipUpdater {
-    func prepareConversions(_ plan: SevenZipUpdatePlan, toScratch: Bool = false) throws {
+    func prepareConversions(_ plan: SevenZipEditPlan, toScratch: Bool = false) throws {
         for case let .convert(index, kind) in plan.works {
             try Task.checkCancellation()
             if kind != .attach, !passwordChecked.contains(index) {
-                try SevenZipReencryption.verifyPassword(reader: reader, files: filesByFolder[index])
+                try SevenZipFolderConversion.verifyPassword(reader: reader, files: filesByFolder[index])
                 passwordChecked.insert(index)
             }
         }
         for case let .convert(index, kind) in plan.works {
             if conversions[index] == nil {
-                conversions[index] = try SevenZipReencryption(index: index, conversion: kind, model: model,
+                conversions[index] = try SevenZipFolderConversion(index: index, conversion: kind, model: model,
                                                              aes: makeEncryptor(enabled: kind != .detach))
             }
             if toScratch, let conversion = conversions[index], conversion.scratch == nil {
@@ -59,7 +59,7 @@ extension SevenZipUpdater {
         }
     }
 
-    func prepareReencodings(_ plan: SevenZipUpdatePlan, advance: @escaping (UInt64) throws -> Void) throws {
+    func prepareReencodings(_ plan: SevenZipEditPlan, advance: @escaping (UInt64) throws -> Void) throws {
         for case let .reencode(index, files) in plan.works {
             try Task.checkCancellation()
             if reencoded[index]?.files == files { continue }
@@ -82,7 +82,7 @@ extension SevenZipUpdater {
         }
     }
 
-    func preliminaryPrefix(_ plan: SevenZipUpdatePlan) throws -> [SplicedSegment] {
+    func preliminaryPrefix(_ plan: SevenZipEditPlan) throws -> [SplicedSegment] {
         var prefix: [SplicedSegment] = [.literal(length: 32, bytes: { Data(count: 32) })]
         for work in plan.works {
             let folder = model.folders[work.index]
@@ -104,7 +104,7 @@ extension SevenZipUpdater {
         return prefix
     }
 
-    func makePrefix(_ plan: SevenZipUpdatePlan) throws -> [SplicedSegment] {
+    func makePrefix(_ plan: SevenZipEditPlan) throws -> [SplicedSegment] {
         var prefix: [SplicedSegment] = [.literal(length: 32, bytes: { Data(count: 32) })]
         for work in plan.works {
             switch work {
@@ -126,8 +126,8 @@ extension SevenZipUpdater {
         return prefix
     }
 
-    func replacements(_ plan: SevenZipUpdatePlan) throws -> [Int: SevenZipUpdatePlan.Replacement] {
-        var result: [Int: SevenZipUpdatePlan.Replacement] = [:]
+    func replacements(_ plan: SevenZipEditPlan) throws -> [Int: SevenZipEditPlan.Replacement] {
+        var result: [Int: SevenZipEditPlan.Replacement] = [:]
         for work in plan.works {
             switch work {
             case .carry: break
@@ -138,7 +138,7 @@ extension SevenZipUpdater {
         return result
     }
 
-    private func upperBound(_ plan: SevenZipUpdatePlan, additions: [SevenZipWriter.AppendedEntry], appended: Range<UInt64>?) throws -> UInt64 {
+    private func upperBound(_ plan: SevenZipEditPlan, additions: [SevenZipWriter.AppendedEntry], appended: Range<UInt64>?) throws -> UInt64 {
         var predicted = try replacements(plan)
         var input: UInt64 = 0, copy: UInt64 = 0, verification: UInt64 = 0, carried: UInt64 = 0
         var position: UInt64 = 32

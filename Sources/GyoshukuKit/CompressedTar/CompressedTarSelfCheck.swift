@@ -6,8 +6,8 @@ private import CGyoshukuBzip2
 @_spi(TarEditLayout) internal import KaitoKit
 
 enum CompressedTarSelfCheck {
-    typealias Metadata = CompressedTarSpliceWriter.Metadata
-    typealias Part = CompressedTarSpliceWriter.WrittenPart
+    typealias Metadata = CompressedTarSpliceOutput.Metadata
+    typealias Part = CompressedTarSpliceOutput.WrittenPart
     static func failure(_ reason: String) -> TarUpdaterError { .outputVerificationFailed(reason: reason) }
 
     static func units(format: ArchiveFormat, metas: [Metadata], encoded: [Bool], tail: Int) -> UInt64 {
@@ -20,7 +20,7 @@ enum CompressedTarSelfCheck {
         return count
     }
 
-    static func verify(writer: CompressedTarSpliceWriter, image: TarImageSource, plan: CompressedTarSplicePlan,
+    static func verify(writer: CompressedTarSpliceOutput, image: TarImageSource, plan: CompressedTarSplicePlan,
                        descriptor: Int32, meter: CommitProgressMeter) throws {
         try CompressedTarUpdater.testingStage?(.selfCheck)
         try ledger(writer: writer, image: image, plan: plan)
@@ -99,7 +99,7 @@ enum CompressedTarSelfCheck {
         guard writer.snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
     }
 
-    private static func ledger(writer: CompressedTarSpliceWriter, image: TarImageSource, plan: CompressedTarSplicePlan) throws {
+    private static func ledger(writer: CompressedTarSpliceOutput, image: TarImageSource, plan: CompressedTarSplicePlan) throws {
         var position: UInt64 = 0, compressed: UInt64 = writer.format == .tarGzip ? 10 : writer.format == .tarXZ ? 12 : 0
         for part in writer.parts {
             guard part.image.lowerBound == position, part.output.lowerBound == compressed,

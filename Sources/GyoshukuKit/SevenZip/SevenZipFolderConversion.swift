@@ -1,10 +1,10 @@
 import Foundation
 @_spi(SevenZipEditLayout) internal import KaitoKit
 
-final class SevenZipReencryption {
+final class SevenZipFolderConversion {
     let folderIndex: Int
     let conversion: SevenZipConversion
-    let replacement: SevenZipUpdatePlan.Replacement
+    let replacement: SevenZipEditPlan.Replacement
     let plaintextLength: UInt64
     private let aes: SevenZipAESEncryptor?
     private(set) var plaintextCRC: UInt32?

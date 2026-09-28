@@ -2,7 +2,9 @@ import Foundation
 
 enum SevenZipConversion: Sendable, Equatable { case attach, detach, change }
 
-struct SevenZipUpdatePlan {
+/// 7z の編集計画。folder ごとに carry / convert / reencode の Work を選び、assemble で出力の model も組み立てる
+/// （tar / LHA の EditPlan は segment だけを作る）。
+struct SevenZipEditPlan {
     typealias Model = SevenZipEditModel
     enum Work: Equatable {
         case carry(Int)
