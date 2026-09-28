@@ -18,6 +18,16 @@ USAGE
 
 fail() { echo "$*" >&2; exit 1; }
 
+# corpus の選択名から、corpora directory の中の入力の名前を返す。未知の名前なら失敗する。
+source_for() {
+    case $1 in
+        text) echo text256.txt ;;
+        random) echo random256.bin ;;
+        headers|small) echo "$1" ;;
+        *) return 1 ;;
+    esac
+}
+
 positionals=()
 writer_options=()
 references=false
@@ -52,12 +62,7 @@ for format in "${formats[@]}"; do
     case $format in zip|tar|tgz|tbz|txz|7z|lha) ;; *) fail "Unknown format: $format" ;; esac
 done
 for corpus in "${corpora[@]}"; do
-    case $corpus in
-        text) source_name=text256.txt ;;
-        random) source_name=random256.bin ;;
-        headers|small) source_name=$corpus ;;
-        *) fail "Unknown corpus: $corpus" ;;
-    esac
+    source_name=$(source_for "$corpus") || fail "Unknown corpus: $corpus"
     if [[ ! -e $corpora_dir/$source_name && $corpus != headers ]]; then
         fail "Missing corpus: $corpora_dir/$source_name (run make-corpora.sh first)"
     fi
@@ -113,11 +118,7 @@ measure() {
 printf 'tool\tformat\tcorpus\tthreads\twall_s\tpeak_rss_mib\tuser_s\toutput_bytes\n' | tee "$results/results.tsv"
 cd -- "$corpora_dir"
 for corpus in "${corpora[@]}"; do
-    case $corpus in
-        text) source_name=text256.txt ;;
-        random) source_name=random256.bin ;;
-        headers|small) source_name=$corpus ;;
-    esac
+    source_name=$(source_for "$corpus")
     if [[ ! -e $source_name ]]; then echo "Skipping $corpus: $corpora_dir/$source_name is missing." >&2; continue; fi
     for format in "${formats[@]}"; do
         output="$results/$corpus.$format"
