@@ -255,33 +255,9 @@ extension SevenZipUpdater {
         } catch { if let progressError { throw progressError }; throw error }
         stats.v2Seconds = max(0, totalVerification.withLock { $0 } - stats.selfCheckSeconds)
         stats.packsSeconds = max(0, ProcessInfo.processInfo.systemUptime - packsStart - totalVerification.withLock { $0 })
-        var shifted = false, converted = false, reencodedAny = false
-        for work in plan.works {
-            let index = work.index, target = assembly.model.folders[assembly.outputFolderIndices[index]!]
-            switch work {
-            case .carry:
-                for (old, new) in zip(model.packs[model.folders[index].packIndices], assembly.model.packs[target.packIndices]) {
-                    let moved = old.range.lowerBound != new.range.lowerBound
-                    shifted = shifted || moved
-                    if (!destination.isCloneMode && (appended == nil || strategy == .relocatedAppend)) || (destination.isCloneMode && moved) {
-                        stats.writtenCarriedPackBytes += old.length
-                    }
-                    if !destination.isCloneMode || moved { stats.verificationReadBytes += old.length * 2 }
-                }
-            case .convert:
-                converted = true; stats.convertedPackBytes += conversions[index]!.replacement.packs[0].length
-            case .reencode:
-                reencodedAny = true; stats.reencodedFolderCount += 1
-                stats.scratchCopySeconds += reencoded[index]!.scratch.copySeconds - (scratchBefore[index] ?? 0)
-                stats.reencodedInputBytes += model.folders[index].size
-                stats.reencodedPackBytes += reencoded[index]!.scratch.length
-                stats.reencodeScratchWrittenBytes += reencoded[index]!.scratch.length
-            }
-        }
-        stats.strategy = plan.unchanged ? .unchanged : converted ? .reencrypted : reencodedAny ? .reencoded
-            : shifted ? .compacted : additions.isEmpty ? .headerOnly : .appendOnly
-        if strategy == .relocatedAppend { stats.strategy = .relocatedAppend }
-        else if strategy == .sequential { stats.strategy = .sequential }
+        stats.summarize(plan: plan, assembly: assembly, original: model, shared: strategy, isCloneMode: destination.isCloneMode,
+                        appended: appended, hasAdditions: !additions.isEmpty, conversions: conversions, reencoded: reencoded,
+                        scratchBefore: scratchBefore)
         try meter!.finish()
         try Task.checkCancellation()
         try snapshot.original.checkUnchanged(at: snapshot.originalURL)
