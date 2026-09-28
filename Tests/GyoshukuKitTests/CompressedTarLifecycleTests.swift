@@ -273,7 +273,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
     }
     private func onVolume(_ volume: URL, label: String, expectsSmallVolume: Bool) throws {
         for format in CompressedTarTestSupport.formats {
-            let root = try TarP2Support.work(volume)
+            let root = try TestSupport.work(in: volume)
             let source = try CompressedTarTestSupport.fixture(root, format, large: false)
             try FileManager.default.removeItem(at: root.appendingPathComponent("input.tar"))
             let original = try Data(contentsOf: source)

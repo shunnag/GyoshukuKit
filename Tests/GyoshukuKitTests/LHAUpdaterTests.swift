@@ -13,7 +13,7 @@ final class LHAUpdaterTests: XCTestCase {
                     let source = try LHAUpdateSupport.generated(root)
                     let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
                     let old = try LHAUpdateSupport.scan(source)
-                    let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
+                    let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
                     let updater = try LHAUpdater.open(url: source, output: output)
                     var removed = Set<Int>(), renamed = [Int: String]()
                     if operation == 5 || operation == 6 { try updater.add(data: Data([33]), as: "added", modificationDate: TestSupport.date) }
@@ -122,7 +122,7 @@ final class LHAUpdaterTests: XCTestCase {
             }
         }
         for order in 0..<3 {
-            let work = try TarP2Support.work(root), source = try LHAUpdateSupport.generated(work)
+            let work = try TestSupport.work(in: root), source = try LHAUpdateSupport.generated(work)
             let editor = try LHAUpdater.open(url: source, output: work.appendingPathComponent("out.lzh"))
             if order != 0 { try editor.add(data: Data(), as: "early") }
             try editor.remove(entriesAt: [1])
@@ -136,7 +136,7 @@ final class LHAUpdaterTests: XCTestCase {
         let source = try LHAUpdateSupport.generated(root, count: 500, size: 65536)
         let (layout, _, _) = try LHAUpdateSupport.scan(source)
         for operation in 0..<4 {
-            let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
             let editor = try LHAUpdater.open(url: source, output: output)
             let snapshot = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first)
             let inode = UInt64(try ZipP1Support.info(snapshot).st_ino)

@@ -191,7 +191,7 @@ final class FinishAdditionsTests: XCTestCase {
                 let root = try TestSupport.directory("p6-drain-error-\(format)-\(cancel)")
                 let source = try S.source(root, format: format)
                 let bytes = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
-                let work = try TarP2Support.work(root), output = work.appendingPathComponent("output")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output")
                 let editor = try S.editor(source, output: output, format: format)
                 for index in 0..<8 {
                     try editor.add(data: Data(repeating: 0x61, count: S.mib), as: "new-\(index)", modificationDate: TestSupport.date, permissions: nil)

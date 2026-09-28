@@ -4,9 +4,17 @@ import XCTest
 
 /// 形式に依らない test の共通部分：固定の更新日時、検証出力の directory、stderr への記録、外部ツールの検査付きの起動。
 /// 形式ごとの照合（`verify`）と byte 検査器は `ZipTestSupport`・`TarTestSupport` などに置く。
+///
+/// `.build/verification/<label>` は試験の後も意図して残し、失敗したときに書庫と外部ツールの log を調べられるようにする
+/// （同じ label の次の実行が `directory` で消す）。数十 MiB を超える出力は、その試験が成功後に自分で削除する。
 enum TestSupport {
     /// fixture の entry に付ける更新日時。
     static let date = Date(timeIntervalSince1970: 1_700_000_001)
+
+    /// 編集の試験が元書庫を読む設定。大きさの上限を外し、AppleDouble も通常の entry として見せる。
+    static var editingReaderOptions: ReaderOptions {
+        ReaderOptions(limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose)
+    }
 
     static func report(_ message: String) {
         FileHandle.standardError.write(Data((message + "\n").utf8))
@@ -18,6 +26,13 @@ enum TestSupport {
         if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    /// `root` の下に一度だけ使う作業 directory を作る。同じ試験の中で何度も独立に編集するときに使う。
+    static func work(in root: URL) throws -> URL {
+        let work = root.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        return work
     }
 
     /// `allowed` 以外の終了値を失敗にし、出力を UTF-8 として返す。

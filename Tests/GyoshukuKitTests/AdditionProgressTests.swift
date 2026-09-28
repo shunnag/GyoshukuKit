@@ -103,7 +103,7 @@ final class AdditionProgressTests: XCTestCase {
                     let source = try S.source(root, format: format)
                     let original = try Data(contentsOf: source), inode = try ZipP1Support.info(source).st_ino
                     let disk = try S.file(root, "disk", size: 9 * S.mib + 1)
-                    let work = try TarP2Support.work(root), output = work.appendingPathComponent("output")
+                    let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output")
                     var options = S.options
                     options.additionPlacement = rewrite ? .beginning : .end
                     let editor = try S.editor(source, output: output, format: format, options: options, rewrite: rewrite)

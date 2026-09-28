@@ -36,7 +36,7 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
                 + tailBytes.subdata(in: Int(range.lowerBound)..<Int(range.upperBound)) + header).write(to: source)
             try SevenZipExternalOracles.check(source, password: nil)
             for sequential in [false, true] {
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 let updater = try SevenZipUpdater.$testingDisablesClone.withValue(sequential) {
                     try SevenZipUpdater.open(url: source, output: output)
                 }
@@ -91,7 +91,7 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
             for sequential in [false, true] {
                 for add in [false, true] {
                     for threads in [1, 8] {
-                        let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                        let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                         let updater = try SevenZipUpdater.$testingDisablesClone.withValue(sequential) {
                             try SevenZipUpdater.open(url: source, password: "secret", output: output,
                                 options: WriterOptions(password: model.folders[target].isEncrypted ? "secret" : nil,

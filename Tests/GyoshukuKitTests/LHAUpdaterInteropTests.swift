@@ -31,7 +31,7 @@ final class LHAUpdaterInteropTests: XCTestCase {
             let source = try LHAUpdateSupport.fixture(fixture, in: root)
             let original = try ArchiveReader.open(url: source)
             for operation in ["delete", "rename", "append"] {
-                let work = try TarP2Support.work(root), output = work.appendingPathComponent("output.lzh")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.lzh")
                 let editor = try LHAUpdater.open(url: source, output: output)
                 let target = original.entries.count / 2
                 if operation == "delete" { try editor.remove(entriesAt: [target]) }
@@ -40,7 +40,7 @@ final class LHAUpdaterInteropTests: XCTestCase {
                 try editor.commit()
                 let result = try ArchiveReader.open(url: output)
                 for reader in [original, result] { for entry in reader.entries { _ = try reader.read(entry) } }
-                let oldDirectory = try TarP2Support.work(work), newDirectory = try TarP2Support.work(work)
+                let oldDirectory = try TestSupport.work(in: work), newDirectory = try TestSupport.work(in: work)
                 let oldArgs = lhasa ? ["xf", source.path] : seven ? ["x", "-y", source.path] : ["-xf", source.path]
                 let oldExtract = try run(tool, oldArgs, in: oldDirectory, work: work, log: "extract-source")
                 if oldExtract.status != 0 {
@@ -54,7 +54,7 @@ final class LHAUpdaterInteropTests: XCTestCase {
                     XCTAssertEqual(try Data(contentsOf: output), Data([0]))
                     let baseline = work.appendingPathComponent("empty.lzh")
                     let writer = try ArchiveWriter.create(url: baseline, format: .lha); try writer.finish()
-                    let baselineDirectory = try TarP2Support.work(work)
+                    let baselineDirectory = try TestSupport.work(in: work)
                     let baselineResult = try run(tool, lhasa ? ["xf", baseline.path] : seven ? ["x", "-y", baseline.path] : ["-xf", baseline.path],
                                                  in: baselineDirectory, work: work, log: "extract-empty")
                     XCTAssertEqual(newExtract.status, baselineResult.status)

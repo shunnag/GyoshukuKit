@@ -8,7 +8,7 @@ enum CompressedTarTestSupport {
     typealias Format = GyoshukuKit.ArchiveFormat
     static let formats: [Format] = [.tarGzip, .tarBzip2, .tarXZ]
     static var readerOptions: ReaderOptions {
-        var options = ReaderOptions(limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose)
+        var options = TestSupport.editingReaderOptions
         options.recordsTarEditLayout = true
         return options
     }

@@ -12,7 +12,7 @@ final class SevenZipUpdaterInteropTests: XCTestCase {
             let source = SevenZipEditSupport.fixture(name)
             let old = try XCTUnwrap(SevenZipEditModel.read(SevenZipEditSupport.reader(source)))
             for operation in ["rename", "delete", "all"] {
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 let updater = try SevenZipUpdater.open(url: source, password: "secret", output: output,
                     options: WriterOptions(password: "secret", encryptsSevenZipHeaders: old.header.encrypted))
                 let first = old.files.firstIndex(where: \.hasStream) ?? 0

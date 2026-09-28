@@ -28,7 +28,7 @@ final class SevenZipUpdaterHeaderTests: XCTestCase {
     func testNeverSilentlyDecryptHeaders() throws {
         let root = try TestSupport.directory("7z-header-safety")
         for add in [false, true] {
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: SevenZipEditSupport.fixture("g_aesh"), password: "secret", output: output)
             if add { try updater.add(data: Data([1]), as: "addition") }
             XCTAssertThrowsError(try updater.commit()) { XCTAssertEqual($0 as? WriterError, .invalidOption("encryptsSevenZipHeaders")) }
@@ -43,7 +43,7 @@ final class SevenZipUpdaterHeaderTests: XCTestCase {
         try writer.finish()
         let original = try Data(contentsOf: source)
         for add in [false, true] {
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: source, output: output)
             if add { try updater.add(data: Data([7]), as: "added") }
             for index in 0..<512 { try updater.rename(entryAt: index, to: String(repeating: "a", count: 16384) + "\(index)") }

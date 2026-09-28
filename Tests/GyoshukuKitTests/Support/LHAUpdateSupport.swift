@@ -27,8 +27,7 @@ enum LHAUpdateSupport {
     }
     static func scan(_ url: URL) throws -> (LHALayout, ZipUpdateSource, ArchiveReader) {
         let source = try ZipUpdateSource(url: url)
-        let reader = try ArchiveReader.open(source: source, sourceURL: url, options: .init(
-            limits: .init(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
+        let reader = try ArchiveReader.open(source: source, sourceURL: url, options: TestSupport.editingReaderOptions)
         return (try LHALayout.scan(source: source, reader: reader), source, reader)
     }
     static func generated(_ root: URL, count: Int = 6, size: Int = 513) throws -> URL {

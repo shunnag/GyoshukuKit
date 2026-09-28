@@ -10,7 +10,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
             for placement in [AdditionPlacement.end, .beginning] {
                 let root = try TestSupport.directory("p2-placement-\(format)-\(placement)")
                 let source = try TarP2Support.fixture(root, count: 3)
-                let work = try TarP2Support.work(root), output = work.appendingPathComponent("output." + format.testFileExtension)
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output." + format.testFileExtension)
                 let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format,
                                                        options: .init(additionPlacement: placement))
                 try rewriter.remove(entriesAt: [1])
@@ -37,7 +37,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
             let root = try TestSupport.directory("p2-queued-source-\(mutation)")
             let source = try TarP2Support.fixture(root)
             let before = try Data(contentsOf: source)
-            let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.tar")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
             let disk = root.appendingPathComponent("disk")
             try Data([1, 2]).write(to: disk)
             let editor = try ArchiveRewriter.open(url: source, output: output, format: .tar)

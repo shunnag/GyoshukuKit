@@ -13,7 +13,7 @@ final class TarUpdaterTests: XCTestCase {
                     let source = try TarP2Support.fixture(root)
                     let before = try Data(contentsOf: source)
                     let (layout, _, old) = try TarP2Support.scan(source)
-                    let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.tar")
+                    let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
                     let updater = try TarUpdater.open(url: source, output: output)
                     var expected = old.entries.map(\.name)
                     var changed: Set<Int> = []

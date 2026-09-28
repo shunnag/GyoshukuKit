@@ -25,7 +25,7 @@ final class TarUpdaterDifferentialTests: XCTestCase {
         let root = try TestSupport.directory("p2-differential")
         var random = Random()
         for iteration in 0..<iterations {
-            let directory = try TarP2Support.work(root)
+            let directory = try TestSupport.work(in: root)
             defer { try? FileManager.default.removeItem(at: directory) }
             var members: [Member] = []
             var targets: [Int] = []

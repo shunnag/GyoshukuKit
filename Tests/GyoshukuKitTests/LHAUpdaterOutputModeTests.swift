@@ -14,7 +14,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
     private func lifecycle(at root: URL, permissions: Bool) throws {
         for sequential in [false, true] {
             for action in ["unchanged", "first", "last", "same", "long", "add", "relocate", "discard", "cancel", "fault", "foreign"] {
-                let work = try TarP2Support.work(root), source = try LHAUpdateSupport.generated(work)
+                let work = try TestSupport.work(in: root), source = try LHAUpdateSupport.generated(work)
                 let output = work.appendingPathComponent("out.lzh"), saved = work.appendingPathComponent("saved")
                 let before = try Data(contentsOf: source), info = try ZipP1Support.info(source)
                 let context = "\(root.path) sequential=\(sequential) action=\(action)"
@@ -63,7 +63,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
     func testSourceChangesFlagsAndCloneErrors() throws {
         let root = try TestSupport.directory("lha-source-state"), source = try LHAUpdateSupport.generated(root)
         for code in [EIO, EPERM, EXDEV, ENOTSUP] {
-            let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
             try ArchiveSourceSnapshot.$testingCloneError.withValue(code) {
                 if code == EXDEV || code == ENOTSUP {
                     let editor = try LHAUpdater.open(url: source, output: output)
@@ -75,7 +75,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
                 }
             }
         }
-        let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
+        let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
         XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
         defer { _ = chflags(source.path, 0) }
         XCTAssertThrowsError(try LHAUpdater.open(url: source, output: output)) { XCTAssertEqual($0 as? WriterError, .io(operation: "source flags", code: EPERM)) }
@@ -89,7 +89,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
     }
     func testReservationsOwnersEncoderFailureAndDescriptorDuplication() throws {
         let root = try TestSupport.directory("lha-reservations"), source = try LHAUpdateSupport.generated(root)
-        let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.lzh")
+        let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.lzh")
         let editor = try LHAUpdater.open(url: source, output: output)
         XCTAssertThrowsError(try editor.addDirectory("new", modificationDate: nil, ownerIDs: .init(user: 501, group: 20))) { XCTAssertEqual($0 as? WriterError, .unsupportedOption("ownerIDs")) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
@@ -110,7 +110,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
     func testProgressThrowAndReentrancyInvalidateCommit() throws {
         for action in 0..<6 {
             let root = try TestSupport.directory("lha-reentrant-\(action)"), source = try LHAUpdateSupport.generated(root)
-            let work = try TarP2Support.work(root)
+            let work = try TestSupport.work(in: root)
             let editor = try LHAUpdater.open(url: source, output: work.appendingPathComponent("out.lzh"))
             try editor.addDirectory("added")
             XCTAssertThrowsError(try editor.commit { update in
@@ -130,7 +130,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
         for sequential in [false, true] {
             for decode in [false, true] {
                 let root = try TestSupport.directory("lha-cancel-\(sequential)-\(decode)"), source = try LHAUpdateSupport.generated(root)
-                let work = try TarP2Support.work(root), fired = Mutex(false)
+                let work = try TestSupport.work(in: root), fired = Mutex(false)
                 let task = Task {
                     try LHAUpdater.$testingDisablesClone.withValue(sequential) {
                         let editor = try LHAUpdater.open(url: source, output: work.appendingPathComponent("out.lzh"))
@@ -158,7 +158,7 @@ final class LHAUpdaterVerificationFaultTests: XCTestCase {
     func testV1ThroughV5RejectFaultsAndCleanUp() throws {
         for stage in 1...5 {
             let root = try TestSupport.directory("lha-fault-\(stage)"), source = try LHAUpdateSupport.generated(root)
-            let before = try Data(contentsOf: source), work = try TarP2Support.work(root)
+            let before = try Data(contentsOf: source), work = try TestSupport.work(in: root)
             let editor = try LHAUpdater.open(url: source, output: work.appendingPathComponent("out.lzh"))
             let fault: LHAUpdater.Fault
             switch stage {

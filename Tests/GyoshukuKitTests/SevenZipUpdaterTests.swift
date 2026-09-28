@@ -13,7 +13,7 @@ final class SevenZipUpdaterTests: XCTestCase {
                 let original = try SevenZipEditSupport.reader(source)
                 let model = try XCTUnwrap(SevenZipEditModel.read(original))
                 var expected = try SevenZipEditSupport.items(original)
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 let updater = try SevenZipUpdater.$testingDisablesClone.withValue(sequential) { try SevenZipUpdater.open(url: source, output: output) }
                 var expectedStrategy: SevenZipUpdater.CommitStrategy = .headerOnly
                 switch operation {

@@ -10,7 +10,7 @@ final class SevenZipUpdaterCancellationTests: XCTestCase {
         for phase in ["scratch", "generated", "verification", "relocation", "relocation-return"] {
             let root = try TestSupport.directory("7z-cancel-" + phase)
             let source = phase == "scratch" ? SevenZipEditSupport.fixture("m") : try SevenZipEditSupport.source(root)
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let fired = Mutex(false)
             let task = Task {
                 let updater = try SevenZipUpdater.open(url: source, output: output, options: WriterOptions(password: phase == "generated" ? "secret" : nil))

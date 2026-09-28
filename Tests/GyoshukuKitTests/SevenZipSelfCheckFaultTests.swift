@@ -12,7 +12,7 @@ final class SevenZipSelfCheckFaultTests: XCTestCase {
         for fault in faults {
             let source = fault == .flipReencodedPackByte ? SevenZipEditSupport.fixture("m") : simple
             let before = try Data(contentsOf: source)
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: source, output: output, options: WriterOptions(password: "new"))
             switch fault {
             case .flipMovedPackByte: try updater.remove(entriesAt: [0])

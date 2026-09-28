@@ -68,7 +68,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
         for variant in ["pax", "gnu", "bsd"] {
             let raw = root.appendingPathComponent("\(variant).tar")
             if variant == "bsd" {
-                let files = try TarP2Support.work(root)
+                let files = try TestSupport.work(in: root)
                 for name in ["one", "two", "._two"] { try Data("content".utf8).write(to: files.appendingPathComponent(name)) }
                 try TestSupport.run(ReferenceTool.bsdtar, ["--format=pax", "--uid", "501", "--uname", "alice", "-cf", raw.path,
                                                        "-C", files.path, "one", "two", "._two"], in: root, log: "bsd")

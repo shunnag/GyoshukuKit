@@ -24,7 +24,7 @@ final class SevenZipReencryptionTests: XCTestCase {
             }
             for password: String? in ["changed", nil] {
                 for sequential in [false, true] {
-                    let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                    let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                     let updater = try SevenZipUpdater.$testingDisablesClone.withValue(sequential) {
                         try SevenZipUpdater.open(url: source, password: "secret", output: output,
                             options: WriterOptions(password: password, encryptsSevenZipHeaders: password != nil && old.header.encrypted))
@@ -61,7 +61,7 @@ final class SevenZipReencryptionTests: XCTestCase {
         let plain = try SevenZipEditSupport.source(root)
         for headers in [false, true] {
             let makeIV: @Sendable () -> Data = { Data(repeating: 0xA5, count: 16) }
-            let other = try SevenZipEditSupport.work(root)
+            let other = try TestSupport.work(in: root)
             let encrypted = try SevenZipAESEncryptor.$testingIV.withValue(makeIV) {
                 try SevenZipEditSupport.source(other, password: "secret", headers: headers)
             }
@@ -80,7 +80,7 @@ final class SevenZipReencryptionTests: XCTestCase {
         let root = try TestSupport.directory("7z-reencrypt-passwords")
         for (name, password): (String, String?) in [("g_aes", "wrong"), ("g_aes", nil), ("mix", "secret"), ("mix", "secret2"), ("copyaes", "wrong")] {
             for target: String? in [nil, "new"] {
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 let updater = try SevenZipUpdater.open(url: SevenZipEditSupport.fixture(name), password: "secret", output: output,
                                                       options: WriterOptions(password: target))
                 try updater.reencryptExistingEntries(currentPassword: password)

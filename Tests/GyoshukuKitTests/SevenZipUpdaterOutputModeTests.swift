@@ -15,7 +15,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
         let before = try Data(contentsOf: source), originalInfo = try ZipP1Support.info(source)
         for sequential in [false, true] {
             for operation in ["first", "last", "same", "long", "add", "relocate", "unchanged", "cancel", "discard", "fault"] {
-                let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+                let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
                 var updater: SevenZipUpdater? = try SevenZipUpdater.$testingDisablesClone.withValue(sequential) {
                     try SevenZipUpdater.open(url: source, output: output)
                 }
@@ -62,7 +62,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
     func testSourceChangeReentryAndForeignOutputAreSafe() throws {
         let root = try TestSupport.directory("7z-source-lifecycle")
         for mode in ["source", "reentry", "foreign", "throw"] {
-            let work = try SevenZipEditSupport.work(root)
+            let work = try TestSupport.work(in: root)
             let source = try SevenZipEditSupport.source(work)
             let output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: source, output: output)
@@ -90,7 +90,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
         let source = try SevenZipEditSupport.source(root, count: 1002)
         let original = try XCTUnwrap(SevenZipEditModel.read(SevenZipEditSupport.reader(source)))
         for operation in ["rename", "last", "add", "first", "middle"] {
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: source, output: output)
             guard updater.destination.isCloneMode else { throw XCTSkip("clone unavailable") }
             let events = ZipIOEvents()
@@ -124,7 +124,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
     func testSourceFlagsAndCloneErrors() throws {
         let root = try TestSupport.directory("7z-source-flags"), source = try SevenZipEditSupport.source(root)
         for code in [EIO, EPERM, EXDEV, ENOTSUP] {
-            let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+            let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             try ArchiveSourceSnapshot.$testingCloneError.withValue(code) {
                 if code == EXDEV || code == ENOTSUP {
                     let updater = try SevenZipUpdater.open(url: source, output: output)
@@ -138,7 +138,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
                 }
             }
         }
-        let work = try SevenZipEditSupport.work(root), output = work.appendingPathComponent("output.7z")
+        let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
         XCTAssertEqual(chflags(source.path, UInt32(UF_IMMUTABLE)), 0)
         defer { _ = chflags(source.path, 0) }
         XCTAssertThrowsError(try SevenZipUpdater.open(url: source, output: output)) {

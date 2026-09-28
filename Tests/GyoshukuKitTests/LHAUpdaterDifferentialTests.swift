@@ -11,7 +11,7 @@ final class LHAUpdaterDifferentialTests: XCTestCase {
         struct Item { let name: String; let data: Data; let directory: Bool }
         let root = try TestSupport.directory("lha-differential")
         for trial in 0..<iterations {
-            let work = try TarP2Support.work(root)
+            let work = try TestSupport.work(in: root)
             defer { try? FileManager.default.removeItem(at: work) }
             let source = work.appendingPathComponent("source.lzh")
             let items = (0..<(10 + next(291))).map { index -> Item in

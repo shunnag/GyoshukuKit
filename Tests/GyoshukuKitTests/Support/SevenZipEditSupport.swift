@@ -53,9 +53,4 @@ enum SevenZipEditSupport {
             XCTAssertEqual(left, right, file: file, line: line)
         }
     }
-    static func work(_ root: URL) throws -> URL {
-        let work = root.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        return work
-    }
 }

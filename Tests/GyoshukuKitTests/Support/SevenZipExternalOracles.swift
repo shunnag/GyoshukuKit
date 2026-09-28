@@ -14,7 +14,7 @@ enum SevenZipExternalOracles {
         // Keep reference-tool artifacts away from the transaction's cleanup assertions.
         let parent = TestPaths.verification.appendingPathComponent("7z-external-oracles")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        let work = try SevenZipEditSupport.work(parent)
+        let work = try TestSupport.work(in: parent)
         let reader = try SevenZipEditSupport.reader(output, password: password)
         let model = try XCTUnwrap(SevenZipEditModel.read(reader))
         let items = try SevenZipEditSupport.items(reader)

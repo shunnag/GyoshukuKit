@@ -17,7 +17,7 @@ final class SevenZipUpdaterDifferentialTests: XCTestCase {
         func random(_ limit: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 32) % UInt64(limit)) }
         for iteration in 0..<iterations {
             try autoreleasepool {
-                let work = try SevenZipEditSupport.work(root)
+                let work = try TestSupport.work(in: root)
                 let source = work.appendingPathComponent("source.7z")
                 let count = 10 + random(191)
                 let password: String? = iteration % 3 == 0 ? nil : "secret"

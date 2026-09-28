@@ -22,7 +22,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
             guard case TarUpdaterError.requiresRewrite(let reason) = $0 else { return XCTFail("\($0)") }
             XCTAssertTrue(reason.contains("R6"))
         }
-        let work = try TarP2Support.work(root)
+        let work = try TestSupport.work(in: root)
         XCTAssertThrowsError(try TarUpdater.open(url: source, output: work.appendingPathComponent("out.tar"))) {
             guard case TarUpdaterError.requiresRewrite(let reason) = $0 else { return XCTFail("\($0)") }
             XCTAssertTrue(reason.contains("R10"))
@@ -55,7 +55,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
         for (name, bytes, options, reason) in cases {
             let source = root.appendingPathComponent(name)
             try (bytes + Data(count: 1024)).write(to: source)
-            let work = try TarP2Support.work(root)
+            let work = try TestSupport.work(in: root)
             let info = try ZipP1Support.info(source)
             XCTAssertThrowsError(try TarUpdater.open(url: source, output: work.appendingPathComponent("out.tar"), options: options)) {
                 guard case TarUpdaterError.requiresRewrite(let text) = $0 else { return XCTFail("\(name): \($0)") }
@@ -71,7 +71,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
     func testMismatchEncodingAndKaitoErrorsStayDistinct() throws {
         let root = try TestSupport.directory("p2-refusal-errors")
         let source = try TarP2Support.fixture(root)
-        let work = try TarP2Support.work(root), output = work.appendingPathComponent("out.tar")
+        let work = try TestSupport.work(in: root), output = work.appendingPathComponent("out.tar")
         try TarLayout.$testingKaitoKitMismatch.withValue(true) {
             XCTAssertThrowsError(try TarUpdater.open(url: source, output: output)) {
                 guard case TarUpdaterError.requiresRewrite(let reason) = $0 else { return XCTFail("\($0)") }
@@ -107,7 +107,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
 final class TarUpdaterOutputModeTests: XCTestCase {
     func testSourceSnapshotFlagsCloneErrorsAndOutputValidation() throws {
         let root = try TestSupport.directory("p2-output-identity")
-        let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
+        let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
         let output = work.appendingPathComponent("out.tar")
         let original = try ZipP1Support.info(source)
         let reads = ZipIOEvents()
@@ -146,7 +146,7 @@ final class TarUpdaterOutputModeTests: XCTestCase {
             for action in 0..<4 {
                 try TarUpdater.$testingDisablesClone.withValue(sequential) {
                     let root = try TestSupport.directory("p2-clean-\(sequential)-\(action)")
-                    let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
+                    let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
                     let output = work.appendingPathComponent("out.tar")
                     var editor: TarUpdater? = try TarUpdater.open(url: source, output: output)
                     if action != 0 { try editor!.add(data: Data([7]), as: "added") }
@@ -173,7 +173,7 @@ final class TarUpdaterVerificationFaultTests: XCTestCase {
     func testV1ThroughV5RejectCorruptionAndCleanUp() throws {
         for kind in 0..<5 {
             let root = try TestSupport.directory("p2-fault-\(kind)")
-            let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
+            let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
             let before = try Data(contentsOf: source)
             let output = work.appendingPathComponent("out.tar")
             let editor = try TarUpdater.open(url: source, output: output)
@@ -202,7 +202,7 @@ final class TarUpdaterCancellationTests: XCTestCase {
         for sequential in [false, true] {
             for duringAdd in [false, true] where sequential || !duringAdd {
                 let root = try TestSupport.directory("p2-cancel-\(sequential)-\(duringAdd)")
-                let source = try TarP2Support.fixture(root, count: 8, size: 65536), work = try TarP2Support.work(root)
+                let source = try TarP2Support.fixture(root, count: 8, size: 65536), work = try TestSupport.work(in: root)
                 let before = try Data(contentsOf: source)
                 let task = Task {
                     try TarUpdater.$testingDisablesClone.withValue(sequential) {
@@ -227,7 +227,7 @@ final class TarUpdaterCancellationTests: XCTestCase {
     func testProgressThrowsAndAllReentrantOperationsInvalidateCommit() throws {
         for action in 0..<6 {
             let root = try TestSupport.directory("p2-progress-\(action)")
-            let source = try TarP2Support.fixture(root), work = try TarP2Support.work(root)
+            let source = try TarP2Support.fixture(root), work = try TestSupport.work(in: root)
             let editor = try TarUpdater.open(url: source, output: work.appendingPathComponent("out.tar"))
             try editor.add(data: Data(), as: "added")
             XCTAssertThrowsError(try editor.commit { update in
