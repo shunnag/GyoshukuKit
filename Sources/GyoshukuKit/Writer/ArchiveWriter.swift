@@ -287,24 +287,26 @@ public final class ArchiveWriter {
         return appended
     }
 
-    func endTarMembers() throws -> UInt64 {
-        var end: UInt64 = 0
-        try perform {
-            guard let tarWriter else { throw WriterError.invalidState }
-            end = try tarWriter.endMembers()
-            state = .finished
-        }
-        return end
+    // updater の末尾追加の入口。形式の writer に offset から書かせ、既存名は衝突検査にだけ使う。
+    // 追加を閉じるのは endAppendedMembers（tar / LHA）と endSevenZipEntries（7z）。終端は updater が書く。
+    static func tarAppend(output: FileHandle, url: URL, at offset: UInt64, options: WriterOptions,
+                          existingPaths: [(String, Bool)], recordsMemberLayout: Bool = false,
+                          willWrite: ((Int) throws -> Void)? = nil) throws -> ArchiveWriter {
+        let tar = TarWriter(output: output, url: url, compressor: nil, startPosition: offset,
+                            recordsMemberLayout: recordsMemberLayout, observesWrites: true, willWrite: willWrite)
+        let writer = ArchiveWriter(output: output, url: url, format: .tar, options: options, tarWriter: tar)
+        try writer.prepareAppend(at: offset, existingPaths: existingPaths)
+        return writer
     }
 
-    func endLHAMembers() throws -> UInt64 {
-        var end: UInt64 = 0
-        try perform {
-            guard let lhaWriter else { throw WriterError.invalidState }
-            end = try lhaWriter.endMembers()
-            state = .finished
-        }
-        return end
+    static func lhaAppend(output: FileHandle, url: URL, at offset: UInt64, options: WriterOptions,
+                          existingPaths: [(String, Bool)],
+                          encoder: @escaping @Sendable (Data) throws -> Data) throws -> ArchiveWriter {
+        let lha = LHAWriter(output: output, url: url, threads: options.resolvedCompressionThreads,
+                            recordsMembers: true, encoder: encoder)
+        let writer = ArchiveWriter(output: output, url: url, format: .lha, options: options, lhaWriter: lha)
+        try writer.prepareAppend(at: offset, existingPaths: existingPaths)
+        return writer
     }
 
     static func sevenZipAppend(output: FileHandle, url: URL, at offset: UInt64,
@@ -315,6 +317,22 @@ public final class ArchiveWriter {
         try writer.prepareAppend(at: offset, existingPaths: existingPaths)
         return writer
     }
+
+    /// tar / LHA の末尾追加を閉じ、最後の member の直後の位置を返す。終端は書かない。
+    func endAppendedMembers() throws -> UInt64 {
+        var end: UInt64 = 0
+        try perform {
+            if let tarWriter { end = try tarWriter.endMembers() }
+            else if let lhaWriter { end = try lhaWriter.endMembers() }
+            else { throw WriterError.invalidState }
+            state = .finished
+        }
+        return end
+    }
+
+    // tarAppend(recordsMemberLayout: true) と lhaAppend が記録した追加 member。endAppendedMembers の後に読む。
+    var appendedTarMemberLayouts: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)] { tarWriter?.memberLayouts ?? [] }
+    var appendedLHAMemberRecords: [LHAWriter.MemberRecord] { lhaWriter?.memberRecords ?? [] }
 
     func endSevenZipEntries() throws -> [SevenZipWriter.AppendedEntry] {
         var records: [SevenZipWriter.AppendedEntry] = []

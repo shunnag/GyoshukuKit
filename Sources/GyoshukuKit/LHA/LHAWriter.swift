@@ -26,15 +26,17 @@ final class LHAWriter {
         let method: String
         let rawName: Data
     }
-    var recordsMembers = false
+    // 書いた member の位置と長さを memberRecords に残す。LHA の更新が自己検査に使う。
+    private let recordsMembers: Bool
     private(set) var memberRecords: [MemberRecord] = []
 
-    init(output: FileHandle, url: URL, threads: Int = 1,
+    init(output: FileHandle, url: URL, threads: Int = 1, recordsMembers: Bool = false,
          encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode) {
         precondition((1...64).contains(threads))
         self.output = output
         self.url = url
         self.threads = threads
+        self.recordsMembers = recordsMembers
         self.encoder = encoder
         pipeline = threads > 1 ? OrderedChunkPipeline(threads: threads) { input in
             let compressed = try encoder(input)

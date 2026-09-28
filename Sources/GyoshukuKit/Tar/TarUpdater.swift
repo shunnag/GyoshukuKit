@@ -154,7 +154,7 @@ public final class TarUpdater: ArchiveEditing {
             state = .committing
             try snapshot.checkUnchanged()
             let appendedPaths = writer?.appendedPaths ?? []
-            let appendedEnd = try writer?.endTarMembers()
+            let appendedEnd = try writer?.endAppendedMembers()
             writer = nil
             let appended = appendedEnd.map { appendStart!..<$0 }
             let plan = try makePlan(additionLength: appended?.byteLength ?? 0)
@@ -212,13 +212,9 @@ public final class TarUpdater: ArchiveEditing {
         }
         let plan = try makePlan()
         let handle = try destination.beginAppend(at: plan.membersEnd, prefix: plan.prefix)
-        let tar = TarWriter(output: handle, url: output, compressor: nil, startPosition: plan.membersEnd)
-        tar.observesWrites = true
-        let writer = ArchiveWriter(output: handle, url: output, format: .tar, options: options, tarWriter: tar)
-        try writer.prepareAppend(at: plan.membersEnd, existingPaths: existingPaths)
-        self.writer = writer
-        appendStart = plan.membersEnd
-        writerPathsNeedRefresh = false
+        let writer = try ArchiveWriter.tarAppend(output: handle, url: output, at: plan.membersEnd,
+                                                 options: options, existingPaths: existingPaths)
+        self.writer = writer; appendStart = plan.membersEnd; writerPathsNeedRefresh = false
         return writer
     }
 

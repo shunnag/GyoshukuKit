@@ -73,7 +73,7 @@ final class LHAWriterParallelTests: XCTestCase {
                 switch stage {
                 case "add": try writer.add(data: Data([2]), as: "next")
                 case "large": try writer.add(data: Data(repeating: 65, count: 1_048_577), as: "large")
-                case "endMembers": _ = try writer.endLHAMembers()
+                case "endMembers": _ = try writer.endAppendedMembers()
                 default: try writer.finish()
                 }
             }()) { XCTAssertEqual($0 as? WriterError, .compression(-77)) }
@@ -174,15 +174,14 @@ final class LHAWriterParallelTests: XCTestCase {
             let output = try FileHandle(forWritingTo: url)
             defer { try? output.close() }
             try output.seekToEnd()
-            let lha = LHAWriter(output: output, url: url, threads: threads)
-            lha.recordsMembers = true
+            let lha = LHAWriter(output: output, url: url, threads: threads, recordsMembers: true)
             let writer = ArchiveWriter(output: output, url: url, format: .lha,
                                        options: WriterOptions(compressionThreads: threads), lhaWriter: lha)
             try writer.addDirectory("表", modificationDate: ZipTestSupport.date, ownerIDs: nil)
             try writer.add(data: Data(repeating: 65, count: 1024), as: "表/ソ.bin", modificationDate: ZipTestSupport.date)
             try writer.add(data: Data(repeating: 66, count: 1_048_577), as: "large", modificationDate: ZipTestSupport.date)
             try writer.add(data: Data([67]), as: "after", modificationDate: ZipTestSupport.date)
-            let end = try writer.endLHAMembers()
+            let end = try writer.endAppendedMembers()
             XCTAssertEqual(try Data(contentsOf: url).count, Int(end))
             XCTAssertEqual(try output.offset(), end)
             try writer.finish()

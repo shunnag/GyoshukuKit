@@ -342,8 +342,7 @@ final class TarChunkLayoutTests: XCTestCase {
             let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
             XCTAssertGreaterThanOrEqual(fd, 0)
             let writer = TarWriter(output: FileHandle(fileDescriptor: fd, closeOnDealloc: true), url: url,
-                                   compressor: nil)
-            writer.recordsMemberLayout = enabled
+                                   compressor: nil, recordsMemberLayout: enabled)
             for item in items(limits: .init(uniform: 8192)) {
                 var offset = 0
                 try writer.add(name: item.name, mode: item.mode, size: UInt64(item.data.count),

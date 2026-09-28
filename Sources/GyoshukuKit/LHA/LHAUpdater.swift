@@ -32,7 +32,6 @@ public final class LHAUpdater: ArchiveEditing {
     private var indexedAppendCount = 0
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
-    private var lhaWriter: LHAWriter?
     private var appendStart: UInt64?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
@@ -170,9 +169,9 @@ public final class LHAUpdater: ArchiveEditing {
         try perform {
             state = .committing
             try snapshot.checkUnchanged()
-            let appendedEnd = try writer?.endLHAMembers()
-            let records = lhaWriter?.memberRecords ?? []
-            writer = nil; lhaWriter = nil
+            let appendedEnd = try writer?.endAppendedMembers()
+            let records = writer?.appendedLHAMemberRecords ?? []
+            writer = nil
             let appended = appendedEnd.map { appendStart!..<$0 }
             let additionLength = appended?.byteLength ?? 0
             let plan = try makePlan(additionLength: additionLength)
@@ -229,11 +228,9 @@ public final class LHAUpdater: ArchiveEditing {
         }
         let plan = try makePlan()
         let handle = try destination.beginAppend(at: plan.membersEnd, prefix: plan.prefix)
-        let lha = LHAWriter(output: handle, url: output, threads: options.resolvedCompressionThreads, encoder: encoder)
-        lha.recordsMembers = true
-        let writer = ArchiveWriter(output: handle, url: output, format: .lha, options: options, lhaWriter: lha)
-        try writer.prepareAppend(at: plan.membersEnd, existingPaths: existingPaths)
-        self.writer = writer; lhaWriter = lha; appendStart = plan.membersEnd; writerPathsNeedRefresh = false
+        let writer = try ArchiveWriter.lhaAppend(output: handle, url: output, at: plan.membersEnd,
+                                                 options: options, existingPaths: existingPaths, encoder: encoder)
+        self.writer = writer; appendStart = plan.membersEnd; writerPathsNeedRefresh = false
         return writer
     }
 
@@ -246,7 +243,7 @@ public final class LHAUpdater: ArchiveEditing {
         catch { state = .failed; cleanup(); throw error }
     }
     // writer の衝突・符号化失敗も transaction 全体の失敗。abort は clone も含め出力を無効にする。
-    private func cleanup() { writer = nil; lhaWriter = nil; destination.discard() }
+    private func cleanup() { writer = nil; destination.discard() }
 }
 
 extension LHAUpdater.CommitStrategy {

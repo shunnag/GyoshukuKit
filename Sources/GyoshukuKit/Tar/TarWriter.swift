@@ -8,9 +8,12 @@ final class TarWriter {
     private let url: URL
     private let compressor: (any TarCompressor)?
     private var position: UInt64 = 0
-    var recordsMemberLayout = false
-    var observesWrites = false
-    var willWrite: ((Int) throws -> Void)?
+    // 追加した member の区切りを memberLayouts に残す。圧縮 tar の更新が splice の計画に使う。
+    private let recordsMemberLayout: Bool
+    // 書いた byte を ZipCopyEngine.writeObserver に知らせる。updater の末尾追加だけが立てる。
+    private let observesWrites: Bool
+    // 書く直前に byte 数を渡す。圧縮 tar の更新が作業ファイルの書込量を数える。
+    private let willWrite: ((Int) throws -> Void)?
     private(set) var memberLayouts: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)] = []
     private var finished = false
     private var aborted = false
@@ -18,11 +21,15 @@ final class TarWriter {
     private var hardLinks: [FileID: (path: String, signature: [Int64])] = [:]
 
     init(output: FileHandle, url: URL, compressor: (any TarCompressor)?,
-         startPosition: UInt64 = 0) {
+         startPosition: UInt64 = 0, recordsMemberLayout: Bool = false, observesWrites: Bool = false,
+         willWrite: ((Int) throws -> Void)? = nil) {
         self.output = output
         self.url = url
         self.compressor = compressor
         self.position = startPosition
+        self.recordsMemberLayout = recordsMemberLayout
+        self.observesWrites = observesWrites
+        self.willWrite = willWrite
     }
 
     deinit { abort() }

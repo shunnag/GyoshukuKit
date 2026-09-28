@@ -18,7 +18,7 @@ final class TarAppendWriterTests: XCTestCase {
                                                    options: .init(), tarWriter: tar)
         try writer!.prepareAppend(at: 1024, existingPaths: [])
         try writer!.add(data: Data([1]), as: "added", modificationDate: ZipTestSupport.date)
-        XCTAssertEqual(try writer!.endTarMembers(), 2048)
+        XCTAssertEqual(try writer!.endAppendedMembers(), 2048)
         XCTAssertNotEqual(fcntl(fd, F_GETFD), -1)
         let data = try Data(contentsOf: output)
         XCTAssertEqual(data.count, 10240)

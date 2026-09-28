@@ -39,7 +39,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     private var removed = Set<Int>(), renamed: [Int: String] = [:]
     private lazy var reservations = EditPathReservations(existingPaths)
     private var indexedAppendCount = 0, writerPathsNeedRefresh = false
-    private var writer: ArchiveWriter?, tarWriter: TarWriter?, storage: TarSpliceStorage?
+    private var writer: ArchiveWriter?, storage: TarSpliceStorage?
     private var destination: CompressedTarSpliceOutput?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
@@ -175,9 +175,9 @@ public final class CompressedTarUpdater: ArchiveEditing {
             let started = ProcessInfo.processInfo.systemUptime
             let snapshot = self.editingSnapshot!
             guard snapshot.archiveIsUnchanged() else { throw UpdaterError.sourceChanged }
-            let additionLength = try writer?.endTarMembers() ?? 0
-            let additions = tarWriter?.memberLayouts ?? []
-            writer = nil; tarWriter = nil
+            let additionLength = try writer?.endAppendedMembers() ?? 0
+            let additions = writer?.appendedTarMemberLayouts ?? []
+            writer = nil
             let plan = try TarEditPlan.make(layout: layout, source: snapshot.image, names: names, rawNames: rawNames,
                 hardLinkTargets: hardLinkTargets, dataTargets: dataTargets, removed: removed,
                 renamed: renamed, additionLength: additionLength)
@@ -236,13 +236,10 @@ public final class CompressedTarUpdater: ArchiveEditing {
         let fd = fcntl(storage.handle.fileDescriptor, F_DUPFD_CLOEXEC, 0)
         guard fd >= 0 else { throw WriterError.io(operation: "dup append storage", code: errno) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        let tar = TarWriter(output: handle, url: storage.url, compressor: nil)
-        tar.recordsMemberLayout = true; tar.observesWrites = true
-        tar.willWrite = { [storage] in try storage.willWrite($0) }
-        let writer = ArchiveWriter(output: handle, url: storage.url, format: .tar,
-                                   options: options, tarWriter: tar)
-        try writer.prepareAppend(at: 0, existingPaths: existingPaths)
-        self.writer = writer; tarWriter = tar; writerPathsNeedRefresh = false
+        let writer = try ArchiveWriter.tarAppend(output: handle, url: storage.url, at: 0, options: options,
+                                                 existingPaths: existingPaths, recordsMemberLayout: true,
+                                                 willWrite: { [storage] in try storage.willWrite($0) })
+        self.writer = writer; writerPathsNeedRefresh = false
         return writer
     }
     private func perform(_ body: () throws -> Void) throws {
@@ -258,7 +255,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
         }
     }
     private func cleanup() {
-        writer = nil; tarWriter = nil; storage = nil
+        writer = nil; storage = nil
         destination?.discard(); destination = nil; editingSnapshot = nil
     }
 }
