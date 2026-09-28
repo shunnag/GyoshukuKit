@@ -2,7 +2,7 @@ import Foundation
 @_spi(TarEditLayout) internal import KaitoKit
 
 // 圧縮 tar の区切り単位の更新。経路は
-// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
 // この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは計画。新 image のどの区間を運ぶ chunk（reused）にし、どこを橋として再符号化するかを決める。
 struct CompressedTarSplicePlan {

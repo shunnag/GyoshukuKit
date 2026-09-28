@@ -20,7 +20,7 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
                 let editor = try CompressedTarUpdater.open(reader: CompressedTarTestSupport.open(source), output: output, format: format)
                 try editor.rename(entryAt: 0, to: "large-C")
                 let scratchFD = Mutex<Int32>(-1)
-                XCTAssertThrowsError(try TarSpliceStorage.$testingCreated.withValue({ fd in scratchFD.withLock { $0 = fd } }) {
+                XCTAssertThrowsError(try ScratchFile.$testingCreated.withValue({ fd in scratchFD.withLock { $0 = fd } }) {
                     try CompressedTarUpdater.$testingFault.withValue(fault) { try editor.commit() }
                 }) {
                     guard case TarUpdaterError.outputVerificationFailed = $0 else { return XCTFail("\(format) \(fault): \($0)") }

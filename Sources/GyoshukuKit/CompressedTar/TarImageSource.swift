@@ -3,7 +3,7 @@ private import Darwin
 internal import KaitoKit
 
 // 圧縮 tar の区切り単位の更新。経路は
-// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
 // この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは編集後の tar image。原本の区間と作業ファイルの区間を繋いだ ByteSource で、member の座標表も持つ。
 struct TarImageSource: ByteSource {
@@ -28,7 +28,7 @@ struct TarImageSource: ByteSource {
     }
 
     static func make(plan: TarEditPlan, layout: TarLayout, original: any ByteSource,
-                     storage: TarSpliceStorage, additionLength: UInt64,
+                     storage: ScratchFile, additionLength: UInt64,
                      additions: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)]) throws -> TarImageSource {
         var pieces: [(old: Bool, offset: UInt64, length: UInt64)] = []
         for segment in plan.prefix {

@@ -160,23 +160,45 @@ final class SplicedArchiveOutputTests: XCTestCase {
             let finish = action == 1
             let (root, _, output) = try setup("scratch-\(action)", sequential: true)
             let first = try output.makeScratch(tag: "test")
-            try first.append(Data([3, 4]))
+            let fd = first.handle.fileDescriptor
+            XCTAssertEqual(try first.append(Data([3, 4])), 0..<2)
             XCTAssertEqual(try first.source().bytes(at: 0, count: 2), Data([3, 4]))
-            let original = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-                .first { $0.lastPathComponent.hasPrefix(".gyoshuku-test-") })
-            try FileManager.default.removeItem(at: original)
-            try Data([77]).write(to: original)
-            XCTAssertEqual(try first.source().bytes(at: 0, count: 2), Data([3, 4]))
-            _ = try output.makeScratch(tag: "owned")
+            var info = stat()
+            XCTAssertEqual(fstat(fd, &info), 0)
+            XCTAssertEqual(info.st_nlink, 0)
+            XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)), ["source.bin"])
             if finish {
                 _ = try commit(output, .init(prefix: [.source(0..<100)], appended: nil, terminal: Data(), finalLength: 100, formatVerificationUnits: 0))
             } else if action == 2 {
                 XCTAssertThrowsError(try commit(output, .init(prefix: [.literal(length: 2, bytes: { Data([1]) })],
                                                                appended: nil, terminal: Data(), finalLength: 2, formatVerificationUnits: 0)))
             } else { output.discard() }
-            XCTAssertEqual(try Data(contentsOf: original), Data([77]))
-            XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".gyoshuku-owned-") })
+            XCTAssertEqual(fcntl(fd, F_GETFD), -1)
+            XCTAssertEqual(errno, EBADF)
+            first.close()
+            XCTAssertEqual(fcntl(fd, F_GETFD), -1)
+            XCTAssertEqual(errno, EBADF)
+            let files = try FileManager.default.contentsOfDirectory(atPath: root.path)
+            XCTAssertEqual(Set(files), finish ? ["source.bin", "output.bin"] : ["source.bin"])
+            XCTAssertFalse(files.contains { $0.hasPrefix(".gyoshuku-") })
         }
+    }
+
+    func testScratchChunkReadsAndAppendsKeepExistingBytes() throws {
+        let (root, _, output) = try setup("scratch-chunks", sequential: true)
+        defer { output.discard() }
+        let scratch = try output.makeScratch(tag: "chunks")
+        let bytes = Data(repeating: 7, count: IOChunk.size + 1)
+        XCTAssertEqual(try scratch.append(bytes), 0..<UInt64(bytes.count))
+        var chunks: [Data] = []
+        try scratch.forEachChunk { chunks.append($0) }
+        XCTAssertEqual(chunks, [Data(repeating: 7, count: IOChunk.size), Data([7])])
+        XCTAssertEqual(try scratch.append(Data([8])), UInt64(bytes.count)..<UInt64(bytes.count + 1))
+        XCTAssertEqual(try scratch.source().bytes(at: 0, count: bytes.count), bytes)
+        chunks.removeAll()
+        try scratch.forEachChunk { chunks.append($0) }
+        XCTAssertEqual(chunks, [Data(repeating: 7, count: IOChunk.size), Data([7, 8])])
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)), ["source.bin"])
     }
 
     func testMeterIsMonotonicCappedAndFinishesOnceIncludingZero() throws {

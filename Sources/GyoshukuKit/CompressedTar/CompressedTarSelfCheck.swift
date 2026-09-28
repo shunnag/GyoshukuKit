@@ -6,7 +6,7 @@ private import CGyoshukuBzip2
 @_spi(TarEditLayout) internal import KaitoKit
 
 // 圧縮 tar の区切り単位の更新。経路は
-// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
 // この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは自己照合。
 

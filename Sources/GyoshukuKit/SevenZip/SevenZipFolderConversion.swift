@@ -8,7 +8,7 @@ final class SevenZipFolderConversion {
     let plaintextLength: UInt64
     private let aes: SevenZipAESEncryptor?
     private(set) var plaintextCRC: UInt32?
-    var scratch: SplicedScratchFile?
+    var scratch: ScratchFile?
 
     init(index: Int, conversion: SevenZipConversion, model: SevenZipEditModel, aes: SevenZipAESEncryptor?) throws {
         folderIndex = index; self.conversion = conversion; self.aes = aes
