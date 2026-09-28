@@ -10,8 +10,7 @@ final class ZipModernMethodEditingTests: XCTestCase {
     private let payload = Data(String(repeating: "XZ and Zstandard ZIP interoperability 日本語\n", count: 800).utf8)
 
     private func fixture(_ name: String, below directory: URL) throws -> URL {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/zip-modern")
+        let root = TestPaths.fixtures.appendingPathComponent("zip-modern")
         let encoded = try Data(contentsOf: root.appendingPathComponent(name + ".b64"))
         let url = directory.appendingPathComponent(name)
         try XCTUnwrap(Data(base64Encoded: encoded, options: .ignoreUnknownCharacters)).write(to: url)

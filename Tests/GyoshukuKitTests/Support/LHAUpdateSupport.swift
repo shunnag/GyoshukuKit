@@ -7,8 +7,7 @@ import KaitoKit
 enum LHAUpdateSupport {
     static let accepted = ["tl-S3b", "tl-S2", "tl-S1", "tl-S6", "tl-S7", "tl-S5b", "lh4-small", "lh6-small", "lh7-small",
                            "names-cp932-mixed", "names-ascii", "level1-times", "level0-unix", "maclha-nm-level1"]
-    static let fixtureRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Fixtures/lha-updater")
+    static let fixtureRoot = TestPaths.fixtures.appendingPathComponent("lha-updater")
     struct Fixture: Decodable { let name: String, file: String, storage: String, logicalSize: UInt64, size: Int, sha256: String }
     static func fixture(_ name: String, in root: URL) throws -> URL {
         struct Manifest: Decodable { let fixtures: [Fixture] }

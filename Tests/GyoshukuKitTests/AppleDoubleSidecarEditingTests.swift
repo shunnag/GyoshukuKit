@@ -6,8 +6,7 @@ import XCTest
 
 final class AppleDoubleSidecarEditingTests: XCTestCase {
     private func fixture(_ name: String, label: String) throws -> URL {
-        let encoded = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/appledouble/\(name).b64")
+        let encoded = TestPaths.fixture("appledouble", "\(name).b64")
         let data = try XCTUnwrap(Data(base64Encoded: try String(contentsOf: encoded, encoding: .utf8),
                                       options: .ignoreUnknownCharacters))
         let directory = try ZipTestSupport.directory("appledouble-\(label)")

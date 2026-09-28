@@ -5,8 +5,7 @@ import XCTest
 @_spi(Testing) @testable import GyoshukuKit
 
 enum SevenZipEditSupport {
-    static let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Fixtures/sevenzip-edit")
+    static let fixtures = TestPaths.fixtures.appendingPathComponent("sevenzip-edit")
     static func fixture(_ name: String) -> URL { fixtures.appendingPathComponent(name + ".7z") }
     static func reader(_ url: URL, password: String? = "secret") throws -> ArchiveReader {
         try ArchiveReader.open(url: url, options: SevenZipEditModel.readerOptions(password: password))
