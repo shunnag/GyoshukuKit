@@ -39,6 +39,15 @@ public final class ArchiveUpdater: ArchiveEditing {
     var writerUsesLiveNameCheck: Bool { writer?.existingPathCheck != nil }
     var hasPathReservations: Bool { pathReservations != nil }
 
+    /// commit が選ぶ経路と、それを実行する型。
+    /// - unchanged: 削除・改名・追加がない。`commitUnchanged` が output を同期するだけ。
+    /// - appendOnly: 追加だけ。`commitAppendOnly` から `ArchiveWriter.finish(existingCount:…)` が旧 CD を運び、
+    ///   `ZipCentralDirectory.CopyValidator` が検査する。
+    /// - inPlacePatch: 改名だけで record が動かない。`ZipRebuild.plan` が `Plan.inPlace` を立て、`execute` は header を patch する。
+    /// - rebuild: 削除・改名・再暗号化で record を詰め直す。`ZipRebuild.plan` / `execute`、変換は `ZipReencryption`。
+    /// - rebuildThenAppend: rebuild に加え、予測位置に書いた追加 record をそのまま残す。`ZipAppendedRecordSelfCheck` が照合する。
+    /// - stagedRebuild: 追加 record の予測位置が外れ、複製（staged）から `ZipRebuild.execute(… stagedSource:)` で運び直す。
+    /// 後の四つは `commitRebuild` が担う。
     @_spi(Testing) public enum CommitStrategy: Sendable, Equatable {
         case unchanged, appendOnly, inPlacePatch, rebuild, rebuildThenAppend, stagedRebuild
     }
@@ -322,68 +331,11 @@ public final class ArchiveUpdater: ArchiveEditing {
             let appended = try writer?.drainAppendedRecords()
             var verification: (ZipRebuild.Plan, ZipCommitMeter)?
             if rebuild, let reader {
-                try prepareClone()
-                let written = appended.map { appendStart!..<$0.end }
-                let plan = try ZipRebuild.plan(source: source, layout: layout, reader: reader, directory: directory,
-                    removed: removed, renamed: renamed, writtenRange: written,
-                    appended: appended?.entries ?? [], reencryption: reencryption, recordLayout: recordLayout)
-                var stagedSource: ArchiveFileSource?
-                if let written, plan.end != written.lowerBound {
-                    let parent = outputURL?.deletingLastPathComponent() ?? replacementDirectory!
-                    let staged = parent.appendingPathComponent(".gyoshuku-staged-\(UUID().uuidString).zip")
-                    try FileManager.default.copyItem(at: replacement!, to: staged)
-                    stagedSnapshot = try ArchiveOwnedFile(url: staged)
-                    stagedSource = try ArchiveFileSource(url: staged)
-                    lastCommitStrategy = .stagedRebuild
-                } else if appended != nil { lastCommitStrategy = .rebuildThenAppend }
-                else { lastCommitStrategy = plan.inPlace ? .inPlacePatch : .rebuild }
-                let movedBytes = stagedSource == nil ? 0 : written!.byteLength
-                let total = try checkedAdd(checkedAdd(plan.totalBytes, movedBytes), reencryption?.work ?? 0)
-                try Task.checkCancellation()
-                try progress?(.init(completedBytes: 0, totalBytes: total))
-                var engine = ZipCopyEngine(descriptor: outputHandle!.fileDescriptor, totalBytes: total)
-                try ZipRebuild.execute(plan, source: source, directory: directory, layout: layout,
-                    stagedSource: stagedSource, writtenRange: written, reencryption: reencryption, engine: &engine, progress: progress)
-                if let appended, let written {
-                    if let corrupt = Self.testingAppendedCorruption, let first = appended.entries.first {
-                        var bytes = try ZipAppendedRecordSelfCheck.read(outputHandle!.fileDescriptor, at: plan.end, count: first.local().count)
-                        corrupt(&bytes)
-                        try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(outputHandle!.fileDescriptor, bytes: $0, at: plan.end) }
-                    }
-                    try ZipAppendedRecordSelfCheck.check(descriptor: outputHandle!.fileDescriptor, entries: appended.entries,
-                        start: plan.end, recordBase: layout.centralOffset,
-                        blockLength: written.byteLength, centralOffset: plan.centralOffset)
-                }
-                try Task.checkCancellation()
-                if !plan.inPlace { try outputHandle!.truncate(atOffset: plan.finalEnd) }
-                try outputHandle!.synchronize()
-                if reencryption != nil { verification = (plan, engine.meter) }
-                else { try engine.meter.finish(progress: progress) }
+                verification = try commitRebuild(reader: reader, reencryption: reencryption, appended: appended, progress: progress)
             } else if let writer, let appended {
-                lastCommitStrategy = .appendOnly
-                var size = layout.centralSize
-                for entry in appended.entries { size = try checkedAdd(size, UInt64(entry.central().count)) }
-                let end = try ZipRecords.end(count: checkedAdd(layout.count, UInt64(appended.entries.count)),
-                    centralSize: size, centralOffset: appended.end, comment: layout.comment)
-                let total = try checkedAdd(size, UInt64(end.count))
-                try Task.checkCancellation()
-                try progress?(.init(completedBytes: 0, totalBytes: total))
-                var meter = ZipCommitMeter(totalBytes: total)
-                try writer.finish(existingCount: layout.count, comment: layout.comment,
-                                  progress: { _, count in try meter.wrote(count, progress: progress) }) { emit in
-                    for cursor in stride(from: 0, to: directory.bytes.count, by: 4 * 1024 * 1024) {
-                        try emit(directory.bytes.subdata(in: cursor..<min(cursor + 4 * 1024 * 1024, directory.bytes.count)))
-                    }
-                }
-                outputHandle = nil
-                try meter.finish(progress: progress)
+                try commitAppendOnly(writer: writer, appended: appended, progress: progress)
             } else {
-                lastCommitStrategy = .unchanged
-                if outputURL != nil { try prepareClone() }
-                try Task.checkCancellation()
-                try progress?(.init(completedBytes: 0, totalBytes: 0))
-                try outputHandle?.synchronize()
-                try progress?(.init(completedBytes: 0, totalBytes: 0))
+                try commitUnchanged(progress: progress)
             }
             self.writer = nil
             try outputHandle?.close()
@@ -402,28 +354,108 @@ public final class ArchiveUpdater: ArchiveEditing {
             }
             currentPassword = nil
             try Task.checkCancellation()
-            if let replacement {
-                try checkOutputIdentity()
-                if outputURL != nil {
-                    try checkUnchanged()
-                    try Task.checkCancellation()
-                } else {
-                    let quarantine = try readQuarantine()
-                    try checkUnchanged()
-                    try Task.checkCancellation()
-                    _ = try FileManager.default.replaceItemAt(url, withItemAt: replacement)
-                    try FileManager.default.setAttributes([.posixPermissions: source.mode], ofItemAtPath: url.path)
-                    if let quarantine {
-                        let status = quarantine.withUnsafeBytes {
-                            setxattr(url.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW)
-                        }
-                        guard status == 0 else { throw WriterError.io(operation: "restore quarantine", code: errno) }
-                    }
-                }
-            }
+            if let replacement { try publishReplacement(replacement) }
             state = .committed
             ownedOutput = nil
             cleanup()
+        }
+    }
+
+    // rebuild / inPlacePatch / rebuildThenAppend / stagedRebuild。
+    // 再暗号化があるときは計器を閉じず、出力を閉じた後の verify に計画と一緒に返す。
+    private func commitRebuild(reader: ArchiveReader, reencryption: ZipReencryption?,
+                               appended: (entries: [ZipRecords.Entry], end: UInt64)?,
+                               progress: ((CommitProgress) throws -> Void)?) throws -> (ZipRebuild.Plan, ZipCommitMeter)? {
+        try prepareClone()
+        let written = appended.map { appendStart!..<$0.end }
+        let plan = try ZipRebuild.plan(source: source, layout: layout, reader: reader, directory: directory,
+            removed: removed, renamed: renamed, writtenRange: written,
+            appended: appended?.entries ?? [], reencryption: reencryption, recordLayout: recordLayout)
+        var stagedSource: ArchiveFileSource?
+        if let written, plan.end != written.lowerBound {
+            let parent = outputURL?.deletingLastPathComponent() ?? replacementDirectory!
+            let staged = parent.appendingPathComponent(".gyoshuku-staged-\(UUID().uuidString).zip")
+            try FileManager.default.copyItem(at: replacement!, to: staged)
+            stagedSnapshot = try ArchiveOwnedFile(url: staged)
+            stagedSource = try ArchiveFileSource(url: staged)
+            lastCommitStrategy = .stagedRebuild
+        } else if appended != nil { lastCommitStrategy = .rebuildThenAppend }
+        else { lastCommitStrategy = plan.inPlace ? .inPlacePatch : .rebuild }
+        let movedBytes = stagedSource == nil ? 0 : written!.byteLength
+        let total = try checkedAdd(checkedAdd(plan.totalBytes, movedBytes), reencryption?.work ?? 0)
+        try Task.checkCancellation()
+        try progress?(.init(completedBytes: 0, totalBytes: total))
+        var engine = ZipCopyEngine(descriptor: outputHandle!.fileDescriptor, totalBytes: total)
+        try ZipRebuild.execute(plan, source: source, directory: directory, layout: layout,
+            stagedSource: stagedSource, writtenRange: written, reencryption: reencryption, engine: &engine, progress: progress)
+        if let appended, let written {
+            if let corrupt = Self.testingAppendedCorruption, let first = appended.entries.first {
+                var bytes = try ZipAppendedRecordSelfCheck.read(outputHandle!.fileDescriptor, at: plan.end, count: first.local().count)
+                corrupt(&bytes)
+                try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(outputHandle!.fileDescriptor, bytes: $0, at: plan.end) }
+            }
+            try ZipAppendedRecordSelfCheck.check(descriptor: outputHandle!.fileDescriptor, entries: appended.entries,
+                start: plan.end, recordBase: layout.centralOffset,
+                blockLength: written.byteLength, centralOffset: plan.centralOffset)
+        }
+        try Task.checkCancellation()
+        if !plan.inPlace { try outputHandle!.truncate(atOffset: plan.finalEnd) }
+        try outputHandle!.synchronize()
+        if reencryption != nil { return (plan, engine.meter) }
+        try engine.meter.finish(progress: progress)
+        return nil
+    }
+
+    // appendOnly。writer が旧 CD を運びながら追加分の central と EOCD を書く。
+    private func commitAppendOnly(writer: ArchiveWriter, appended: (entries: [ZipRecords.Entry], end: UInt64),
+                                  progress: ((CommitProgress) throws -> Void)?) throws {
+        lastCommitStrategy = .appendOnly
+        var size = layout.centralSize
+        for entry in appended.entries { size = try checkedAdd(size, UInt64(entry.central().count)) }
+        let end = try ZipRecords.end(count: checkedAdd(layout.count, UInt64(appended.entries.count)),
+            centralSize: size, centralOffset: appended.end, comment: layout.comment)
+        let total = try checkedAdd(size, UInt64(end.count))
+        try Task.checkCancellation()
+        try progress?(.init(completedBytes: 0, totalBytes: total))
+        var meter = ZipCommitMeter(totalBytes: total)
+        try writer.finish(existingCount: layout.count, comment: layout.comment,
+                          progress: { _, count in try meter.wrote(count, progress: progress) }) { emit in
+            for cursor in stride(from: 0, to: directory.bytes.count, by: 4 * 1024 * 1024) {
+                try emit(directory.bytes.subdata(in: cursor..<min(cursor + 4 * 1024 * 1024, directory.bytes.count)))
+            }
+        }
+        outputHandle = nil
+        try meter.finish(progress: progress)
+    }
+
+    // unchanged。output 指定があれば複製だけを作り、進捗は (0, 0) を二度通知する。
+    private func commitUnchanged(progress: ((CommitProgress) throws -> Void)?) throws {
+        lastCommitStrategy = .unchanged
+        if outputURL != nil { try prepareClone() }
+        try Task.checkCancellation()
+        try progress?(.init(completedBytes: 0, totalBytes: 0))
+        try outputHandle?.synchronize()
+        try progress?(.init(completedBytes: 0, totalBytes: 0))
+    }
+
+    // 完成した replacement を公開する。原本の置換では quarantine と mode を復元する。
+    private func publishReplacement(_ replacement: URL) throws {
+        try checkOutputIdentity()
+        if outputURL != nil {
+            try checkUnchanged()
+            try Task.checkCancellation()
+            return
+        }
+        let quarantine = try readQuarantine()
+        try checkUnchanged()
+        try Task.checkCancellation()
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: replacement)
+        try FileManager.default.setAttributes([.posixPermissions: source.mode], ofItemAtPath: url.path)
+        if let quarantine {
+            let status = quarantine.withUnsafeBytes {
+                setxattr(url.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW)
+            }
+            guard status == 0 else { throw WriterError.io(operation: "restore quarantine", code: errno) }
         }
     }
 
