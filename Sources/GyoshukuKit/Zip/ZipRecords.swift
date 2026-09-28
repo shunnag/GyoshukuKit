@@ -178,16 +178,3 @@ enum ZipRecords {
         return result
     }
 }
-
-func checkedAdd(_ lhs: UInt64, _ rhs: UInt64) throws -> UInt64 {
-    let result = lhs.addingReportingOverflow(rhs)
-    guard !result.overflow else { throw WriterError.sizeOverflow }
-    return result.partialValue
-}
-
-extension Data {
-    mutating func le<T: FixedWidthInteger>(_ value: T) {
-        var little = value.littleEndian
-        Swift.withUnsafeBytes(of: &little) { append(contentsOf: $0) }
-    }
-}

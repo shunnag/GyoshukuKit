@@ -61,12 +61,3 @@ final class DeflateCompressor {
         }
     }
 }
-
-func updateCRC(_ crc: UInt32, _ data: Data) -> UInt32 {
-    data.withUnsafeBytes { updateCRC(crc, $0) }
-}
-
-func updateCRC(_ crc: UInt32, _ bytes: UnsafeRawBufferPointer) -> UInt32 {
-    guard !bytes.isEmpty else { return crc }
-    return UInt32(crc32(uLong(crc), bytes.baseAddress?.assumingMemoryBound(to: Bytef.self), uInt(bytes.count)))
-}

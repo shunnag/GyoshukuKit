@@ -180,20 +180,3 @@ struct ZipUpdateLayout {
         endBytes = directoryEnd == endOffset ? tail.subdata(in: end..<commentEnd) : nil
     }
 }
-
-// 呼出箇所で固定長を検証した ZIP record 専用の little-endian 読み取り。
-extension Data {
-    func zip16(_ at: Int) -> UInt16 { UInt16(self[at]) | UInt16(self[at + 1]) << 8 }
-    func zip32(_ at: Int) -> UInt32 { UInt32(zip16(at)) | UInt32(zip16(at + 2)) << 16 }
-    func zip64(_ at: Int) -> UInt64 { UInt64(zip32(at)) | UInt64(zip32(at + 4)) << 32 }
-    mutating func zipSet<T: FixedWidthInteger>(_ value: T, at: Int) {
-        let relative = at - startIndex
-        precondition(relative >= 0 && relative <= count && MemoryLayout<T>.size <= count - relative)
-        var little = value.littleEndian
-        Swift.withUnsafeBytes(of: &little) { encoded in
-            withUnsafeMutableBytes { bytes in
-                bytes.baseAddress!.advanced(by: relative).copyMemory(from: encoded.baseAddress!, byteCount: encoded.count)
-            }
-        }
-    }
-}
