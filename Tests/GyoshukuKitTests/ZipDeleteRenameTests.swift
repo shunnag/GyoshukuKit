@@ -37,10 +37,10 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "newer.bin")
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        TestSupport.report("G1 same-length rename source bytes: \(counter.byteCount)")
-        XCTAssertLessThan(counter.byteCount, 1024 * 1024, "same-length rename must not read unmoved payloads")
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 same-length rename source bytes: \(counter.bytes)")
+        XCTAssertLessThan(counter.bytes, 1024 * 1024, "same-length rename must not read unmoved payloads")
         // Independent whole-archive oracle: only the two equal-length name fields change.
         var patched = before.bytes
         patched.replaceSubrange(30..<39, with: Data("newer.bin".utf8))
@@ -60,10 +60,10 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [1])
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        TestSupport.report("G1 tail deletion source bytes: \(counter.byteCount)")
-        XCTAssertLessThan(counter.byteCount, 1024 * 1024, "tail deletion must not read unmoved payloads")
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 tail deletion source bytes: \(counter.bytes)")
+        XCTAssertLessThan(counter.bytes, 1024 * 1024, "tail deletion must not read unmoved payloads")
         try assertCarried(before, to: url, indices: [0])
         try assertStoredBytes([items[0]], at: url)
     }
@@ -75,11 +75,11 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [0])
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        TestSupport.report("G1 first deletion source bytes: \(counter.byteCount)")
-        XCTAssertGreaterThanOrEqual(counter.byteCount, UInt64(items[1].data.count))
-        XCTAssertLessThan(counter.byteCount, UInt64(items[1].data.count + 1024 * 1024))
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 first deletion source bytes: \(counter.bytes)")
+        XCTAssertGreaterThanOrEqual(counter.bytes, UInt64(items[1].data.count))
+        XCTAssertLessThan(counter.bytes, UInt64(items[1].data.count + 1024 * 1024))
         try assertCarried(before, to: url, indices: [1])
         try assertStoredBytes([items[1]], at: url)
     }
@@ -91,12 +91,12 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "longer-first-name.bin")
-        let counter = ZipReadCounter()
-        try counter.measure { try updater.commit() }
-        TestSupport.report("G1 different-length rename source bytes: \(counter.byteCount)")
+        let counter = ZipIOEvents()
+        try counter.measureReads { try updater.commit() }
+        TestSupport.report("G1 different-length rename source bytes: \(counter.bytes)")
         let payloadBytes = UInt64(items.reduce(0) { $0 + $1.data.count })
-        XCTAssertGreaterThanOrEqual(counter.byteCount, payloadBytes)
-        XCTAssertLessThan(counter.byteCount, payloadBytes + 1024 * 1024)
+        XCTAssertGreaterThanOrEqual(counter.bytes, payloadBytes)
+        XCTAssertLessThan(counter.bytes, payloadBytes + 1024 * 1024)
         try assertCarried(before, to: url, indices: [0, 1], renamed: [0])
         var expected = items
         expected[0].name = "longer-first-name.bin"

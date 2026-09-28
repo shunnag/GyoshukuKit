@@ -1,24 +1,8 @@
 import Foundation
 import Darwin
 import KaitoKit
-import Synchronization
 import XCTest
 @_spi(Testing) @testable import GyoshukuKit
-
-final class ZipIOEvents: Sendable {
-    struct Event: Sendable { let descriptor: Int32; let offset: UInt64; let count: Int; let inode: UInt64 }
-    private let storage = Mutex<[Event]>([])
-    var events: [Event] { storage.withLock { $0 } }
-    var bytes: UInt64 { events.reduce(0) { $0 + UInt64($1.count) } }
-    func read(_ descriptor: Int32, _ offset: UInt64, _ count: Int) {
-        var info = stat()
-        _ = fstat(descriptor, &info)
-        storage.withLock { $0.append(.init(descriptor: descriptor, offset: offset, count: count, inode: UInt64(info.st_ino))) }
-    }
-    func write(_ offset: UInt64, _ count: Int) {
-        storage.withLock { $0.append(.init(descriptor: -1, offset: offset, count: count, inode: 0)) }
-    }
-}
 
 enum ZipP1Support {
     enum Operation {
