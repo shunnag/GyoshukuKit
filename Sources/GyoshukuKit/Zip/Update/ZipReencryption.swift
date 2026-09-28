@@ -41,7 +41,7 @@ final class ZipConversion {
 
     func assemble(source: ArchiveFileSource, header: ZipRebuild.CentralHeader, offset: UInt64, name newName: String?) throws {
         let original = try ZipRebuild.LocalHeader(source: source, layout: raw)
-        let aes = ZipRebuild.extraFields(header.extra).filter { $0.id == 0x9901 }
+        let aes = ZipRebuild.extraFields(header.extra).filter { $0.id == ZipRecords.ExtraID.winZipAES }
         if let version = raw.encryption.aesVersion {
             guard aes.count == 1,
                   header.extra.subdata(in: aes[0].range) == Self.aesExtra(version: version,
@@ -113,7 +113,7 @@ final class ZipConversion {
         var rest = Data()
         var consumed = 0
         for field in ZipRebuild.extraFields(original) {
-            if field.id != 1 && field.id != 0x9901 { rest.append(original.subdata(in: field.range)) }
+            if field.id != ZipRecords.ExtraID.zip64 && field.id != ZipRecords.ExtraID.winZipAES { rest.append(original.subdata(in: field.range)) }
             consumed = field.range.upperBound
         }
         let tail = original.dropFirst(consumed)
@@ -123,7 +123,7 @@ final class ZipConversion {
             rest = try ZipRebuild.renamedExtra(rest)
             rest.removeLast(tail.count)
         }
-        var result = zip64.isEmpty ? Data() : ZipRecords.field(1, zip64)
+        var result = zip64.isEmpty ? Data() : ZipRecords.field(ZipRecords.ExtraID.zip64, zip64)
         result.append(rest)
         if let version = target.aesVersion {
             result.append(Self.aesExtra(version: version, strength: 3, method: raw.compressionMethod))
@@ -138,18 +138,18 @@ final class ZipConversion {
         body.le(version)
         body.append(contentsOf: [0x41, 0x45, strength])
         body.le(method)
-        return ZipRecords.field(0x9901, body)
+        return ZipRecords.field(ZipRecords.ExtraID.winZipAES, body)
     }
 
     func validateHeaders(local: Data, central: Data) throws {
-        let localExtraStart = 30 + Int(local.zip16(26))
-        let centralExtraStart = 46 + Int(central.zip16(28))
+        let localExtraStart = ZipRecords.FixedLength.local + Int(local.zip16(26))
+        let centralExtraStart = ZipRecords.FixedLength.central + Int(central.zip16(28))
         let lx = local.subdata(in: localExtraStart..<(localExtraStart + Int(local.zip16(28))))
         let cx = central.subdata(in: centralExtraStart..<(centralExtraStart + Int(central.zip16(30))))
         let lf = ZipRebuild.extraFields(lx), cf = ZipRebuild.extraFields(cx)
         var uncompressed = UInt64(local.zip32(22)), compressed = UInt64(local.zip32(18))
         if uncompressed == ZipRecords.limit || compressed == ZipRecords.limit {
-            let fields = lf.filter { $0.id == 1 }
+            let fields = lf.filter { $0.id == ZipRecords.ExtraID.zip64 }
             guard uncompressed == ZipRecords.limit, compressed == ZipRecords.limit,
                   fields.count == 1, fields[0].range.count == 20 else {
                 throw failure("出力 local の ZIP64 サイズを照合できません")
@@ -157,8 +157,8 @@ final class ZipConversion {
             uncompressed = lx.zip64(fields[0].range.lowerBound + 4)
             compressed = lx.zip64(fields[0].range.lowerBound + 12)
         }
-        let localAES = lf.filter { $0.id == 0x9901 }.map { lx.subdata(in: $0.range) }
-        let centralAES = cf.filter { $0.id == 0x9901 }.map { cx.subdata(in: $0.range) }
+        let localAES = lf.filter { $0.id == ZipRecords.ExtraID.winZipAES }.map { lx.subdata(in: $0.range) }
+        let centralAES = cf.filter { $0.id == ZipRecords.ExtraID.winZipAES }.map { cx.subdata(in: $0.range) }
         guard uncompressed == size, compressed == compressedSize, localAES == centralAES,
               local.zip16(6) & 0x809 == central.zip16(8) & 0x809,
               local.zip16(8) == central.zip16(10), local.zip32(14) == central.zip32(16) else {

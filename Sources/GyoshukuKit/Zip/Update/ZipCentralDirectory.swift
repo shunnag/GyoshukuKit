@@ -50,12 +50,15 @@ enum ZipCentralDirectory {
         let zip64OffsetPosition: Int
 
         init(_ bytes: Data) throws {
-            guard bytes.count == 46 else { throw UpdaterError.invalidArchive("CD record の signature がありません") }
+            guard bytes.count == ZipRecords.FixedLength.central else {
+                throw UpdaterError.invalidArchive("CD record の signature がありません")
+            }
             try self.init(bytes, at: 0)
         }
 
         init(_ bytes: Data, at cursor: Int) throws {
-            guard bytes.count - cursor >= 46, bytes.zip32(cursor) == 0x02014B50 else {
+            guard bytes.count - cursor >= ZipRecords.FixedLength.central,
+                  bytes.zip32(cursor) == ZipRecords.Signature.central else {
                 throw UpdaterError.invalidArchive("CD record の signature がありません")
             }
             nameLength = Int(bytes.zip16(cursor + 28))
@@ -68,12 +71,12 @@ enum ZipCentralDirectory {
 
         func localOffset(bytes: Data, at cursor: Int) throws -> UInt64 {
             guard localOffset32 == UInt32.max else { return UInt64(localOffset32) }
-            var index = cursor + 46 + nameLength
+            var index = cursor + ZipRecords.FixedLength.central + nameLength
             let end = index + extraLength
             while end - index >= 4 {
                 let length = Int(bytes.zip16(index + 2))
                 guard length <= end - index - 4 else { break }
-                if bytes.zip16(index) == 1 {
+                if bytes.zip16(index) == ZipRecords.ExtraID.zip64 {
                     guard length >= zip64OffsetPosition + 8 else { break }
                     return bytes.zip64(index + 4 + zip64OffsetPosition)
                 }
@@ -96,15 +99,16 @@ enum ZipCentralDirectory {
         }
         let bytes = try source.bytes(at: centralOffset, count: Int(centralSize))
         let end = bytes.count
+        let fixedLength = ZipRecords.FixedLength.central
         var cursor = 0
         var records: [ZipValidatedRecord] = []
         records.reserveCapacity(reader.entries.count)
         for entry in reader.entries {
-            guard cursor <= end, end - cursor >= 46 else {
+            guard cursor <= end, end - cursor >= fixedLength else {
                 throw UpdaterError.invalidArchive("CD record が途中で終わっています")
             }
             let header = try Header(bytes, at: cursor)
-            guard header.variableLength <= end - cursor - 46 else {
+            guard header.variableLength <= end - cursor - fixedLength else {
                 throw UpdaterError.invalidArchive("CD record の可変長領域が範囲外です")
             }
             let offset = try header.localOffset(bytes: bytes, at: cursor)
@@ -122,9 +126,9 @@ enum ZipCentralDirectory {
             guard record.recordRange.upperBound <= centralOffset else {
                 throw UpdaterError.invalidArchive("CD の開始位置が local record の終端より前です: \(entry.name)")
             }
-            let extraStart = cursor + 46 + header.nameLength
+            let extraStart = cursor + fixedLength + header.nameLength
             let extra = bytes.subdata(in: extraStart..<(extraStart + header.extraLength))
-            let hasZIP64 = ZipRebuild.extraFields(extra).contains { $0.id == 1 }
+            let hasZIP64 = ZipRebuild.extraFields(extra).contains { $0.id == ZipRecords.ExtraID.zip64 }
             guard hasZIP64 == record.centralHasZIP64Extra else {
                 throw UpdaterError.invalidArchive("CD の ZIP64 extra の解釈が KaitoKit と一致しません: \(entry.name)")
             }
@@ -133,7 +137,7 @@ enum ZipCentralDirectory {
                 && entry.compressedSize == UInt64(bytes.zip32(cursor + 20))
                 && entry.uncompressedSize == UInt64(bytes.zip32(cursor + 24))
                 && bytes.zip16(cursor + 34) == 0 && header.localOffset32 != UInt32.max
-            let next = cursor + 46 + header.variableLength
+            let next = cursor + fixedLength + header.variableLength
             records.append(ZipValidatedRecord(centralRange: cursor..<next, layout: record, canonical: canonical))
             cursor = next
         }
@@ -166,10 +170,10 @@ enum ZipCentralDirectory {
                 guard count < expectedCount else {
                     throw UpdaterError.invalidArchive("旧 CD の entry 数を超える byte があります")
                 }
-                let consumed = min(46 - fixed.count, bytes.endIndex - cursor)
+                let consumed = min(ZipRecords.FixedLength.central - fixed.count, bytes.endIndex - cursor)
                 fixed.append(bytes[cursor..<(cursor + consumed)])
                 cursor += consumed
-                if fixed.count == 46 {
+                if fixed.count == ZipRecords.FixedLength.central {
                     variableRemaining = try Header(fixed).variableLength
                     count += 1
                     fixed.removeAll(keepingCapacity: true)

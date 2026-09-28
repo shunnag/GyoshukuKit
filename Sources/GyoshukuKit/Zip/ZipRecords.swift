@@ -6,6 +6,37 @@ enum ZipRecords {
     static let madeBy: UInt16 = (3 << 8) | 63
     static let flags: UInt16 = 1 << 11
 
+    /// record 先頭の signature（APPNOTE 4.3）。
+    enum Signature {
+        static let local: UInt32 = 0x04034B50
+        static let central: UInt32 = 0x02014B50
+        static let end: UInt32 = 0x06054B50
+        static let end64: UInt32 = 0x06064B50
+        static let locator64: UInt32 = 0x07064B50
+    }
+
+    /// extra field の header ID（APPNOTE 4.5.2、Info-ZIP、WinZip）。
+    enum ExtraID {
+        static let zip64: UInt16 = 0x0001
+        static let extendedTimestamp: UInt16 = 0x5455
+        static let infoZipUnicodePath: UInt16 = 0x7075
+        static let infoZipUnixNew: UInt16 = 0x7875
+        static let winZipAES: UInt16 = 0x9901
+        /// 予約領域。deflate の最大長で確保した ZIP64 の余白と、無効化した Unicode 名の跡に使う。
+        static let reservedPadding: UInt16 = 0xFFFF
+        /// 名前と他の metadata が混在し得る extra。改名時は黙って捨てず拒否する。
+        static let nameBearing: Set<UInt16> = [0x0008, 0x2605, 0x334D, 0x4F4C, 0x554E]
+    }
+
+    /// 可変長部（名前・extra・comment）を除いた record の長さ。
+    enum FixedLength {
+        static let local = 30
+        static let central = 46
+        static let end = 22
+        static let end64 = 56
+        static let locator64 = 20
+    }
+
     static func field(_ id: UInt16, _ body: Data) -> Data {
         var data = Data()
         data.le(id)
@@ -73,28 +104,28 @@ enum ZipRecords {
                 if compressedSize >= limit { zip64.le(compressedSize) }
                 if offset >= limit { zip64.le(offset) }
             }
-            if !zip64.isEmpty { result.append(field(0x0001, zip64)) }
+            if !zip64.isEmpty { result.append(field(ExtraID.zip64, zip64)) }
             if local && reservedZIP64 && zip64.isEmpty {
                 // deflate の最大長で予約した領域。不要になっても payload 位置は動かさない。
-                result.append(field(0xFFFF, Data(repeating: 0, count: 16)))
+                result.append(field(ExtraID.reservedPadding, Data(repeating: 0, count: 16)))
             }
             var timestamp = Data([local ? 3 : 1])
             timestamp.le(mtime)
             if local { timestamp.le(atime) }
-            result.append(field(0x5455, timestamp))
+            result.append(field(ExtraID.extendedTimestamp, timestamp))
             if let (uid, gid) = owners {
                 var owner = Data([1, 4])
                 owner.le(uid)
                 owner.append(4)
                 owner.le(gid)
-                result.append(field(0x7875, owner))
+                result.append(field(ExtraID.infoZipUnixNew, owner))
             }
             if let aesVersion {
                 var aes = Data()
                 aes.le(aesVersion)
                 aes.append(contentsOf: [0x41, 0x45, 3])
                 aes.le(method.rawValue)
-                result.append(field(0x9901, aes))
+                result.append(field(ExtraID.winZipAES, aes))
             }
             return result
         }
@@ -102,7 +133,7 @@ enum ZipRecords {
         func local() -> Data {
             let extra = extras(local: true)
             var result = Data()
-            result.le(UInt32(0x04034B50))
+            result.le(Signature.local)
             result.le(version)
             result.le(entryFlags)
             result.le(storedMethod)
@@ -123,7 +154,7 @@ enum ZipRecords {
         func central() -> Data {
             let extra = extras(local: false)
             var result = Data()
-            result.le(UInt32(0x02014B50))
+            result.le(Signature.central)
             result.le(madeBy)
             result.le(version)
             result.le(entryFlags)
@@ -151,7 +182,7 @@ enum ZipRecords {
         guard comment.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
         var result = Data()
         if count >= UInt16.max || centralSize >= limit || centralOffset >= limit {
-            result.le(UInt32(0x06064B50))
+            result.le(Signature.end64)
             result.le(UInt64(44))
             result.le(madeBy)
             result.le(UInt16(45))
@@ -161,12 +192,12 @@ enum ZipRecords {
             result.le(count)
             result.le(centralSize)
             result.le(centralOffset)
-            result.le(UInt32(0x07064B50))
+            result.le(Signature.locator64)
             result.le(UInt32(0))
             result.le(try checkedAdd(centralOffset, centralSize))
             result.le(UInt32(1))
         }
-        result.le(UInt32(0x06054B50))
+        result.le(Signature.end)
         result.le(UInt16(0))
         result.le(UInt16(0))
         result.le(UInt16(min(count, UInt64(UInt16.max))))

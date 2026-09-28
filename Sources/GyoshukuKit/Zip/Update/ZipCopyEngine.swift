@@ -66,7 +66,7 @@ struct ZipCopyEngine {
 
     mutating func appendCentral(_ bytes: Data, range: Range<Int>, localOffset: UInt64, at offset: UInt64,
                                 progress: ((ArchiveUpdater.CommitProgress) throws -> Void)?) throws {
-        precondition(range.count >= 46 && range.lowerBound >= bytes.startIndex && range.upperBound <= bytes.endIndex)
+        precondition(range.count >= ZipRecords.FixedLength.central && range.lowerBound >= bytes.startIndex && range.upperBound <= bytes.endIndex)
         precondition(localOffset < ZipRecords.limit)
         try move(to: offset, progress: progress)
         if range.count <= buffer.count - used {
@@ -92,7 +92,8 @@ struct ZipCopyEngine {
             var encoded = Data()
             encoded.le(UInt32(localOffset))
             try append(encoded, at: offset + 42, progress: progress)
-            try append(bytes, range: (range.lowerBound + 46)..<range.upperBound, at: offset + 46, progress: progress)
+            try append(bytes, range: (range.lowerBound + ZipRecords.FixedLength.central)..<range.upperBound,
+                       at: offset + UInt64(ZipRecords.FixedLength.central), progress: progress)
         }
     }
 

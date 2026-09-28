@@ -245,24 +245,25 @@ enum ZipRebuild {
         var fixed: Data
         let name: Data
         let extra: Data
-        var hasZIP64: Bool { extraFields(extra).contains { $0.id == 1 } }
+        var hasZIP64: Bool { extraFields(extra).contains { $0.id == ZipRecords.ExtraID.zip64 } }
 
         init(source: ArchiveFileSource, layout raw: ZipRecordLayout) throws {
+            let fixedLength = ZipRecords.FixedLength.local
             let length = raw.payloadRange.lowerBound - raw.recordRange.lowerBound
-            guard length >= 30, length <= UInt64(Int.max) else {
+            guard length >= UInt64(fixedLength), length <= UInt64(Int.max) else {
                 throw UpdaterError.invalidArchive("local header と rawRecord の payload 位置が一致しません")
             }
             let bytes = try source.bytes(at: raw.recordRange.lowerBound, count: Int(length))
-            fixed = bytes.subdata(in: 0..<30)
+            fixed = bytes.subdata(in: 0..<fixedLength)
             let nameLength = Int(fixed.zip16(26))
             let extraLength = Int(fixed.zip16(28))
-            let variableOffset = try checkedAdd(raw.recordRange.lowerBound, 30)
-            guard fixed.zip32(0) == 0x04034B50,
+            let variableOffset = try checkedAdd(raw.recordRange.lowerBound, UInt64(fixedLength))
+            guard fixed.zip32(0) == ZipRecords.Signature.local,
                   try checkedAdd(variableOffset, UInt64(nameLength + extraLength)) == raw.payloadRange.lowerBound else {
                 throw UpdaterError.invalidArchive("local header と rawRecord の payload 位置が一致しません")
             }
-            name = bytes.subdata(in: 30..<(30 + nameLength))
-            extra = bytes.subdata(in: (30 + nameLength)..<bytes.count)
+            name = bytes.subdata(in: fixedLength..<(fixedLength + nameLength))
+            extra = bytes.subdata(in: (fixedLength + nameLength)..<bytes.count)
         }
 
         func renamed(_ name: Data) throws -> Data {
@@ -281,30 +282,32 @@ enum ZipRebuild {
         let name: Data
         let extra: Data
         let comment: Data
-        var byteCount: Int { 46 + name.count + extra.count + comment.count }
+        var byteCount: Int { ZipRecords.FixedLength.central + name.count + extra.count + comment.count }
 
         init(source: ArchiveFileSource, at offset: UInt64, end: UInt64) throws {
-            guard offset <= end, end - offset >= 46 else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
-            fixed = try source.bytes(at: offset, count: 46)
-            guard fixed.zip32(0) == 0x02014B50 else { throw UpdaterError.invalidArchive("CD signature がありません") }
+            let fixedLength = UInt64(ZipRecords.FixedLength.central)
+            guard offset <= end, end - offset >= fixedLength else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
+            fixed = try source.bytes(at: offset, count: Int(fixedLength))
+            guard fixed.zip32(0) == ZipRecords.Signature.central else { throw UpdaterError.invalidArchive("CD signature がありません") }
             let n = Int(fixed.zip16(28)), e = Int(fixed.zip16(30)), c = Int(fixed.zip16(32))
-            guard UInt64(n + e + c) <= end - offset - 46 else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
-            name = try source.bytes(at: offset + 46, count: n)
-            extra = try source.bytes(at: offset + 46 + UInt64(n), count: e)
-            comment = try source.bytes(at: offset + 46 + UInt64(n + e), count: c)
+            guard UInt64(n + e + c) <= end - offset - fixedLength else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
+            name = try source.bytes(at: offset + fixedLength, count: n)
+            extra = try source.bytes(at: offset + fixedLength + UInt64(n), count: e)
+            comment = try source.bytes(at: offset + fixedLength + UInt64(n + e), count: c)
         }
 
         init(bytes: Data, range: Range<Int>? = nil) throws {
+            let fixedLength = ZipRecords.FixedLength.central
             let range = range ?? bytes.startIndex..<bytes.endIndex
             let start = range.lowerBound
-            guard range.count >= 46 else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
-            guard bytes.zip32(start) == 0x02014B50 else { throw UpdaterError.invalidArchive("CD signature がありません") }
+            guard range.count >= fixedLength else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
+            guard bytes.zip32(start) == ZipRecords.Signature.central else { throw UpdaterError.invalidArchive("CD signature がありません") }
             let n = Int(bytes.zip16(start + 28)), e = Int(bytes.zip16(start + 30)), c = Int(bytes.zip16(start + 32))
-            guard n + e + c <= range.count - 46 else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
-            fixed = bytes.subdata(in: start..<(start + 46))
-            name = bytes.subdata(in: (start + 46)..<(start + 46 + n))
-            extra = bytes.subdata(in: (start + 46 + n)..<(start + 46 + n + e))
-            comment = bytes.subdata(in: (start + 46 + n + e)..<(start + 46 + n + e + c))
+            guard n + e + c <= range.count - fixedLength else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
+            fixed = bytes.subdata(in: start..<(start + fixedLength))
+            name = bytes.subdata(in: (start + fixedLength)..<(start + fixedLength + n))
+            extra = bytes.subdata(in: (start + fixedLength + n)..<(start + fixedLength + n + e))
+            comment = bytes.subdata(in: (start + fixedLength + n + e)..<(start + fixedLength + n + e + c))
         }
 
         func rebuilt(offset: UInt64, size: UInt64, compressedSize: UInt64, name newName: Data?,
@@ -314,13 +317,13 @@ enum ZipRebuild {
             if compressedSize >= ZipRecords.limit { zip64.le(compressedSize) }
             if offset >= ZipRecords.limit { zip64.le(offset) }
             var extras = Data()
-            if !zip64.isEmpty || preserveDescriptorMarker { extras.append(ZipRecords.field(1, zip64)) }
+            if !zip64.isEmpty || preserveDescriptorMarker { extras.append(ZipRecords.field(ZipRecords.ExtraID.zip64, zip64)) }
             // central だけの ZIP64 extra で幅が決まる descriptor もある。サイズの sentinel を
             // 不要に残す代わりに空の marker を保ち、KaitoKit が解決した幅を変えない。
             let fields = extraFields(extra)
             var consumed = 0
             for field in fields {
-                if field.id != 1 { extras.append(extra.subdata(in: field.range)) }
+                if field.id != ZipRecords.ExtraID.zip64 { extras.append(extra.subdata(in: field.range)) }
                 consumed = field.range.upperBound
             }
             // KaitoKit が許した末尾 padding も残す。新しい ZIP64 field は必ずその前に置く。
@@ -362,11 +365,11 @@ enum ZipRebuild {
         var consumed = 0
         for field in extraFields(extra) {
             switch field.id {
-            case 0x7075:
+            case ZipRecords.ExtraID.infoZipUnicodePath:
                 // 長さを保って旧名と CRC を消し、同長改名の payload 位置を維持する。
-                result.zipSet(UInt16(0xFFFF), at: field.range.lowerBound)
+                result.zipSet(ZipRecords.ExtraID.reservedPadding, at: field.range.lowerBound)
                 result.resetBytes(in: (field.range.lowerBound + 4)..<field.range.upperBound)
-            case 0x0008, 0x2605, 0x334D, 0x4F4C, 0x554E:
+            case let id where ZipRecords.ExtraID.nameBearing.contains(id):
                 // 名前と他の metadata が混在し得る拡張は、黙って捨てず改名を拒否する。
                 throw UpdaterError.invalidArchive(String(format:
                     "名前を含む ZIP extra field 0x%04X を安全に更新できないため改名できません", field.id))
