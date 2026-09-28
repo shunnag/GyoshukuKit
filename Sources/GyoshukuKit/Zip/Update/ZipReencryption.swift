@@ -24,11 +24,11 @@ final class ZipConversion {
         self.raw = raw
         self.target = target
         guard let size = entry.uncompressedSize,
-              raw.payloadRange.count64 >= raw.encryption.overhead else {
+              raw.payloadRange.byteLength >= raw.encryption.overhead else {
             throw UpdaterError.reencryptionFailed(index: entry.index, name: entry.name, reason: "保存データの長さが不正です")
         }
         self.size = size
-        storedLength = raw.payloadRange.count64 - raw.encryption.overhead
+        storedLength = raw.payloadRange.byteLength - raw.encryption.overhead
         compressedSize = try checkedAdd(storedLength, target.overhead)
         passA = raw.encryption.aesVersion == 2 && target.aesVersion == nil
         v2 = raw.encryption == .zipCrypto || passA || (raw.encryption == .none && target.aesVersion == 2)
@@ -495,9 +495,6 @@ final class ZipReencryption {
     private struct InputPasswordFailure: Error { }
 }
 
-private extension Range where Bound == UInt64 {
-    var count64: UInt64 { upperBound - lowerBound }
-}
 
 extension ZipRawEncryption {
     var aesVersion: UInt16? { if case .winZipAES(_, let version) = self { version } else { nil } }

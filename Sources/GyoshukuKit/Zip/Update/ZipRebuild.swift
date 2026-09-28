@@ -34,7 +34,7 @@ enum ZipRebuild {
         var position: UInt64 = 0
         for (index, record) in directory.records.enumerated() where !removed.contains(index) {
             let raw = record.layout
-            var size = raw.recordRange.upperBound - raw.recordRange.lowerBound
+            var size = raw.recordRange.byteLength
             if let name = renamed[index] {
                 let header = try LocalHeader(source: source, layout: raw)
                 size = try checkedAdd(size - UInt64(header.name.count), UInt64(name.utf8.count))
@@ -81,7 +81,7 @@ enum ZipRebuild {
                 let header = try LocalHeader(source: source, layout: raw)
                 let replacement = try header.renamed(Data(name.utf8))
                 let payload = raw.payloadRange.lowerBound..<raw.recordRange.upperBound
-                position = try checkedAdd(start, checkedAdd(UInt64(replacement.count), payload.upperBound - payload.lowerBound))
+                position = try checkedAdd(start, checkedAdd(UInt64(replacement.count), payload.byteLength))
                 if replacement.count == Int(raw.payloadRange.lowerBound - raw.recordRange.lowerBound),
                    start == raw.recordRange.lowerBound, clean {
                     action = .patchHeader(replacement)
@@ -92,7 +92,7 @@ enum ZipRebuild {
                     patchable = false
                 }
             } else {
-                position = try checkedAdd(start, raw.recordRange.upperBound - raw.recordRange.lowerBound)
+                position = try checkedAdd(start, raw.recordRange.byteLength)
                 if start == raw.recordRange.lowerBound, clean { action = .keep }
                 else {
                     action = .copy(raw.recordRange)
@@ -104,7 +104,7 @@ enum ZipRebuild {
         }
         try Task.checkCancellation()
         let localEnd = position
-        let appendedSize = writtenRange.map { $0.upperBound - $0.lowerBound } ?? 0
+        let appendedSize = writtenRange?.byteLength ?? 0
         let centralOffset = try checkedAdd(position, appendedSize)
         patchable = patchable && localEnd == layout.centralOffset && appended.isEmpty
         var central: [CentralAction] = []
@@ -188,7 +188,7 @@ enum ZipRebuild {
             if reencryption != nil { try Task.checkCancellation() }
             if case .copy(let range) = record.action {
                 if let previous = pending, previous.range.upperBound == range.lowerBound,
-                   previous.offset + (previous.range.upperBound - previous.range.lowerBound) == record.offset {
+                   previous.offset + previous.range.byteLength == record.offset {
                     pending = (previous.range.lowerBound..<range.upperBound, previous.offset)
                 } else {
                     try flushCopy(&engine)

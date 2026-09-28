@@ -9,8 +9,8 @@ enum SplicedSegment {
 
     var length: UInt64 {
         switch self {
-        case .source(let range): range.upperBound - range.lowerBound
-        case .scratch(_, let range): range.upperBound - range.lowerBound
+        case .source(let range): range.byteLength
+        case .scratch(_, let range): range.byteLength
         case .literal(let length, _), .generated(let length, _): length
         }
     }
@@ -77,7 +77,7 @@ fileprivate final class SplicedSegmentWriter {
         position = end
     }
     func copy(_ range: Range<UInt64>, from source: ZipUpdateSource) throws {
-        let end = try checkedAdd(position, range.upperBound - range.lowerBound)
+        let end = try checkedAdd(position, range.byteLength)
         guard end <= limit else { throw TarUpdaterError.outputVerificationFailed(reason: "segment length") }
         try engine.copy(range, from: source, to: position, progress: nil)
         position = end
@@ -246,7 +246,7 @@ final class SplicedArchiveOutput {
             }
             offset += segment.length
         }
-        if relocate, let appended = plan.appended { total += (appended.upperBound - appended.lowerBound) * 2 }
+        if relocate, let appended = plan.appended { total += appended.byteLength * 2 }
         return total
     }
 
@@ -302,7 +302,7 @@ final class SplicedArchiveOutput {
             if isCloneMode || plan.appended == nil || relocate { try execute(plan.prefix, meter: meter) }
             let tail = SplicedSegmentWriter(descriptor: handle!.fileDescriptor, position: prefixEnd, meter: meter)
             if let spool { try tail.copy(0..<spool.length, from: spool.source()) }
-            else if let appended = plan.appended { tail.position += appended.upperBound - appended.lowerBound }
+            else if let appended = plan.appended { tail.position += appended.byteLength }
             try tail.write(plan.terminal)
             try tail.flush()
             guard tail.position == plan.finalLength else { throw TarUpdaterError.outputVerificationFailed(reason: "final length plan") }

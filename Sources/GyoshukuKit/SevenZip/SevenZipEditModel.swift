@@ -34,7 +34,7 @@ struct SevenZipEditModel: Sendable, Equatable {
     struct Pack: Sendable, Equatable {
         var range: Range<UInt64>
         var crc32: UInt32?
-        var length: UInt64 { range.upperBound - range.lowerBound }
+        var length: UInt64 { range.byteLength }
     }
     struct Substream: Sendable, Equatable {
         var folderIndex: Int

@@ -101,7 +101,7 @@ final class CompressedTarSpliceWriter {
                        seconds: ProcessInfo.processInfo.systemUptime - start)
     }
     private func input(_ part: CompressedTarSplicePlan.Part, image: TarImageSource) throws -> Input {
-        let bytes = try TarLayout.bytes(image, at: part.image.lowerBound, count: Int(part.image.spliceLength))
+        let bytes = try TarLayout.bytes(image, at: part.image.lowerBound, count: Int(part.image.byteLength))
         let start = part.image.lowerBound
         let dictionary = format == .tarGzip ? try TarLayout.bytes(image, at: start - min(start, 32768), count: Int(min(start, 32768))) : Data()
         return Input(bytes: bytes, dictionary: dictionary, final: part.image.upperBound == image.length)
@@ -129,7 +129,7 @@ final class CompressedTarSpliceWriter {
         for (index, part) in plan.parts.enumerated() where part.reused == nil {
             try CompressedTarUpdater.testingStage?(.encoding)
             try preflight.waitForCapacity(emit: collect)
-            try preflight.submit(input(part, image: image), tag: index, weight: part.image.spliceLength, emit: collect)
+            try preflight.submit(input(part, image: image), tag: index, weight: part.image.byteLength, emit: collect)
         }
         try preflight.finish(emit: collect)
         var reencoded: UInt64 = 0, old: UInt64 = 0, carried: UInt64 = 0
@@ -137,29 +137,29 @@ final class CompressedTarSpliceWriter {
         for (index, part) in plan.parts.enumerated() {
             if let base = part.reused {
                 let chunk = plan.chunks[base]
-                carried += chunk.compressedRange.spliceLength
+                carried += chunk.compressedRange.byteLength
                 var chunkCRC: UInt32 = 0, header: UInt64 = 0, payload: UInt64 = 0, unpadded: UInt64 = 0
                 if case .gzip(let gzip) = snapshot.chunkMap {
                     let first = gzip.points[base].crc32
                     let last = base + 1 < gzip.points.count ? gzip.points[base + 1].crc32 : gzip.trailerCRC32
-                    chunkCRC = last ^ compressedTarCRCCombine(first, 0, chunk.imageRange.spliceLength)
+                    chunkCRC = last ^ compressedTarCRCCombine(first, 0, chunk.imageRange.byteLength)
                 }
                 if case .xz(let xz) = snapshot.chunkMap {
                     header = xz.blocks[base].headerSize; payload = xz.blocks[base].compressedPayloadSize
                     unpadded = xz.blocks[base].unpaddedSize
                 }
                 metas.append(Metadata(Encoded(bytes: Data(), crc: chunkCRC, headerSize: header,
-                    payloadSize: payload, unpaddedSize: unpadded, seconds: 0), length: chunk.compressedRange.spliceLength))
+                    payloadSize: payload, unpaddedSize: unpadded, seconds: 0), length: chunk.compressedRange.byteLength))
             } else {
-                reencoded += part.image.spliceLength; old += image.oldBytes(in: part.image)
+                reencoded += part.image.byteLength; old += image.oldBytes(in: part.image)
                 metas.append(metadata[index]!)
             }
         }
         var records = Data()
         for (index, part) in plan.parts.enumerated() {
-            crc = compressedTarCRCCombine(crc, metas[index].crc, part.image.spliceLength)
+            crc = compressedTarCRCCombine(crc, metas[index].crc, part.image.byteLength)
             if format == .tarXZ {
-                records.append(XZFraming.vli(metas[index].unpaddedSize)); records.append(XZFraming.vli(part.image.spliceLength))
+                records.append(XZFraming.vli(metas[index].unpaddedSize)); records.append(XZFraming.vli(part.image.byteLength))
             }
         }
         if format == .tarGzip { expectedTail = Self.gzipTrailer(crc: crc, imageLength: image.length) }
@@ -189,8 +189,8 @@ final class CompressedTarSpliceWriter {
                 let chunk = plan.chunks[base], time = ProcessInfo.processInfo.systemUptime
                 try engine.copy(chunk.compressedRange, from: self.snapshot.archive, to: cursor, compressedCRC32: chunk.compressedCRC32)
                 self.copyingSeconds += ProcessInfo.processInfo.systemUptime - time
-                cursor += chunk.compressedRange.spliceLength
-                try meter.advance(chunk.compressedRange.spliceLength)
+                cursor += chunk.compressedRange.byteLength
+                try meter.advance(chunk.compressedRange.byteLength)
                 self.appendSegment(.reused(output: start..<cursor, base: chunk.compressedRange))
                 self.carriedCount += 1
             } else {
@@ -201,7 +201,7 @@ final class CompressedTarSpliceWriter {
                 }
                 try engine.append(encoded.bytes, at: cursor, progress: nil)
                 cursor += UInt64(encoded.bytes.count)
-                try meter.advance(part.image.spliceLength)
+                try meter.advance(part.image.byteLength)
                 self.appendSegment(.encoded(output: start..<cursor))
                 self.encodedCount += 1
             }
@@ -211,7 +211,7 @@ final class CompressedTarSpliceWriter {
             try Task.checkCancellation()
             try pipeline.waitForCapacity(emit: emit)
             let block = part.reused != nil || cache[index] != nil ? nil : try input(part, image: image)
-            try pipeline.submit(block, tag: index, weight: block == nil ? 0 : part.image.spliceLength, emit: emit)
+            try pipeline.submit(block, tag: index, weight: block == nil ? 0 : part.image.byteLength, emit: emit)
         }
         try pipeline.finish(emit: emit)
         payloadEnd = cursor
@@ -220,7 +220,7 @@ final class CompressedTarSpliceWriter {
             var changed = Data()
             for (index, part) in parts.enumerated() {
                 changed.append(XZFraming.vli(part.meta.unpaddedSize))
-                changed.append(XZFraming.vli(part.image.spliceLength + (CompressedTarUpdater.testingFault == .xzIndexLength && index == 0 ? 512 : 0)))
+                changed.append(XZFraming.vli(part.image.byteLength + (CompressedTarUpdater.testingFault == .xzIndexLength && index == 0 ? 512 : 0)))
             }
             tail = Data()
             try XZFraming.emitIndexAndFooter(records: changed, blockCount: UInt64(parts.count)) { tail.append($0) }
@@ -298,7 +298,7 @@ final class CompressedTarSpliceWriter {
         segments = [.reused(output: range, base: range)]
         carriedCount = chunks.count
         try handle!.synchronize()
-        return try finish(strategy: .unchanged, reencoded: 0, old: 0, carried: range.spliceLength, meter: meter)
+        return try finish(strategy: .unchanged, reencoded: 0, old: 0, carried: range.byteLength, meter: meter)
     }
 
     private func unchangedPayload(_ chunks: [CompressedTarChunk]) throws -> Range<UInt64> {
@@ -338,7 +338,7 @@ final class CompressedTarSpliceWriter {
         // gzip の途中の bit は未使用の符号や padding に当たり、復号結果を変えないことがある。
         // encoded の注入は先頭 block の予約済み BTYPE=3 にし、V1 の拒否を確実に検証する。
         let invalidDeflate = format == .tarGzip && !reused
-        let offset = part.output.lowerBound + (invalidDeflate ? 0 : part.output.spliceLength / 2)
+        let offset = part.output.lowerBound + (invalidDeflate ? 0 : part.output.byteLength / 2)
         var byte = try SplicedArchiveOutput.read(handle!.fileDescriptor, at: offset, count: 1)
         if invalidDeflate { byte[0] = (byte[0] & ~UInt8(6)) | 6 }
         else { byte[0] ^= 1 }

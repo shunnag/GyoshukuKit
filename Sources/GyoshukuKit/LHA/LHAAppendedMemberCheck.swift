@@ -51,7 +51,7 @@ enum LHAAppendedMemberCheck {
     private struct AppendedView: ByteSource {
         let source: ZipUpdateSource
         let range: Range<UInt64>
-        var length: UInt64 { range.upperBound - range.lowerBound + 1 }
+        var length: UInt64 { range.byteLength + 1 }
         func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
             guard offset < length, !buffer.isEmpty else { return 0 }
             if offset == length - 1 { buffer[0] = 0; return 1 }

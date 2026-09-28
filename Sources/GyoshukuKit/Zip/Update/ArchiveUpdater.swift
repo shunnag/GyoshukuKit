@@ -330,7 +330,7 @@ public final class ArchiveUpdater: ArchiveEditing {
                     lastCommitStrategy = .stagedRebuild
                 } else if appended != nil { lastCommitStrategy = .rebuildThenAppend }
                 else { lastCommitStrategy = plan.inPlace ? .inPlacePatch : .rebuild }
-                let movedBytes = stagedSource == nil ? 0 : written!.upperBound - written!.lowerBound
+                let movedBytes = stagedSource == nil ? 0 : written!.byteLength
                 let total = try checkedAdd(checkedAdd(plan.totalBytes, movedBytes), reencryption?.work ?? 0)
                 try Task.checkCancellation()
                 try progress?(.init(completedBytes: 0, totalBytes: total))
@@ -345,7 +345,7 @@ public final class ArchiveUpdater: ArchiveEditing {
                     }
                     try ZipAppendedRecordCheck.check(descriptor: outputHandle!.fileDescriptor, entries: appended.entries,
                         start: plan.end, recordBase: layout.centralOffset,
-                        blockLength: written.upperBound - written.lowerBound, centralOffset: plan.centralOffset)
+                        blockLength: written.byteLength, centralOffset: plan.centralOffset)
                 }
                 try Task.checkCancellation()
                 if !plan.inPlace { try outputHandle!.truncate(atOffset: plan.finalEnd) }

@@ -23,7 +23,7 @@ final class XZPackingLayoutTests: XCTestCase {
             try writer.finish()
             let reader = try CompressedTarTestSupport.open(url)
             let map = try XCTUnwrap(reader.tarEditingSnapshot()?.chunkMap)
-            let lengths = map.chunks.map { Int($0.imageRange.spliceLength) }
+            let lengths = map.chunks.map { Int($0.imageRange.byteLength) }
             XCTAssertEqual(Array(lengths.dropLast()), expected, name)
             XCTAssertEqual(lengths, try TarChunkLayoutTestSupport.expectedLengths(url, format: .tarXZ,
                 limits: .init(packing: packing, piece: piece)))

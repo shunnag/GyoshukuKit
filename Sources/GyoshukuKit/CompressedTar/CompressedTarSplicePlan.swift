@@ -33,7 +33,7 @@ struct CompressedTarSplicePlan {
         var selected: [Part] = []
         if !force, reason == nil {
             for span in image.spans where span.isOld {
-                let oldEnd = span.offset + span.range.spliceLength
+                let oldEnd = span.offset + span.range.byteLength
                 var low = 0, high = chunks.count
                 while low < high {
                     let middle = (low + high) / 2
@@ -47,7 +47,7 @@ struct CompressedTarSplicePlan {
                     // 変更後の終端は必ず literal。旧 gzip の BFINAL は運ばない。
                     if format == .tarGzip, index == chunks.count - 1 { continue }
                     let start = span.range.lowerBound + chunk.imageRange.lowerBound - span.offset
-                    selected.append(Part(image: start..<(start + chunk.imageRange.spliceLength), reused: index))
+                    selected.append(Part(image: start..<(start + chunk.imageRange.byteLength), reused: index))
                 }
             }
         }
@@ -58,7 +58,7 @@ struct CompressedTarSplicePlan {
             while end < selected.count, selected[end - 1].image.upperBound == selected[end].image.lowerBound { end += 1 }
             let left = selected[start].image.lowerBound > 0
             let right = selected[end - 1].image.upperBound < image.length
-            let small: (Int) -> Bool = { selected[$0].image.spliceLength < UInt64(limits.packing / 16) }
+            let small: (Int) -> Bool = { selected[$0].image.byteLength < UInt64(limits.packing / 16) }
             if left && right && (start..<end).allSatisfy(small) { absorbed.formUnion(start..<end) }
             else {
                 if left && small(start) { absorbed.insert(start) }
@@ -115,8 +115,4 @@ struct CompressedTarSplicePlan {
         cut()
         return result
     }
-}
-
-extension Range where Bound == UInt64 {
-    var spliceLength: UInt64 { upperBound - lowerBound }
 }

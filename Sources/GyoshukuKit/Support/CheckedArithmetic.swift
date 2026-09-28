@@ -6,3 +6,8 @@ func checkedAdd(_ lhs: UInt64, _ rhs: UInt64) throws -> UInt64 {
     guard !result.overflow else { throw WriterError.sizeOverflow }
     return result.partialValue
 }
+
+extension Range where Bound == UInt64 {
+    /// byte 範囲の長さ。Range.count は Int なので Int.max を超える範囲で trap する。UInt64 のまま返す。
+    var byteLength: UInt64 { upperBound - lowerBound }
+}

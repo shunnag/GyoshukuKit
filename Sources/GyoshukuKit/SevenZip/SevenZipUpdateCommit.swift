@@ -187,7 +187,7 @@ extension SevenZipUpdater {
         let assembly = try plan.assemble(original: model, filesByFolder: filesByFolder, replacements: predicted, additions: additions)
         let h = UInt64(try SevenZipHeaderSerializer.header(assembly.model).count) + UInt64(plan.works.count) * 18 + 17 * 9
         let headerBound = try checkedAdd(h, h / 32 + 512)
-        let additionsLength = appended.map { $0.upperBound - $0.lowerBound } ?? 0
+        let additionsLength = appended?.byteLength ?? 0
         let additionalVerification = additions.reduce(UInt64(0)) { $0 + $1.record.size }
         return try [input, copy, carried, verification, additionalVerification, additionsLength * 2, headerBound * 2, 64]
             .reduce(UInt64(0)) { try checkedAdd($0, $1) }
@@ -206,7 +206,7 @@ extension SevenZipUpdater {
         if plan.unchanged { return try unchangedCommit(progress: callbackForUnchanged(progress)) }
         let end = additions.last?.packRange.upperBound ?? appendStart
         let appended = appendStart.flatMap { start in end.map { start..<$0 } }
-        stats.appendedPackBytes = appended.map { $0.upperBound - $0.lowerBound } ?? 0
+        stats.appendedPackBytes = appended?.byteLength ?? 0
         stats.planSeconds = ProcessInfo.processInfo.systemUptime - started
         let verificationStarted = ProcessInfo.processInfo.systemUptime
         try prepareConversions(plan)

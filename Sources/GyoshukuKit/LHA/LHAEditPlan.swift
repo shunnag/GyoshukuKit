@@ -54,7 +54,7 @@ struct LHAEditPlan {
             } else {
                 try append(.source(member.headerRange.lowerBound..<member.dataRange.upperBound),
                            boundary: Boundary(source: member.headerRange.lowerBound, output: position,
-                                              length: member.headerRange.upperBound - member.headerRange.lowerBound))
+                                              length: member.headerRange.byteLength))
             }
         }
         let isChanged = existingChanged || additionLength > 0

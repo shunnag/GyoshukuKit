@@ -14,7 +14,7 @@ final class CompressedTarPackingEditTests: XCTestCase {
         let packed = try XCTUnwrap(reader.entries.first { $0.name == "before-6" })
         let snapshot = try XCTUnwrap(reader.tarEditingSnapshot())
         let chunks = try XCTUnwrap(snapshot.chunkMap).chunks
-        let body = try XCTUnwrap(chunks.first { $0.imageRange.spliceLength > UInt64(limits.packing) })
+        let body = try XCTUnwrap(chunks.first { $0.imageRange.byteLength > UInt64(limits.packing) })
         let renamed = try CompressedTarTestSupport.edit(source, format: .tarXZ, output: root.appendingPathComponent("rename.tar.xz")) {
             try $0.rename(entryAt: medium.index, to: "renamed-medium")
         }
@@ -70,7 +70,7 @@ final class CompressedTarPackingEditTests: XCTestCase {
         guard case .fullEncode = result.strategy else { return XCTFail("expected fullEncode: \(result.strategy)") }
         let map = try XCTUnwrap(CompressedTarTestSupport.open(output).tarEditingSnapshot()?.chunkMap)
         let padded = UInt64((size + 511) / 512 * 512)
-        XCTAssertEqual(map.chunks.dropLast().map { $0.imageRange.spliceLength }, [512, 512, padded, 512, padded, 512, padded])
+        XCTAssertEqual(map.chunks.dropLast().map { $0.imageRange.byteLength }, [512, 512, padded, 512, padded, 512, padded])
         try verifyBridges(output, result: result)
     }
 
@@ -96,7 +96,7 @@ final class CompressedTarPackingEditTests: XCTestCase {
                 (max(start, $0.groupStart) - start, min(end, max(start, $0.dataStart)) - start, min(end, $0.end) - start)
             }
             let expected = TarChunkLayoutTestSupport.ranges(members: clipped, total: end - start, limits: limits)
-            XCTAssertEqual(chunks.map { Int($0.imageRange.spliceLength) }, expected.map(\.count))
+            XCTAssertEqual(chunks.map { Int($0.imageRange.byteLength) }, expected.map(\.count))
         }
     }
 }

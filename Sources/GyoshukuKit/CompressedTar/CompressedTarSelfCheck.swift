@@ -32,7 +32,7 @@ enum CompressedTarSelfCheck {
         let pipeline = OrderedChunkPipeline<Input, UInt64, Void>(threads: writer.options.resolvedCompressionThreads) { input in
             do {
                 let part = input.part
-                let expected = try TarLayout.bytes(image, at: part.image.lowerBound, count: Int(part.image.spliceLength))
+                let expected = try TarLayout.bytes(image, at: part.image.lowerBound, count: Int(part.image.byteLength))
                 let decoded: Data
                 switch format {
                 case .tarGzip:
@@ -43,7 +43,7 @@ enum CompressedTarSelfCheck {
                 case .tarBzip2: decoded = try bzip2(input.compressed, count: expected.count)
                 case .tarXZ:
                     var wrapped = XZFraming.streamHeader + input.compressed
-                    let record = XZFraming.vli(part.meta.unpaddedSize) + XZFraming.vli(part.image.spliceLength)
+                    let record = XZFraming.vli(part.meta.unpaddedSize) + XZFraming.vli(part.image.byteLength)
                     try XZFraming.emitIndexAndFooter(records: record, blockCount: 1) { wrapped.append($0) }
                     decoded = try xz(wrapped, count: expected.count)
                     guard input.compressed.zip32(input.compressed.count - 4) == updateCRC(0, expected) else { throw failure("V1 xz check") }
@@ -60,7 +60,7 @@ enum CompressedTarSelfCheck {
         for part in writer.parts where part.baseIndex == nil {
             try Task.checkCancellation()
             try pipeline.waitForCapacity(emit: emit)
-            let bytes = try SplicedArchiveOutput.read(descriptor, at: part.output.lowerBound, count: Int(part.output.spliceLength), counted: true)
+            let bytes = try SplicedArchiveOutput.read(descriptor, at: part.output.lowerBound, count: Int(part.output.byteLength), counted: true)
             try pipeline.submit(Input(compressed: bytes, part: part), tag: (), emit: emit)
         }
         try pipeline.finish(emit: emit)
@@ -75,8 +75,8 @@ enum CompressedTarSelfCheck {
                   try read(writer.payloadEnd, 8) == writer.expectedTail else { throw failure("V2 gzip framing") }
         } else if format == .tarBzip2 {
             for part in writer.parts {
-                let head = try read(part.output.lowerBound, Int(min(10, part.output.spliceLength)))
-                let tail = try read(part.output.upperBound - min(11, part.output.spliceLength), Int(min(11, part.output.spliceLength)))
+                let head = try read(part.output.lowerBound, Int(min(10, part.output.byteLength)))
+                let tail = try read(part.output.upperBound - min(11, part.output.byteLength), Int(min(11, part.output.byteLength)))
                 guard head.count == 10, head.prefix(3) == Data("BZh".utf8), (49...57).contains(head[3]),
                       [Data([0x31,0x41,0x59,0x26,0x53,0x59]), Data([0x17,0x72,0x45,0x38,0x50,0x90])].contains(Data(head.suffix(6))),
                       hasBzip2End(tail) else { throw failure("V2 bzip2 framing") }
@@ -87,7 +87,7 @@ enum CompressedTarSelfCheck {
                   writer.finalLength % 4 == 0 else { throw failure("V2 xz stream framing") }
             for part in writer.parts {
                 let header = try read(part.output.lowerBound, Int(part.meta.headerSize))
-                try xzHeader(header, meta: part.meta, imageLength: part.image.spliceLength)
+                try xzHeader(header, meta: part.meta, imageLength: part.image.byteLength)
                 let padding = Int((4 - part.meta.payloadSize % 4) % 4)
                 let tail = try read(part.output.lowerBound + part.meta.headerSize + part.meta.payloadSize, padding + 4)
                 guard tail.prefix(padding).allSatisfy({ $0 == 0 }) else { throw failure("V2 xz padding") }
@@ -103,7 +103,7 @@ enum CompressedTarSelfCheck {
         var position: UInt64 = 0, compressed: UInt64 = writer.format == .tarGzip ? 10 : writer.format == .tarXZ ? 12 : 0
         for part in writer.parts {
             guard part.image.lowerBound == position, part.output.lowerBound == compressed,
-                  part.output.spliceLength == part.meta.length else { throw failure("V0 coverage") }
+                  part.output.byteLength == part.meta.length else { throw failure("V0 coverage") }
             if let index = part.baseIndex {
                 guard plan.chunks.indices.contains(index) else { throw failure("V0 base index") }
                 let chunk = plan.chunks[index]
@@ -111,7 +111,7 @@ enum CompressedTarSelfCheck {
                 let spanIndex = image.spanIndex(at: part.image.lowerBound)
                 guard spanIndex < image.spans.count else { throw failure("V0 source span") }
                 let span = image.spans[spanIndex]
-                guard part.image.spliceLength == chunk.imageRange.spliceLength, part.output.spliceLength == chunk.compressedRange.spliceLength,
+                guard part.image.byteLength == chunk.imageRange.byteLength, part.output.byteLength == chunk.compressedRange.byteLength,
                       writer.format != .tarGzip || index != plan.chunks.count - 1,
                           span.isOld && part.image.lowerBound >= span.range.lowerBound && part.image.upperBound <= span.range.upperBound
                           && part.image.lowerBound - span.range.lowerBound >= window

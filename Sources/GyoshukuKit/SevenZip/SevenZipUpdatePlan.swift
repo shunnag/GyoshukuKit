@@ -107,7 +107,7 @@ struct SevenZipUpdatePlan {
                 let folder = Model.Folder(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)],
                     packedInputs: [0], unpackSizes: aes == nil ? [record.size] : [record.compressedSize, record.size],
                     finalOutput: aes == nil ? 0 : 1, packIndices: 0..<1, substreamIndices: 0..<1)
-                guard appended.packRange.upperBound - appended.packRange.lowerBound == record.packedSize else {
+                guard appended.packRange.byteLength == record.packedSize else {
                     throw failure("V0 appended pack")
                 }
                 try Self.append(.init(folder: folder, packs: [.init(range: 0..<record.packedSize)],

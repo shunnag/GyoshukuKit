@@ -156,7 +156,7 @@ public final class LHAUpdater: ArchiveEditing {
                 renamedHeaders[index] = try LHARecords.Entry(name: name, mode: ArchiveRewriter.mode(for: entry),
                     size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? Date())
                     .header(method: directory ? "-lhd-" : member.method,
-                            packedSize: directory ? 0 : UInt32(member.dataRange.upperBound - member.dataRange.lowerBound),
+                            packedSize: directory ? 0 : UInt32(member.dataRange.byteLength),
                             crc: directory ? 0 : member.crc16)
             }
             writerPathsNeedRefresh = true
@@ -175,7 +175,7 @@ public final class LHAUpdater: ArchiveEditing {
             let records = lhaWriter?.memberRecords ?? []
             writer = nil; lhaWriter = nil
             let appended = appendedEnd.map { appendStart!..<$0 }
-            let additionLength = appended.map { $0.upperBound - $0.lowerBound } ?? 0
+            let additionLength = appended?.byteLength ?? 0
             let plan = try makePlan(additionLength: additionLength)
             let prefix = plan.isChanged ? plan.prefix : [.source(0..<snapshot.source.length)]
             let finalLength = plan.isChanged ? try checkedAdd(plan.membersEnd, checkedAdd(additionLength, 1)) : snapshot.source.length
@@ -263,12 +263,12 @@ public final class LHAUpdater: ArchiveEditing {
                 let actual = try SplicedArchiveOutput.read(descriptor, at: change.outputOffset, count: change.header.count)
                 guard actual == change.header, actual.first != 0 else { throw failure("V1 header") }
                 let original = try layout.member(change.index)
-                let payloadLength = original.dataRange.upperBound - original.dataRange.lowerBound
+                let payloadLength = original.dataRange.byteLength
                 let end = change.outputOffset + UInt64(change.header.count) + payloadLength
                 let walked = try LHALayout.walk(source: source, range: change.outputOffset..<end) { index, header in
                     guard index == 0, header.member.headerLevel == 2, header.member.method == original.method,
                           header.member.crc16 == (original.method == "-lhd-" ? 0 : original.crc16),
-                          header.member.dataRange.upperBound - header.member.dataRange.lowerBound == payloadLength else {
+                          header.member.dataRange.byteLength == payloadLength else {
                         throw self.failure("V1 parsed header")
                     }
                 }

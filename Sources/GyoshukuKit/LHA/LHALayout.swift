@@ -66,7 +66,7 @@ struct LHALayout {
                 return "L7: directory with data"
             }
             if member.method == "-lh7-", member.osID == 0x20 { return "L8: LHArk" }
-            if member.dataRange.upperBound - member.dataRange.lowerBound > UInt32.max { return "L9: packed size" }
+            if member.dataRange.byteLength > UInt32.max { return "L9: packed size" }
         }
         return nil
     }

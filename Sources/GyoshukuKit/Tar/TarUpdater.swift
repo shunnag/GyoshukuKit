@@ -158,10 +158,10 @@ public final class TarUpdater: ArchiveEditing {
             let appendedEnd = try writer?.endTarMembers()
             writer = nil
             let appended = appendedEnd.map { appendStart!..<$0 }
-            let plan = try makePlan(additionLength: appended.map { $0.upperBound - $0.lowerBound } ?? 0)
+            let plan = try makePlan(additionLength: appended?.byteLength ?? 0)
             let prefix: [SplicedSegment] = plan.isChanged ? plan.prefix : [.source(0..<snapshot.source.length)]
             let finalLength = plan.isChanged ? try checkedAdd(plan.membersEnd,
-                checkedAdd(appended.map { $0.upperBound - $0.lowerBound } ?? 0, UInt64(plan.terminal.count))) : snapshot.source.length
+                checkedAdd(appended?.byteLength ?? 0, UInt64(plan.terminal.count))) : snapshot.source.length
             let outputPlan = SplicedCommitPlan(prefix: prefix, appended: appended, terminal: plan.terminal,
                 finalLength: finalLength, formatVerificationUnits: UInt64(plan.boundaries.count) * 1024)
             let meter = CommitProgressMeter(total: destination.units(for: outputPlan), progress: { update in
@@ -174,7 +174,7 @@ public final class TarUpdater: ArchiveEditing {
             let strategy = try SplicedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
                 try destination.commit(outputPlan, meter: meter) { fd, advance in
                     try self.verify(plan: plan, appendedPaths: appendedPaths,
-                                    additionLength: appended.map { $0.upperBound - $0.lowerBound } ?? 0,
+                                    additionLength: appended?.byteLength ?? 0,
                                     finalLength: finalLength, descriptor: fd, advance: advance)
                 }
             }
