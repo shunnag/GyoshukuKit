@@ -135,7 +135,7 @@ final class ArchiveSourceSnapshot {
     func cleanup() { snapshot?.remove() }
 
     static func validateOutput(_ output: URL) throws {
-        guard output.isFileURL, !output.path.contains("\0") else { throw WriterError.invalidPath(output.absoluteString) }
+        try FileRead.validateFileURL(output)
         var info = stat()
         guard stat(output.deletingLastPathComponent().path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
               lstat(output.path, &info) != 0, errno == ENOENT else { throw WriterError.invalidPath(output.path) }

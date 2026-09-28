@@ -28,11 +28,8 @@ struct ZipAppendedRecordView: ByteSource {
         guard offset < length, !buffer.isEmpty else { return 0 }
         if offset < blockLength {
             let count = Int(min(UInt64(buffer.count), blockLength - offset))
-            while true {
-                let result = pread(descriptor, buffer.baseAddress!, count, off_t(base + offset))
-                if result >= 0 { return result }
-                if errno != EINTR { throw WriterError.io(operation: "pread appended", code: errno) }
-            }
+            return try FileRead.pread(descriptor, into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]),
+                                      at: base + offset, operation: "pread appended")
         }
         let cursor = Int(offset - blockLength)
         let count = min(buffer.count, trailer.count - cursor)
@@ -88,15 +85,8 @@ enum ZipAppendedRecordCheck {
     static func read(_ descriptor: Int32, at offset: UInt64, count: Int) throws -> Data {
         var bytes = Data(count: count)
         try bytes.withUnsafeMutableBytes { buffer in
-            var filled = 0
-            while filled < count {
-                let actual = pread(descriptor, buffer.baseAddress!.advanced(by: filled), count - filled, off_t(offset + UInt64(filled)))
-                if actual < 0 {
-                    if errno == EINTR { continue }
-                    throw WriterError.io(operation: "pread appended", code: errno)
-                }
-                guard actual > 0 else { throw UpdaterError.invalidArchive("追加 record が途中で終わっています") }
-                filled += actual
+            try FileRead.preadExactly(descriptor, into: buffer, at: offset, operation: "pread appended") {
+                UpdaterError.invalidArchive("追加 record が途中で終わっています")
             }
         }
         return bytes

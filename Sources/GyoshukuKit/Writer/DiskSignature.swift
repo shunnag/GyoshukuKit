@@ -14,7 +14,7 @@ struct DiskSignature: Sendable {
     }
 
     static func capture(_ url: URL) throws -> DiskSignature {
-        guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+        try FileRead.validateFileURL(url)
         var info = stat()
         guard lstat(url.path, &info) == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
         let signature = DiskSignature(info)

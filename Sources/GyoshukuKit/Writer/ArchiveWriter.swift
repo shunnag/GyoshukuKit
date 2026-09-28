@@ -112,7 +112,7 @@ public final class ArchiveWriter {
         lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode,
         lh5Encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode
     ) throws -> ArchiveWriter {
-        guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+        try FileRead.validateFileURL(url)
         try options.validate(for: format)
         try Task.checkCancellation()
         let compressor: (any TarCompressor)?
@@ -428,7 +428,7 @@ public final class ArchiveWriter {
                          meter suppliedMeter: CommitProgressMeter? = nil, sourceFailure: ((URL) -> Void)? = nil, read: (FileHandle, Int) throws -> Data) throws {
         do {
             try Task.checkCancellation()
-            guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+            try FileRead.validateFileURL(url)
             var info = stat()
             let status = url.withUnsafeFileSystemRepresentation { pointer in
                 pointer.map { lstat($0, &info) } ?? -1
@@ -534,7 +534,7 @@ public final class ArchiveWriter {
     // open はせず、追加と同じ名前順で lstat する。symlink の target は数えない。
     static func inputByteCount(_ url: URL) throws -> UInt64 {
         var info = stat()
-        guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+        try FileRead.validateFileURL(url)
         guard lstat(url.path, &info) == 0 else { throw WriterError.io(operation: "lstat", code: errno) }
         return try inputByteCount(url, info: info)
     }
@@ -969,7 +969,7 @@ extension ArchiveWriter {
                                     date = explicitDate ?? Date(); atime = nil; mode = FileMode.defaultDirectory; size = 0
                                     owners = addition.ownerIDs.map { ($0.user, $0.group) }
                                 case let .contents(url):
-                                    guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+                                    try FileRead.validateFileURL(url)
                                     cPath = url.withUnsafeFileSystemRepresentation { pointer in
                                         pointer.map { Array(UnsafeBufferPointer(start: $0, count: strlen($0) + 1)) } ?? []
                                     }

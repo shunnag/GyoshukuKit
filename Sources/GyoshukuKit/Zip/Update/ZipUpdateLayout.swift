@@ -12,7 +12,7 @@ final class ZipUpdateSource: ByteSource {
     let flags: UInt32
 
     init(url: URL) throws {
-        guard url.isFileURL, !url.path.contains("\0") else { throw WriterError.invalidPath(url.absoluteString) }
+        try FileRead.validateFileURL(url)
         let fd = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else { throw WriterError.io(operation: "open archive", code: errno) }
         var info = stat()
@@ -52,14 +52,10 @@ final class ZipUpdateSource: ByteSource {
     func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
         guard offset < length, !buffer.isEmpty else { return 0 }
         let count = Int(min(UInt64(buffer.count), length - offset))
-        while true {
-            let actual = pread(descriptor, buffer.baseAddress!, count, off_t(offset))
-            if actual >= 0 {
-                Self.readObserver?(descriptor, offset, actual)
-                return actual
-            }
-            if errno != EINTR { throw WriterError.io(operation: "pread archive", code: errno) }
-        }
+        let actual = try FileRead.pread(descriptor, into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]),
+                                        at: offset, operation: "pread archive")
+        Self.readObserver?(descriptor, offset, actual)
+        return actual
     }
 
     func bytes(at offset: UInt64, count: Int) throws -> Data {
