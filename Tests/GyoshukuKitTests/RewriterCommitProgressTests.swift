@@ -17,7 +17,7 @@ final class RewriterCommitProgressTests: XCTestCase {
                 _ = try S.file(tree.appendingPathComponent("child"), "file", size: 1_027)
                 var expected: Data?, expectedCarry: [Int]?
                 for observed in [false, true] {
-                    let output = root.appendingPathComponent("\(observed)." + TarP2Support.suffix(format))
+                    let output = root.appendingPathComponent("\(observed)." + format.testFileExtension)
                     var options = S.options
                     options.additionPlacement = placement
                     let editor = try ArchiveRewriter.open(url: source, output: output, format: format, options: options)

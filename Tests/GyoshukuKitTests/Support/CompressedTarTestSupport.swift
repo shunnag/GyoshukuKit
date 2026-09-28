@@ -38,7 +38,7 @@ enum CompressedTarTestSupport {
         let path = "cafe\u{301}/" + String(repeating: "n", count: 120)
         try writer.add(data: Data([99]), as: path, modificationDate: TestSupport.date)
         try writer.finish()
-        let output = root.appendingPathComponent("source." + TarP2Support.suffix(format))
+        let output = root.appendingPathComponent("source." + format.testFileExtension)
         try compress(raw, to: output, format: format, aligned: aligned)
         return output
     }

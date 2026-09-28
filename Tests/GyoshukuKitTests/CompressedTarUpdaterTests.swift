@@ -11,7 +11,7 @@ final class CompressedTarUpdaterTests: XCTestCase {
             let root = try TestSupport.directory("p3-ops-\(format)")
             let source = try CompressedTarTestSupport.fixture(root, format)
             for operation in ["unchanged", "delete-first", "delete-last", "rename-same", "rename-long", "append", "replace", "all"] {
-                let output = root.appendingPathComponent(operation + "." + TarP2Support.suffix(format))
+                let output = root.appendingPathComponent(operation + "." + format.testFileExtension)
                 let result = try CompressedTarTestSupport.edit(source, format: format, output: output) { editor in
                     switch operation {
                     case "delete-first": try editor.remove(entriesAt: [0])

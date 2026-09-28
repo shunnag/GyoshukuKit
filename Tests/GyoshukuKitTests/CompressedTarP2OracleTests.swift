@@ -27,7 +27,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
         try bytes.write(to: raw)
         for format in CompressedTarTestSupport.formats {
             for aligned in [false, true] {
-                let source = root.appendingPathComponent("\(format)-\(aligned)." + TarP2Support.suffix(format))
+                let source = root.appendingPathComponent("\(format)-\(aligned)." + format.testFileExtension)
                 try CompressedTarTestSupport.compress(raw, to: source, format: format, aligned: aligned)
                 for force in [false, true] {
                     _ = try CompressedTarTestSupport.edit(source, format: format, output: root.appendingPathComponent("out-\(format)-\(aligned)-\(force)"), force: force) {
@@ -47,7 +47,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
             let writer = try ArchiveWriter.create(url: raw, format: .tar)
             try writer.add(data: Data(repeating: 55, count: size), as: "file", modificationDate: TestSupport.date)
             try writer.finish()
-            let source = root.appendingPathComponent("source." + TarP2Support.suffix(format))
+            let source = root.appendingPathComponent("source." + format.testFileExtension)
             try CompressedTarTestSupport.compress(raw, to: source, format: format, aligned: false)
             let output = root.appendingPathComponent("out")
             _ = try CompressedTarTestSupport.edit(source, format: format, output: output) { try $0.rename(entryAt: 0, to: "name") }
@@ -74,7 +74,7 @@ final class CompressedTarP2OracleTests: XCTestCase {
                                                        "-C", files.path, "one", "two", "._two"], in: root, log: "bsd")
             } else { try TestSupport.run(ReferenceTool.python3, ["-c", script, raw.path, variant], in: root, log: variant) }
             for format in CompressedTarTestSupport.formats {
-                let source = root.appendingPathComponent("\(variant)." + TarP2Support.suffix(format))
+                let source = root.appendingPathComponent("\(variant)." + format.testFileExtension)
                 try CompressedTarTestSupport.compress(raw, to: source, format: format, aligned: false)
                 _ = try CompressedTarTestSupport.edit(source, format: format, output: root.appendingPathComponent("out-\(variant)-\(format)")) {
                     try $0.remove(entriesAt: [0]); try $0.rename(entryAt: 1, to: String(repeating: "a", count: 180))

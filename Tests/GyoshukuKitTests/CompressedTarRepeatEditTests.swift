@@ -28,7 +28,7 @@ final class CompressedTarRepeatEditTests: XCTestCase {
                         try editor.add(data: Data([UInt8(step)]), as: oldName, modificationDate: TestSupport.date, permissions: nil)
                     }
                 }
-                let output = root.appendingPathComponent("step-\(step)." + TarP2Support.suffix(format))
+                let output = root.appendingPathComponent("step-\(step)." + format.testFileExtension)
                 let plainOutput = root.appendingPathComponent("step-\(step).tar")
                 let plain = try TarUpdater.open(url: plainURL, output: plainOutput)
                 try mutate(plain); try plain.commit()
@@ -41,7 +41,7 @@ final class CompressedTarRepeatEditTests: XCTestCase {
                 largestSmallCount = max(largestSmallCount, small)
                 XCTAssertLessThanOrEqual(small, 8, "\(format) step \(step)")
                 if step == 49 {
-                    let encoded = root.appendingPathComponent("full." + TarP2Support.suffix(format))
+                    let encoded = root.appendingPathComponent("full." + format.testFileExtension)
                     let full = try CompressedTarUpdater.open(reader: session.reopen(), output: encoded, format: format)
                     try mutate(full)
                     let forced = try CompressedTarUpdater.$testingForcesFullEncode.withValue(true) { try full.commit(progress: nil) }

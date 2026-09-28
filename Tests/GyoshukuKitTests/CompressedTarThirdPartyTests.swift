@@ -29,13 +29,13 @@ final class CompressedTarThirdPartyTests: XCTestCase {
         """
         for kind in ["gzip", "bsdtar", "bzip2", "xz", "xz-blocks", "bz-streams", "sync", "gzip-members", "xz-padding"] {
             let format: GyoshukuKit.ArchiveFormat = kind.hasPrefix("xz") ? .tarXZ : kind.hasPrefix("bz") ? .tarBzip2 : .tarGzip
-            let source = root.appendingPathComponent(kind + "." + TarP2Support.suffix(format))
+            let source = root.appendingPathComponent(kind + "." + format.testFileExtension)
             try TestSupport.run(ReferenceTool.python3, ["-c", script, raw.path, source.path, kind], in: root, log: "make-\(kind)")
-            let unchanged = root.appendingPathComponent("unchanged-\(kind)." + TarP2Support.suffix(format))
+            let unchanged = root.appendingPathComponent("unchanged-\(kind)." + format.testFileExtension)
             let copied = try CompressedTarTestSupport.edit(source, format: format, output: unchanged) { _ in }
             XCTAssertEqual(copied.strategy, .unchanged)
             XCTAssertEqual(try Data(contentsOf: unchanged), try Data(contentsOf: source))
-            let output = root.appendingPathComponent("out-\(kind)." + TarP2Support.suffix(format))
+            let output = root.appendingPathComponent("out-\(kind)." + format.testFileExtension)
             let result = try CompressedTarTestSupport.edit(source, format: format, output: output,
                 options: .init(bzip2Level: 1)) { try $0.add(data: Data([1,2,3]), as: "added", modificationDate: TestSupport.date, permissions: nil) }
             if ["xz-blocks", "bz-streams", "sync"].contains(kind) {
@@ -58,7 +58,7 @@ final class CompressedTarCompatibilityTests: XCTestCase {
             for aligned in [false, true] {
                 let root = try TestSupport.directory("p3-compat-\(format)-\(aligned)")
                 let source = try CompressedTarTestSupport.fixture(root, format, aligned: aligned)
-                let output = root.appendingPathComponent("out." + TarP2Support.suffix(format))
+                let output = root.appendingPathComponent("out." + format.testFileExtension)
                 _ = try CompressedTarTestSupport.edit(source, format: format, output: output) {
                     try $0.remove(entriesAt: [2]); try $0.rename(entryAt: 0, to: "renamed");
                     try $0.add(data: Data([5]), as: "added", modificationDate: TestSupport.date, permissions: nil)

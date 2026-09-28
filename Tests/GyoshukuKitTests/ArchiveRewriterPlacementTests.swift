@@ -10,7 +10,7 @@ final class ArchiveRewriterPlacementTests: XCTestCase {
             for placement in [AdditionPlacement.end, .beginning] {
                 let root = try TestSupport.directory("p2-placement-\(format)-\(placement)")
                 let source = try TarP2Support.fixture(root, count: 3)
-                let work = try TarP2Support.work(root), output = work.appendingPathComponent("output." + TarP2Support.suffix(format))
+                let work = try TarP2Support.work(root), output = work.appendingPathComponent("output." + format.testFileExtension)
                 let rewriter = try ArchiveRewriter.open(url: source, output: output, format: format,
                                                        options: .init(additionPlacement: placement))
                 try rewriter.remove(entriesAt: [1])
@@ -100,7 +100,7 @@ final class ArchiveOwnerIDsTests: XCTestCase {
                     try TarP2Support.archive([(.init(name: Data("owned".utf8), uid: 123, gid: 456), Data())], at: source)
                     let disk = root.appendingPathComponent("disk")
                     try Data([1]).write(to: disk)
-                    let output = root.appendingPathComponent("output." + TarP2Support.suffix(format))
+                    let output = root.appendingPathComponent("output." + format.testFileExtension)
                     let editor = try ArchiveRewriter.open(url: source, output: output, format: format,
                         options: .init(preserveOwnerIDs: preserve, carriedTarOwnerIDs: keep ? .keep : .reset))
                     try editor.add(contentsOf: disk, as: "added")

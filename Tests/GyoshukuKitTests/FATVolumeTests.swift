@@ -256,10 +256,10 @@ final class FATVolumeTests: XCTestCase {
 
     private func writersAndRewriters(_ root: URL) throws {
         for format in [GyoshukuKit.ArchiveFormat.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha] {
-            let work = try directory(root, "writer-" + TarP2Support.suffix(format))
+            let work = try directory(root, "writer-" + format.testFileExtension)
             let disk = work.appendingPathComponent("empty")
             try Data().write(to: disk)
-            let output = work.appendingPathComponent("out." + TarP2Support.suffix(format))
+            let output = work.appendingPathComponent("out." + format.testFileExtension)
             let writer = try ArchiveWriter.create(url: output, format: format)
             try writer.add(contentsOf: disk, as: "empty")
             try writer.finish()

@@ -22,7 +22,7 @@ enum AdditionProgressTestSupport {
     }
 
     static func source(_ root: URL, format: GyoshukuKit.ArchiveFormat, size: Int = 1) throws -> URL {
-        let url = root.appendingPathComponent("source." + TarP2Support.suffix(format))
+        let url = root.appendingPathComponent("source." + format.testFileExtension)
         let writer = try ArchiveWriter.create(url: url, format: format, options: options)
         try writer.add(data: Data(repeating: 0x62, count: size), as: "base", modificationDate: TestSupport.date)
         try writer.finish()

@@ -7,18 +7,6 @@ final class ArchiveRewriterSourceProbeTests: XCTestCase {
     private let memberName = "member.bin"
     private let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .sevenZip, .lha, .tar, .tarGzip, .tarBzip2, .tarXZ]
 
-    private func suffix(_ format: GyoshukuKit.ArchiveFormat) -> String {
-        switch format {
-        case .zip: "zip"
-        case .sevenZip: "7z"
-        case .lha: "lzh"
-        case .tar: "tar"
-        case .tarGzip: "tar.gz"
-        case .tarBzip2: "tar.bz2"
-        case .tarXZ: "tar.xz"
-        }
-    }
-
     private func fixture(_ bytes: Data, extension suffix: String) throws -> URL {
         let directory = try TestSupport.directory("source-probe-\(UUID())")
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
@@ -131,7 +119,7 @@ final class ArchiveRewriterSourceProbeTests: XCTestCase {
             for format in formats {
                 try ArchiveRewriter.probe(reader: reader, format: format)
                 try ArchiveRewriter.probe(entries: reader.entries, format: format)
-                let output = url.deletingLastPathComponent().appendingPathComponent("output.\(suffix(format))")
+                let output = url.deletingLastPathComponent().appendingPathComponent("output.\(format.testFileExtension)")
                 let rewriter = try ArchiveRewriter.open(url: url, output: output, format: format)
                 try rewriter.commit()
                 let rewritten = try ArchiveReader.open(url: output)
@@ -195,7 +183,7 @@ final class ArchiveRewriterSourceProbeTests: XCTestCase {
         for format in formats {
             try ArchiveRewriter.probe(entries: reader.entries, format: format)
             try ArchiveRewriter.probe(reader: reader, format: format)
-            let output = url.deletingLastPathComponent().appendingPathComponent("output.\(suffix(format))")
+            let output = url.deletingLastPathComponent().appendingPathComponent("output.\(format.testFileExtension)")
             let rewriter = try ArchiveRewriter.open(url: url, output: output, format: format)
             try rewriter.commit()
             let rewritten = try ArchiveReader.open(url: output)

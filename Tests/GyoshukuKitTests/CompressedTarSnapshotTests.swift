@@ -31,7 +31,7 @@ final class CompressedTarSnapshotTests: XCTestCase {
                 }
             }
             // Even an empty GK tar contains its terminator, so its map is nonempty.
-            let empty = root.appendingPathComponent("empty." + TarP2Support.suffix(format))
+            let empty = root.appendingPathComponent("empty." + format.testFileExtension)
             let writer = try ArchiveWriter.create(url: empty, format: format)
             try writer.finish()
             let snapshot = try XCTUnwrap(CompressedTarTestSupport.open(empty).tarEditingSnapshot())

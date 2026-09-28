@@ -19,7 +19,7 @@ final class AdditionProgressTests: XCTestCase {
             for kind in ["writer", "updater", "rewriter"] {
                 var expected: Data?
                 for observed in [false, true] {
-                    let output = root.appendingPathComponent("\(kind)-\(observed)." + TarP2Support.suffix(format))
+                    let output = root.appendingPathComponent("\(kind)-\(observed)." + format.testFileExtension)
                     var options = S.options
                     options.additionPlacement = kind == "rewriter" ? .beginning : .end
                     let writer = kind == "writer" ? try ArchiveWriter.create(url: output, format: format, options: options) : nil
@@ -54,7 +54,7 @@ final class AdditionProgressTests: XCTestCase {
                     total += UInt64(size)
                 }
                 if format != .lha { try FileManager.default.createSymbolicLink(atPath: tree.appendingPathComponent("link").path, withDestinationPath: "one") }
-                let output = root.appendingPathComponent("output." + TarP2Support.suffix(format))
+                let output = root.appendingPathComponent("output." + format.testFileExtension)
                 let writer = try ArchiveWriter.create(url: output, format: format, options: S.options)
                 let session = S.Session()
                 try ArchiveWriter.$testingAfterPreWalk.withValue({

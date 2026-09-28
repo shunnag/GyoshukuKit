@@ -4,17 +4,6 @@ import XCTest
 @testable import GyoshukuKit
 
 enum TarP2Support {
-    static func suffix(_ format: GyoshukuKit.ArchiveFormat) -> String {
-        switch format {
-        case .zip: "zip"
-        case .tar: "tar"
-        case .tarGzip: "tar.gz"
-        case .tarBzip2: "tar.bz2"
-        case .tarXZ: "tar.xz"
-        case .sevenZip: "7z"
-        case .lha: "lha"
-        }
-    }
     static func fixture(_ root: URL, count: Int = 6, size: Int = 513, format: GyoshukuKit.ArchiveFormat = .tar) throws -> URL {
         let url = root.appendingPathComponent("source.tar")
         let writer = try ArchiveWriter.create(url: url, format: format)
