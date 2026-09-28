@@ -18,7 +18,7 @@ extension SevenZipUpdater {
             }
             if toScratch, let conversion = conversions[index], conversion.scratch == nil {
                 let scratch = try destination.makeScratch(tag: "convert")
-                try conversion.write(reader: reader, source: snapshot.source, model: model, write: scratch.append)
+                try conversion.write(reader: reader, source: snapshot.source, model: model, write: { _ = try scratch.append($0) })
                 conversion.scratch = scratch
             }
         }
@@ -55,7 +55,7 @@ extension SevenZipUpdater {
             let sizes = files.map { model.substreams[model.files[$0].substreamIndex!].size }
             let size = try sizes.reduce(UInt64(0)) { try checkedAdd($0, $1) }
             let encoder = try SevenZipFolderEncoder.encode(size: size, threads: options.resolvedCompressionThreads,
-                aes: aes, read: input.read, write: scratch.append)
+                aes: aes, read: input.read, write: { _ = try scratch.append($0) })
             var offset: UInt64 = 0
             let streams: [SevenZipEditModel.Substream] = zip(files, sizes).map { file, size in
                 defer { offset += size }

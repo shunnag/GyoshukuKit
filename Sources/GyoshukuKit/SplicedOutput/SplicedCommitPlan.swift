@@ -5,7 +5,7 @@ enum SplicedSegment {
     case source(Range<UInt64>)
     case literal(length: UInt64, bytes: () throws -> Data)
     case generated(length: UInt64, write: (SplicedSink) throws -> Void)
-    case scratch(SplicedScratchFile, Range<UInt64>)
+    case scratch(ScratchFile, Range<UInt64>)
 
     var length: UInt64 {
         switch self {
