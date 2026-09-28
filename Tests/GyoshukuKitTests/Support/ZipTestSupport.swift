@@ -77,9 +77,9 @@ enum ZipTestSupport {
 // 公開 ZIP byte 表に基づく検査器。製品の serializer を oracle にしない。
 struct ZipBytes {
     let data: Data
-    func u16(_ offset: Int) -> UInt16 { UInt16(data[offset]) | UInt16(data[offset + 1]) << 8 }
-    func u32(_ offset: Int) -> UInt32 { UInt32(u16(offset)) | UInt32(u16(offset + 2)) << 16 }
-    func u64(_ offset: Int) -> UInt64 { UInt64(u32(offset)) | UInt64(u32(offset + 4)) << 32 }
+    func u16(_ offset: Int) -> UInt16 { data.testUInt16(at: offset) }
+    func u32(_ offset: Int) -> UInt32 { data.testUInt32(at: offset) }
+    func u64(_ offset: Int) -> UInt64 { data.testUInt64(at: offset) }
     var end: Int { data.count - 22 }
     var central: Int {
         if u32(end + 16) == UInt32.max {

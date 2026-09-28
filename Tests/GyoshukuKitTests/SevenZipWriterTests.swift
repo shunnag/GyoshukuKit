@@ -170,9 +170,9 @@ final class SevenZipWriterTests: XCTestCase {
         let bytes = try SevenZipBytes(Data(contentsOf: url))
         let attributes = try XCTUnwrap(bytes.fileProperties[0x15])
         XCTAssertEqual(Array(attributes.prefix(2)), [1, 0])
-        XCTAssertEqual(SevenZipTestSupport.uint32(attributes, 2), 0x81ED_8020)
+        XCTAssertEqual(attributes.testUInt32(at: 2), 0x81ED_8020)
         let times = try XCTUnwrap(bytes.fileProperties[0x14])
-        XCTAssertEqual(SevenZipTestSupport.uint64(times, 2), 133_444_736_010_000_000)
+        XCTAssertEqual(times.testUInt64(at: 2), 133_444_736_010_000_000)
         try SevenZipTestSupport.verify(url, expected: [.init(name: "executable", data: payload, permissions: 0o755)])
         let listing = try String(contentsOf: directory.appendingPathComponent("7zz-l-slt.log"), encoding: .utf8)
         XCTAssertEqual(SevenZipTestSupport.listingEntries(listing).first?["Modified"], "2023-11-14 22:13:21.0000000")
@@ -224,7 +224,7 @@ final class SevenZipWriterTests: XCTestCase {
         let bytes = try SevenZipBytes(Data(contentsOf: url))
         XCTAssertEqual(bytes.packedSizes.count, 3)
         let attributes = try XCTUnwrap(bytes.fileProperties[0x15])
-        XCTAssertEqual(SevenZipTestSupport.uint32(attributes, 2), 0x41ED_8010)
+        XCTAssertEqual(attributes.testUInt32(at: 2), 0x41ED_8010)
     }
 
     func testSharedPathValidationAndFailedOutputCleanup() throws {

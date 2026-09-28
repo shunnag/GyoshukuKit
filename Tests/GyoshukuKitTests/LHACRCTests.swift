@@ -27,8 +27,8 @@ final class LHACRCTests: XCTestCase {
         var header = member.header
         header[member.crcOffset] = 0
         header[member.crcOffset + 1] = 0
-        XCTAssertEqual(LHATestSupport.uint16(member.header, member.crcOffset), LHATestSupport.crc(header))
-        XCTAssertEqual(LHATestSupport.uint16(member.header, 21), LHATestSupport.crc(payload))
+        XCTAssertEqual(member.header.testUInt16(at: member.crcOffset), LHATestSupport.crc(header))
+        XCTAssertEqual(member.header.testUInt16(at: 21), LHATestSupport.crc(payload))
         try LHATestSupport.verify(url, expected: [.init(name: "ascii.txt", data: payload)])
         data[member.crcOffset] ^= 1
         let corrupt = directory.appendingPathComponent("header-crc.lzh")

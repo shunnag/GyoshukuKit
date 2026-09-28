@@ -68,14 +68,6 @@ enum SevenZipTestSupport {
         XCTAssertEqual(reader.entries.count, expected.count)
     }
 
-    static func uint32(_ data: Data, _ offset: Int) -> UInt32 {
-        (0..<4).reduce(0) { $0 | UInt32(data[offset + $1]) << ($1 * 8) }
-    }
-
-    static func uint64(_ data: Data, _ offset: Int) -> UInt64 {
-        (0..<8).reduce(0) { $0 | UInt64(data[offset + $1]) << ($1 * 8) }
-    }
-
     static func patchCRC(_ data: inout Data, at offset: Int, over range: Range<Int>) {
         let crc = CRC32.checksum(data.subdata(in: range))
         for index in 0..<4 { data[offset + index] = UInt8(truncatingIfNeeded: crc >> (index * 8)) }
@@ -94,13 +86,13 @@ struct SevenZipBytes {
 
     init(_ data: Data) throws {
         XCTAssertEqual(Array(data.prefix(8)), [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4])
-        XCTAssertEqual(SevenZipTestSupport.uint32(data, 8), CRC32.checksum(data.subdata(in: 12..<32)))
-        let offset = 32 + Int(SevenZipTestSupport.uint64(data, 12))
-        let size = Int(SevenZipTestSupport.uint64(data, 20))
+        XCTAssertEqual(data.testUInt32(at: 8), CRC32.checksum(data.subdata(in: 12..<32)))
+        let offset = 32 + Int(data.testUInt64(at: 12))
+        let size = Int(data.testUInt64(at: 20))
         header = data.subdata(in: offset..<(offset + size))
         XCTAssertEqual(offset + size, data.count)
-        XCTAssertEqual(SevenZipTestSupport.uint32(data, 28), CRC32.checksum(header))
-        var cursor = Cursor(data: header)
+        XCTAssertEqual(data.testUInt32(at: 28), CRC32.checksum(header))
+        var cursor = SevenZipNumberCursor(data: header)
         try cursor.expect(1)
         if cursor.peek == 4 {
             try cursor.expect(4)
@@ -122,7 +114,7 @@ struct SevenZipBytes {
             for _ in 0..<count { unpackedSizes.append(try cursor.number()) }
             // UnpackInfo に CRC が無いことも確認し、SubStreamsInfo の CRC が実際に使われる構成にする。
             for byte: UInt8 in [0, 8, 10, 1] { try cursor.expect(byte) }
-            for _ in 0..<count { crcs.append(SevenZipTestSupport.uint32(try cursor.take(4), 0)) }
+            for _ in 0..<count { crcs.append(try cursor.take(4).testUInt32(at: 0)) }
             try cursor.expect(0)
             try cursor.expect(0)
         }
@@ -138,32 +130,6 @@ struct SevenZipBytes {
         }
         try cursor.expect(0)
         XCTAssertEqual(cursor.offset, header.count)
-    }
-
-    private struct Cursor {
-        let data: Data
-        var offset = 0
-        var peek: UInt8? { offset < data.count ? data[offset] : nil }
-        mutating func byte() throws -> UInt8 { try take(1)[0] }
-        mutating func take(_ count: Int) throws -> Data {
-            guard count >= 0, count <= data.count - offset else { throw CocoaError(.fileReadCorruptFile) }
-            defer { offset += count }
-            return data.subdata(in: offset..<(offset + count))
-        }
-        mutating func expect(_ expected: UInt8) throws {
-            let actual = try byte()
-            XCTAssertEqual(actual, expected)
-            guard actual == expected else { throw CocoaError(.fileReadCorruptFile) }
-        }
-        mutating func number() throws -> UInt64 {
-            let first = try byte()
-            let count: Int = (0..<8).first(where: { first & (0x80 >> $0) == 0 }) ?? 8
-            let low = try take(count)
-            var result: UInt64 = 0
-            for (index, byte) in low.enumerated() { result |= UInt64(byte) << (8 * index) }
-            if count < 8 { result |= UInt64(first & (0x7F >> count)) << (8 * count) }
-            return result
-        }
     }
 }
 
@@ -181,13 +147,12 @@ struct EncryptedSevenZipHeader {
     let folders: [Folder]
 
     init(_ archive: Data) throws {
-        let bytes = ZipBytes(data: archive)
-        let offset = Int(bytes.u64(12)) + 32
-        let size = Int(bytes.u64(20))
+        let offset = Int(archive.testUInt64(at: 12)) + 32
+        let size = Int(archive.testUInt64(at: 20))
         let header = archive.subdata(in: offset..<(offset + size))
-        XCTAssertEqual(CRC32.checksum(archive.subdata(in: 12..<32)), bytes.u32(8))
-        XCTAssertEqual(CRC32.checksum(header), bytes.u32(28))
-        var cursor = Cursor(data: header)
+        XCTAssertEqual(CRC32.checksum(archive.subdata(in: 12..<32)), archive.testUInt32(at: 8))
+        XCTAssertEqual(CRC32.checksum(header), archive.testUInt32(at: 28))
+        var cursor = SevenZipNumberCursor(data: header)
         let type = try cursor.byte()
         encoded = type == 0x17
         // Plain header starts 01 04; EncodedHeader starts 17 directly followed by StreamsInfo.
@@ -225,28 +190,32 @@ struct EncryptedSevenZipHeader {
         }
         folders = parsed
     }
+}
 
-    private struct Cursor {
-        let data: Data
-        var offset = 0
-        mutating func take(_ count: Int) throws -> Data {
-            guard count >= 0, count <= data.count - offset else { throw CocoaError(.fileReadCorruptFile) }
-            defer { offset += count }
-            return data.subdata(in: offset..<(offset + count))
-        }
-        mutating func byte() throws -> UInt8 { try take(1)[0] }
-        mutating func expect(_ value: UInt8) throws {
-            let actual = try byte()
-            XCTAssertEqual(actual, value)
-            guard actual == value else { throw CocoaError(.fileReadCorruptFile) }
-        }
-        mutating func number() throws -> UInt64 {
-            let first = try byte()
-            let count: Int = (0..<8).first(where: { first & (0x80 >> $0) == 0 }) ?? 8
-            var value: UInt64 = 0
-            for index in 0..<count { value |= UInt64(try byte()) << (8 * index) }
-            if count < 8 { value |= UInt64(first & (0x7F >> count)) << (8 * count) }
-            return value
-        }
+/// 7z の header を先頭から読む。`number` は 7z の可変長の UINT64（先頭 byte の上位の 1 の数が続く byte 数）。
+/// 製品の parser を使わず、SevenZipBytes と EncryptedSevenZipHeader が共有する。
+private struct SevenZipNumberCursor {
+    let data: Data
+    var offset = 0
+    var peek: UInt8? { offset < data.count ? data[offset] : nil }
+    mutating func byte() throws -> UInt8 { try take(1)[0] }
+    mutating func take(_ count: Int) throws -> Data {
+        guard count >= 0, count <= data.count - offset else { throw CocoaError(.fileReadCorruptFile) }
+        defer { offset += count }
+        return data.subdata(in: offset..<(offset + count))
+    }
+    mutating func expect(_ expected: UInt8) throws {
+        let actual = try byte()
+        XCTAssertEqual(actual, expected)
+        guard actual == expected else { throw CocoaError(.fileReadCorruptFile) }
+    }
+    mutating func number() throws -> UInt64 {
+        let first = try byte()
+        let count: Int = (0..<8).first(where: { first & (0x80 >> $0) == 0 }) ?? 8
+        let low = try take(count)
+        var result: UInt64 = 0
+        for (index, byte) in low.enumerated() { result |= UInt64(byte) << (8 * index) }
+        if count < 8 { result |= UInt64(first & (0x7F >> count)) << (8 * count) }
+        return result
     }
 }
