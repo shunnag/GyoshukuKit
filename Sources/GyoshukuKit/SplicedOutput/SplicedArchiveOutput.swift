@@ -302,7 +302,7 @@ final class SplicedArchiveOutput {
     }
 
     static func read(_ fd: Int32, at offset: UInt64, count: Int, counted: Bool = false) throws -> Data {
-        let data = try ZipAppendedRecordCheck.read(fd, at: offset, count: count)
+        let data = try ZipAppendedRecordSelfCheck.read(fd, at: offset, count: count)
         if counted { verificationReadObserver?(offset, count) }
         return data
     }

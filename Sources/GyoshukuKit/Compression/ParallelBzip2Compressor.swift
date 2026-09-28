@@ -31,9 +31,6 @@ final class ParallelBzip2Compressor: TarCompressor {
 
     func beginEndOfArchive() { layout.beginEndOfArchive(bufferedCount: input.count) }
 
-    // ArchiveWriter / CompressedTarSpliceOutput が参照する旧名。Bzip2StreamEncoder.encode へ寄せた後に外す。
-    static func encode(_ input: Data, level: Int) throws -> Data { try Bzip2StreamEncoder.encode(input, level: level) }
-
     func write(_ data: Data, finish: Bool, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {

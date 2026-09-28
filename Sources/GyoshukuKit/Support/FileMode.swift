@@ -13,4 +13,5 @@ enum FileMode {
 extension UInt16 {
     var isRegularFileMode: Bool { self & FileMode.typeMask == FileMode.regular }
     var isDirectoryMode: Bool { self & FileMode.typeMask == FileMode.directory }
+    var isSymlinkMode: Bool { self & FileMode.typeMask == FileMode.symlink }
 }

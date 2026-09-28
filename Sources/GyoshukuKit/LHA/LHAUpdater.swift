@@ -70,7 +70,7 @@ public final class LHAUpdater: ArchiveEditing {
         let reader = try ArchiveReader.open(source: snapshot.source, sourceURL: url, options: ReaderOptions(
             limits: ReadLimits(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
         guard reader.format == .lha else { throw UpdaterError.invalidArchive("LHA ではありません") }
-        let representable = try ArchiveRewriter.validateRepresentability(entries: reader.entries, format: .lha, reader: reader)
+        let representable = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .lha, reader: reader)
         let layout = try LHALayout.scan(source: snapshot.source, reader: reader)
         try snapshot.checkUnchanged()
         return LHAUpdater(snapshot: snapshot, output: output, options: options, reader: reader, layout: layout,
@@ -152,7 +152,7 @@ public final class LHAUpdater: ArchiveEditing {
             if name == names[index] { renamedHeaders.removeValue(forKey: index) }
             else {
                 let member = try layout.member(index)
-                renamedHeaders[index] = try LHARecords.Entry(name: name, mode: ArchiveRewriter.mode(for: entry),
+                renamedHeaders[index] = try LHARecords.Entry(name: name, mode: ArchiveRepresentability.mode(for: entry),
                     size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? Date())
                     .header(method: directory ? LHARecords.Method.lhd : member.method,
                             packedSize: directory ? 0 : UInt32(member.dataRange.byteLength),

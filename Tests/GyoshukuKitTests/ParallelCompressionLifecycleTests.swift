@@ -46,7 +46,7 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
                             started.signal()
                             XCTAssertEqual(release.wait(timeout: .now() + 15), .success)
                             defer { completed.signal() }
-                            return try ParallelBzip2Compressor.encode(input, level: level)
+                            return try Bzip2StreamEncoder.encode(input, level: level)
                         }, lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize)
                     try FileManager.default.linkItem(at: url, to: alias)
                     let chunkSize = format == .tarBzip2 ? ParallelBzip2Compressor.chunkSize(level: 1) : ParallelCompressionLifecycleTests.blockSize

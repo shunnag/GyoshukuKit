@@ -141,13 +141,6 @@ public final class ArchiveRewriter: ArchiveEditing {
         _ = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: format, reader: reader)
     }
 
-    // 検査本体は ArchiveRepresentability。7z / LHA の updater が切り替えるまでの転送。
-    static func validateRepresentability(entries: [ArchiveEntry], format: ArchiveFormat,
-                                         reader: ArchiveReader? = nil) throws
-        -> (names: [String], hardLinkTargets: [Int: Int], dataTargets: [Int: Int]) {
-        try ArchiveRepresentability.validateRepresentability(entries: entries, format: format, reader: reader)
-    }
-
     public func add(_ additions: [ArchiveAddition], events: ((ArchiveAdditionEvent) throws -> Void)?) throws {
         guard !additions.isEmpty else { return }
         try performAddition {
@@ -414,9 +407,6 @@ public final class ArchiveRewriter: ArchiveEditing {
     private func validateIndex(_ index: Int) throws {
         guard reader.entries.indices.contains(index) else { throw UpdaterError.invalidEntryIndex(index) }
     }
-
-    // LHA の updater が切り替えるまでの転送。
-    static func mode(for entry: ArchiveEntry) -> UInt16 { ArchiveRepresentability.mode(for: entry) }
 
     private func carryInputByteCount(_ entry: ArchiveEntry) -> UInt64 {
         if entry.kind == .directory { return 0 }

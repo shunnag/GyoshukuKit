@@ -84,7 +84,7 @@ public final class ArchiveWriter {
         url: URL, format: ArchiveFormat, options: WriterOptions = WriterOptions(),
         deflateBlockSize: Int = DeflateBlock.size,
         deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
-        bzip2Encoder: @escaping ParallelBzip2Compressor.Encoder = ParallelBzip2Compressor.encode,
+        bzip2Encoder: @escaping ParallelBzip2Compressor.Encoder = Bzip2StreamEncoder.encode,
         zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) },
         lzmaChunkSize: Int,
         xzPackingSize: Int? = nil,

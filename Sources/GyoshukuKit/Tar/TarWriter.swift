@@ -53,7 +53,7 @@ final class TarWriter {
         if mode.isDirectoryMode {
             entry.type = TypeFlag.directory
             entry.size = 0
-        } else if mode & FileMode.typeMask == FileMode.symlink {
+        } else if mode.isSymlinkMode {
             // link は payload ではない。readlink 由来の byte をそのまま linkname / pax に置く。
             guard size <= UInt64(PATH_MAX) else { throw WriterError.invalidPath(name) }
             entry.link = try read(Int(size))

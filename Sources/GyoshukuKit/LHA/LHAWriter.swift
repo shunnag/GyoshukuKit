@@ -288,6 +288,7 @@ final class LHAWriter {
 
 /// spool が要るのは圧縮 byte だけで、raw の代替は書き終える前の出力そのものに置く。作ってすぐ unlink し、
 /// 取消し・I/O error・process 終了で名前のある payload file が残らないようにする。memory 使用量は size に依らない。
+/// SplicedScratchFile（discard() まで名前を保つ）や TarSpliceStorage（commit まで fd を持つ）とは寿命が異なり、一つの member を書き終えると閉じる。
 private final class LHACompressionSpool {
     private let file: FileHandle
     private(set) var size: UInt64 = 0

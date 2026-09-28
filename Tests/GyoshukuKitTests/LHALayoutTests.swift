@@ -108,7 +108,7 @@ final class LHAHeaderReemitTests: XCTestCase {
             let new = try LHAUpdateSupport.scan(output)
             for entry in old.2.entries {
                 let a = try old.0.member(entry.index), b = try new.0.member(entry.index)
-                let expected = try LHARecords.Entry(name: new.2.entries[entry.index].name, mode: ArchiveRewriter.mode(for: entry), size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? ZipTestSupport.date)
+                let expected = try LHARecords.Entry(name: new.2.entries[entry.index].name, mode: ArchiveRepresentability.mode(for: entry), size: entry.uncompressedSize ?? 0, date: entry.modificationDate ?? ZipTestSupport.date)
                     .header(method: a.method, packedSize: UInt32(a.dataRange.count), crc: a.method == "-lhd-" ? 0 : a.crc16)
                 XCTAssertEqual(try LHAUpdateSupport.bytes(new.1, b.headerRange), expected, name)
                 XCTAssertEqual(try LHAUpdateSupport.bytes(old.1, a.dataRange), try LHAUpdateSupport.bytes(new.1, b.dataRange), name)

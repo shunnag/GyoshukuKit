@@ -93,6 +93,3 @@ enum ZipAppendedRecordSelfCheck {
         return bytes
     }
 }
-
-// 旧名。SplicedArchiveOutput.read の呼出しが FileRead へ置き換わるまで残す。
-typealias ZipAppendedRecordCheck = ZipAppendedRecordSelfCheck

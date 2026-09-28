@@ -409,7 +409,7 @@ final class TarChunkLayoutTests: XCTestCase {
                                                            final: index == ranges.count - 1), level: 6))
                 previous = DeflateBlock.dictionary(from: input)
             case .tarBzip2:
-                result.append(try ParallelBzip2Compressor.encode(input, level: 9))
+                result.append(try Bzip2StreamEncoder.encode(input, level: 9))
             default:
                 records.append(try XZFraming.emitBlock(LZMA2Compressor.encode(input), crc: updateCRC(0, input)) { result.append($0) })
             }

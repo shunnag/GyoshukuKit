@@ -71,7 +71,7 @@ final class CompressedTarSpliceOutput {
         switch format {
         case .tarGzip:
             bytes = try DeflateBlock.encode(.init(input: input.bytes, dictionary: input.dictionary, final: input.final), level: options.deflateLevel)
-        case .tarBzip2: bytes = try ParallelBzip2Compressor.encode(input.bytes, level: options.bzip2Level)
+        case .tarBzip2: bytes = try Bzip2StreamEncoder.encode(input.bytes, level: options.bzip2Level)
         case .tarXZ:
             let compressed = try LZMA2Compressor.encode(input.bytes)
             var result = Data()
