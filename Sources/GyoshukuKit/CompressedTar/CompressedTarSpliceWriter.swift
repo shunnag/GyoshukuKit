@@ -1,11 +1,6 @@
 import Foundation
 private import Darwin
-private import zlib
 @_spi(TarEditLayout) internal import KaitoKit
-
-func compressedTarCRCCombine(_ prefix: UInt32, _ suffix: UInt32, _ length: UInt64) -> UInt32 {
-    UInt32(truncatingIfNeeded: crc32_combine(uLong(prefix), uLong(suffix), Int(length)))
-}
 
 final class CompressedTarSpliceWriter {
     struct Encoded: Sendable {
@@ -71,13 +66,6 @@ final class CompressedTarSpliceWriter {
     private func checkOutput() throws {
         guard let handle, ArchiveOwnedFile.matches(url: output, descriptor: handle.fileDescriptor) else { throw UpdaterError.sourceChanged }
     }
-    static func gzipHeader(level: Int) -> Data {
-        Data([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, level == 9 ? 2 : (level <= 1 ? 4 : 0), 3])
-    }
-    static func gzipTrailer(crc: UInt32, imageLength: UInt64) -> Data {
-        var trailer = Data(); trailer.le(crc); trailer.le(UInt32(truncatingIfNeeded: imageLength))
-        return trailer
-    }
     static func encode(_ input: Input, format: ArchiveFormat, options: WriterOptions) throws -> Encoded {
         let start = ProcessInfo.processInfo.systemUptime
         let crc = updateCRC(0, input.bytes)
@@ -142,7 +130,7 @@ final class CompressedTarSpliceWriter {
                 if case .gzip(let gzip) = snapshot.chunkMap {
                     let first = gzip.points[base].crc32
                     let last = base + 1 < gzip.points.count ? gzip.points[base + 1].crc32 : gzip.trailerCRC32
-                    chunkCRC = last ^ compressedTarCRCCombine(first, 0, chunk.imageRange.byteLength)
+                    chunkCRC = last ^ GzipFraming.combineCRC(first, 0, length: chunk.imageRange.byteLength)
                 }
                 if case .xz(let xz) = snapshot.chunkMap {
                     header = xz.blocks[base].headerSize; payload = xz.blocks[base].compressedPayloadSize
@@ -157,12 +145,12 @@ final class CompressedTarSpliceWriter {
         }
         var records = Data()
         for (index, part) in plan.parts.enumerated() {
-            crc = compressedTarCRCCombine(crc, metas[index].crc, part.image.byteLength)
+            crc = GzipFraming.combineCRC(crc, metas[index].crc, length: part.image.byteLength)
             if format == .tarXZ {
                 records.append(XZFraming.vli(metas[index].unpaddedSize)); records.append(XZFraming.vli(part.image.byteLength))
             }
         }
-        if format == .tarGzip { expectedTail = Self.gzipTrailer(crc: crc, imageLength: image.length) }
+        if format == .tarGzip { expectedTail = GzipFraming.trailer(crc: crc, imageLength: image.length) }
         if format == .tarXZ {
             try XZFraming.emitIndexAndFooter(records: records, blockCount: UInt64(plan.parts.count)) { expectedTail.append($0) }
         }
@@ -172,7 +160,7 @@ final class CompressedTarSpliceWriter {
         try create()
         var engine = ZipCopyEngine(descriptor: handle!.fileDescriptor, totalBytes: 0)
         var cursor: UInt64 = 0
-        let header = format == .tarGzip ? Self.gzipHeader(level: options.deflateLevel) : format == .tarXZ ? XZFraming.streamHeader : Data()
+        let header = format == .tarGzip ? GzipFraming.header(level: options.deflateLevel) : format == .tarXZ ? XZFraming.streamHeader : Data()
         try engine.append(header, at: cursor, progress: nil); cursor += UInt64(header.count)
         let pipeline = OrderedChunkPipeline<Input, Encoded, Int>(threads: threads, lightWeightLimit: lightWeightLimit) {
             try Self.encode($0, format: format, options: options)
@@ -226,7 +214,7 @@ final class CompressedTarSpliceWriter {
             try XZFraming.emitIndexAndFooter(records: changed, blockCount: UInt64(parts.count)) { tail.append($0) }
         }
         if format == .tarGzip, CompressedTarUpdater.testingFault == .trailerCRC {
-            tail = Data(); tail.le(crc &+ 1); tail.le(UInt32(truncatingIfNeeded: image.length))
+            tail = GzipFraming.trailer(crc: crc &+ 1, imageLength: image.length)
         }
         try engine.append(tail, at: cursor, progress: nil); cursor += UInt64(tail.count)
         try engine.flush(progress: nil)

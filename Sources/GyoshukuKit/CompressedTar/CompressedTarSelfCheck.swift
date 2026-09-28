@@ -71,7 +71,7 @@ enum CompressedTarSelfCheck {
             return result
         }
         if format == .tarGzip {
-            guard try read(0, 10) == CompressedTarSpliceWriter.gzipHeader(level: writer.options.deflateLevel),
+            guard try read(0, 10) == GzipFraming.header(level: writer.options.deflateLevel),
                   try read(writer.payloadEnd, 8) == writer.expectedTail else { throw failure("V2 gzip framing") }
         } else if format == .tarBzip2 {
             for part in writer.parts {
@@ -245,17 +245,10 @@ enum CompressedTarSelfCheck {
               bytes[1] & 0x3c == 0 else { throw failure("V2 xz header CRC/flags") }
         var cursor = 2
         func vli() throws -> UInt64 {
-            var value: UInt64 = 0
-            for shift in stride(from: 0, through: 56, by: 7) {
-                guard cursor < bytes.count - 4 else { throw failure("V2 xz VLI") }
-                let byte = bytes[cursor]; cursor += 1
-                value |= UInt64(byte & 127) << shift
-                if byte & 128 == 0 {
-                    guard shift == 0 || byte != 0 else { throw failure("V2 xz VLI canonical") }
-                    return value
-                }
-            }
-            throw failure("V2 xz VLI overflow")
+            do { return try XZFraming.readVLI(bytes, cursor: &cursor, end: bytes.count - 4) }
+            catch XZFraming.VLIError.truncated { throw failure("V2 xz VLI") }
+            catch XZFraming.VLIError.nonCanonical { throw failure("V2 xz VLI canonical") }
+            catch XZFraming.VLIError.overflow { throw failure("V2 xz VLI overflow") }
         }
         if bytes[1] & 64 != 0, try vli() != meta.payloadSize { throw failure("V2 xz compressed size") }
         if bytes[1] & 128 != 0, try vli() != imageLength { throw failure("V2 xz image size") }

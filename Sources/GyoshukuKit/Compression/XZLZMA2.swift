@@ -104,6 +104,7 @@ struct XZLZMA2: Sendable {
             return bytes[position]
         }
 
+        // XZFraming.readVLI と同じ規則。こちらは UnsafeRawBufferPointer 上の cursor 用。
         mutating func vli() throws -> UInt64 {
             var value: UInt64 = 0
             for shift in stride(from: 0, through: 56, by: 7) {

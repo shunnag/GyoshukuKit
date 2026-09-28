@@ -74,4 +74,21 @@ enum XZFraming {
         } while remaining > 0
         return result
     }
+
+    enum VLIError: Error { case truncated, nonCanonical, overflow }
+
+    /// bytes[cursor..<end] から VLI を一つ読み、cursor を進める（§1.2）。XZLZMA2.Cursor.vli と同じ規則。
+    static func readVLI(_ bytes: Data, cursor: inout Int, end: Int) throws(VLIError) -> UInt64 {
+        var value: UInt64 = 0
+        for shift in stride(from: 0, through: 56, by: 7) {
+            guard cursor < end else { throw .truncated }
+            let byte = bytes[cursor]; cursor += 1
+            value |= UInt64(byte & 127) << shift
+            if byte & 128 == 0 {
+                guard shift == 0 || byte != 0 else { throw .nonCanonical }
+                return value
+            }
+        }
+        throw .overflow
+    }
 }

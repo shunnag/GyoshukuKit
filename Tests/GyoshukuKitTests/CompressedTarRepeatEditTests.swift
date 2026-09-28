@@ -62,8 +62,8 @@ final class CompressedTarLargeOffsetTests: XCTestCase {
         var suffixCRC: UInt32 = 0, direct = updateCRC(0, prefix)
         for _ in 0..<4608 { suffixCRC = updateCRC(suffixCRC, zeros); direct = updateCRC(direct, zeros) }
         let length: UInt64 = 4608 * 1024 * 1024
-        XCTAssertEqual(compressedTarCRCCombine(updateCRC(0, prefix), suffixCRC, length), direct)
-        let footer = CompressedTarSpliceWriter.gzipTrailer(crc: direct, imageLength: length)
+        XCTAssertEqual(GzipFraming.combineCRC(updateCRC(0, prefix), suffixCRC, length: length), direct)
+        let footer = GzipFraming.trailer(crc: direct, imageLength: length)
         XCTAssertEqual(footer.zip32(4), 512 * 1024 * 1024)
         let unpadded = (UInt64(1) << 32) + 9, unpacked = (UInt64(1) << 32) + 513
         let record = XZFraming.vli(unpadded) + XZFraming.vli(unpacked)

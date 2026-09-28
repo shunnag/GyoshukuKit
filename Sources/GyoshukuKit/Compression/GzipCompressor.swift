@@ -41,7 +41,7 @@ final class GzipCompressor: TarCompressor {
             try Task.checkCancellation()
             if data.isEmpty && !finish { return }
             if !started {
-                try emit(Data([0x1F, 0x8B, 8, 0, 0, 0, 0, 0, level == 9 ? 2 : (level <= 1 ? 4 : 0), 3]))
+                try emit(GzipFraming.header(level: level))
                 started = true
             }
             if layout.takePendingCut() { try submit(final: false, emit: emit) }
@@ -66,10 +66,7 @@ final class GzipCompressor: TarCompressor {
                 if input.isEmpty { try pipeline.waitForCapacity { _, result in try emit(result!) } }
                 try submit(final: true, emit: emit)
                 try pipeline.finish { _, result in try emit(result!) }
-                var trailer = Data()
-                trailer.le(crc)
-                trailer.le(size)
-                try emit(trailer)
+                try emit(GzipFraming.trailer(crc: crc, imageLength: UInt64(size)))
                 finished = true
             }
         } catch {
