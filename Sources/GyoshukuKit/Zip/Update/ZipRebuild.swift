@@ -176,7 +176,7 @@ enum ZipRebuild {
                 action = .rebuilt(bytes)
                 count = bytes.count
             }
-            if !validated.canonical || (newName != nil && newName!.utf8.count != Int(directory.bytes.zip16(validated.centralRange.lowerBound + 28))) {
+            if !validated.canonical || (newName != nil && newName!.utf8.count != Int(directory.bytes.le16(validated.centralRange.lowerBound + 28))) {
                 patchable = false
             }
             if newName != nil { centralPatches = try checkedAdd(centralPatches, UInt64(count)) }

@@ -43,14 +43,14 @@ final class ZipInPlaceRenameTests: XCTestCase {
         for variant in ["sentinel-end", "extended-end", "madeby-end"] {
             let url = try ZipP1Corpus.crafted(directory, variant: variant)
             var bytes = try Data(contentsOf: url)
-            let end = bytes.count - 22, central = UInt64(bytes.zip32(end + 16)), size = UInt64(bytes.zip32(end + 12))
+            let end = bytes.count - 22, central = UInt64(bytes.le32(end + 16)), size = UInt64(bytes.le32(end + 12))
             bytes.removeSubrange(end..<bytes.count)
             var ending = try ZipRecords.end(count: 65_535, centralSize: size, centralOffset: central)
-            ending.zipSet(UInt64(5), at: 24); ending.zipSet(UInt64(5), at: 32)
-            if variant != "sentinel-end" { ending.zipSet(UInt16(5), at: 76 + 8); ending.zipSet(UInt16(5), at: 76 + 10) }
-            if variant == "madeby-end" { ending.zipSet(UInt16(20), at: 12) }
+            ending.leSet(UInt64(5), at: 24); ending.leSet(UInt64(5), at: 32)
+            if variant != "sentinel-end" { ending.leSet(UInt16(5), at: 76 + 8); ending.leSet(UInt16(5), at: 76 + 10) }
+            if variant == "madeby-end" { ending.leSet(UInt16(20), at: 12) }
             if variant == "extended-end" {
-                ending.zipSet(UInt64(48), at: 4)
+                ending.leSet(UInt64(48), at: 4)
                 ending.insert(contentsOf: [0, 0, 0, 0], at: 56)
             }
             bytes.append(ending)

@@ -23,7 +23,7 @@ final class ZipCentralFastPathTests: XCTestCase {
                 if record.canonical {
                     for offset in [record.layout.recordRange.lowerBound, 0, 0xFFFFFFFE] {
                         var fast = validated.bytes.subdata(in: record.centralRange)
-                        fast.zipSet(UInt32(offset), at: 42)
+                        fast.leSet(UInt32(offset), at: 42)
                         XCTAssertEqual(fast, try header.rebuilt(offset: offset, size: reader.entries[index].uncompressedSize!,
                             compressedSize: reader.entries[index].compressedSize!, name: nil))
                         XCTAssertTrue(record.usesFastPath(offset: offset, renamed: false, marker: false))

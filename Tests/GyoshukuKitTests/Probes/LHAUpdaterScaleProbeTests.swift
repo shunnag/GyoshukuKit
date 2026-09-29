@@ -37,7 +37,7 @@ final class LHAUpdaterScaleProbeTests: XCTestCase {
                 let opened = now()
                 try edit(editor, operation: operation)
                 let edited = now(), verification = Mutex(0.0)
-                try SplicedArchiveOutput.$testingVerificationElapsed.withValue({ duration in verification.withLock { $0 += duration } }) { try editor.commit() }
+                try SegmentedArchiveOutput.$testingVerificationElapsed.withValue({ duration in verification.withLock { $0 += duration } }) { try editor.commit() }
                 let committed = now()
                 let times = (editor as? LHAUpdater)?.verificationSeconds ?? (v2: 0.0, v3: 0.0, total: 0.0)
                 let v5 = max(0, verification.withLock { $0 } - times.total)

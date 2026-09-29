@@ -98,7 +98,7 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
             let verification = IOEvents()
             try ArchiveFileSource.$readObserver.withValue(reads.read) {
             try ZipCopyEngine.$writeObserver.withValue(events.write) {
-            try SplicedArchiveOutput.$verificationReadObserver.withValue(verification.write) {
+            try SegmentedArchiveOutput.$verificationReadObserver.withValue(verification.write) {
                 switch operation {
                 case "rename": try updater.rename(entryAt: 1, to: "renamed")
                 case "last": try updater.remove(entriesAt: [1001])

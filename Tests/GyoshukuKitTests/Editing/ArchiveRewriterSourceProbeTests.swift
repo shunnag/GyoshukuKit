@@ -36,7 +36,7 @@ final class ArchiveRewriterSourceProbeTests: XCTestCase {
         }
         if level != 0 { header.le(UInt16(0)) }
         if level == 2 {
-            header.zipSet(UInt16(header.count), at: 0)
+            header.leSet(UInt16(header.count), at: 0)
         } else {
             header[0] = UInt8(header.count - 2)
             header[1] = header.dropFirst(2).reduce(UInt8(0), &+)

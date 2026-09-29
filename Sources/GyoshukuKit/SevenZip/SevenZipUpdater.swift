@@ -25,7 +25,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     let model: SevenZipEditModel
     private let ledger: EntryEditLedger
     let filesByFolder: [[Int]]
-    let destination: SplicedArchiveOutput
+    let destination: SegmentedArchiveOutput
     private let headerPassword: String?
     private(set) var reencrypt = false
     private var currentPassword: String?
@@ -48,7 +48,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         self.model = model; ledger = EntryEditLedger(names: names, entries: reader.entries)
         filesByFolder = model.filesByFolder; headerPassword = password
         encryptors = SevenZipAESEncryptor.Factory(password: options.password)
-        destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "7z", sequential: Self.testingDisablesClone)
+        destination = SegmentedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "7z", sequential: Self.testingDisablesClone)
     }
     deinit { if state != .committed { cleanup() } }
 
@@ -174,7 +174,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
             return writer
         }
         let plan = makePlan()
-        let prefix: [SplicedSegment]
+        let prefix: [OutputSegment]
         if destination.isCloneMode { prefix = try preliminaryPrefix(plan) }
         else {
             try prepareConversions(plan, toScratch: true)

@@ -24,10 +24,10 @@ final class ArchiveOwnedFileTests: XCTestCase {
             let snapshot = try ArchiveSourceSnapshot(url: source, directory: root, pathExtension: "bin")
             guard snapshot.snapshot != nil else { throw XCTSkip("clone unavailable on test volume") }
             let path = root.appendingPathComponent("output.bin"), moved = root.appendingPathComponent("moved.bin")
-            let output = SplicedArchiveOutput(snapshot: snapshot, output: path, pathExtension: "bin", sequential: false)
-            let plan = SplicedCommitPlan(prefix: [.source(0..<3)], appended: nil, terminal: Data(),
+            let output = SegmentedArchiveOutput(snapshot: snapshot, output: path, pathExtension: "bin", sequential: false)
+            let plan = SegmentCommitPlan(prefix: [.source(0..<3)], appended: nil, terminal: Data(),
                                          finalLength: 3, formatVerificationUnits: 0)
-            try SplicedArchiveOutput.$testingDidCloneOutput.withValue({ url in
+            try SegmentedArchiveOutput.$testingDidCloneOutput.withValue({ url in
                 try FileManager.default.moveItem(at: url, to: moved)
                 try foreign.write(to: url)
             }) {

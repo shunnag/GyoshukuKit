@@ -89,7 +89,7 @@ final class CompressedTarSelfCheckFaultTests: XCTestCase {
             let chunk = try XCTUnwrap(base.chunkMap?.chunks.first { $0.imageRange.upperBound - $0.imageRange.lowerBound > 100000 })
             let handle = try FileHandle(forUpdating: source)
             let offset = chunk.compressedRange.lowerBound + (chunk.compressedRange.upperBound - chunk.compressedRange.lowerBound) / 2
-            var byte = try SplicedArchiveOutput.read(handle.fileDescriptor, at: offset, count: 1); byte[0] ^= 1
+            var byte = try SegmentedArchiveOutput.read(handle.fileDescriptor, at: offset, count: 1); byte[0] ^= 1
             try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(handle.fileDescriptor, bytes: $0, at: offset) }
             try handle.close()
             try FileManager.default.setAttributes([.modificationDate: TestSupport.date], ofItemAtPath: source.path)

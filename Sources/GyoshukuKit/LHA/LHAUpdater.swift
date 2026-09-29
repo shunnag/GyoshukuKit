@@ -23,7 +23,7 @@ public final class LHAUpdater: ArchiveEditing {
     private let reader: ArchiveReader
     private let layout: LHALayout
     private let ledger: EntryEditLedger
-    private let destination: SplicedArchiveOutput
+    private let destination: SegmentedArchiveOutput
     private let encoder: @Sendable (Data) throws -> Data
     private var renamedHeaders: [Int: Data] = [:]
     private var writerPathsNeedRefresh = false
@@ -41,7 +41,7 @@ public final class LHAUpdater: ArchiveEditing {
         self.snapshot = snapshot; self.output = output; self.options = options
         self.reader = reader; self.layout = layout; self.encoder = encoder
         ledger = EntryEditLedger(names: names, entries: reader.entries)
-        destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "lzh",
+        destination = SegmentedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "lzh",
                                            sequential: Self.testingDisablesClone)
     }
     deinit { if state != .committed { cleanup() } }
@@ -161,7 +161,7 @@ public final class LHAUpdater: ArchiveEditing {
             let plan = try makePlan(additionLength: additionLength)
             let prefix = plan.isChanged ? plan.prefix : [.source(0..<snapshot.source.length)]
             let finalLength = plan.isChanged ? try checkedAdd(plan.membersEnd, checkedAdd(additionLength, 1)) : snapshot.source.length
-            let outputPlan = SplicedCommitPlan(prefix: prefix, appended: appended, terminal: plan.terminal,
+            let outputPlan = SegmentCommitPlan(prefix: prefix, appended: appended, terminal: plan.terminal,
                 finalLength: finalLength, formatVerificationUnits: try checkedAdd(plan.boundaryBytes * 2, additionLength))
             let meter = CommitProgressMeter(total: destination.units(for: outputPlan), progress: { update in
                 try progress?(update)
@@ -172,7 +172,7 @@ public final class LHAUpdater: ArchiveEditing {
             let fault = Self.testingFault.map {
                 LHASelfCheck.faultAction($0, plan: plan, finalLength: finalLength, records: records, appendStart: appendStart)
             }
-            let strategy = try SplicedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
+            let strategy = try SegmentedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
                 try destination.commit(outputPlan, meter: meter) { fd, advance in
                     self.verificationSeconds = try LHASelfCheck.verify(plan: plan, records: records, additionLength: additionLength,
                         finalLength: finalLength, descriptor: fd, source: self.snapshot.source, layout: self.layout,
@@ -217,7 +217,7 @@ public final class LHAUpdater: ArchiveEditing {
 
 extension LHAUpdater.CommitStrategy {
     /// 共有出力の結果を LHA の語に写す。appendOnly でも削除・改名があれば splice と数える。
-    init(_ shared: SplicedCommitStrategy, appendWasSplice: Bool) {
+    init(_ shared: SegmentCommitStrategy, appendWasSplice: Bool) {
         switch shared {
         case .unchanged: self = .unchanged
         case .inPlacePatch: self = .inPlacePatch

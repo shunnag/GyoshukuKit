@@ -2,7 +2,7 @@ import Foundation
 
 // commit の byte 進捗を ArchiveUpdater.CommitProgress として報告する二つの計器。
 // ZipCommitMeter は struct で、ZIP の commit が一回分の byte 数を値として複製し、中断後に複製から再開する。
-// CommitProgressMeter は class で、7z / tar / LHA の spliced output と writer が一つの session を共有する。
+// CommitProgressMeter は class で、7z / tar / LHA の SegmentedArchiveOutput と writer が一つの session を共有する。
 struct ZipCommitMeter {
     var completedBytes: UInt64 = 0
     let totalBytes: UInt64

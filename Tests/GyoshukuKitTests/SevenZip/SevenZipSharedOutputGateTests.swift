@@ -10,18 +10,18 @@ final class SevenZipSharedOutputGateTests: XCTestCase {
         try Data(count: 64).write(to: source)
         let snapshot = try ArchiveSourceSnapshot(url: source, directory: root,
                                                  pathExtension: "bin", disablesClone: true)
-        let output = SplicedArchiveOutput(snapshot: snapshot, output: path,
+        let output = SegmentedArchiveOutput(snapshot: snapshot, output: path,
                                           pathExtension: "bin", sequential: true)
         let scratch = try output.makeScratch(tag: "reencode")
         try scratch.append(Data([1, 2, 3, 4]))
-        let prefix: [SplicedSegment] = [
+        let prefix: [OutputSegment] = [
             .literal(length: 32, bytes: { Data(count: 32) }),
             .scratch(scratch, 0..<4)
         ]
         let handle = try output.beginAppend(at: 36, prefix: prefix)
         try handle.write(contentsOf: Data([5, 6]))
         try handle.close()
-        let plan = SplicedCommitPlan(prefix: prefix, appended: 36..<38,
+        let plan = SegmentCommitPlan(prefix: prefix, appended: 36..<38,
             terminal: Data([7]), finalLength: 39,
             finalPatch: (offset: 0, bytes: Data(repeating: 9, count: 32)),
             formatVerificationUnits: 0)

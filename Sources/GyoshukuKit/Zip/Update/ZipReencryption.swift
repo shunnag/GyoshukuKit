@@ -65,27 +65,27 @@ final class ZipConversion {
         let ln = renamed ?? original.name, cn = renamed ?? header.name
         guard ln.count <= Int(UInt16.max), cn.count <= Int(UInt16.max) else { throw failure("名前が長すぎます") }
         local = original.fixed
-        local.zipSet(version(original.fixed.zip16(4), zip64: any64), at: 4)
-        local.zipSet(flags(original.fixed.zip16(6), renamed: renamed != nil), at: 6)
-        local.zipSet(target.aesVersion == nil ? raw.compressionMethod : 99, at: 8)
-        local.zipSet(crc, at: 14)
-        local.zipSet(local64 ? UInt32.max : UInt32(compressedSize), at: 18)
-        local.zipSet(local64 ? UInt32.max : UInt32(size), at: 22)
-        local.zipSet(UInt16(ln.count), at: 26)
-        local.zipSet(UInt16(lx.count), at: 28)
+        local.leSet(version(original.fixed.le16(4), zip64: any64), at: 4)
+        local.leSet(flags(original.fixed.le16(6), renamed: renamed != nil), at: 6)
+        local.leSet(target.aesVersion == nil ? raw.compressionMethod : 99, at: 8)
+        local.leSet(crc, at: 14)
+        local.leSet(local64 ? UInt32.max : UInt32(compressedSize), at: 18)
+        local.leSet(local64 ? UInt32.max : UInt32(size), at: 22)
+        local.leSet(UInt16(ln.count), at: 26)
+        local.leSet(UInt16(lx.count), at: 28)
         local.append(ln)
         local.append(lx)
         central = header.fixed
-        central.zipSet(version(header.fixed.zip16(6), zip64: any64), at: 6)
-        central.zipSet(flags(header.fixed.zip16(8), renamed: renamed != nil), at: 8)
-        central.zipSet(target.aesVersion == nil ? raw.compressionMethod : 99, at: 10)
-        central.zipSet(crc, at: 16)
-        central.zipSet(UInt32(min(compressedSize, ZipRecords.limit)), at: 20)
-        central.zipSet(UInt32(min(size, ZipRecords.limit)), at: 24)
-        central.zipSet(UInt16(cn.count), at: 28)
-        central.zipSet(UInt16(cx.count), at: 30)
-        central.zipSet(UInt16(0), at: 34)
-        central.zipSet(UInt32(min(offset, ZipRecords.limit)), at: 42)
+        central.leSet(version(header.fixed.le16(6), zip64: any64), at: 6)
+        central.leSet(flags(header.fixed.le16(8), renamed: renamed != nil), at: 8)
+        central.leSet(target.aesVersion == nil ? raw.compressionMethod : 99, at: 10)
+        central.leSet(crc, at: 16)
+        central.leSet(UInt32(min(compressedSize, ZipRecords.limit)), at: 20)
+        central.leSet(UInt32(min(size, ZipRecords.limit)), at: 24)
+        central.leSet(UInt16(cn.count), at: 28)
+        central.leSet(UInt16(cx.count), at: 30)
+        central.leSet(UInt16(0), at: 34)
+        central.leSet(UInt32(min(offset, ZipRecords.limit)), at: 42)
         central.append(cn)
         central.append(cx)
         central.append(header.comment)
@@ -146,26 +146,26 @@ final class ZipConversion {
     }
 
     func validateHeaders(local: Data, central: Data) throws {
-        let localExtraStart = ZipRecords.FixedLength.local + Int(local.zip16(26))
-        let centralExtraStart = ZipRecords.FixedLength.central + Int(central.zip16(28))
-        let lx = local.subdata(in: localExtraStart..<(localExtraStart + Int(local.zip16(28))))
-        let cx = central.subdata(in: centralExtraStart..<(centralExtraStart + Int(central.zip16(30))))
+        let localExtraStart = ZipRecords.FixedLength.local + Int(local.le16(26))
+        let centralExtraStart = ZipRecords.FixedLength.central + Int(central.le16(28))
+        let lx = local.subdata(in: localExtraStart..<(localExtraStart + Int(local.le16(28))))
+        let cx = central.subdata(in: centralExtraStart..<(centralExtraStart + Int(central.le16(30))))
         let lf = ZipRebuild.extraFields(lx), cf = ZipRebuild.extraFields(cx)
-        var uncompressed = UInt64(local.zip32(22)), compressed = UInt64(local.zip32(18))
+        var uncompressed = UInt64(local.le32(22)), compressed = UInt64(local.le32(18))
         if uncompressed == ZipRecords.limit || compressed == ZipRecords.limit {
             let fields = lf.filter { $0.id == ZipRecords.ExtraID.zip64 }
             guard uncompressed == ZipRecords.limit, compressed == ZipRecords.limit,
                   fields.count == 1, fields[0].range.count == 20 else {
                 throw failure("出力 local の ZIP64 サイズを照合できません")
             }
-            uncompressed = lx.zip64(fields[0].range.lowerBound + 4)
-            compressed = lx.zip64(fields[0].range.lowerBound + 12)
+            uncompressed = lx.le64(fields[0].range.lowerBound + 4)
+            compressed = lx.le64(fields[0].range.lowerBound + 12)
         }
         let localAES = lf.filter { $0.id == ZipRecords.ExtraID.winZipAES }.map { lx.subdata(in: $0.range) }
         let centralAES = cf.filter { $0.id == ZipRecords.ExtraID.winZipAES }.map { cx.subdata(in: $0.range) }
         guard uncompressed == size, compressed == compressedSize, localAES == centralAES,
-              local.zip16(6) & 0x809 == central.zip16(8) & 0x809,
-              local.zip16(8) == central.zip16(10), local.zip32(14) == central.zip32(16) else {
+              local.le16(6) & 0x809 == central.le16(8) & 0x809,
+              local.le16(8) == central.le16(10), local.le32(14) == central.le32(16) else {
             throw failure("出力 local と中央ディレクトリが一致しません")
         }
     }
@@ -328,8 +328,8 @@ final class ZipReencryption {
             let digest = try Self.digest(stream, length: conversion.size, work: conversion.storedLength,
                 meter: &engine.meter, progress: progress, read: { buffer in try self.input(conversion) { try stream.read(into: buffer) } })
             conversion.crc = digest.crc
-            conversion.local.zipSet(digest.crc, at: 14)
-            conversion.central.zipSet(digest.crc, at: 16)
+            conversion.local.leSet(digest.crc, at: 14)
+            conversion.central.leSet(digest.crc, at: 16)
         }
         try Self.observe(.convert, conversion.index)
         let stream = try input(conversion) { try reader.zipStoredPayloadStream(at: conversion.index, aesKey: keys?.input) }

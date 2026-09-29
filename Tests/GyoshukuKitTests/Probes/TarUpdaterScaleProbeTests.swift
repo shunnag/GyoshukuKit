@@ -39,9 +39,9 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
                 }
                 let writes = IOEvents(), reads = IOEvents(), verification = Mutex(0.0)
                 let time = now()
-                try SplicedArchiveOutput.$testingVerificationElapsed.withValue({ elapsed in verification.withLock { $0 = elapsed } }) {
+                try SegmentedArchiveOutput.$testingVerificationElapsed.withValue({ elapsed in verification.withLock { $0 = elapsed } }) {
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
-                        try SplicedArchiveOutput.$verificationReadObserver.withValue(reads.write) { try editor.commit() }
+                        try SegmentedArchiveOutput.$verificationReadObserver.withValue(reads.write) { try editor.commit() }
                     }
                 }
                 let commit = now() - time

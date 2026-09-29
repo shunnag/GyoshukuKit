@@ -148,7 +148,7 @@ enum CompressedTarTestSupport {
         var updates: [ArchiveUpdater.CommitProgress] = []
         let verificationReads = IOEvents()
         let result = try CompressedTarUpdater.$testingForcesFullEncode.withValue(force) {
-            try SplicedArchiveOutput.$verificationReadObserver.withValue(verificationReads.write) {
+            try SegmentedArchiveOutput.$verificationReadObserver.withValue(verificationReads.write) {
                 try editor.commit { updates.append($0) }
             }
         }

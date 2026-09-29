@@ -17,10 +17,10 @@ extension ZipRebuild {
             }
             let bytes = try source.bytes(at: raw.recordRange.lowerBound, count: Int(length))
             fixed = bytes.subdata(in: 0..<fixedLength)
-            let nameLength = Int(fixed.zip16(26))
-            let extraLength = Int(fixed.zip16(28))
+            let nameLength = Int(fixed.le16(26))
+            let extraLength = Int(fixed.le16(28))
             let variableOffset = try checkedAdd(raw.recordRange.lowerBound, UInt64(fixedLength))
-            guard fixed.zip32(0) == ZipRecords.Signature.local,
+            guard fixed.le32(0) == ZipRecords.Signature.local,
                   try checkedAdd(variableOffset, UInt64(nameLength + extraLength)) == raw.payloadRange.lowerBound else {
                 throw UpdaterError.invalidArchive("local header と rawRecord の payload 位置が一致しません")
             }
@@ -31,8 +31,8 @@ extension ZipRebuild {
         func renamed(_ name: Data) throws -> Data {
             guard name.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
             var result = fixed
-            result.zipSet(fixed.zip16(6) | ZipRecords.flags, at: 6)
-            result.zipSet(UInt16(name.count), at: 26)
+            result.leSet(fixed.le16(6) | ZipRecords.flags, at: 6)
+            result.leSet(UInt16(name.count), at: 26)
             result.append(name)
             result.append(try renamedExtra(extra))
             return result
@@ -50,8 +50,8 @@ extension ZipRebuild {
             let fixedLength = UInt64(ZipRecords.FixedLength.central)
             guard offset <= end, end - offset >= fixedLength else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
             fixed = try source.bytes(at: offset, count: Int(fixedLength))
-            guard fixed.zip32(0) == ZipRecords.Signature.central else { throw UpdaterError.invalidArchive("CD signature がありません") }
-            let n = Int(fixed.zip16(28)), e = Int(fixed.zip16(30)), c = Int(fixed.zip16(32))
+            guard fixed.le32(0) == ZipRecords.Signature.central else { throw UpdaterError.invalidArchive("CD signature がありません") }
+            let n = Int(fixed.le16(28)), e = Int(fixed.le16(30)), c = Int(fixed.le16(32))
             guard UInt64(n + e + c) <= end - offset - fixedLength else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
             name = try source.bytes(at: offset + fixedLength, count: n)
             extra = try source.bytes(at: offset + fixedLength + UInt64(n), count: e)
@@ -63,8 +63,8 @@ extension ZipRebuild {
             let range = range ?? bytes.startIndex..<bytes.endIndex
             let start = range.lowerBound
             guard range.count >= fixedLength else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
-            guard bytes.zip32(start) == ZipRecords.Signature.central else { throw UpdaterError.invalidArchive("CD signature がありません") }
-            let n = Int(bytes.zip16(start + 28)), e = Int(bytes.zip16(start + 30)), c = Int(bytes.zip16(start + 32))
+            guard bytes.le32(start) == ZipRecords.Signature.central else { throw UpdaterError.invalidArchive("CD signature がありません") }
+            let n = Int(bytes.le16(start + 28)), e = Int(bytes.le16(start + 30)), c = Int(bytes.le16(start + 32))
             guard n + e + c <= range.count - fixedLength else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
             fixed = bytes.subdata(in: start..<(start + fixedLength))
             name = bytes.subdata(in: (start + fixedLength)..<(start + fixedLength + n))
@@ -95,14 +95,14 @@ extension ZipRebuild {
             let name = newName ?? name
             guard name.count <= Int(UInt16.max), extras.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
             var result = fixed
-            if !zip64.isEmpty || preserveDescriptorMarker { result.zipSet(max(fixed.zip16(6), 45), at: 6) }
-            if newName != nil { result.zipSet(fixed.zip16(8) | ZipRecords.flags, at: 8) }
-            result.zipSet(UInt32(min(compressedSize, ZipRecords.limit)), at: 20)
-            result.zipSet(UInt32(min(size, ZipRecords.limit)), at: 24)
-            result.zipSet(UInt16(name.count), at: 28)
-            result.zipSet(UInt16(extras.count), at: 30)
-            result.zipSet(UInt16(0), at: 34)
-            result.zipSet(UInt32(min(offset, ZipRecords.limit)), at: 42)
+            if !zip64.isEmpty || preserveDescriptorMarker { result.leSet(max(fixed.le16(6), 45), at: 6) }
+            if newName != nil { result.leSet(fixed.le16(8) | ZipRecords.flags, at: 8) }
+            result.leSet(UInt32(min(compressedSize, ZipRecords.limit)), at: 20)
+            result.leSet(UInt32(min(size, ZipRecords.limit)), at: 24)
+            result.leSet(UInt16(name.count), at: 28)
+            result.leSet(UInt16(extras.count), at: 30)
+            result.leSet(UInt16(0), at: 34)
+            result.leSet(UInt32(min(offset, ZipRecords.limit)), at: 42)
             result.append(name)
             result.append(extras)
             result.append(comment)
@@ -114,10 +114,10 @@ extension ZipRebuild {
         var fields: [(UInt16, Range<Int>)] = []
         var cursor = 0
         while data.count - cursor >= 4 {
-            let length = Int(data.zip16(cursor + 2))
+            let length = Int(data.le16(cursor + 2))
             guard length <= data.count - cursor - 4 else { break }
             let end = cursor + 4 + length
-            fields.append((data.zip16(cursor), cursor..<end))
+            fields.append((data.le16(cursor), cursor..<end))
             cursor = end
         }
         return fields
@@ -130,7 +130,7 @@ extension ZipRebuild {
             switch field.id {
             case ZipRecords.ExtraID.infoZipUnicodePath:
                 // 長さを保って旧名と CRC を消し、同長改名の payload 位置を維持する。
-                result.zipSet(ZipRecords.ExtraID.reservedPadding, at: field.range.lowerBound)
+                result.leSet(ZipRecords.ExtraID.reservedPadding, at: field.range.lowerBound)
                 result.resetBytes(in: (field.range.lowerBound + 4)..<field.range.upperBound)
             case let id where ZipRecords.ExtraID.nameBearing.contains(id):
                 // 名前と他の metadata が混在し得る拡張は、黙って捨てず改名を拒否する。

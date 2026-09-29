@@ -23,7 +23,7 @@ public final class TarUpdater: ArchiveEditing {
     private let rawNames: [Data]
     private let hardLinkTargets: [Int: Int]
     private let dataTargets: [Int: Int]
-    private let destination: SplicedArchiveOutput
+    private let destination: SegmentedArchiveOutput
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
     private var appendStart: UInt64?
@@ -45,7 +45,7 @@ public final class TarUpdater: ArchiveEditing {
         rawNames = reader.entries.map { Data($0.rawName.bytes) }
         self.hardLinkTargets = hardLinkTargets
         self.dataTargets = dataTargets
-        destination = SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "tar",
+        destination = SegmentedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "tar",
                                            sequential: Self.testingDisablesClone)
     }
     deinit { if state != .committed { cleanup() } }
@@ -138,10 +138,10 @@ public final class TarUpdater: ArchiveEditing {
             writer = nil
             let appended = appendedEnd.map { appendStart!..<$0 }
             let plan = try makePlan(additionLength: appended?.byteLength ?? 0)
-            let prefix: [SplicedSegment] = plan.isChanged ? plan.prefix : [.source(0..<snapshot.source.length)]
+            let prefix: [OutputSegment] = plan.isChanged ? plan.prefix : [.source(0..<snapshot.source.length)]
             let finalLength = plan.isChanged ? try checkedAdd(plan.membersEnd,
                 checkedAdd(appended?.byteLength ?? 0, UInt64(plan.terminal.count))) : snapshot.source.length
-            let outputPlan = SplicedCommitPlan(prefix: prefix, appended: appended, terminal: plan.terminal,
+            let outputPlan = SegmentCommitPlan(prefix: prefix, appended: appended, terminal: plan.terminal,
                 finalLength: finalLength, formatVerificationUnits: UInt64(plan.boundaries.count) * TarSelfCheck.boundaryUnits)
             let meter = CommitProgressMeter(total: destination.units(for: outputPlan), progress: { update in
                 try progress?(update)
@@ -150,7 +150,7 @@ public final class TarUpdater: ArchiveEditing {
             try Task.checkCancellation()
             try meter.start()
             let fault = Self.testingFault.map { TarSelfCheck.faultAction($0, plan: plan, finalLength: finalLength) }
-            let strategy = try SplicedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
+            let strategy = try SegmentedArchiveOutput.$testingBeforeSynchronize.withValue(fault) {
                 try destination.commit(outputPlan, meter: meter) { fd, advance in
                     try TarSelfCheck.verify(plan: plan, appendedPaths: appendedPaths, additionLength: appended?.byteLength ?? 0,
                                             finalLength: finalLength, descriptor: fd, source: self.snapshot.source,
@@ -196,7 +196,7 @@ public final class TarUpdater: ArchiveEditing {
 
 extension TarUpdater.CommitStrategy {
     /// 共有 engine の戦略を tar の戦略に写す。engine には追加だけに見える commit でも、削除や header 変更を含めば splice。
-    init(_ shared: SplicedCommitStrategy, appendWasSplice: Bool) {
+    init(_ shared: SegmentCommitStrategy, appendWasSplice: Bool) {
         switch shared {
         case .unchanged: self = .unchanged
         case .inPlacePatch: self = .inPlacePatch

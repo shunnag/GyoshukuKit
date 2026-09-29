@@ -4,7 +4,7 @@ private import Darwin
 
 /// LHAUpdater の commit 後の自己照合。失敗理由の先頭の符号（design.md §4「LHA の更新」）:
 /// V1 改名 header の byte・CRC・解釈、V2 source segment 境界の header の一致、V3 追加 block の独立 walk・
-/// writer の記録・KaitoKit による全復号、V4 長さと終端の 0、V5 書いた source 範囲の memcmp（SplicedArchiveOutput が行う）。
+/// writer の記録・KaitoKit による全復号、V4 長さと終端の 0、V5 書いた source 範囲の memcmp（SegmentedArchiveOutput が行う）。
 enum LHASelfCheck {
     typealias Timings = (v2: Double, v3: Double, total: Double)
 
@@ -26,7 +26,7 @@ enum LHASelfCheck {
             let output = try ArchiveFileSource(duplicating: descriptor)
             for change in plan.changed {
                 try Task.checkCancellation()
-                let actual = try SplicedArchiveOutput.read(descriptor, at: change.outputOffset, count: change.header.count)
+                let actual = try SegmentedArchiveOutput.read(descriptor, at: change.outputOffset, count: change.header.count)
                 guard actual == change.header, actual.first != 0 else { throw failure("V1 header") }
                 let original = try layout.member(change.index)
                 let payloadLength = original.dataRange.byteLength
@@ -43,8 +43,8 @@ enum LHASelfCheck {
             let v2Start = ProcessInfo.processInfo.systemUptime
             for boundary in plan.boundaries {
                 try Task.checkCancellation()
-                let original = try SplicedArchiveOutput.read(source.descriptor, at: boundary.source, count: Int(boundary.length), counted: true)
-                let written = try SplicedArchiveOutput.read(descriptor, at: boundary.output, count: Int(boundary.length), counted: true)
+                let original = try SegmentedArchiveOutput.read(source.descriptor, at: boundary.source, count: Int(boundary.length), counted: true)
+                let written = try SegmentedArchiveOutput.read(descriptor, at: boundary.output, count: Int(boundary.length), counted: true)
                 try advancing(boundary.length * 2)
                 guard original == written else { throw failure("V2 boundary header") }
             }
@@ -60,7 +60,7 @@ enum LHASelfCheck {
                 }
                 timings.v3 = ProcessInfo.processInfo.systemUptime - v3Start
             }
-            guard try SplicedArchiveOutput.read(descriptor, at: finalLength - 1, count: 1) == Data([0]) else { throw failure("V4 terminator") }
+            guard try SegmentedArchiveOutput.read(descriptor, at: finalLength - 1, count: 1) == Data([0]) else { throw failure("V4 terminator") }
         }
         do { try check() } catch {
             if let progressError { throw progressError }
@@ -131,7 +131,7 @@ enum LHASelfCheck {
             switch fault {
             case .flipWrittenByte(let value): offset = value
             case .shiftSourceSegment:
-                let bytes = try SplicedArchiveOutput.read(fd, at: boundary + 1, count: 21)
+                let bytes = try SegmentedArchiveOutput.read(fd, at: boundary + 1, count: 21)
                 try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: boundary) }
                 return
             case .corruptWrittenHeader: offset = header
@@ -140,7 +140,7 @@ enum LHASelfCheck {
                 try FileHandle(fileDescriptor: fd, closeOnDealloc: false).truncate(atOffset: finalLength - 1)
                 return
             }
-            var byte = try SplicedArchiveOutput.read(fd, at: offset, count: 1)
+            var byte = try SegmentedArchiveOutput.read(fd, at: offset, count: 1)
             byte[0] ^= 1
             try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: offset) }
         }
