@@ -65,7 +65,7 @@ final class ParallelZIP64BoundaryTests: XCTestCase {
         XCTAssertEqual(entry.crc32, crc.value)
         TestSupport.report("PARALLEL ZIP64 random input=\(size), compressed=\(compressed); every byte verified")
         for candidates in [[ReferenceTool.unzip], [ReferenceTool.sevenZip, "/usr/local/bin/7zz"]] {
-            let tool = try ReferenceTool.firstAvailable(candidates)
+            let tool = try ReferenceTool.require(candidates)
             try TestSupport.run(tool, [tool.hasSuffix("unzip") ? "-t" : "t", url.path], in: directory,
                                    log: tool.hasSuffix("unzip") ? "unzip-test" : "7zz-test")
         }

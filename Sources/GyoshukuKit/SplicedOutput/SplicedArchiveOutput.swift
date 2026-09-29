@@ -31,39 +31,6 @@ fileprivate final class SplicedSegmentWriter {
     func flush() throws { try engine.flush(progress: nil) }
 }
 
-// 再配置する追加や 7z の folder 出力の一時保存。discard() まで名前を保ち、ArchiveOwnedFile.remove で path と fd の一致を確かめて消す。
-// TarSpliceStorage（作成直後に unlink）と LHACompressionSpool（mkstemp + unlink）とは寿命が異なる。copySeconds は 7z の統計に載る。
-final class SplicedScratchFile {
-    private let url: URL
-    fileprivate let handle: FileHandle
-    fileprivate(set) var length: UInt64 = 0
-    fileprivate(set) var copySeconds = 0.0
-    private var discarded = false
-
-    fileprivate init(url: URL) throws {
-        let fd = Darwin.open(url.path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw WriterError.io(operation: "create scratch", code: errno) }
-        handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        self.url = url
-    }
-    deinit { discard() }
-    func append(_ bytes: Data) throws {
-        let writer = SplicedSegmentWriter(descriptor: handle.fileDescriptor, position: length, meter: nil)
-        try writer.write(bytes)
-        try writer.flush()
-        length = writer.position
-    }
-    func source() throws -> ArchiveFileSource {
-        try ArchiveFileSource(duplicating: handle.fileDescriptor)
-    }
-    fileprivate func discard() {
-        guard !discarded else { return }
-        discarded = true
-        ArchiveOwnedFile.remove(url: url, descriptor: handle.fileDescriptor)
-        try? handle.close()
-    }
-}
-
 // 形式側は座標と終端を渡し、inode の所有とコピー・照合はここに集める。
 final class SplicedArchiveOutput {
     @TaskLocal static var verificationReadObserver: (@Sendable (UInt64, Int) -> Void)?
@@ -76,7 +43,7 @@ final class SplicedArchiveOutput {
     private let pathExtension: String
     let isCloneMode: Bool
     private let file: OwnedOutputFile
-    private var scratch: [SplicedScratchFile] = []
+    private var scratch: [ScratchFile] = []
     private var initialPrefix: [SplicedSegment]?
     private var committed = false
 
@@ -124,13 +91,8 @@ final class SplicedArchiveOutput {
         } catch { discard(); throw error }
     }
 
-    func makeScratch(tag: String) throws -> SplicedScratchFile {
-        guard !tag.isEmpty, tag.utf8.allSatisfy({ ($0 >= 97 && $0 <= 122) || ($0 >= 48 && $0 <= 57) || $0 == 45 }) else {
-            throw WriterError.invalidPath(tag)
-        }
-        let url = output.deletingLastPathComponent()
-            .appendingPathComponent(".gyoshuku-\(tag)-\(UUID().uuidString).\(pathExtension)")
-        let file = try SplicedScratchFile(url: url)
+    func makeScratch(tag: String) throws -> ScratchFile {
+        let file = try ScratchFile(directory: output.deletingLastPathComponent(), tag: tag, pathExtension: pathExtension)
         scratch.append(file)
         return file
     }
@@ -216,14 +178,15 @@ final class SplicedArchiveOutput {
             try file.checkOutput()
             let relocate = relocated(plan)
             let prefixEnd = plan.prefix.reduce(UInt64(0)) { $0 + $1.length }
-            var spool: SplicedScratchFile?
+            var spool: ScratchFile?
             if relocate, let appended = plan.appended {
                 let scratchFile = try makeScratch(tag: "append")
                 let source = try ArchiveFileSource(duplicating: file.descriptor)
                 let writer = SplicedSegmentWriter(descriptor: scratchFile.handle.fileDescriptor, meter: meter)
                 try writer.copy(appended, from: source)
                 try writer.flush()
-                scratchFile.length = writer.position
+                // writer が fd に直接書いた分を scratch の長さに反映する（容量検査も同じ経路）。
+                try scratchFile.willWrite(Int(writer.position))
                 spool = scratchFile
                 if isCloneMode {
                     try file.reset()
@@ -259,7 +222,7 @@ final class SplicedArchiveOutput {
             try snapshot.checkUnchanged()
             try file.checkOutput()
             try file.adopt()
-            scratch.forEach { $0.discard() }
+            scratch.forEach { $0.close() }
             scratch.removeAll()
             snapshot.cleanup()
             committed = true
@@ -309,7 +272,7 @@ final class SplicedArchiveOutput {
 
     func discard() {
         file.discard()
-        scratch.forEach { $0.discard() }
+        scratch.forEach { $0.close() }
         scratch.removeAll()
         snapshot.cleanup()
     }

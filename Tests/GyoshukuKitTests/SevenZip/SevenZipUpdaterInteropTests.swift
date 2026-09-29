@@ -6,7 +6,6 @@ import XCTest
 
 final class SevenZipUpdaterInteropTests: XCTestCase {
     func testExternalReadersAndExtractionHashes() throws {
-        guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
         let root = try TestSupport.directory("7z-interop")
         for name in ["g_plain", "g_aes", "g_aesh", "z_default", "z_aes", "z_aesh", "z_aesonlyh", "z_special", "anti", "lib", "bcj", "bcj2", "ppmd", "solid_zero"] {
             let source = SevenZipEditSupport.fixture(name)
@@ -29,7 +28,6 @@ final class SevenZipUpdaterInteropTests: XCTestCase {
     // (7-Zip 26.03, exit 2, Unsupported Method). Preserve that value, including its bytes;
     // require the same rejection only while a StartPos entry remains. No other exception.
     func testStartPosBaselineAndPreservation() throws {
-        guard SevenZipExternalOracles.available else { throw XCTSkip("7zz / bsdtar unavailable") }
         let root = try TestSupport.directory("7z-startpos-interop")
         let source = SevenZipEditSupport.fixture("startpos")
         let original = try SevenZipEditSupport.reader(source)

@@ -84,18 +84,18 @@ final class CompressedTarPackingEditTests: XCTestCase {
     }
 
     private func verifyBridges(_ output: URL, result: CompressedTarCommitResult) throws {
-        let decoded = try TarChunkLayoutTestSupport.decode(output, format: .tarXZ)
-        let members = try TarChunkLayoutTestSupport.members(in: decoded.raw)
+        let decoded = try TarChunkCutterTestSupport.decode(output, format: .tarXZ)
+        let members = try TarChunkCutterTestSupport.members(in: decoded.raw)
         let map = try XCTUnwrap(CompressedTarTestSupport.open(output).tarEditingSnapshot()?.chunkMap)
         for segment in result.segments {
             guard case .encoded(let range) = segment else { continue }
             let chunks = map.chunks.filter { range.contains($0.compressedRange.lowerBound) }
             guard let first = chunks.first, let last = chunks.last else { continue }
             let start = Int(first.imageRange.lowerBound), end = Int(last.imageRange.upperBound)
-            let clipped: [TarChunkLayoutTestSupport.Member] = members.filter { $0.end > start && $0.groupStart < end }.map {
+            let clipped: [TarChunkCutterTestSupport.Member] = members.filter { $0.end > start && $0.groupStart < end }.map {
                 (max(start, $0.groupStart) - start, min(end, max(start, $0.dataStart)) - start, min(end, $0.end) - start)
             }
-            let expected = TarChunkLayoutTestSupport.ranges(members: clipped, total: end - start, limits: limits)
+            let expected = TarChunkCutterTestSupport.ranges(members: clipped, total: end - start, limits: limits)
             XCTAssertEqual(chunks.map { Int($0.imageRange.byteLength) }, expected.map(\.count))
         }
     }

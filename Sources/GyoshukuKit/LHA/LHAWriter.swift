@@ -1,5 +1,4 @@
 import Foundation
-private import Darwin
 
 // 名前の正規化・衝突検査・ディスク探索は ArchiveWriter と共有する。
 final class LHAWriter {
@@ -115,6 +114,7 @@ final class LHAWriter {
 
     /// 1 MiB を超える member。仮 header を書いてから raw byte を出力へ、圧縮 byte を spool へ書き進め、
     /// 最後に縮んだ側を残して header を確定する。addStreamed（逐次）と addStreamedParallel（並列）が共有する。
+    /// 圧縮 byte は名前を残さない ScratchFile に保存し、member を書き終えると閉じる。
     private struct StreamedMember {
         let writer: LHAWriter
         let entry: LHARecords.Entry
@@ -122,7 +122,7 @@ final class LHAWriter {
         let size: UInt64
         let headerOffset: UInt64
         let placeholder: Data
-        let spool: LHACompressionSpool
+        let spool: ScratchFile
         let payloadOffset: UInt64
         private(set) var remaining: UInt64
         private(set) var crc: UInt16 = 0
@@ -131,7 +131,7 @@ final class LHAWriter {
             self.writer = writer; self.entry = entry; self.name = name; self.size = size
             headerOffset = try writer.output.offset()
             placeholder = try entry.header(method: Method.lh0, packedSize: entry.size, crc: 0)
-            spool = try LHACompressionSpool(nextTo: writer.url)
+            spool = try ScratchFile(directory: writer.url.deletingLastPathComponent(), tag: "lha", pathExtension: writer.url.pathExtension)
             try writer.write(placeholder)
             payloadOffset = try writer.output.offset()
             remaining = size
@@ -158,13 +158,13 @@ final class LHAWriter {
         /// 圧縮を続けていれば残りの bit を spool へ流し、縮んだなら spool を payload の位置へ戻して切り詰める。
         /// 確定した header を仮 header の位置に書き、record する。
         func finish(compressing: Bool, bits: inout LH5Encoder.Bits) throws {
-            if compressing { try spool.write(bits.finish()) }
-            let shrinks = compressing && spool.size < size
-            let packedSize = shrinks ? spool.size : size
+            if compressing { try spool.append(bits.finish()) }
+            let shrinks = compressing && spool.length < size
+            let packedSize = shrinks ? spool.length : size
             let end = try checkedAdd(payloadOffset, packedSize)
             if shrinks {
                 try writer.output.seek(toOffset: payloadOffset)
-                try spool.copy(emit: writer.write)
+                try spool.forEachChunk(writer.write)
                 try writer.output.truncate(atOffset: end)
             }
             let method = shrinks ? Method.lh5 : Method.lh0
@@ -191,9 +191,9 @@ final class LHAWriter {
             if compressing {
                 try LH5Encoder.write(input, startingAt: prefixSize, to: &bits)
                 history = Data(input.suffix(LH5Encoder.windowSize))
-                try member.spool.write(bits.takeCompleteBytes())
+                try member.spool.append(bits.takeCompleteBytes())
                 // 圧縮出力は増えるだけ。勝てないと分かった時点で、既に書いた raw byte を残して codec の仕事を止める。
-                compressing = member.spool.size < size
+                compressing = member.spool.length < size
             }
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
@@ -226,10 +226,10 @@ final class LHAWriter {
         func emitPiece(_: Void, _ result: PieceOutput?) throws {
             guard let result else { throw WriterError.invalidState }
             bits.append(result.bytes, remainder: result.remainder)
-            try spool.write(bits.takeCompleteBytes())
+            try spool.append(bits.takeCompleteBytes())
             // emit 中に直接 abandon すると、pipeline の取出し途中の tag を消してしまう。
             // 内部の停止だけを捕捉し、pipeline 自身の失敗時の abandon を通す。
-            if spool.size >= size { throw CompressionStopped.stored }
+            if spool.length >= size { throw CompressionStopped.stored }
         }
         while member.remaining > 0 {
             try Task.checkCancellation()
@@ -284,54 +284,6 @@ final class LHAWriter {
             try Task.checkCancellation()
             let start = data.startIndex + offset
             try output.write(contentsOf: data[start..<min(start + IOChunk.size, data.endIndex)])
-        }
-    }
-}
-
-/// spool が要るのは圧縮 byte だけで、raw の代替は書き終える前の出力そのものに置く。作ってすぐ unlink し、
-/// 取消し・I/O error・process 終了で名前のある payload file が残らないようにする。memory 使用量は size に依らない。
-/// SplicedScratchFile（discard() まで名前を保つ）や TarSpliceStorage（commit まで fd を持つ）とは寿命が異なり、一つの member を書き終えると閉じる。
-private final class LHACompressionSpool {
-    private let file: FileHandle
-    private(set) var size: UInt64 = 0
-
-    init(nextTo output: URL) throws {
-        var template = Array(output.deletingLastPathComponent()
-            .appendingPathComponent(".gyoshuku-lha-XXXXXX").path.utf8CString)
-        let descriptor = mkstemp(&template)
-        guard descriptor >= 0 else { throw WriterError.io(operation: "create LHA spool", code: errno) }
-        let path = String(decoding: template.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        guard fcntl(descriptor, F_SETFD, FD_CLOEXEC) != -1 else {
-            let code = errno
-            Darwin.close(descriptor)
-            unlink(path)
-            throw WriterError.io(operation: "configure LHA spool", code: code)
-        }
-        guard unlink(path) == 0 else {
-            let code = errno
-            Darwin.close(descriptor)
-            throw WriterError.io(operation: "unlink LHA spool", code: code)
-        }
-        file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    }
-
-    deinit { try? file.close() }
-
-    func write(_ data: Data) throws {
-        let next = try checkedAdd(size, UInt64(data.count))
-        try file.write(contentsOf: data)
-        size = next
-    }
-
-    func copy(emit: (Data) throws -> Void) throws {
-        try file.seek(toOffset: 0)
-        var remaining = size
-        while remaining > 0 {
-            try Task.checkCancellation()
-            let chunk = try FileRead.readChunk(file.fileDescriptor, upTo: Int(min(UInt64(IOChunk.size), remaining)))
-            guard !chunk.isEmpty else { throw WriterError.io(operation: "read LHA spool", code: EIO) }
-            try emit(chunk)
-            remaining -= UInt64(chunk.count)
         }
     }
 }

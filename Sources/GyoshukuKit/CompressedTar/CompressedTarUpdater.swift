@@ -3,7 +3,7 @@ private import Darwin
 @_spi(TarEditLayout) public import KaitoKit
 
 // 圧縮 tar の区切り単位の更新。経路は
-// TarEditPlan → TarImageSource（+TarSpliceStorage）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
+// TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
 // この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは入口。open で構造を照合し、削除・改名・追加を記録して commit で上の経路を走らせる。
 
@@ -37,7 +37,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     private let ledger: EntryEditLedger, rawNames: [Data]
     private let hardLinkTargets: [Int: Int], dataTargets: [Int: Int]
     private var writerPathsNeedRefresh = false
-    private var writer: ArchiveWriter?, storage: TarSpliceStorage?
+    private var writer: ArchiveWriter?, storage: ScratchFile?
     private var destination: CompressedTarSpliceOutput?
     private enum State { case adding, committing, committed, failed }
     private var state = State.adding
@@ -183,7 +183,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
                 guard self.state == .committing else { throw UpdaterError.invalidState }
             })
             try Task.checkCancellation()
-            lastCommitStatistics = destination.statistics(planning: planning, scratch: storage?.written ?? 0, result: committed)
+            lastCommitStatistics = destination.statistics(planning: planning, scratch: storage?.length ?? 0, result: committed)
             result = committed
             destination.keep()
             self.destination = nil; storage = nil; self.editingSnapshot = nil
@@ -192,9 +192,9 @@ public final class CompressedTarUpdater: ArchiveEditing {
         return result!
     }
 
-    private func preparedStorage() throws -> TarSpliceStorage {
+    private func preparedStorage() throws -> ScratchFile {
         if let storage { return storage }
-        let storage = try TarSpliceStorage(directory: output.deletingLastPathComponent())
+        let storage = try ScratchFile(directory: output.deletingLastPathComponent(), tag: "splice", pathExtension: "tar")
         self.storage = storage
         return storage
     }
@@ -207,7 +207,8 @@ public final class CompressedTarUpdater: ArchiveEditing {
         let fd = fcntl(storage.handle.fileDescriptor, F_DUPFD_CLOEXEC, 0)
         guard fd >= 0 else { throw WriterError.io(operation: "dup append storage", code: errno) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        let writer = try ArchiveWriter.tarAppend(output: handle, url: storage.url, at: 0, options: options,
+        // 保存先は unlink 済みの fd。writer の URL は出力先を示し、inode 照合でその名前は削除されない。
+        let writer = try ArchiveWriter.tarAppend(output: handle, url: output, at: 0, options: options,
                                                  existingPaths: ledger.existingPaths, recordsMemberLayout: true,
                                                  willWrite: { [storage] in try storage.willWrite($0) })
         self.writer = writer; writerPathsNeedRefresh = false

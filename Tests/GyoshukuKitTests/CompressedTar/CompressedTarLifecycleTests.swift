@@ -137,8 +137,8 @@ final class CompressedTarLifecycleTests: XCTestCase {
         let beforeSpaceFailure = Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
         let scratchFD = Mutex<Int32>(-1)
         let failed = try CompressedTarUpdater.open(reader: CompressedTarTestSupport.open(source), output: output, format: .tarGzip)
-        XCTAssertThrowsError(try TarSpliceStorage.$testingCreated.withValue({ fd in scratchFD.withLock { $0 = fd } }) {
-            try TarSpliceStorage.$testingFreeSpaceReserve.withValue(UInt64.max) { try failed.add(data: Data([1]), as: "added") }
+        XCTAssertThrowsError(try ScratchFile.$testingCreated.withValue({ fd in scratchFD.withLock { $0 = fd } }) {
+            try ScratchFile.$testingFreeSpaceReserve.withValue(UInt64.max) { try failed.add(data: Data([1]), as: "added") }
         }) {
             XCTAssertEqual($0 as? WriterError, .io(operation: "free space", code: ENOSPC))
         }

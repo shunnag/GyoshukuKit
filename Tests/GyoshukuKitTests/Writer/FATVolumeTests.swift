@@ -187,7 +187,7 @@ final class FATVolumeTests: XCTestCase {
     }
 
     private func splicedOutput(_ root: URL) throws {
-        for action in ["commit", "relocate", "discard", "empty-discard", "scratch-discard", "scratch-failure", "foreign-empty", "foreign-scratch", "foreign-empty-scratch"] {
+        for action in ["commit", "relocate", "discard", "empty-discard", "scratch-discard", "scratch-failure", "foreign-empty"] {
             let work = try directory(root, "spliced-" + action), source = work.appendingPathComponent("source.bin")
             let bytes = Data((0..<100).map(UInt8.init))
             try bytes.write(to: source)
@@ -199,20 +199,7 @@ final class FATVolumeTests: XCTestCase {
             try scratch.append(Data([201, 202]))
             XCTAssertEqual(try scratch.source().bytes(at: 0, count: 2), Data([201, 202]))
             _ = try output.makeScratch(tag: "empty")
-            if action == "foreign-scratch" || action == "foreign-empty-scratch" {
-                let prefix = action == "foreign-scratch" ? ".gyoshuku-volume-" : ".gyoshuku-empty-"
-                let replaced = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil)
-                    .first { $0.lastPathComponent.hasPrefix(prefix) })
-                let moved = work.appendingPathComponent("moved.bin")
-                try FileManager.default.moveItem(at: replaced, to: moved)
-                let foreign = action == "foreign-scratch" ? Data([77]) : Data()
-                try foreign.write(to: replaced)
-                XCTAssertEqual(try scratch.source().bytes(at: 0, count: 2), Data([201, 202]))
-                output.discard()
-                XCTAssertEqual(try Data(contentsOf: replaced), foreign)
-                try contents(work, ["source.bin", "moved.bin", replaced.lastPathComponent])
-                continue
-            }
+            try contents(work, ["source.bin"])
             let offset: UInt64 = action == "empty-discard" || action == "foreign-empty" ? 0 : 50
             let handle = try output.beginAppend(at: offset, prefix: offset == 0 ? [] : [.source(0..<50)])
             if action == "foreign-empty" {

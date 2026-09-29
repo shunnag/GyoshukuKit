@@ -6,12 +6,10 @@ import XCTest
 
 /// 7-Zip と bsdtar で 7z 書庫を検査・展開し、KaitoKit で読んだ全 entry の内容と照合する。
 enum SevenZipExternalOracles {
-    static var available: Bool {
-        FileManager.default.isExecutableFile(atPath: ReferenceTool.sevenZip) && FileManager.default.isExecutableFile(atPath: ReferenceTool.bsdtar)
-    }
-    /// 7zz か bsdtar が無ければ skip する（黙って何も検査せずに通さない）。
+    /// 7zz か bsdtar が無ければ XCTFail して throw する。
     static func check(_ output: URL, password: String?, permitsStartPosRejection: Bool = false) throws {
-        guard available else { throw XCTSkip("7zz / bsdtar unavailable") }
+        _ = try ReferenceTool.require([ReferenceTool.sevenZip])
+        _ = try ReferenceTool.require([ReferenceTool.bsdtar])
         // Keep reference-tool artifacts away from the transaction's cleanup assertions.
         let parent = TestPaths.verification.appendingPathComponent("7z-external-oracles")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)

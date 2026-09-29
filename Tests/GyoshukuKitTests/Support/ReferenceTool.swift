@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 /// 書いた書庫を製品の実装とは別に読み直す外部ツールの path と、その起動。
+/// ツールが無ければ失敗する。名前に `WhenAvailable` を含む試験だけ `optional` で skip を許す。
 /// Homebrew の三つは CI が `brew install sevenzip xz lhasa gnu-tar` で入れ、残りは macOS に同梱のものを使う。
 /// 形式ごとの出力の検査（7-Zip の "Everything is Ok"、Lhasa の "Tested" など）は各 `*TestSupport` の wrapper に置く。
 enum ReferenceTool {
@@ -100,8 +101,17 @@ enum ReferenceTool {
         return output
     }
 
-    /// 候補の path のうち最初に実行できるもの。どれも無ければ skip する。
-    static func firstAvailable(_ candidates: [String]) throws -> String {
+    /// 候補の path のうち最初に実行できるもの。どれも無ければ XCTFail して throw する。
+    static func require(_ candidates: [String]) throws -> String {
+        guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            XCTFail("Required reference tool missing: \(candidates.joined(separator: ", "))")
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return path
+    }
+
+    /// `WhenAvailable` の試験用。候補の path がどれも実行できなければ skip する。
+    static func optional(_ candidates: [String]) throws -> String {
         guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             throw XCTSkip("Reference tool missing: \(candidates.joined(separator: ", "))")
         }
