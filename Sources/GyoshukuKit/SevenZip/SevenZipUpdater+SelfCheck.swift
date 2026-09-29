@@ -4,14 +4,14 @@ import Synchronization
 
 extension SevenZipUpdater {
     static func verificationUnits(assembly: SevenZipEditPlan.Assembly, plan: SevenZipEditPlan,
-                                  conversions: [Int: SevenZipFolderConversion]) -> UInt64 {
+                                  workset: SevenZipFolderWorkset) -> UInt64 {
         let model = assembly.model
         var units = model.plainHeaderLength
         for index in assembly.firstAddedFolder..<model.folders.count { units += model.folders[index].size }
         for work in plan.works {
             switch work {
             case .reencode(let index, _): units += model.folders[assembly.outputFolderIndices[index]!].size
-            case .convert(let index, _): units += conversions[index]!.plaintextLength
+            case .convert(let index, _): units += workset.conversions[index]!.plaintextLength
             default: break
             }
         }
@@ -23,7 +23,7 @@ extension SevenZipUpdater {
     /// V1 dup した descriptor 上で KaitoKit が解析した model と期待 model の一致、
     /// V2 共有出力の V5（動かした source 範囲の byte 比較。SegmentedArchiveOutput が行う）、
     /// V3 追加・再圧縮 folder の全 substream の復号、V3a 変換 folder の圧縮済み平文の長さと CRC。
-    func selfCheck(fd: Int32, plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly,
+    func selfCheck(fd: Int32, plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly, workset: SevenZipFolderWorkset,
                    advance: (UInt64) throws -> Void, statistics: inout SevenZipCommitStatistics) throws {
         let start = ProcessInfo.processInfo.systemUptime
         let source = try ArchiveFileSource(duplicating: fd)
@@ -81,7 +81,7 @@ extension SevenZipUpdater {
                     try Task.checkCancellation()
                     index = assembly.outputFolderIndices[original]!
                     let folder = expected.folders[index]
-                    let converted = conversions[original]!
+                    let converted = workset.conversions[original]!
                     let pack = expected.packs[folder.packIndices.lowerBound].range
                     let input = folder.isEncrypted ? try outputReader.sevenZipDecryptedPackedStream(folder: index, packedInput: 0) : nil
                     var position: UInt64 = 0, crc: UInt32 = 0
