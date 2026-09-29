@@ -26,16 +26,10 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     private let ledger: EntryEditLedger
     let filesByFolder: [[Int]]
     let destination: SegmentedArchiveOutput
-    private let headerPassword: String?
-    private(set) var reencrypt = false
-    private var currentPassword: String?
-    private var encryptors: SevenZipAESEncryptor.Factory
+    private let workset: SevenZipFolderWorkset
     private var writerPathsNeedRefresh = false
     var writer: ArchiveWriter?
     private(set) var appendStart: UInt64?
-    var reencoded: [Int: SevenZipReencodedFolder] = [:]
-    var conversions: [Int: SevenZipFolderConversion] = [:]
-    var passwordChecked: Set<Int> = []
     enum State { case adding, committing, committed, failed }
     private(set) var state = State.adding
     private var additionsClosed = false
@@ -46,9 +40,10 @@ public final class SevenZipUpdater: ArchiveReencrypting {
                  model: SevenZipEditModel, names: [String], password: String?) {
         self.snapshot = snapshot; self.output = output; self.options = options; self.reader = reader
         self.model = model; ledger = EntryEditLedger(names: names, entries: reader.entries)
-        filesByFolder = model.filesByFolder; headerPassword = password
-        encryptors = SevenZipAESEncryptor.Factory(password: options.password)
+        filesByFolder = model.filesByFolder
         destination = SegmentedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "7z", sequential: Self.testingDisablesClone)
+        workset = SevenZipFolderWorkset(snapshot: snapshot, reader: reader, model: model, filesByFolder: filesByFolder,
+                                        options: options, destination: destination, password: password)
     }
     deinit { if state != .committed { cleanup() } }
 
@@ -141,14 +136,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     }
     public func reencryptExistingEntries(currentPassword: String?) throws {
         try perform {
-            guard !reencrypt else { throw UpdaterError.invalidState }
-            for (index, folder) in model.folders.enumerated() where !folder.canReencrypt {
-                let file = filesByFolder[index].first ?? 0
-                throw UpdaterError.reencryptionFailed(index: file, name: reader.entries.indices.contains(file) ? reader.entries[file].name : "",
-                                                      reason: "7z の folder の形のため暗号化を変更できません")
-            }
-            reencrypt = true; self.currentPassword = currentPassword; reader.password = currentPassword
-            reencoded.removeAll(); conversions.removeAll(); passwordChecked.removeAll()
+            try workset.reencryptExistingEntries(currentPassword: currentPassword)
         }
     }
     public func commit() throws { try commit(progress: nil) }
@@ -156,7 +144,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         if state == .committed { return }
         try perform {
             state = .committing
-            let result = try executeCommit(progress: progress)
+            let result = try executeCommit(workset: workset, progress: progress)
             lastCommitStrategy = result.strategy
             lastCommitStatistics = result
             state = .committed
@@ -164,9 +152,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     }
 
     func makePlan(additions: Int = 0) -> SevenZipEditPlan {
-        SevenZipEditPlan.make(model: model, filesByFolder: filesByFolder, names: ledger.names, removed: ledger.removed,
-            renamed: ledger.renamed, additions: additions, reencrypt: reencrypt, currentPassword: currentPassword,
-            headerPassword: headerPassword, options: options)
+        workset.makePlan(ledger: ledger, additions: additions)
     }
     private func preparedWriter() throws -> ArchiveWriter {
         if let writer {
@@ -175,11 +161,11 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         }
         let plan = makePlan()
         let prefix: [OutputSegment]
-        if destination.isCloneMode { prefix = try preliminaryPrefix(plan) }
+        if destination.isCloneMode { prefix = try workset.preliminaryPrefix(plan) }
         else {
-            try prepareConversions(plan, toScratch: true)
-            try prepareReencodings(plan, advance: { _ in })
-            prefix = try makePrefix(plan)
+            try workset.prepareConversions(plan, toScratch: true)
+            try workset.prepareReencodings(plan, advance: { _ in })
+            prefix = try workset.makePrefix(plan)
         }
         let offset = prefix.reduce(UInt64(0)) { $0 + $1.length }
         let handle = try destination.beginAppend(at: offset, prefix: prefix)
@@ -187,12 +173,6 @@ public final class SevenZipUpdater: ArchiveReencrypting {
                                                      options: options, existingPaths: ledger.existingPaths)
         self.writer = writer; appendStart = offset; writerPathsNeedRefresh = false
         return writer
-    }
-    /// enabled なら options.password の encryptor。password が無ければ invalidOption("password")。
-    func makeEncryptor(enabled: Bool) throws -> SevenZipAESEncryptor? {
-        guard enabled else { return nil }
-        guard let aes = try encryptors.make() else { throw WriterError.invalidOption("password") }
-        return aes
     }
     private func perform(_ body: () throws -> Void) throws {
         guard state == .adding else {
