@@ -1,13 +1,13 @@
 import Foundation
 internal import Darwin
 
-struct SplicedSink {
-    fileprivate let writer: SplicedSegmentWriter
+struct SegmentSink {
+    fileprivate let writer: SegmentWriter
     func write(_ bytes: Data) throws { try writer.write(bytes) }
     func copy(_ range: Range<UInt64>, from source: ArchiveFileSource) throws { try writer.copy(range, from: source) }
 }
 
-fileprivate final class SplicedSegmentWriter {
+fileprivate final class SegmentWriter {
     var engine: ZipCopyEngine
     var position: UInt64
     var limit: UInt64 = UInt64.max
@@ -32,7 +32,7 @@ fileprivate final class SplicedSegmentWriter {
 }
 
 // 形式側は座標と終端を渡し、inode の所有とコピー・照合はここに集める。
-final class SplicedArchiveOutput {
+final class SegmentedArchiveOutput {
     @TaskLocal static var verificationReadObserver: (@Sendable (UInt64, Int) -> Void)?
     @TaskLocal static var testingBeforeSynchronize: (@Sendable (Int32) throws -> Void)?
     @TaskLocal static var testingDidCloneOutput: (@Sendable (URL) throws -> Void)?
@@ -44,7 +44,7 @@ final class SplicedArchiveOutput {
     let isCloneMode: Bool
     private let file: OwnedOutputFile
     private var scratch: [ScratchFile] = []
-    private var initialPrefix: [SplicedSegment]?
+    private var initialPrefix: [OutputSegment]?
     private var committed = false
 
     init(snapshot: ArchiveSourceSnapshot, output: URL, pathExtension: String, sequential: Bool) {
@@ -76,7 +76,7 @@ final class SplicedArchiveOutput {
         try snapshot.checkUnchanged()
     }
 
-    func beginAppend(at offset: UInt64, prefix: [SplicedSegment]) throws -> FileHandle {
+    func beginAppend(at offset: UInt64, prefix: [OutputSegment]) throws -> FileHandle {
         do {
             try validateScratch(prefix)
             try create()
@@ -97,7 +97,7 @@ final class SplicedArchiveOutput {
         return file
     }
 
-    private func samePrefix(_ prefix: [SplicedSegment]) -> Bool {
+    private func samePrefix(_ prefix: [OutputSegment]) -> Bool {
         guard let initialPrefix, initialPrefix.count == prefix.count else { return false }
         for (left, right) in zip(initialPrefix, prefix) {
             switch (left, right) {
@@ -112,7 +112,7 @@ final class SplicedArchiveOutput {
         return true
     }
 
-    private func validateScratch(_ segments: [SplicedSegment]) throws {
+    private func validateScratch(_ segments: [OutputSegment]) throws {
         let owned = Set(scratch.map(ObjectIdentifier.init))
         for case let .scratch(file, range) in segments {
             guard owned.contains(ObjectIdentifier(file)), range.upperBound <= file.length else {
@@ -121,13 +121,13 @@ final class SplicedArchiveOutput {
         }
     }
 
-    private func relocated(_ plan: SplicedCommitPlan) -> Bool {
+    private func relocated(_ plan: SegmentCommitPlan) -> Bool {
         guard let appended = plan.appended else { return false }
         let end = plan.prefix.reduce(UInt64(0)) { $0 + $1.length }
         return end != appended.lowerBound || (!isCloneMode && !samePrefix(plan.prefix))
     }
 
-    func units(for plan: SplicedCommitPlan) -> UInt64 {
+    func units(for plan: SegmentCommitPlan) -> UInt64 {
         let relocate = relocated(plan)
         let alreadyWritten = !isCloneMode && plan.appended != nil && !relocate
         var total = UInt64(plan.terminal.count) + UInt64(plan.finalPatch?.bytes.count ?? 0) + plan.formatVerificationUnits
@@ -146,8 +146,8 @@ final class SplicedArchiveOutput {
         return total
     }
 
-    private func execute(_ segments: [SplicedSegment], meter: CommitProgressMeter?) throws {
-        let writer = SplicedSegmentWriter(descriptor: file.descriptor, meter: meter)
+    private func execute(_ segments: [OutputSegment], meter: CommitProgressMeter?) throws {
+        let writer = SegmentWriter(descriptor: file.descriptor, meter: meter)
         for segment in segments {
             try Task.checkCancellation()
             let end = try checkedAdd(writer.position, segment.length)
@@ -159,7 +159,7 @@ final class SplicedArchiveOutput {
                     writer.position = end
                 } else { try writer.copy(range, from: snapshot.source) }
             case .literal(_, let bytes): try writer.write(bytes())
-            case .generated(_, let generate): try generate(SplicedSink(writer: writer))
+            case .generated(_, let generate): try generate(SegmentSink(writer: writer))
             case .scratch(let file, let range):
                 let start = ProcessInfo.processInfo.systemUptime
                 try writer.copy(range, from: file.source())
@@ -170,8 +170,8 @@ final class SplicedArchiveOutput {
         try writer.flush()
     }
 
-    func commit(_ plan: SplicedCommitPlan, meter: CommitProgressMeter,
-                verify: (_ output: Int32, _ advance: (UInt64) throws -> Void) throws -> Void) throws -> SplicedCommitStrategy {
+    func commit(_ plan: SegmentCommitPlan, meter: CommitProgressMeter,
+                verify: (_ output: Int32, _ advance: (UInt64) throws -> Void) throws -> Void) throws -> SegmentCommitStrategy {
         do {
             try validateScratch(plan.prefix)
             try create()
@@ -182,7 +182,7 @@ final class SplicedArchiveOutput {
             if relocate, let appended = plan.appended {
                 let scratchFile = try makeScratch(tag: "append")
                 let source = try ArchiveFileSource(duplicating: file.descriptor)
-                let writer = SplicedSegmentWriter(descriptor: scratchFile.handle.fileDescriptor, meter: meter)
+                let writer = SegmentWriter(descriptor: scratchFile.handle.fileDescriptor, meter: meter)
                 try writer.copy(appended, from: source)
                 try writer.flush()
                 // writer が fd に直接書いた分を scratch の長さに反映する（容量検査も同じ経路）。
@@ -194,7 +194,7 @@ final class SplicedArchiveOutput {
                 } else { try file.truncate(atOffset: 0) }
             }
             if isCloneMode || plan.appended == nil || relocate { try execute(plan.prefix, meter: meter) }
-            let tail = SplicedSegmentWriter(descriptor: file.descriptor, position: prefixEnd, meter: meter)
+            let tail = SegmentWriter(descriptor: file.descriptor, position: prefixEnd, meter: meter)
             if let spool { try tail.copy(0..<spool.length, from: spool.source()) }
             else if let appended = plan.appended { tail.position += appended.byteLength }
             try tail.write(plan.terminal)
@@ -246,7 +246,7 @@ final class SplicedArchiveOutput {
         } catch { discard(); throw error }
     }
 
-    private func verifySources(_ segments: [SplicedSegment], meter: CommitProgressMeter) throws {
+    private func verifySources(_ segments: [OutputSegment], meter: CommitProgressMeter) throws {
         var outputOffset: UInt64 = 0
         for segment in segments {
             defer { outputOffset += segment.length }

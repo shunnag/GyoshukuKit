@@ -12,7 +12,7 @@ final class TarUpdaterRefusalTests: XCTestCase {
         let file = TarRecords.Entry(name: raw).ustar()
         let link = TarRecords.Entry(name: Data("link".utf8), type: 0x31, link: raw).ustar()
         try (file + link + Data(count: 1024)).write(to: source)
-        let data = try ZipUpdateSource(url: source)
+        let data = try ArchiveFileSource(url: source)
         let reader = try ArchiveReader.open(url: source)
         XCTAssertNotNil(reader.nameEncoding)
         let gate = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)

@@ -101,10 +101,10 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [])
         let fd = Darwin.open(source.path, O_RDONLY | O_CLOEXEC)
         XCTAssertGreaterThanOrEqual(fd, 0)
-        let duplicate = try ZipUpdateSource(duplicating: fd)
+        let duplicate = try ArchiveFileSource(duplicating: fd)
         XCTAssertEqual(close(fd), 0)
-        let reads = ZipIOEvents()
-        XCTAssertEqual(try ZipUpdateSource.$readObserver.withValue(reads.read) { try duplicate.bytes(at: 0, count: 7) }, try Data(contentsOf: source).prefix(7))
+        let reads = IOEvents()
+        XCTAssertEqual(try ArchiveFileSource.$readObserver.withValue(reads.read) { try duplicate.bytes(at: 0, count: 7) }, try Data(contentsOf: source).prefix(7))
         XCTAssertTrue(reads.events.allSatisfy { $0.descriptor == duplicate.descriptor && $0.descriptor != fd })
     }
     func testProgressThrowAndReentrancyInvalidateCommit() throws {
@@ -138,7 +138,7 @@ final class LHAUpdaterOutputModeTests: XCTestCase {
                         else { try editor.remove(entriesAt: [0]) }
                         if decode {
                             // V3 uses a dup descriptor; V5 and V2 use direct pread and don't report here.
-                            try ZipUpdateSource.$readObserver.withValue({ _, offset, _ in
+                            try ArchiveFileSource.$readObserver.withValue({ _, offset, _ in
                                 if offset > 10000 { fired.withLock { $0 = true }; withUnsafeCurrentTask { $0?.cancel() } }
                             }) { try editor.commit() }
                         } else {

@@ -4,23 +4,23 @@ import Synchronization
 import XCTest
 @testable import GyoshukuKit
 
-final class SplicedArchiveOutputTests: XCTestCase {
-    private func setup(_ label: String, sequential: Bool) throws -> (URL, URL, SplicedArchiveOutput) {
+final class SegmentedArchiveOutputTests: XCTestCase {
+    private func setup(_ label: String, sequential: Bool) throws -> (URL, URL, SegmentedArchiveOutput) {
         let root = try TestSupport.directory("p2-output-" + label)
         let source = root.appendingPathComponent("source.bin")
         try Data((0..<100).map(UInt8.init)).write(to: source)
         let output = root.appendingPathComponent("output.bin")
         let snapshot = try ArchiveSourceSnapshot(url: source, directory: root, pathExtension: "bin", disablesClone: sequential)
-        return (root, output, SplicedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "bin", sequential: sequential))
+        return (root, output, SegmentedArchiveOutput(snapshot: snapshot, output: output, pathExtension: "bin", sequential: sequential))
     }
 
-    private func commit(_ output: SplicedArchiveOutput, _ plan: SplicedCommitPlan) throws -> SplicedCommitStrategy {
-        let writes = ZipIOEvents(), reads = ZipIOEvents()
+    private func commit(_ output: SegmentedArchiveOutput, _ plan: SegmentCommitPlan) throws -> SegmentCommitStrategy {
+        let writes = IOEvents(), reads = IOEvents()
         var progress: [ArchiveUpdater.CommitProgress] = []
         let meter = CommitProgressMeter(total: output.units(for: plan)) { progress.append($0) }
         try meter.start()
         let result = try ZipCopyEngine.$writeObserver.withValue(writes.write) {
-            try SplicedArchiveOutput.$verificationReadObserver.withValue(reads.write) {
+            try SegmentedArchiveOutput.$verificationReadObserver.withValue(reads.write) {
                 try output.commit(plan, meter: meter) { _, advance in try advance(plan.formatVerificationUnits) }
             }
         }
@@ -35,14 +35,14 @@ final class SplicedArchiveOutputTests: XCTestCase {
     func testUnshiftedCloneAndSequentialPrefix() throws {
         for sequential in [false, true] {
             let (_, path, output) = try setup("prefix-\(sequential)", sequential: sequential)
-            let before = ZipIOEvents()
+            let before = IOEvents()
             let handle = try ZipCopyEngine.$writeObserver.withValue(before.write) {
                 try output.beginAppend(at: 50, prefix: [.source(0..<50)])
             }
             XCTAssertEqual(before.bytes, sequential ? 50 : 0)
             try handle.write(contentsOf: Data([101, 102]))
             try handle.close()
-            let plan = SplicedCommitPlan(prefix: [.source(0..<50)], appended: 50..<52,
+            let plan = SegmentCommitPlan(prefix: [.source(0..<50)], appended: 50..<52,
                                          terminal: Data([255]), finalLength: 53, formatVerificationUnits: 13)
             XCTAssertEqual(try commit(output, plan), sequential ? .sequential : .appendOnly)
             XCTAssertEqual(try Data(contentsOf: path), Data((0..<50).map(UInt8.init)) + Data([101, 102, 255]))
@@ -57,7 +57,7 @@ final class SplicedArchiveOutputTests: XCTestCase {
                 try handle.write(contentsOf: Data([201, 202]))
                 try handle.close()
                 let length: UInt64 = sameLength ? 50 : 30
-                let plan = SplicedCommitPlan(prefix: [.source(10..<(10 + length))], appended: 50..<52,
+                let plan = SegmentCommitPlan(prefix: [.source(10..<(10 + length))], appended: 50..<52,
                     terminal: Data([254]), finalLength: length + 3, formatVerificationUnits: 0)
                 let result = try commit(output, plan)
                 XCTAssertEqual(result, (!sameLength || sequential) ? .relocatedAppend : .splice)
@@ -72,7 +72,7 @@ final class SplicedArchiveOutputTests: XCTestCase {
             let (root, _, output) = try setup("generated-\(count)", sequential: true)
             let scratch = try output.makeScratch(tag: "synthetic")
             try scratch.append(Data([9]))
-            let plan = SplicedCommitPlan(prefix: [.generated(length: 3, write: { try $0.write(Data(count: count)) })],
+            let plan = SegmentCommitPlan(prefix: [.generated(length: 3, write: { try $0.write(Data(count: count)) })],
                                          appended: nil, terminal: Data(), finalLength: 3, formatVerificationUnits: 0)
             XCTAssertThrowsError(try commit(output, plan)) {
                 guard case TarUpdaterError.outputVerificationFailed = $0 else { return XCTFail("\($0)") }
@@ -94,7 +94,7 @@ final class SplicedArchiveOutputTests: XCTestCase {
             // 追記は既存の範囲の byte を変えない。
             try first.append(Data([7]))
             let range: Range<UInt64> = change == 1 ? 1..<5 : 0..<4
-            let plan = SplicedCommitPlan(prefix: [.scratch(change == 2 ? second : first, range)], appended: 4..<5,
+            let plan = SegmentCommitPlan(prefix: [.scratch(change == 2 ? second : first, range)], appended: 4..<5,
                                          terminal: Data([8]), finalLength: 6, formatVerificationUnits: 0)
             XCTAssertEqual(output.units(for: plan), change == 0 ? 1 : 7)
             XCTAssertEqual(try commit(output, plan), change == 0 ? .sequential : .relocatedAppend)
@@ -108,7 +108,7 @@ final class SplicedArchiveOutputTests: XCTestCase {
             let (root, _, output) = try setup("scratch-range-\(atAppend)", sequential: true)
             let scratch = try output.makeScratch(tag: "invalid")
             try scratch.append(Data([1, 2]))
-            let prefix: [SplicedSegment] = [.scratch(scratch, 1..<3)]
+            let prefix: [OutputSegment] = [.scratch(scratch, 1..<3)]
             XCTAssertThrowsError(try {
                 if atAppend { _ = try output.beginAppend(at: 2, prefix: prefix) }
                 else {
@@ -123,14 +123,14 @@ final class SplicedArchiveOutputTests: XCTestCase {
     func testGeneratedPrefixRemainsConservative() throws {
         let (_, path, output) = try setup("generated-conservative", sequential: true)
         var calls = 0
-        let prefix: [SplicedSegment] = [.generated(length: 2, write: { sink in
+        let prefix: [OutputSegment] = [.generated(length: 2, write: { sink in
             calls += 1
             try sink.write(Data([3, 4]))
         })]
         let handle = try output.beginAppend(at: 2, prefix: prefix)
         try handle.write(contentsOf: Data([5]))
         try handle.close()
-        let plan = SplicedCommitPlan(prefix: prefix, appended: 2..<3, terminal: Data(), finalLength: 3,
+        let plan = SegmentCommitPlan(prefix: prefix, appended: 2..<3, terminal: Data(), finalLength: 3,
                                      formatVerificationUnits: 0)
         XCTAssertEqual(try commit(output, plan), .relocatedAppend)
         XCTAssertEqual(calls, 2)
@@ -143,10 +143,10 @@ final class SplicedArchiveOutputTests: XCTestCase {
         try scratch.append(Data([0, 1, 2, 3]))
         let source = try scratch.source()
         let events = Mutex<[String]>([])
-        let plan = SplicedCommitPlan(prefix: [.generated(length: 4, write: { try $0.copy(0..<4, from: source) })],
+        let plan = SegmentCommitPlan(prefix: [.generated(length: 4, write: { try $0.copy(0..<4, from: source) })],
             appended: nil, terminal: Data([4]), finalLength: 5, finalPatch: (0, Data([9])), formatVerificationUnits: 0)
         let meter = CommitProgressMeter(total: output.units(for: plan), progress: nil)
-        try SplicedArchiveOutput.$testingDidSynchronize.withValue({ events.withLock { $0.append("sync") } }) {
+        try SegmentedArchiveOutput.$testingDidSynchronize.withValue({ events.withLock { $0.append("sync") } }) {
             try ZipCopyEngine.$writeObserver.withValue({ offset, count in events.withLock { $0.append("write:\(offset):\(count)") } }) {
                 _ = try output.commit(plan, meter: meter) { _, _ in }
             }

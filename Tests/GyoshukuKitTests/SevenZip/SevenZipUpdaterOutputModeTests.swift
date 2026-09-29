@@ -93,12 +93,12 @@ final class SevenZipUpdaterOutputModeTests: XCTestCase {
             let work = try TestSupport.work(in: root), output = work.appendingPathComponent("output.7z")
             let updater = try SevenZipUpdater.open(url: source, output: output)
             guard updater.destination.isCloneMode else { throw XCTSkip("clone unavailable") }
-            let events = ZipIOEvents()
-            let reads = ZipIOEvents()
-            let verification = ZipIOEvents()
-            try ZipUpdateSource.$readObserver.withValue(reads.read) {
+            let events = IOEvents()
+            let reads = IOEvents()
+            let verification = IOEvents()
+            try ArchiveFileSource.$readObserver.withValue(reads.read) {
             try ZipCopyEngine.$writeObserver.withValue(events.write) {
-            try SplicedArchiveOutput.$verificationReadObserver.withValue(verification.write) {
+            try SegmentedArchiveOutput.$verificationReadObserver.withValue(verification.write) {
                 switch operation {
                 case "rename": try updater.rename(entryAt: 1, to: "renamed")
                 case "last": try updater.remove(entriesAt: [1001])

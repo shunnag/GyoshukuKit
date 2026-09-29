@@ -50,8 +50,8 @@ final class ZipUpdateProbeTests: XCTestCase {
         result.le(UInt32(0x07064B50)); result.le(UInt32(0))
         result.le(UInt64(bytes.end)); result.le(UInt32(1))
         var end = Data(data.suffix(22))
-        end.zipSet(UInt16.max, at: 8); end.zipSet(UInt16.max, at: 10)
-        end.zipSet(UInt32.max, at: 12); end.zipSet(UInt32.max, at: 16)
+        end.leSet(UInt16.max, at: 8); end.leSet(UInt16.max, at: 10)
+        end.leSet(UInt32.max, at: 12); end.leSet(UInt32.max, at: 16)
         result.append(end)
         return result
     }
@@ -63,7 +63,7 @@ final class ZipUpdateProbeTests: XCTestCase {
     func testProbeAcceptsCanonicalEmptyZIPWithMaximumComment() throws {
         let url = try archive("empty", count: 0)
         var data = try Data(contentsOf: url)
-        data.zipSet(UInt16.max, at: 20)
+        data.leSet(UInt16.max, at: 20)
         data.append(Data(repeating: 0x61, count: Int(UInt16.max)))
         try data.write(to: url)
         try assertAccepted(url, count: 0)
@@ -95,7 +95,7 @@ final class ZipUpdateProbeTests: XCTestCase {
         let original = try Data(contentsOf: url)
         for offset: UInt32 in [0, UInt32(original.count)] {
             var data = original
-            data.zipSet(offset, at: data.count - 6)
+            data.leSet(offset, at: data.count - 6)
             try data.write(to: url)
             try assertRefused(url, error: .editingRefused(gatekeeper: .centralDirectoryOffset,
                                                         reason: UpdateGatekeeper.centralDirectoryOffset.reason))
@@ -106,11 +106,11 @@ final class ZipUpdateProbeTests: XCTestCase {
         let url = try archive("split")
         let original = try Data(contentsOf: url)
         var split = original
-        split.zipSet(UInt16(1), at: split.count - 18)
+        split.leSet(UInt16(1), at: split.count - 18)
         try split.write(to: url)
         try assertRefused(url, error: .invalidArchive("分割 ZIP は編集できません"))
         var wide = zip64(original)
-        wide.zipSet(UInt32(2), at: wide.count - 26)
+        wide.leSet(UInt32(2), at: wide.count - 26)
         try wide.write(to: url)
         try assertRefused(url, error: .invalidArchive("ZIP64 locator が単一 volume ではありません"))
     }
@@ -120,15 +120,15 @@ final class ZipUpdateProbeTests: XCTestCase {
         let original = try Data(contentsOf: url)
         // 最終巻が CD から始まり、先頭 local header がない構造を作る。
         let finalVolume = Data(original[ZipBytes(data: original).central...])
-        XCTAssertEqual(finalVolume.zip32(0), 0x02014B50)
+        XCTAssertEqual(finalVolume.le32(0), 0x02014B50)
         let end = finalVolume.count - 22
         let fields: [(UInt16, UInt16, UInt16)] = [(2, 0, 3), (0, 2, 3), (0, 0, 2)]
         for (disk, centralDisk, entriesOnDisk) in fields {
             var data = finalVolume
-            data.zipSet(disk, at: end + 4)
-            data.zipSet(centralDisk, at: end + 6)
-            data.zipSet(entriesOnDisk, at: end + 8)
-            data.zipSet(UInt32(0), at: end + 16)
+            data.leSet(disk, at: end + 4)
+            data.leSet(centralDisk, at: end + 6)
+            data.leSet(entriesOnDisk, at: end + 8)
+            data.leSet(UInt32(0), at: end + 16)
             try data.write(to: url)
             try assertRefused(url, error: .invalidArchive("分割 ZIP は編集できません"))
         }
@@ -137,7 +137,7 @@ final class ZipUpdateProbeTests: XCTestCase {
     func testProbeRefusesSplitZIPBeforeTrailingDataLikeOpen() throws {
         let url = try archive("split-trailing")
         var data = try Data(contentsOf: url)
-        data.zipSet(UInt16(1), at: data.count - 18)
+        data.leSet(UInt16(1), at: data.count - 18)
         data.append(Data("trailing data".utf8))
         try data.write(to: url)
         try assertRefused(url, error: .invalidArchive("分割 ZIP は編集できません"))
@@ -146,7 +146,7 @@ final class ZipUpdateProbeTests: XCTestCase {
     func testProbeRefusesMalformedEndRecordsLikeOpen() throws {
         let url = try archive("malformed", count: 0)
         var noncanonical = try Data(contentsOf: url)
-        noncanonical.zipSet(UInt32(1), at: 16)
+        noncanonical.leSet(UInt32(1), at: 16)
         try noncanonical.write(to: url)
         try assertRefused(url, error: .invalidArchive("空 ZIP の終端が矛盾しています"))
         try Data(repeating: 0, count: 100).write(to: url)
@@ -156,13 +156,13 @@ final class ZipUpdateProbeTests: XCTestCase {
     func testProbeReadsOnlyBoundedTailWithMultiMiBCentralDirectory() throws {
         let url = try archive("scale", count: 4_000, longNames: true)
         var data = try Data(contentsOf: url)
-        data.zipSet(UInt16.max, at: data.count - 2)
+        data.leSet(UInt16.max, at: data.count - 2)
         data.append(Data(repeating: 0x61, count: Int(UInt16.max)))
         try data.write(to: url)
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         XCTAssertGreaterThan(layout.centralSize, 3 * 1024 * 1024)
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         let probe = try counter.measureReads { try ArchiveUpdater.probe(url: url) }
         XCTAssertEqual(probe.entryCount, 4_000)
         TestSupport.report("G2 probe entries=\(probe.entryCount) central bytes=\(layout.centralSize) comment bytes=\(layout.comment.count) source bytes=\(counter.bytes)")
@@ -182,7 +182,7 @@ final class ZipUpdateProbeTests: XCTestCase {
         var data = try Data(contentsOf: url)
         let bytes = ZipBytes(data: data)
         let second = bytes.central + 46 + Int(bytes.u16(bytes.central + 28)) + Int(bytes.u16(bytes.central + 30))
-        data.zipSet(UInt32(0), at: second)
+        data.leSet(UInt32(0), at: second)
         try data.write(to: url)
         // A successful probe only validates the layout. The caller still needs a valid reader and matching count.
         XCTAssertEqual(try ArchiveUpdater.probe(url: url).entryCount, 3)

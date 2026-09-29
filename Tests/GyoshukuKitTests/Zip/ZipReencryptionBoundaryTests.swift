@@ -41,7 +41,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         """#
         try TestSupport.run(ReferenceTool.python3, ["-c", script, source.path], in: directory, log: "create")
         let input = try ReencryptionSupport.reader(source)
-        let oldSource = try ZipUpdateSource(url: source), oldLayout = try ZipUpdateLayout(source: oldSource)
+        let oldSource = try ArchiveFileSource(url: source), oldLayout = try ZipUpdateLayout(source: oldSource)
         let oldDirectory = try ZipCentralDirectory.validate(source: oldSource, reader: input, centralOffset: oldLayout.centralOffset, centralSize: oldLayout.centralSize)
         for encryption in [ZipEncryption.aes256, .zipCrypto] {
             let output = directory.appendingPathComponent("\(encryption).zip")
@@ -49,7 +49,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
             try ReencryptionSupport.assertStoredEqual(source, output, current: nil, password: "new")
             let reader = try ReencryptionSupport.reader(output, password: "new")
             XCTAssertEqual(reader.entries.map(\.name), input.entries.map(\.name))
-            let resultSource = try ZipUpdateSource(url: output), resultLayout = try ZipUpdateLayout(source: resultSource)
+            let resultSource = try ArchiveFileSource(url: output), resultLayout = try ZipUpdateLayout(source: resultSource)
             XCTAssertEqual(resultLayout.comment, oldLayout.comment)
             let resultDirectory = try ZipCentralDirectory.validate(source: resultSource, reader: reader, centralOffset: resultLayout.centralOffset, centralSize: resultLayout.centralSize)
             var position: UInt64 = 0
@@ -61,14 +61,14 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
                 let local = try ZipRebuild.LocalHeader(source: resultSource, layout: raw)
                 let cd = try ZipRebuild.CentralHeader(bytes: resultDirectory.bytes, range: resultDirectory.records[index].centralRange)
                 let old = try ZipRebuild.CentralHeader(bytes: oldDirectory.bytes, range: oldDirectory.records[index].centralRange)
-                XCTAssertEqual(local.fixed.zip16(6) & 9, 1)
-                XCTAssertEqual(local.fixed.zip16(6), cd.fixed.zip16(8))
-                XCTAssertEqual(local.fixed.zip16(8), encryption == .aes256 ? 99 : 8)
-                XCTAssertEqual(local.fixed.zip16(4) & 0xff00, 0x300)
-                XCTAssertEqual(cd.fixed.zip16(6) & 0xff00, 0x300)
-                XCTAssertEqual(local.fixed.zip32(14), cd.fixed.zip32(16))
-                XCTAssertEqual(UInt64(local.fixed.zip32(18)), reader.entries[index].compressedSize)
-                XCTAssertEqual(UInt64(local.fixed.zip32(22)), reader.entries[index].uncompressedSize)
+                XCTAssertEqual(local.fixed.le16(6) & 9, 1)
+                XCTAssertEqual(local.fixed.le16(6), cd.fixed.le16(8))
+                XCTAssertEqual(local.fixed.le16(8), encryption == .aes256 ? 99 : 8)
+                XCTAssertEqual(local.fixed.le16(4) & 0xff00, 0x300)
+                XCTAssertEqual(cd.fixed.le16(6) & 0xff00, 0x300)
+                XCTAssertEqual(local.fixed.le32(14), cd.fixed.le32(16))
+                XCTAssertEqual(UInt64(local.fixed.le32(18)), reader.entries[index].compressedSize)
+                XCTAssertEqual(UInt64(local.fixed.le32(22)), reader.entries[index].uncompressedSize)
                 XCTAssertEqual(cd.name, old.name); XCTAssertEqual(cd.comment, old.comment)
                 for range in [4..<6, 12..<16, 36..<42] { XCTAssertEqual(cd.fixed.subdata(in: range), old.fixed.subdata(in: range)) }
                 let oldFields = ZipRebuild.extraFields(old.extra).filter { $0.id != 1 }.map { old.extra.subdata(in: $0.range) }
@@ -106,7 +106,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
                 try ReencryptionSupport.assertStoredEqual(source, output, current: nil, password: "new")
                 let reader = try ReencryptionSupport.reader(output)
                 let raw = ZipRecordLayout(try XCTUnwrap(reader.zipRawRecordLayout(at: 0)))
-                XCTAssertEqual(try ZipRebuild.LocalHeader(source: ZipUpdateSource(url: output), layout: raw).extra.count, 65_535)
+                XCTAssertEqual(try ZipRebuild.LocalHeader(source: ArchiveFileSource(url: output), layout: raw).extra.count, 65_535)
             }
         }
         let source = try ReencryptionSupport.fixture(directory, name: "rename.zip", items: [("old-name", Data([1]))])
@@ -137,7 +137,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         try updater.commit()
         let bytes = try Data(contentsOf: source)
         XCTAssertNil(bytes.range(of: Data("old-private-name".utf8)))
-        let reader = try ReencryptionSupport.reader(source, password: "new"), input = try ZipUpdateSource(url: source)
+        let reader = try ReencryptionSupport.reader(source, password: "new"), input = try ArchiveFileSource(url: source)
         XCTAssertEqual(reader.entries[0].name, "新しい名前")
         XCTAssertEqual(try reader.read(reader.entries[0]), Data("payload".utf8))
         let layout = try ZipUpdateLayout(source: input)
@@ -150,25 +150,25 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
             let padding = try XCTUnwrap(fields.first { $0.id == 0xffff })
             XCTAssertTrue(extra[(padding.range.lowerBound + 4)..<padding.range.upperBound].allSatisfy { $0 == 0 })
         }
-        XCTAssertEqual(local.fixed.zip16(6) & 0x800, 0x800)
-        XCTAssertEqual(cd.fixed.zip16(8) & 0x800, 0x800)
+        XCTAssertEqual(local.fixed.le16(6) & 0x800, 0x800)
+        XCTAssertEqual(cd.fixed.le16(8) & 0x800, 0x800)
     }
 
     private func setMethod(_ method: UInt16, in url: URL) throws {
-        let reader = try ReencryptionSupport.reader(url), source = try ZipUpdateSource(url: url)
+        let reader = try ReencryptionSupport.reader(url), source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         let raw = try XCTUnwrap(reader.zipRawRecordLayout(at: 0))
         var bytes = try Data(contentsOf: url)
         if case .winZipAES = raw.encryption {
             for (offset, fixed, nameOffset, extraOffset) in [(Int(raw.recordRange.lowerBound), 30, 26, 28), (Int(layout.centralOffset), 46, 28, 30)] {
-                let start = offset + fixed + Int(bytes.zip16(offset + nameOffset))
-                let extra = bytes.subdata(in: start..<(start + Int(bytes.zip16(offset + extraOffset))))
+                let start = offset + fixed + Int(bytes.le16(offset + nameOffset))
+                let extra = bytes.subdata(in: start..<(start + Int(bytes.le16(offset + extraOffset))))
                 let field = try XCTUnwrap(ZipRebuild.extraFields(extra).first { $0.id == 0x9901 })
-                bytes.zipSet(method, at: start + field.range.lowerBound + 9)
+                bytes.leSet(method, at: start + field.range.lowerBound + 9)
             }
         } else {
-            bytes.zipSet(method, at: Int(raw.recordRange.lowerBound) + 8)
-            bytes.zipSet(method, at: Int(layout.centralOffset) + 10)
+            bytes.leSet(method, at: Int(raw.recordRange.lowerBound) + 8)
+            bytes.leSet(method, at: Int(layout.centralOffset) + 10)
         }
         try bytes.write(to: url)
     }
@@ -203,9 +203,9 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         for mode: UInt16 in [0o40755, 0o120777] {
             let source = try ReencryptionSupport.fixture(directory, name: "\(mode).zip", password: "old", method: .stored,
                 items: [("special", Data(repeating: 120, count: 25))])
-            let layout = try ZipUpdateLayout(source: ZipUpdateSource(url: source))
+            let layout = try ZipUpdateLayout(source: ArchiveFileSource(url: source))
             var bytes = try Data(contentsOf: source)
-            bytes.zipSet(UInt32(mode) << 16, at: Int(layout.centralOffset) + 38)
+            bytes.leSet(UInt32(mode) << 16, at: Int(layout.centralOffset) + 38)
             if mode == 0o40755 {
                 // directory は末尾 / で判定する。長さを保ち payload 位置を変えない。
                 bytes[30 + "special".utf8.count - 1] = 47
@@ -227,13 +227,13 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         var salts: Set<Data> = []
         for run in 0..<2 {
             let output = directory.appendingPathComponent("out-\(run).zip")
-            let events = ZipIOEvents()
+            let events = IOEvents()
             try ZipReencryption.$testingObserver.withValue({ event in if event.phase == .v3 { events.write(UInt64(event.index), 0) } }) {
                 try ReencryptionSupport.convert(source, to: output, current: nil, password: "new")
             }
             XCTAssertEqual(events.events.count, 16)
             XCTAssertEqual(events.events.first?.offset, 0); XCTAssertEqual(events.events.last?.offset, 39)
-            let reader = try ReencryptionSupport.reader(output), source = try ZipUpdateSource(url: output)
+            let reader = try ReencryptionSupport.reader(output), source = try ArchiveFileSource(url: output)
             for entry in reader.entries {
                 let raw = try XCTUnwrap(reader.zipRawRecordLayout(at: entry.index))
                 XCTAssertTrue(salts.insert(try source.bytes(at: raw.payloadRange.lowerBound, count: 16)).inserted)
@@ -335,8 +335,8 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         let inode = UInt64(try ZipEditTestSupport.info(source).st_ino)
         let updater = try ArchiveUpdater.open(url: source, options: .init(password: "new", zipEncryption: .zipCrypto))
         try updater.reencryptExistingEntries(currentPassword: nil)
-        let events = ZipIOEvents()
-        try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
+        let events = IOEvents()
+        try ArchiveFileSource.$readObserver.withValue(events.read) { try updater.commit() }
         XCTAssertTrue(events.events.filter { $0.inode == inode }.allSatisfy { $0.count <= 1_048_576 })
     }
 }

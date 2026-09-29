@@ -83,6 +83,3 @@ final class ArchiveFileSource: ByteSource {
         }
     }
 }
-
-/// 試験と旧来の呼出しのための名前。新しい code は ArchiveFileSource を使う。
-typealias ZipUpdateSource = ArchiveFileSource

@@ -46,14 +46,14 @@ file 名は中の主な型の名前に合わせ、`Records` / `Layout` / `EditPl
 | `API/` | 公開の形式・設定・error(`ArchiveEditing`、`ArchiveFormat`、`WriterOptions`、`WriterError`、`UpdaterError`、`UpdaterRouteError`) |
 | `Writer/` | 新規作成の facade `ArchiveWriter`(形式ごとの writer への振り分け)と、ディスク側の先読み・署名 |
 | `Editing/` | 全 updater と rewriter が共有する層(`ArchiveRewriter`、`ArchiveRepresentability`、`EntryEditLedger`、`EditPathReservations`、`ArchiveFileSource`、`CommitProgressMeter`、`EntryStream` の読取) |
-| `SplicedOutput/` | 形式中立の出力 engine(`SplicedArchiveOutput`、`SplicedCommitPlan`、`OwnedOutputFile`、`ArchiveSourceSnapshot`、`ArchiveOwnedFile` / `FileIdentity`) |
+| `SegmentedOutput/` | 形式中立の出力 engine(`SegmentedArchiveOutput`、`SegmentCommitPlan` / `OutputSegment`、`ScratchFile`、`OwnedOutputFile`、`ArchiveSourceSnapshot`、`ArchiveOwnedFile` / `FileIdentity`)。圧縮 tar の splice(`CompressedTarSpliceOutput`)は別の engine なので語を分ける |
 | `Zip/`、`Zip/Update/` | ZIP の record 表・`ZipWriter`・暗号化と、`ArchiveUpdater` の編集経路(layout の門番、中央 directory、rebuild、再暗号化、copy engine、自己照合) |
 | `Tar/`、`CompressedTar/`、`SevenZip/`、`LHA/` | 形式ごとの Records / Layout / EditPlan / Updater / Writer / SelfCheck |
 | `Compression/` | byte を圧縮 byte にする codec と framing(`DeflateBlock`、`OrderedChunkPipeline`、`GzipFraming`、`XZFraming`、`LH5Encoder`、…)。hot path。命名・comment・定数以外は触らない |
 | `Support/` | 書庫を知らない補助(`checkedAdd`、`Range<UInt64>.byteLength`、`updateCRC`、little-endian の `Data` 拡張、`IOChunk.size`、`FileMode`、`FileRead`、`EncryptionPrimitives`) |
 
 圧縮 tar の経路(`TarEditPlan → TarImageSource(+ScratchFile)→ CompressedTarSplicePlan →
-CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify`)は `SplicedArchiveOutput` を使わず、
+CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify`)は `SegmentedArchiveOutput` を使わず、
 出力 inode の所有だけを `OwnedOutputFile` で共有する。
 
 試験の継ぎ目は `@TaskLocal static var testing*`(試験だけが設定する)と `*Observer`(本番も設定しうる観測点)で
@@ -138,7 +138,7 @@ rewriter もこの経路を使う。1 は従来の同期処理、2 以上では 
 internal の `endAppendedMembers()`（tar と共通）は終端・fsync・close なしで追加の終わりを返す。
 init の `recordsMembers` を有効にしたとき（updater が使う `ArchiveWriter.lhaAppend` は常に有効）だけ、実際の出力時点の header 絶対位置・header/data 長・method と
 canonical な名前の byte（directory の 0xFF を `/` に変換し filename を連結）を保存する。
-LHAUpdater はこの追加 writer を既存の `SplicedArchiveOutput` と組み合わせる。
+LHAUpdater はこの追加 writer を既存の `SegmentedArchiveOutput` と組み合わせる。
 
 ### LHA の更新（P4-G-b）
 
@@ -195,7 +195,7 @@ V3（追加 block の独立 walk と記録、dup descriptor 上の KaitoKit 全�
 V5（共有部品による、書いた source 範囲の 4 MiB ごとの memcmp）。追加だけでは既存 prefix を読み戻さない。
 運んだ payload は復号しない。呼出側の公開前の全 header 解析・projection 照合は別に残す。
 進捗 total は書込み（再配置の往復を含む）+ V2/V5 読取 + 追加 block 長で、計画後は固定する。
-V2/V5 は `SplicedArchiveOutput.verificationReadObserver` 一つに報告する。V1/V4 と V3 の実読取量は足さない。
+V2/V5 は `SegmentedArchiveOutput.verificationReadObserver` 一つに報告する。V1/V4 と V3 の実読取量は足さない。
 callback の throw・取消し・再入は失敗とし、自分の出力だけを削除する。
 
 tl-S11 の危険は残る。level 2 の長さの下位 byte が 0 だと KaitoKit は終端と見る。
@@ -264,7 +264,7 @@ V2（header/trailer、bzip2 EOS、xz block/Index/footer）、V3（出力と原�
 V4 は copy engine が読んだ圧縮 byte の CRC32 を open 時の digest と比較し、
 mtime を戻した同一 inode の変更も `sourceChanged` にする。読取りは一回で、
 出力の運んだ payload は自己照合で読み直さない。検証読取は既存の
-`SplicedArchiveOutput.verificationReadObserver` に報告する。
+`SegmentedArchiveOutput.verificationReadObserver` に報告する。
 
 `commit(progress:)` は戦略、自己照合後の出力 identity、統計、
 `.reused(output:base:)` / `.encoded(output:)` の segment 列を返す。
@@ -316,7 +316,7 @@ hdrcharset・不安定な名前 encoding・sparse hard link などは open で `
 削除された hard link の参照先は生存 holder へ付け替え、holder が無ければ最初の link を実体化する。
 変更した commit は 1,024 B の EOF と 10,240 B record までの fill を新しく書く。変更 0 件は尾部も含め原本と一致する。
 
-形式共通の `SplicedArchiveOutput` が clone、新規 output、4 MiB copy、追加 block の再配置、scratch、
+形式共通の `SegmentedArchiveOutput` が clone、新規 output、4 MiB copy、追加 block の再配置、scratch、
 truncate、fsync、close、inode に限定した cleanup を所有する。TarUpdater は計画と終端・形式照合を渡す。
 同じ位置の source は clone 上で書かない。sequential の初回 add は先に prefix を埋め、予約の変更で
 追加位置や prefix が変わった場合だけ同じ directory の scratch（`ScratchFile`。名前は作成直後に unlink され、commit 中も名前では見えない）へ追加を退避する。
@@ -324,7 +324,7 @@ generated 区間と最初の fsync 後の finalPatch も形式共通の契約と
 
 V1 は変更 header、V2 は source 境界 header、V3 は追加群、V4 は終端と長さ、V5 は書いた source と
 出力の全 byte を照合する。V5 は 4 MiB ごとの直接 pread 比較で、未移動の clone 範囲は読まない。
-V2/V5 の読取を一つの `SplicedArchiveOutput.verificationReadObserver` に報告する。
+V2/V5 の読取を一つの `SegmentedArchiveOutput.verificationReadObserver` に報告する。
 共通 `CommitProgress` の total は計画後に固定し、commit 中の書込み（再配置の往復を含む）と
 V2/V5 の読取を数える。初回 add の書込みは含めない。単調に通知し、最後は 0 を含め completed == total。
 callback の throw・再入・取消しは失敗として、自分の inode の output / snapshot を削除し、scratch は fd を閉じて解放する。
@@ -793,7 +793,7 @@ total は計画時に固定し、完了時の一致を確認してから公開�
 
 ### P5-G: 共有出力の scratch segment（S24-c1）
 
-2026-09-26 のオーケストレータ修正により、`SplicedSegment.scratch(ScratchFile, Range<UInt64>)`（当時の名は `SplicedScratchFile`）を追加する。
+2026-09-26 のオーケストレータ修正により、`OutputSegment.scratch(ScratchFile, Range<UInt64>)`（当時の名は `SplicedSegment.scratch(SplicedScratchFile, …)`）を追加する。
 `makeScratch` の append-only な同じ object（`===`）と同じ範囲は同じ byte を表す。
 sequential mode の `beginAppend` が既に書いた prefix は、その組が同じなら commit で再利用する。
 範囲外・別の出力部品に属する scratch は `outputVerificationFailed`。scratch は snapshot の範囲ではないので
@@ -825,6 +825,8 @@ CRC を照合し、生存 file を元の順の一つの LZMA2 folder に作り�
 AES の folder は暗号化の予約が無ければ AES のまま。作り直しの出力は `makeScratch` に先に書いて長さを
 確定し、S24-c1 の `.scratch` で写す。後続 pack は新しい位置へ写す。生存 stream が 0 byte だけの場合も
 LZMA2 の `00` と各 substream の CRC を持つ folder を書く。
+folder ごとの作り直し・AES 変換・password 検証の状態と encryptor は `SevenZipFolderWorkset` が持ち、`SevenZipUpdater` は
+追加・commit・自己照合のライフサイクルと出力だけを担う（2026-09-29）。
 `SevenZipFolderEncoder` は既存 writer の連結規則を共用し、本文 16 MiB / header 1 MiB の片を
 `resolvedCompressionThreads` で並列化する。通常の writer の出力 byte は変えない。
 
@@ -832,7 +834,7 @@ LZMA2 の `00` と各 substream の CRC を持つ folder を書く。
 `endEntries` で記録を返し、header を書いたり output を閉じたりしない。sequential の場合は先に prefix を
 書く。予約が変わらなければ同じ scratch object / range を再利用する。後から予約が変わった場合は、
 共有部品が追加済み pack を spool に退避して再配置する。output の作成、clone、copy、fsync、開始 header
-の finalPatch、切詰め、進捗、V5、cleanup は `SplicedArchiveOutput` だけが行う。空 file の仮 inode は記録せず、
+の finalPatch、切詰め、進捗、V5、cleanup は `SegmentedArchiveOutput` だけが行う。空 file の仮 inode は記録せず、
 FAT32 / exFAT でも現在の fd と path の同一性で自分のファイルだけを消す。
 
 暗号化の予約では圧縮済み stream に AES を付与・解除・掛け直しし、再圧縮しない。packed input が 1 本で、

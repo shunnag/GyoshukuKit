@@ -37,6 +37,12 @@
     inode の一致を確かめて直ちに unlink し、fd だけを持つ。commit 中も scratch file は名前では見えず、失敗時に消す名前も残らない。
   - 試験の方針: 参照ツールが無ければ skip ではなく失敗する（`ReferenceTool.require`）。名前に `WhenAvailable` を含む試験だけ
     `ReferenceTool.optional` で skip を許す。
+- 2026-09-29 の残り整理（後回しの項目をなくす round）。公開 API・`@_spi`・出力 byte は変えていない。
+  - `Data` の little-endian accessor `zip16 / zip32 / zip64 / zipSet` を `le16 / le32 / le64 / leSet` にした（LHA・圧縮 tar も使う）。
+  - 形式共通の出力 engine を `Segmented*`（`SegmentedArchiveOutput`・`SegmentCommitPlan`・`OutputSegment`・`SegmentSink`・`SegmentWriter`、
+    directory `SegmentedOutput/`）に改名し、圧縮 tar の `CompressedTarSplice*` と語を分けた。
+  - `SevenZipUpdater` の状態を可能な範囲で `private` にし、`ArchiveUpdater.CommitStrategy` の SPI doc を内部名ではなく挙動で書いた。
+  - file 名を主型に揃えた: `SourcePrefetchLimiter.swift`、`ZipRebuild+HeaderRewrite.swift`、test の `IOEvents`。`ZipUpdateSource` の別名は落とした。
 
 ## [0.6.0] - 2026-09-27
 

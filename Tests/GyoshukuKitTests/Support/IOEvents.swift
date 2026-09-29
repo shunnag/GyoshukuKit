@@ -6,9 +6,9 @@ import Synchronization
 // 製品の I/O の観測点（task-local）に渡して、読み書きの位置と量を記録する。
 // - `ArchiveFileSource.$readObserver` ← `read`：元書庫からの pread（descriptor と inode も残す）
 // - `ZipCopyEngine.$writeObserver` ← `write`：ZIP の更新が出力へ書いた範囲
-// - `SplicedArchiveOutput.$verificationReadObserver` ← `write`：出力の自己照合で読み直した範囲
+// - `SegmentedArchiveOutput.$verificationReadObserver` ← `write`：出力の自己照合で読み直した範囲
 // task-local なので並行する試験の記録は混ざらない。記録そのものは Mutex で守る。
-final class ZipIOEvents: Sendable {
+final class IOEvents: Sendable {
     struct Event: Sendable { let descriptor: Int32; let offset: UInt64; let count: Int; let inode: UInt64 }
     private let storage = Mutex<[Event]>([])
     var events: [Event] { storage.withLock { $0 } }

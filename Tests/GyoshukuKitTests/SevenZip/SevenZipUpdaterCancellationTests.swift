@@ -23,7 +23,7 @@ final class SevenZipUpdaterCancellationTests: XCTestCase {
                 }
                 if phase == "verification" {
                     let position = updater.appendStart!
-                    try ZipUpdateSource.$readObserver.withValue({ _, offset, _ in
+                    try ArchiveFileSource.$readObserver.withValue({ _, offset, _ in
                         if offset == position { fired.withLock { $0 = true }; withUnsafeCurrentTask { $0?.cancel() } }
                     }) { try updater.commit() }
                 } else {

@@ -38,8 +38,8 @@ extension SevenZipCommitStatistics {
     /// clone mode では動いた carry pack だけを書き、動かなかった pack は照合も読まない。
     /// 共有出力が relocatedAppend / sequential に落ちた場合はその strategy が優先する。
     mutating func summarize(plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly, original model: SevenZipEditModel,
-                            shared: SplicedCommitStrategy, isCloneMode: Bool, appended: Range<UInt64>?, hasAdditions: Bool,
-                            conversions: [Int: SevenZipFolderConversion], reencoded: [Int: SevenZipReencodedFolder],
+                            shared: SegmentCommitStrategy, isCloneMode: Bool, appended: Range<UInt64>?, hasAdditions: Bool,
+                            workset: SevenZipFolderWorkset,
                             scratchBefore: [Int: Double]) {
         var shifted = false, converted = false, reencodedAny = false
         for work in plan.works {
@@ -55,13 +55,13 @@ extension SevenZipCommitStatistics {
                     if !isCloneMode || moved { verificationReadBytes += old.length * 2 }
                 }
             case .convert:
-                converted = true; convertedPackBytes += conversions[index]!.replacement.packs[0].length
+                converted = true; convertedPackBytes += workset.conversions[index]!.replacement.packs[0].length
             case .reencode:
                 reencodedAny = true; reencodedFolderCount += 1
-                scratchCopySeconds += reencoded[index]!.scratch.copySeconds - (scratchBefore[index] ?? 0)
+                scratchCopySeconds += workset.reencoded[index]!.scratch.copySeconds - (scratchBefore[index] ?? 0)
                 reencodedInputBytes += model.folders[index].size
-                reencodedPackBytes += reencoded[index]!.scratch.length
-                reencodeScratchWrittenBytes += reencoded[index]!.scratch.length
+                reencodedPackBytes += workset.reencoded[index]!.scratch.length
+                reencodeScratchWrittenBytes += workset.reencoded[index]!.scratch.length
             }
         }
         strategy = plan.unchanged ? .unchanged : converted ? .reencrypted : reencodedAny ? .reencoded

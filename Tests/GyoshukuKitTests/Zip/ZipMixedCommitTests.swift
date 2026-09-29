@@ -38,8 +38,8 @@ final class ZipMixedCommitTests: XCTestCase {
         try updater.add(data: Data([1]), as: "added", modificationDate: TestSupport.date)
         var calls: [Int] = []
         updater.recordLayout = { index in calls.append(index); return updater.validatedLayout(at: index) }
-        let events = ZipIOEvents()
-        try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
+        let events = IOEvents()
+        try ArchiveFileSource.$readObserver.withValue(events.read) { try updater.commit() }
         XCTAssertEqual(updater.lastCommitStrategy, .rebuildThenAppend)
         XCTAssertEqual(calls, Array(0..<19))
         XCTAssertEqual(events.bytes, 0)
@@ -58,8 +58,8 @@ final class ZipMixedCommitTests: XCTestCase {
             if !staged { try updater.rename(entryAt: 1, to: "a-much-longer-file-name.txt") }
             try updater.add(data: Data(repeating: 1, count: 2 * 1024 * 1024), as: "added", modificationDate: TestSupport.date)
             if staged { try updater.rename(entryAt: 1, to: "x") }
-            let events = ZipIOEvents()
-            try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
+            let events = IOEvents()
+            try ArchiveFileSource.$readObserver.withValue(events.read) { try updater.commit() }
             let originalReads = events.events.filter { $0.inode == inode }.reduce(UInt64(0)) { $0 + UInt64($1.count) }
             XCTAssertGreaterThanOrEqual(originalReads, moved - 128)
             XCTAssertLessThan(originalReads, moved + 1024 * 1024)
@@ -71,9 +71,9 @@ final class ZipMixedCommitTests: XCTestCase {
         let updater = try ArchiveUpdater.open(url: source, output: output)
         let gap = try XCTUnwrap(updater.validatedLayout(at: 0)).recordRange.upperBound..<XCTUnwrap(updater.validatedLayout(at: 1)).recordRange.lowerBound
         try updater.remove(entriesAt: [4])
-        let events = ZipIOEvents()
+        let events = IOEvents()
         try ZipCopyEngine.$testingBufferSize.withValue(17) {
-            try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
+            try ArchiveFileSource.$readObserver.withValue(events.read) { try updater.commit() }
         }
         XCTAssertFalse(events.events.contains { ($0.offset..<($0.offset + UInt64($0.count))).overlaps(gap) })
         try XCTAssertFilesEqual(output, oracle)

@@ -10,7 +10,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
         for count in [1, 1000] {
             let source = try ZipEditTestSupport.fixture(directory, name: "source-\(count).zip", count: count, payloadSize: 32)
             let reader = try ArchiveReader.open(url: source)
-            let input = try ZipUpdateSource(url: source), layout = try ZipUpdateLayout(source: input)
+            let input = try ArchiveFileSource(url: source), layout = try ZipUpdateLayout(source: input)
             let validated = try ZipCentralDirectory.validate(source: input, reader: reader, centralOffset: layout.centralOffset, centralSize: layout.centralSize)
             let operations = (0..<count).map { ZipEditTestSupport.Operation.rename($0, String(format: "other-%06d.txt", $0)) }
             let output = directory.appendingPathComponent("output-\(count).zip")
@@ -18,7 +18,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
             try ZipEditTestSupport.legacy(source: source, output: oracle, operations: operations)
             let updater = try ArchiveUpdater.open(url: source, output: output)
             try ZipEditTestSupport.mutate(updater, operations)
-            let events = ZipIOEvents()
+            let events = IOEvents()
             try ZipCopyEngine.$writeObserver.withValue(events.write) { try updater.commit() }
             XCTAssertEqual(updater.lastCommitStrategy, .inPlacePatch)
             let ranges = validated.records.flatMap { record -> [Range<UInt64>] in
@@ -43,14 +43,14 @@ final class ZipInPlaceRenameTests: XCTestCase {
         for variant in ["sentinel-end", "extended-end", "madeby-end"] {
             let url = try ZipP1Corpus.crafted(directory, variant: variant)
             var bytes = try Data(contentsOf: url)
-            let end = bytes.count - 22, central = UInt64(bytes.zip32(end + 16)), size = UInt64(bytes.zip32(end + 12))
+            let end = bytes.count - 22, central = UInt64(bytes.le32(end + 16)), size = UInt64(bytes.le32(end + 12))
             bytes.removeSubrange(end..<bytes.count)
             var ending = try ZipRecords.end(count: 65_535, centralSize: size, centralOffset: central)
-            ending.zipSet(UInt64(5), at: 24); ending.zipSet(UInt64(5), at: 32)
-            if variant != "sentinel-end" { ending.zipSet(UInt16(5), at: 76 + 8); ending.zipSet(UInt16(5), at: 76 + 10) }
-            if variant == "madeby-end" { ending.zipSet(UInt16(20), at: 12) }
+            ending.leSet(UInt64(5), at: 24); ending.leSet(UInt64(5), at: 32)
+            if variant != "sentinel-end" { ending.leSet(UInt16(5), at: 76 + 8); ending.leSet(UInt16(5), at: 76 + 10) }
+            if variant == "madeby-end" { ending.leSet(UInt16(20), at: 12) }
             if variant == "extended-end" {
-                ending.zipSet(UInt64(48), at: 4)
+                ending.leSet(UInt64(48), at: 4)
                 ending.insert(contentsOf: [0, 0, 0, 0], at: 56)
             }
             bytes.append(ending)

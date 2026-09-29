@@ -25,8 +25,8 @@ final class TarLayoutTests: XCTestCase {
         let source = try TarEditTestSupport.fixture(root, count: 20, size: 64 * 1024)
         let data = try Data(contentsOf: source)
         let (_, disk, reader) = try TarEditTestSupport.scan(source)
-        let reads = ZipIOEvents()
-        let layout = try ZipUpdateSource.$readObserver.withValue(reads.read) {
+        let reads = IOEvents()
+        let layout = try ArchiveFileSource.$readObserver.withValue(reads.read) {
             try TarLayout.scan(source: disk, length: disk.length, entries: reader.entries, nameEncoding: reader.nameEncoding,
                                hardLinkTargets: [:], dataTargets: [:])
         }

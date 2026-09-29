@@ -60,7 +60,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
 
     private func verifyFields(_ source: URL, _ output: URL, original: ArchiveReader, result: ArchiveReader,
                               current: String?, password: String?) throws {
-        let oldSource = try ZipUpdateSource(url: source), newSource = try ZipUpdateSource(url: output)
+        let oldSource = try ArchiveFileSource(url: source), newSource = try ArchiveFileSource(url: output)
         let oldLayout = try ZipUpdateLayout(source: oldSource), newLayout = try ZipUpdateLayout(source: newSource)
         let old = try ZipCentralDirectory.validate(source: oldSource, reader: original, centralOffset: oldLayout.centralOffset, centralSize: oldLayout.centralSize)
         let new = try ZipCentralDirectory.validate(source: newSource, reader: result, centralOffset: newLayout.centralOffset, centralSize: newLayout.centralSize)
@@ -79,10 +79,10 @@ final class ZipReencryptionInteropTests: XCTestCase {
             XCTAssertEqual(il.fixed.subdata(in: 10..<14), ol.fixed.subdata(in: 10..<14))
             for range in [4..<6, 12..<16, 36..<42] { XCTAssertEqual(ic.fixed.subdata(in: range), oc.fixed.subdata(in: range)) }
             for (before, after, versionPosition, flagsPosition) in [(il.fixed, ol.fixed, 4, 6), (ic.fixed, oc.fixed, 6, 8)] {
-                XCTAssertEqual(before.zip16(flagsPosition) & ~UInt16(9), after.zip16(flagsPosition) & ~UInt16(9))
-                XCTAssertEqual(after.zip16(flagsPosition) & 9, output.encryption == .none ? 0 : 1)
+                XCTAssertEqual(before.le16(flagsPosition) & ~UInt16(9), after.le16(flagsPosition) & ~UInt16(9))
+                XCTAssertEqual(after.le16(flagsPosition) & 9, output.encryption == .none ? 0 : 1)
                 let low: UInt16
-                if case .winZipAES = output.encryption { low = max(51, before.zip16(versionPosition) & 255) }
+                if case .winZipAES = output.encryption { low = max(51, before.le16(versionPosition) & 255) }
                 else if case .winZipAES = input.encryption {
                     switch input.compressionMethod {
                     case 9: low = 21
@@ -90,13 +90,13 @@ final class ZipReencryptionInteropTests: XCTestCase {
                     case 14, 19, 20, 93, 95, 97, 98: low = 63
                     default: low = 20
                     }
-                } else { low = max(before.zip16(versionPosition) & 255, output.encryption == .zipCrypto ? 20 : 0) }
-                XCTAssertEqual(after.zip16(versionPosition), before.zip16(versionPosition) & 0xff00 | low)
+                } else { low = max(before.le16(versionPosition) & 255, output.encryption == .zipCrypto ? 20 : 0) }
+                XCTAssertEqual(after.le16(versionPosition), before.le16(versionPosition) & 0xff00 | low)
             }
-            XCTAssertEqual(ol.fixed.zip16(8), oc.fixed.zip16(10))
-            XCTAssertEqual(ol.fixed.zip32(14), oc.fixed.zip32(16))
-            XCTAssertEqual(UInt64(ol.fixed.zip32(18)), result.entries[index].compressedSize)
-            XCTAssertEqual(UInt64(ol.fixed.zip32(22)), result.entries[index].uncompressedSize)
+            XCTAssertEqual(ol.fixed.le16(8), oc.fixed.le16(10))
+            XCTAssertEqual(ol.fixed.le32(14), oc.fixed.le32(16))
+            XCTAssertEqual(UInt64(ol.fixed.le32(18)), result.entries[index].compressedSize)
+            XCTAssertEqual(UInt64(ol.fixed.le32(22)), result.entries[index].uncompressedSize)
             for (before, after) in [(il.extra, ol.extra), (ic.extra, oc.extra)] {
                 let retained = ZipRebuild.extraFields(before).filter { $0.id != 1 && $0.id != 0x9901 }.map { before.subdata(in: $0.range) }
                 let fields = ZipRebuild.extraFields(after)

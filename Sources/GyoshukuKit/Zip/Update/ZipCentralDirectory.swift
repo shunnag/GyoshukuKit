@@ -58,15 +58,15 @@ enum ZipCentralDirectory {
 
         init(_ bytes: Data, at cursor: Int) throws {
             guard bytes.count - cursor >= ZipRecords.FixedLength.central,
-                  bytes.zip32(cursor) == ZipRecords.Signature.central else {
+                  bytes.le32(cursor) == ZipRecords.Signature.central else {
                 throw UpdaterError.invalidArchive("CD record の signature がありません")
             }
-            nameLength = Int(bytes.zip16(cursor + 28))
-            extraLength = Int(bytes.zip16(cursor + 30))
-            variableLength = nameLength + extraLength + Int(bytes.zip16(cursor + 32))
-            localOffset32 = bytes.zip32(cursor + 42)
-            zip64OffsetPosition = (bytes.zip32(cursor + 24) == UInt32.max ? 8 : 0)
-                + (bytes.zip32(cursor + 20) == UInt32.max ? 8 : 0)
+            nameLength = Int(bytes.le16(cursor + 28))
+            extraLength = Int(bytes.le16(cursor + 30))
+            variableLength = nameLength + extraLength + Int(bytes.le16(cursor + 32))
+            localOffset32 = bytes.le32(cursor + 42)
+            zip64OffsetPosition = (bytes.le32(cursor + 24) == UInt32.max ? 8 : 0)
+                + (bytes.le32(cursor + 20) == UInt32.max ? 8 : 0)
         }
 
         func localOffset(bytes: Data, at cursor: Int) throws -> UInt64 {
@@ -74,11 +74,11 @@ enum ZipCentralDirectory {
             var index = cursor + ZipRecords.FixedLength.central + nameLength
             let end = index + extraLength
             while end - index >= 4 {
-                let length = Int(bytes.zip16(index + 2))
+                let length = Int(bytes.le16(index + 2))
                 guard length <= end - index - 4 else { break }
-                if bytes.zip16(index) == ZipRecords.ExtraID.zip64 {
+                if bytes.le16(index) == ZipRecords.ExtraID.zip64 {
                     guard length >= zip64OffsetPosition + 8 else { break }
-                    return bytes.zip64(index + 4 + zip64OffsetPosition)
+                    return bytes.le64(index + 4 + zip64OffsetPosition)
                 }
                 index += 4 + length
             }
@@ -132,11 +132,11 @@ enum ZipCentralDirectory {
             guard hasZIP64 == record.centralHasZIP64Extra else {
                 throw UpdaterError.invalidArchive("CD の ZIP64 extra の解釈が KaitoKit と一致しません: \(entry.name)")
             }
-            let canonical = !hasZIP64 && bytes.zip32(cursor + 20) != UInt32.max
-                && bytes.zip32(cursor + 24) != UInt32.max
-                && entry.compressedSize == UInt64(bytes.zip32(cursor + 20))
-                && entry.uncompressedSize == UInt64(bytes.zip32(cursor + 24))
-                && bytes.zip16(cursor + 34) == 0 && header.localOffset32 != UInt32.max
+            let canonical = !hasZIP64 && bytes.le32(cursor + 20) != UInt32.max
+                && bytes.le32(cursor + 24) != UInt32.max
+                && entry.compressedSize == UInt64(bytes.le32(cursor + 20))
+                && entry.uncompressedSize == UInt64(bytes.le32(cursor + 24))
+                && bytes.le16(cursor + 34) == 0 && header.localOffset32 != UInt32.max
             let next = cursor + fixedLength + header.variableLength
             records.append(ZipValidatedRecord(centralRange: cursor..<next, layout: record, canonical: canonical))
             cursor = next

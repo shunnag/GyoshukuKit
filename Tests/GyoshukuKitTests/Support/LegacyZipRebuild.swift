@@ -7,7 +7,7 @@ import KaitoKit
 // ここで読む CD の byte 表は、未知の extra / comment / 属性を保存して再出力するためのもの。
 enum LegacyZipRebuild {
     // output は source と byte-identical な clone。未移動の範囲はその byte を再利用する。
-    static func write(source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader,
+    static func write(source: ArchiveFileSource, layout: ZipUpdateLayout, reader: ArchiveReader,
                       output: FileHandle, removed: Set<Int>, renamed: [Int: String],
                       rawRecord: (ArchiveReader, ArchiveEntry) throws -> RawEntryRecord?) throws {
         var position: UInt64 = 0
@@ -113,12 +113,12 @@ enum LegacyZipRebuild {
         let extra: Data
         var hasZIP64: Bool { extraFields(extra).contains { $0.id == 1 } }
 
-        init(source: ZipUpdateSource, raw: RawEntryRecord) throws {
+        init(source: ArchiveFileSource, raw: RawEntryRecord) throws {
             fixed = try source.bytes(at: raw.recordRange.lowerBound, count: 30)
-            let nameLength = Int(fixed.zip16(26))
-            let extraLength = Int(fixed.zip16(28))
+            let nameLength = Int(fixed.le16(26))
+            let extraLength = Int(fixed.le16(28))
             let variableOffset = try checkedAdd(raw.recordRange.lowerBound, 30)
-            guard fixed.zip32(0) == 0x04034B50,
+            guard fixed.le32(0) == 0x04034B50,
                   try checkedAdd(variableOffset, UInt64(nameLength + extraLength)) == raw.payloadRange.lowerBound else {
                 throw UpdaterError.invalidArchive("local header と rawRecord の payload 位置が一致しません")
             }
@@ -129,8 +129,8 @@ enum LegacyZipRebuild {
         func renamed(_ name: Data) throws -> Data {
             guard name.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
             var result = fixed
-            result.zipSet(fixed.zip16(6) | ZipRecords.flags, at: 6)
-            result.zipSet(UInt16(name.count), at: 26)
+            result.leSet(fixed.le16(6) | ZipRecords.flags, at: 6)
+            result.leSet(UInt16(name.count), at: 26)
             result.append(name)
             result.append(try renamedExtra(extra))
             return result
@@ -144,11 +144,11 @@ enum LegacyZipRebuild {
         let comment: Data
         var byteCount: Int { 46 + name.count + extra.count + comment.count }
 
-        init(source: ZipUpdateSource, at offset: UInt64, end: UInt64) throws {
+        init(source: ArchiveFileSource, at offset: UInt64, end: UInt64) throws {
             guard offset <= end, end - offset >= 46 else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
             fixed = try source.bytes(at: offset, count: 46)
-            guard fixed.zip32(0) == 0x02014B50 else { throw UpdaterError.invalidArchive("CD signature がありません") }
-            let n = Int(fixed.zip16(28)), e = Int(fixed.zip16(30)), c = Int(fixed.zip16(32))
+            guard fixed.le32(0) == 0x02014B50 else { throw UpdaterError.invalidArchive("CD signature がありません") }
+            let n = Int(fixed.le16(28)), e = Int(fixed.le16(30)), c = Int(fixed.le16(32))
             guard UInt64(n + e + c) <= end - offset - 46 else { throw UpdaterError.invalidArchive("CD metadata が範囲外です") }
             name = try source.bytes(at: offset + 46, count: n)
             extra = try source.bytes(at: offset + 46 + UInt64(n), count: e)
@@ -177,14 +177,14 @@ enum LegacyZipRebuild {
             let name = newName ?? name
             guard name.count <= Int(UInt16.max), extras.count <= Int(UInt16.max) else { throw WriterError.sizeOverflow }
             var result = fixed
-            if !zip64.isEmpty || preserveDescriptorMarker { result.zipSet(max(fixed.zip16(6), 45), at: 6) }
-            if newName != nil { result.zipSet(fixed.zip16(8) | ZipRecords.flags, at: 8) }
-            result.zipSet(UInt32(min(compressedSize, ZipRecords.limit)), at: 20)
-            result.zipSet(UInt32(min(size, ZipRecords.limit)), at: 24)
-            result.zipSet(UInt16(name.count), at: 28)
-            result.zipSet(UInt16(extras.count), at: 30)
-            result.zipSet(UInt16(0), at: 34)
-            result.zipSet(UInt32(min(offset, ZipRecords.limit)), at: 42)
+            if !zip64.isEmpty || preserveDescriptorMarker { result.leSet(max(fixed.le16(6), 45), at: 6) }
+            if newName != nil { result.leSet(fixed.le16(8) | ZipRecords.flags, at: 8) }
+            result.leSet(UInt32(min(compressedSize, ZipRecords.limit)), at: 20)
+            result.leSet(UInt32(min(size, ZipRecords.limit)), at: 24)
+            result.leSet(UInt16(name.count), at: 28)
+            result.leSet(UInt16(extras.count), at: 30)
+            result.leSet(UInt16(0), at: 34)
+            result.leSet(UInt32(min(offset, ZipRecords.limit)), at: 42)
             result.append(name)
             result.append(extras)
             result.append(comment)
@@ -196,10 +196,10 @@ enum LegacyZipRebuild {
         var fields: [(UInt16, Range<Int>)] = []
         var cursor = 0
         while data.count - cursor >= 4 {
-            let length = Int(data.zip16(cursor + 2))
+            let length = Int(data.le16(cursor + 2))
             guard length <= data.count - cursor - 4 else { break }
             let end = cursor + 4 + length
-            fields.append((data.zip16(cursor), cursor..<end))
+            fields.append((data.le16(cursor), cursor..<end))
             cursor = end
         }
         return fields
@@ -212,7 +212,7 @@ enum LegacyZipRebuild {
             switch field.id {
             case 0x7075:
                 // 長さを保って旧名と CRC を消し、同長改名の payload 位置を維持する。
-                result.zipSet(UInt16(0xFFFF), at: field.range.lowerBound)
+                result.leSet(UInt16(0xFFFF), at: field.range.lowerBound)
                 result.resetBytes(in: (field.range.lowerBound + 4)..<field.range.upperBound)
             case 0x0008, 0x2605, 0x334D, 0x4F4C, 0x554E:
                 // 名前と他の metadata が混在し得る拡張は、黙って捨てず改名を拒否する。

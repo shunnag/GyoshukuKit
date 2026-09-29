@@ -7,7 +7,8 @@ private import CGyoshukuBzip2
 
 // 圧縮 tar の区切り単位の更新。経路は
 // TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
-// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// CompressedTarSpliceOutput は圧縮 tar の区切りを更新し、SegmentedArchiveOutput は形式共通の segment 計画を実行する。
+// 出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは自己照合。
 
 /// fsync 後・公開前の出力 descriptor に対して走る。失敗は TarUpdaterError.outputVerificationFailed。
@@ -57,7 +58,7 @@ enum CompressedTarSelfCheck {
                     let record = XZFraming.vli(part.meta.unpaddedSize) + XZFraming.vli(part.image.byteLength)
                     try XZFraming.emitIndexAndFooter(records: record, blockCount: 1) { wrapped.append($0) }
                     decoded = try xz(wrapped, count: expected.count)
-                    guard input.compressed.zip32(input.compressed.count - 4) == updateCRC(0, expected) else { throw failure("V1 xz check") }
+                    guard input.compressed.le32(input.compressed.count - 4) == updateCRC(0, expected) else { throw failure("V1 xz check") }
                 default: throw failure("V1 codec")
                 }
                 guard decoded == expected else { throw failure("V1 image bytes") }
@@ -71,13 +72,13 @@ enum CompressedTarSelfCheck {
         for part in writer.parts where part.baseIndex == nil {
             try Task.checkCancellation()
             try pipeline.waitForCapacity(emit: emit)
-            let bytes = try SplicedArchiveOutput.read(descriptor, at: part.output.lowerBound, count: Int(part.output.byteLength), counted: true)
+            let bytes = try SegmentedArchiveOutput.read(descriptor, at: part.output.lowerBound, count: Int(part.output.byteLength), counted: true)
             try pipeline.submit(Input(compressed: bytes, part: part), tag: (), emit: emit)
         }
         try pipeline.finish(emit: emit)
         func read(_ offset: UInt64, _ count: Int) throws -> Data {
             try Task.checkCancellation()
-            let result = try SplicedArchiveOutput.read(descriptor, at: offset, count: count, counted: true)
+            let result = try SegmentedArchiveOutput.read(descriptor, at: offset, count: count, counted: true)
             try meter.advance(UInt64(count))
             return result
         }
@@ -252,7 +253,7 @@ enum CompressedTarSelfCheck {
 
     private static func xzHeader(_ bytes: Data, meta: Metadata, imageLength: UInt64) throws {
         guard bytes.count >= 8, (UInt64(bytes[0]) + 1) * 4 == meta.headerSize,
-              updateCRC(0, bytes.prefix(bytes.count - 4)) == bytes.zip32(bytes.count - 4),
+              updateCRC(0, bytes.prefix(bytes.count - 4)) == bytes.le32(bytes.count - 4),
               bytes[1] & 0x3c == 0 else { throw failure("V2 xz header CRC/flags") }
         var cursor = 2
         func vli() throws -> UInt64 {

@@ -4,7 +4,8 @@ private import Darwin
 
 // 圧縮 tar の区切り単位の更新。経路は
 // TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
-// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// CompressedTarSpliceOutput は圧縮 tar の区切りを更新し、SegmentedArchiveOutput は形式共通の segment 計画を実行する。
+// 出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは入口。open で構造を照合し、削除・改名・追加を記録して commit で上の経路を走らせる。
 
 /// session reader の復号済み tar と地図を使い、変更を含む区切りだけを符号化する。

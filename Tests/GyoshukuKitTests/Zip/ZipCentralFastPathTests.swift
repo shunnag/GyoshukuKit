@@ -10,7 +10,7 @@ final class ZipCentralFastPathTests: XCTestCase {
         let sources = try [ZipEditTestSupport.fixture(directory), ZipP1Corpus.forceZIP64(directory)]
             + ["redundant", "sentinel", "marker", "padding", "unicode"].map { try ZipP1Corpus.crafted(directory, variant: $0) }
         for url in sources {
-            let source = try ZipUpdateSource(url: url)
+            let source = try ArchiveFileSource(url: url)
             let layout = try ZipUpdateLayout(source: source)
             let reader = try ArchiveReader.open(source: source, options: ArchiveUpdater.readerOptions)
             let validated = try ZipCentralDirectory.validate(source: source, reader: reader,
@@ -23,7 +23,7 @@ final class ZipCentralFastPathTests: XCTestCase {
                 if record.canonical {
                     for offset in [record.layout.recordRange.lowerBound, 0, 0xFFFFFFFE] {
                         var fast = validated.bytes.subdata(in: record.centralRange)
-                        fast.zipSet(UInt32(offset), at: 42)
+                        fast.leSet(UInt32(offset), at: 42)
                         XCTAssertEqual(fast, try header.rebuilt(offset: offset, size: reader.entries[index].uncompressedSize!,
                             compressedSize: reader.entries[index].compressedSize!, name: nil))
                         XCTAssertTrue(record.usesFastPath(offset: offset, renamed: false, marker: false))
@@ -40,10 +40,10 @@ final class ZipCentralFastPathTests: XCTestCase {
         let directory = try TestSupport.directory("p1-central-io")
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = try ZipEditTestSupport.fixture(directory, count: 100, payloadSize: 32)
-        let source = try ZipUpdateSource(url: url), layout = try ZipUpdateLayout(source: source)
+        let source = try ArchiveFileSource(url: url), layout = try ZipUpdateLayout(source: source)
         let reader = try ArchiveReader.open(source: source, options: ArchiveUpdater.readerOptions)
-        let events = ZipIOEvents()
-        try ZipUpdateSource.$readObserver.withValue(events.read) {
+        let events = IOEvents()
+        try ArchiveFileSource.$readObserver.withValue(events.read) {
             try ZipCentralDirectory.validate(source: source, reader: reader,
                 centralOffset: layout.centralOffset, centralSize: layout.centralSize)
         }
@@ -56,8 +56,8 @@ final class ZipCentralFastPathTests: XCTestCase {
             centralOffset: layout.centralOffset, centralSize: layout.centralSize, maximumCentralSize: layout.centralSize - 1)) {
             guard case UpdaterError.invalidArchive = $0 else { return XCTFail("\($0)") }
         }
-        let openEvents = ZipIOEvents()
-        try ZipUpdateSource.$readObserver.withValue(openEvents.read) { _ = try ArchiveUpdater.open(url: url) }
+        let openEvents = IOEvents()
+        try ArchiveFileSource.$readObserver.withValue(openEvents.read) { _ = try ArchiveUpdater.open(url: url) }
         XCTAssertFalse(openEvents.events.contains { $0.offset >= layout.centralOffset && $0.offset < layout.centralOffset + layout.centralSize && $0.count == 46 })
     }
 }

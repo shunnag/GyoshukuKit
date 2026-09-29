@@ -37,7 +37,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "newer.bin")
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 same-length rename source bytes: \(counter.bytes)")
         XCTAssertLessThan(counter.bytes, 1024 * 1024, "same-length rename must not read unmoved payloads")
@@ -60,7 +60,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [1])
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 tail deletion source bytes: \(counter.bytes)")
         XCTAssertLessThan(counter.bytes, 1024 * 1024, "tail deletion must not read unmoved payloads")
@@ -75,7 +75,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [0])
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 first deletion source bytes: \(counter.bytes)")
         XCTAssertGreaterThanOrEqual(counter.bytes, UInt64(items[1].data.count))
@@ -91,7 +91,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "longer-first-name.bin")
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 different-length rename source bytes: \(counter.bytes)")
         let payloadBytes = UInt64(items.reduce(0) { $0 + $1.data.count })
@@ -477,7 +477,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let (url, items) = try original("delete-rename-metadata")
         let comment = Data("Archive comment: 保持\n".utf8)
         var bytes = try Data(contentsOf: url)
-        bytes.zipSet(UInt16(comment.count), at: bytes.count - 2)
+        bytes.leSet(UInt16(comment.count), at: bytes.count - 2)
         bytes.append(comment)
         try bytes.write(to: url)
         let manager = FileManager.default
@@ -592,7 +592,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         for (offset, fixed, nameOffset, extraOffset, flagsOffset) in [
             (0, 30, 26, 28, 6), (old.central, 46, 28, 30, 8)
         ] {
-            patched.zipSet(UInt16(0x0800), at: offset + flagsOffset)
+            patched.leSet(UInt16(0x0800), at: offset + flagsOffset)
             let nameStart = offset + fixed
             patched.replaceSubrange(nameStart..<(nameStart + Int(old.u16(offset + nameOffset))), with: "変更.txt".utf8)
             var cursor = nameStart + Int(old.u16(offset + nameOffset))
@@ -600,7 +600,7 @@ final class ZipDeleteRenameTests: XCTestCase {
             while cursor < end {
                 let length = Int(old.u16(cursor + 2))
                 if old.u16(cursor) == 0x7075 {
-                    patched.zipSet(UInt16(0xFFFF), at: cursor)
+                    patched.leSet(UInt16(0xFFFF), at: cursor)
                     patched.replaceSubrange((cursor + 4)..<(cursor + 4 + length), with: Data(count: length))
                 }
                 cursor += 4 + length

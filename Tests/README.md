@@ -28,7 +28,7 @@
 | `ZipEditTestSupport`・`TarEditTestSupport`・`CompressedTarTestSupport`・`SevenZipEditSupport`・`LHAUpdateSupport` | 編集の試験の fixture・操作の列・照合 |
 | `ZipBytes`・`TarBytes`・`SevenZipBytes`・`EncryptedSevenZipHeader`・`LHABytes`・`LHAHeaderBuilder`・`TestBytes` | 製品の serializer を使わず、公開の format の表から読む byte 検査器と組み立て |
 | `LegacyZipRebuild` | c0df9fb の ZIP 再構築を byte 比較の oracle として固定したもの。現行の実装に合わせて直さない |
-| `IOEvents`（`ZipIOEvents`） | 製品の task-local の I/O 観測点に渡し、読み書きの範囲と量を記録する |
+| `IOEvents` | 製品の task-local の I/O 観測点に渡し、読み書きの範囲と量を記録する |
 | `ArchiveTestDisk` | hdiutil で作る FAT32・ExFAT・HFS+ の disk image（作れなければ skip） |
 | `ByteAssertions`・`TestCorpus`・`ArchiveFormat+Testing` | 大きな file の chunk ごとの比較、seed を固定した byte 列、形式ごとの拡張子 |
 | その他 | `SevenZipExternalOracles`・`CompressedTarCompatibility`・`SevenZipProbePayload`・`BatchAdditionTestSupport`・`AdditionProgressTestSupport` |

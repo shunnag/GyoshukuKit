@@ -4,7 +4,8 @@ private import Darwin
 
 // 圧縮 tar の区切り単位の更新。経路は
 // TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
-// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// CompressedTarSpliceOutput は圧縮 tar の区切りを更新し、SegmentedArchiveOutput は形式共通の segment 計画を実行する。
+// 出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは出力。inode を所有し、橋の事前符号化、運ぶ chunk の copy、framing、故障注入、自己照合の呼出しを行う。
 final class CompressedTarSpliceOutput {
     struct Encoded: Sendable {
@@ -326,7 +327,7 @@ final class CompressedTarSpliceOutput {
         var end = snapshot.archive.length
         while try TarLayout.bytes(snapshot.archive, at: end - 4, count: 4) == Data(count: 4) { end -= 4 }
         let footer = try TarLayout.bytes(snapshot.archive, at: end - 12, count: 12)
-        return 12..<(end - 12 - (UInt64(footer.zip32(4)) + 1) * 4)
+        return 12..<(end - 12 - (UInt64(footer.le32(4)) + 1) * 4)
     }
 
     /// 試験用。bzip2 は最初に運ぶ stream を一つ、xz は最後の block を書かずに飛ばし、自己照合と K5 が拒否することを確かめる。
@@ -370,7 +371,7 @@ final class CompressedTarSpliceOutput {
         // encoded の注入は先頭 block の予約済み BTYPE=3 にし、V1 の拒否を確実に検証する。
         let invalidDeflate = format == .tarGzip && !reused
         let offset = part.output.lowerBound + (invalidDeflate ? 0 : part.output.byteLength / 2)
-        var byte = try SplicedArchiveOutput.read(file.descriptor, at: offset, count: 1)
+        var byte = try SegmentedArchiveOutput.read(file.descriptor, at: offset, count: 1)
         if invalidDeflate { byte[0] = (byte[0] & ~UInt8(6)) | 6 }
         else { byte[0] ^= 1 }
         try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(file.descriptor, bytes: $0, at: offset) }
