@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-29
+
+コード品質レビュー（2026-09-28）とその後回し項目の処理をまとめた release。公開 API の名前と書庫の出力 byte は変えていない。
+scratch file の寿命の一本化、`Segmented*` への改名、7z updater の `SevenZipFolderWorkset`、tar の chunk 切りの `TarChunkCutter` を含む。
+KaitoKit の依存は 0.12.x（`.upToNextMinor(from: "0.12.0")`）。KaitoKit 0.12.0 は圧縮 tar の xz / bzip2 staging を並列化しており、
+GyoshukuKit の更新時の読取と往復検証もその恩恵を受ける。
+
 ### 変更
 
 - 内部の整理のみ。公開 API・`@_spi`・出力 byte に変更はない。

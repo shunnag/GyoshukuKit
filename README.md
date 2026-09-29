@@ -8,19 +8,19 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
 - 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
 - 一括追加と進捗: `ArchiveAddition` と `add(_:events:)`、ディスク読取の byte 進捗、`finishAdditions(progress:)`、updater / rewriter の commit 進捗
-- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.11.x（0.11.0 以上、0.12.0 未満）。更新時の読取と往復検証に使用。`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.11.0")` に限定する。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照を選ぶ。SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させる（`.build` の削除では manifest cache が残る）
+- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.12.x（0.12.0 以上、0.13.0 未満）。更新時の読取と往復検証に使用。`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.11.0")` に限定する。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照を選ぶ。SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させる（`.build` の削除では manifest cache が残る）
 - ライセンス: MIT
 
 ## インストール
 
-GyoshukuKit 0.6.0 を Swift Package Manager で追加します。
+GyoshukuKit 0.7.0 を Swift Package Manager で追加します。
 
 ```swift
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.6.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.7.0"))
 ```
 
 利用側の target の dependencies に `.product(name: "GyoshukuKit", package: "GyoshukuKit")` を追加してください。
-KaitoKit 0.11.0 → GyoshukuKit 0.6.0 → KaitoFinder 0.4.0 の順にリリースします。
+KaitoKit 0.12.0 → GyoshukuKit 0.7.0 → KaitoFinder 0.5.0 の順にリリースします。
 
 ## 使用例
 
@@ -243,7 +243,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > Swift 6 and Apple Silicon, paired with the read-only KaitoKit. It uses system
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
-> GyoshukuKit 0.6.0 depends on KaitoKit 0.11.x through `.upToNextMinor(from: "0.11.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
+> GyoshukuKit 0.7.0 depends on KaitoKit 0.12.x through `.upToNextMinor(from: "0.12.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
 > Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, non-solid 7z and LHA.
 > `TarUpdater`, `CompressedTarUpdater`, `LHAUpdater` and `SevenZipUpdater` edit existing archives while carrying unchanged members or compressed regions. Changed compressed-tar regions and partially deleted solid 7z folders are recompressed. ZIP and 7z updaters also support password changes without recompression.
 > `ArchiveAddition` batches use `add(_:events:)`; byte progress covers disk reads, `finishAdditions(progress:)` and updater/rewriter commits.
