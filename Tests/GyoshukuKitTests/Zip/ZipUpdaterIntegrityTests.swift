@@ -95,7 +95,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         try updater.add(data: Data([7]), as: "added.txt")
         try updater.commit()
         XCTAssertEqual(try ArchiveReader.open(url: url).entries.map(\.name), ["first.bin", "other.bin", "added.txt"])
-        XCTAssertEqual(try ZipUpdateLayout(source: ZipUpdateSource(url: url)).comment, comment)
+        XCTAssertEqual(try ZipUpdateLayout(source: ArchiveFileSource(url: url)).comment, comment)
     }
 
     func testCentralWalkRejectsPlantedPayloadSignature() throws {
@@ -108,7 +108,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
                               with: bytes.subdata(in: original.central..<(original.central + firstSize)))
         try bytes.write(to: url)
         let reader = try ArchiveReader.open(url: url)
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         // Validate this forged layout directly: the ambiguity gate must not be the only defence.
         assertInvalid({
             try ZipCentralDirectory.validate(source: source, reader: reader,
@@ -119,7 +119,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
 
     func testCentralWalkRequiresExactDeclaredEnd() throws {
         let url = try fixture("central-end")
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         let reader = try ArchiveReader.open(url: url)
         assertInvalid({
@@ -152,7 +152,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         bytes.zipSet(UInt32(0), at: second + 42)
         try bytes.write(to: url)
         assertInvalid({
-            try ZipCentralDirectory.validate(source: ZipUpdateSource(url: url), reader: reader,
+            try ZipCentralDirectory.validate(source: ArchiveFileSource(url: url), reader: reader,
                 centralOffset: UInt64(original.central), centralSize: UInt64(original.end - original.central))
         }, "CD local offsets must agree with the reader's raw records")
     }

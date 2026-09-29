@@ -37,7 +37,7 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
                     try editor.add(data: Data(count: 1024), as: "added", modificationDate: TestSupport.date, permissions: 0o644)
                     add = now() - time
                 }
-                let writes = ZipIOEvents(), reads = ZipIOEvents(), verification = Mutex(0.0)
+                let writes = IOEvents(), reads = IOEvents(), verification = Mutex(0.0)
                 let time = now()
                 try SplicedArchiveOutput.$testingVerificationElapsed.withValue({ elapsed in verification.withLock { $0 = elapsed } }) {
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
@@ -47,7 +47,7 @@ final class TarUpdaterScaleProbeTests: XCTestCase {
                 let commit = now() - time
                 let values = [openTime, remove, rename, add, commit, verification.withLock { $0 }].map { String(format: "%.3f", $0 * 1000) }
                 ScaleProbe.report(tag: "TAR-SCALE", columns: [rewrite ? "rewriter" : "updater", operation, "\(count)"] + values
-                    + ["\(writes.bytes)", "\(reads.bytes)", "\(try ZipUpdateSource(url: output).length)"])
+                    + ["\(writes.bytes)", "\(reads.bytes)", "\(try ArchiveFileSource(url: output).length)"])
                 try FileManager.default.removeItem(at: output)
             }
         }

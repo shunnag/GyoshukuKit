@@ -60,7 +60,7 @@ final class ZipReencryptionInteropTests: XCTestCase {
 
     private func verifyFields(_ source: URL, _ output: URL, original: ArchiveReader, result: ArchiveReader,
                               current: String?, password: String?) throws {
-        let oldSource = try ZipUpdateSource(url: source), newSource = try ZipUpdateSource(url: output)
+        let oldSource = try ArchiveFileSource(url: source), newSource = try ArchiveFileSource(url: output)
         let oldLayout = try ZipUpdateLayout(source: oldSource), newLayout = try ZipUpdateLayout(source: newSource)
         let old = try ZipCentralDirectory.validate(source: oldSource, reader: original, centralOffset: oldLayout.centralOffset, centralSize: oldLayout.centralSize)
         let new = try ZipCentralDirectory.validate(source: newSource, reader: result, centralOffset: newLayout.centralOffset, centralSize: newLayout.centralSize)

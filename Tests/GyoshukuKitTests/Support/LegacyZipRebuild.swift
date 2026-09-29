@@ -7,7 +7,7 @@ import KaitoKit
 // ここで読む CD の byte 表は、未知の extra / comment / 属性を保存して再出力するためのもの。
 enum LegacyZipRebuild {
     // output は source と byte-identical な clone。未移動の範囲はその byte を再利用する。
-    static func write(source: ZipUpdateSource, layout: ZipUpdateLayout, reader: ArchiveReader,
+    static func write(source: ArchiveFileSource, layout: ZipUpdateLayout, reader: ArchiveReader,
                       output: FileHandle, removed: Set<Int>, renamed: [Int: String],
                       rawRecord: (ArchiveReader, ArchiveEntry) throws -> RawEntryRecord?) throws {
         var position: UInt64 = 0
@@ -113,7 +113,7 @@ enum LegacyZipRebuild {
         let extra: Data
         var hasZIP64: Bool { extraFields(extra).contains { $0.id == 1 } }
 
-        init(source: ZipUpdateSource, raw: RawEntryRecord) throws {
+        init(source: ArchiveFileSource, raw: RawEntryRecord) throws {
             fixed = try source.bytes(at: raw.recordRange.lowerBound, count: 30)
             let nameLength = Int(fixed.zip16(26))
             let extraLength = Int(fixed.zip16(28))
@@ -144,7 +144,7 @@ enum LegacyZipRebuild {
         let comment: Data
         var byteCount: Int { 46 + name.count + extra.count + comment.count }
 
-        init(source: ZipUpdateSource, at offset: UInt64, end: UInt64) throws {
+        init(source: ArchiveFileSource, at offset: UInt64, end: UInt64) throws {
             guard offset <= end, end - offset >= 46 else { throw UpdaterError.invalidArchive("CD が途中で終わっています") }
             fixed = try source.bytes(at: offset, count: 46)
             guard fixed.zip32(0) == 0x02014B50 else { throw UpdaterError.invalidArchive("CD signature がありません") }

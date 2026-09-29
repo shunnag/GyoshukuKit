@@ -31,7 +31,7 @@ final class TarUpdaterTests: XCTestCase {
                     }
                     if operation == 5 || operation == 6 { expected.append("added") }
                     if operation == 7 { try updater.addDirectory("new", modificationDate: TestSupport.date, ownerIDs: .init(user: 501, group: 20)); expected.append("new/") }
-                    let writes = ZipIOEvents(), reads = ZipIOEvents()
+                    let writes = IOEvents(), reads = IOEvents()
                     var progress: [ArchiveUpdater.CommitProgress] = []
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
                         try SplicedArchiveOutput.$verificationReadObserver.withValue(reads.write) {
@@ -123,9 +123,9 @@ final class TarUpdaterTests: XCTestCase {
             if operation == 1 { try updater.rename(entryAt: 250, to: "edit-000250") }
             if operation == 2 { try updater.add(data: Data([1]), as: "new") }
             if operation == 3 { try updater.remove(entriesAt: [250]) }
-            let writes = ZipIOEvents(), reads = ZipIOEvents()
+            let writes = IOEvents(), reads = IOEvents()
             try ZipCopyEngine.$writeObserver.withValue(writes.write) {
-                try ZipUpdateSource.$readObserver.withValue(reads.read) { try updater.commit() }
+                try ArchiveFileSource.$readObserver.withValue(reads.read) { try updater.commit() }
             }
             if operation == 0 || operation == 2 { XCTAssertLessThanOrEqual(writes.bytes, 11264); XCTAssertEqual(reads.bytes, 0) }
             if operation == 1 {
@@ -136,7 +136,7 @@ final class TarUpdaterTests: XCTestCase {
                 let moved = layout.membersEnd - layout.member(251).groupStart
                 let (result, _, _) = try TarEditTestSupport.scan(output)
                 XCTAssertEqual(reads.bytes, moved)
-                XCTAssertEqual(writes.bytes, moved + (try ZipUpdateSource(url: output)).length - result.membersEnd)
+                XCTAssertEqual(writes.bytes, moved + (try ArchiveFileSource(url: output)).length - result.membersEnd)
             }
         }
     }

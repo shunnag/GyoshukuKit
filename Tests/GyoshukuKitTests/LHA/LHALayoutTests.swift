@@ -22,8 +22,8 @@ final class LHALayoutTests: XCTestCase {
             bytes += LHAHeaderBuilder.member(level: level, name: "dir-\(level)/", directory: true)
         }
         try (bytes + Data([0])).write(to: url)
-        let source = try ZipUpdateSource(url: url), reads = ZipIOEvents()
-        let result = try ZipUpdateSource.$readObserver.withValue(reads.read) {
+        let source = try ArchiveFileSource(url: url), reads = IOEvents()
+        let result = try ArchiveFileSource.$readObserver.withValue(reads.read) {
             try LHALayout.walk(source: source, range: 0..<source.length) { _, _ in }
         }
         XCTAssertEqual(result.count, 6)
@@ -33,7 +33,7 @@ final class LHALayoutTests: XCTestCase {
         for entry in reader.entries where entry.kind == .file { XCTAssertEqual(try reader.read(entry).count, 16384) }
         bytes[1] ^= 1
         try (bytes + Data([0])).write(to: url)
-        let damaged = try ZipUpdateSource(url: url)
+        let damaged = try ArchiveFileSource(url: url)
         XCTAssertThrowsError(try LHALayout.walk(source: damaged, range: 0..<damaged.length) { _, _ in })
     }
     func testLargeHeadersLevelOneCRCAndLevelThreeBuilder() throws {

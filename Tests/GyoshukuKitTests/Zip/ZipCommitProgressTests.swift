@@ -17,7 +17,7 @@ final class ZipCommitProgressTests: XCTestCase {
             let output = directory.appendingPathComponent("out-\(index).zip")
             let updater = try ArchiveUpdater.open(url: source, output: output, options: .init(compressionMethod: .stored))
             try ZipEditTestSupport.mutate(updater, item.0)
-            let events = ZipIOEvents()
+            let events = IOEvents()
             var progress: [ArchiveUpdater.CommitProgress] = []
             try ZipCopyEngine.$writeObserver.withValue(events.write) {
                 try updater.commit { progress.append($0) }

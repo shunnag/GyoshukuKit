@@ -33,7 +33,7 @@ final class CompressedTarLifecycleTests: XCTestCase {
                 XCTAssertNil(base.chunkMap, context)
                 XCTAssertEqual(base.chunkMapUnavailableReason, reason, context)
                 let editor = try CompressedTarUpdater.open(reader: reader, output: output, format: format)
-                let calls = Mutex(0), writes = ZipIOEvents()
+                let calls = Mutex(0), writes = IOEvents()
                 do {
                     let result = try CompressedTarUpdater.$testingStage.withValue({ stage in
                         if stage == .copying {

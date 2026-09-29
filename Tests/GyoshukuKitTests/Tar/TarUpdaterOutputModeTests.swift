@@ -10,8 +10,8 @@ final class TarUpdaterOutputModeTests: XCTestCase {
         let source = try TarEditTestSupport.fixture(root), work = try TestSupport.work(in: root)
         let output = work.appendingPathComponent("out.tar")
         let original = try ZipEditTestSupport.info(source)
-        let reads = ZipIOEvents()
-        var updater: TarUpdater? = try ZipUpdateSource.$readObserver.withValue(reads.read) { try TarUpdater.open(url: source, output: output) }
+        let reads = IOEvents()
+        var updater: TarUpdater? = try ArchiveFileSource.$readObserver.withValue(reads.read) { try TarUpdater.open(url: source, output: output) }
         XCTAssertFalse(reads.events.isEmpty)
         XCTAssertTrue(reads.events.allSatisfy { $0.inode != UInt64(original.st_ino) })
         let snapshot = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first)

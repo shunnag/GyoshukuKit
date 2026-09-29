@@ -59,7 +59,7 @@ enum ZipEditTestSupport {
             }
         }
         if !additions.isEmpty {
-            let source = try ZipUpdateSource(url: url)
+            let source = try ArchiveFileSource(url: url)
             let layout = try ZipUpdateLayout(source: source)
             let handle = try FileHandle(forUpdating: output)
             let writer = ArchiveWriter(output: handle, url: output,
@@ -80,7 +80,7 @@ enum ZipEditTestSupport {
         let staged = output.deletingLastPathComponent().appendingPathComponent("oracle-staged-\(UUID().uuidString).zip")
         try FileManager.default.copyItem(at: output, to: staged)
         defer { try? FileManager.default.removeItem(at: staged) }
-        let source = try ZipUpdateSource(url: staged)
+        let source = try ArchiveFileSource(url: staged)
         let layout = try ZipUpdateLayout(source: source)
         let reader = try ArchiveReader.open(source: source, options: ArchiveUpdater.readerOptions)
         let handle = try FileHandle(forUpdating: output)

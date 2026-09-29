@@ -21,7 +21,7 @@ final class TarUpdaterInteropTests: XCTestCase {
         try updater.rename(entryAt: files[1].index, to: "renamed.swift")
         try updater.add(data: Data([1]), as: "added")
         try updater.commit()
-        let result = try ZipUpdateSource(url: output)
+        let result = try ArchiveFileSource(url: output)
         XCTAssertEqual(try data.bytes(at: 0, count: Int(first.paddedEnd)), try result.bytes(at: 0, count: Int(first.paddedEnd)))
         try TestSupport.run(ReferenceTool.bsdtar, ["-tvf", output.path], in: root, log: "git-list")
     }

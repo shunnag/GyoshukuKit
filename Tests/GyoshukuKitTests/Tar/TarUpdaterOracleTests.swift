@@ -54,7 +54,7 @@ final class TarUpdaterOracleTests: XCTestCase {
                 }
                 try updater.commit()
                 let (result, bytes, _) = try TarEditTestSupport.scan(output)
-                let golden = try ZipUpdateSource(url: intended)
+                let golden = try ArchiveFileSource(url: intended)
                 let whole = edit == "append" || edit == "rename-same"
                 let length = whole ? golden.length : result.membersEnd
                 if whole { XCTAssertEqual(bytes.length, golden.length) }

@@ -11,7 +11,7 @@ final class ZipCommitCancellationTests: XCTestCase {
         for outputMode in [false, true] {
             let parent = directory.appendingPathComponent("work-\(outputMode)")
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-            let events = ZipIOEvents()
+            let events = IOEvents()
             let task = Task {
                 let updater = try ArchiveUpdater.open(url: source, output: outputMode ? parent.appendingPathComponent("output.zip") : nil)
                 try updater.remove(entriesAt: [0])
@@ -36,7 +36,7 @@ final class ZipCommitCancellationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipEditTestSupport.fixture(directory)
         let before = try Data(contentsOf: source)
-        let events = ZipIOEvents()
+        let events = IOEvents()
         let task = Task {
             let updater = try ArchiveUpdater.open(url: source)
             try updater.remove(entriesAt: [4])

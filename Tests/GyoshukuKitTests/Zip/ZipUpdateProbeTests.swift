@@ -159,10 +159,10 @@ final class ZipUpdateProbeTests: XCTestCase {
         data.zipSet(UInt16.max, at: data.count - 2)
         data.append(Data(repeating: 0x61, count: Int(UInt16.max)))
         try data.write(to: url)
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         XCTAssertGreaterThan(layout.centralSize, 3 * 1024 * 1024)
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         let probe = try counter.measureReads { try ArchiveUpdater.probe(url: url) }
         XCTAssertEqual(probe.entryCount, 4_000)
         TestSupport.report("G2 probe entries=\(probe.entryCount) central bytes=\(layout.centralSize) comment bytes=\(layout.comment.count) source bytes=\(counter.bytes)")

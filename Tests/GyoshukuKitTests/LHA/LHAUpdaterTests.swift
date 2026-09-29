@@ -32,7 +32,7 @@ final class LHAUpdaterTests: XCTestCase {
                     try updater.remove(entriesAt: Array(removed) + Array(removed))
                     for (index, name) in renamed { try updater.rename(entryAt: index, to: name) }
                     if operation == 12 { try updater.add(data: Data([33]), as: "added", modificationDate: TestSupport.date) }
-                    let writes = ZipIOEvents(), reads = ZipIOEvents()
+                    let writes = IOEvents(), reads = IOEvents()
                     var progress: [ArchiveUpdater.CommitProgress] = []
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
                         try SplicedArchiveOutput.$verificationReadObserver.withValue(reads.write) { try updater.commit { progress.append($0) } }
@@ -83,7 +83,7 @@ final class LHAUpdaterTests: XCTestCase {
                 try editor.remove(entriesAt: [index])
                 try editor.add(data: Data([3]), as: "new-member", modificationDate: TestSupport.date)
                 try editor.commit()
-                let reader = try ArchiveReader.open(url: output), bytes = try ZipUpdateSource(url: output)
+                let reader = try ArchiveReader.open(url: output), bytes = try ArchiveFileSource(url: output)
                 for previous in old.2.entries where previous.index != index {
                     let entry = try XCTUnwrap(reader.entries.first { $0.name == previous.name })
                     let start = try XCTUnwrap(UInt64(entry.formatSpecific["headerOffset"] ?? ""))
@@ -144,9 +144,9 @@ final class LHAUpdaterTests: XCTestCase {
             if operation == 1 { try editor.rename(entryAt: 250, to: "edit-000250") }
             if operation == 2 { try editor.add(data: Data(count: 1024), as: "new") }
             if operation == 3 { try editor.remove(entriesAt: [250]) }
-            let writes = ZipIOEvents(), copies = ZipIOEvents(), verification = ZipIOEvents()
+            let writes = IOEvents(), copies = IOEvents(), verification = IOEvents()
             try ZipCopyEngine.$writeObserver.withValue(writes.write) {
-                try ZipUpdateSource.$readObserver.withValue(copies.read) {
+                try ArchiveFileSource.$readObserver.withValue(copies.read) {
                     try SplicedArchiveOutput.$verificationReadObserver.withValue(verification.write) { try editor.commit() }
                 }
             }

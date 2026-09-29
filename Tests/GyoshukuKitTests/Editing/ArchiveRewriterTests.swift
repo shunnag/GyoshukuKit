@@ -723,7 +723,7 @@ final class ArchiveRewriterTests: XCTestCase {
         assertInvalidArchive { _ = try ArchiveRewriter.open(url: bad, format: .zip) }
         let source = try archive(in: directory)
         var bytes = try Data(contentsOf: source)
-        let records = try ZipUpdateLayout(source: ZipUpdateSource(url: source))
+        let records = try ZipUpdateLayout(source: ArchiveFileSource(url: source))
         // CD の CRC だけを壊す。open は metadata を読めるが carry の整合性検査で失敗する。
         bytes[Int(records.centralOffset) + 16] ^= 0xFF
         try bytes.write(to: source)

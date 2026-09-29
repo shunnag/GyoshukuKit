@@ -16,8 +16,8 @@ enum TarEditTestSupport {
         try writer.finish()
         return url
     }
-    static func scan(_ url: URL) throws -> (TarLayout, ZipUpdateSource, ArchiveReader) {
-        let source = try ZipUpdateSource(url: url)
+    static func scan(_ url: URL) throws -> (TarLayout, ArchiveFileSource, ArchiveReader) {
+        let source = try ArchiveFileSource(url: url)
         let reader = try ArchiveReader.open(source: source, sourceURL: url, options: TestSupport.editingReaderOptions)
         let gate = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
         let layout = try TarLayout.scan(source: source, length: source.length, entries: reader.entries,

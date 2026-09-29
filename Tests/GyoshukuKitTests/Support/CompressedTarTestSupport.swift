@@ -43,7 +43,7 @@ enum CompressedTarTestSupport {
     }
     static func compress(_ raw: URL, to output: URL, format: Format, aligned: Bool = true,
                          options: WriterOptions = WriterOptions(), packingSize: Int? = nil) throws {
-        let source = try ZipUpdateSource(url: raw)
+        let source = try ArchiveFileSource(url: raw)
         let codec: any TarCompressor
         switch format {
         case .tarGzip: codec = try GzipCompressor(level: options.deflateLevel, threads: options.resolvedCompressionThreads)
@@ -146,7 +146,7 @@ enum CompressedTarTestSupport {
         let editor = try CompressedTarUpdater.open(reader: reader, output: output, format: format, options: options)
         try mutate(editor)
         var updates: [ArchiveUpdater.CommitProgress] = []
-        let verificationReads = ZipIOEvents()
+        let verificationReads = IOEvents()
         let result = try CompressedTarUpdater.$testingForcesFullEncode.withValue(force) {
             try SplicedArchiveOutput.$verificationReadObserver.withValue(verificationReads.write) {
                 try editor.commit { updates.append($0) }

@@ -37,7 +37,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "newer.bin")
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 same-length rename source bytes: \(counter.bytes)")
         XCTAssertLessThan(counter.bytes, 1024 * 1024, "same-length rename must not read unmoved payloads")
@@ -60,7 +60,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [1])
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 tail deletion source bytes: \(counter.bytes)")
         XCTAssertLessThan(counter.bytes, 1024 * 1024, "tail deletion must not read unmoved payloads")
@@ -75,7 +75,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.remove(entriesAt: [0])
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 first deletion source bytes: \(counter.bytes)")
         XCTAssertGreaterThanOrEqual(counter.bytes, UInt64(items[1].data.count))
@@ -91,7 +91,7 @@ final class ZipDeleteRenameTests: XCTestCase {
         let before = try Snapshot(url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "longer-first-name.bin")
-        let counter = ZipIOEvents()
+        let counter = IOEvents()
         try counter.measureReads { try updater.commit() }
         TestSupport.report("G1 different-length rename source bytes: \(counter.bytes)")
         let payloadBytes = UInt64(items.reduce(0) { $0 + $1.data.count })

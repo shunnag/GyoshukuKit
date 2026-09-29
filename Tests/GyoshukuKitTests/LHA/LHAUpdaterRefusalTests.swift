@@ -14,7 +14,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
             let source = try LHAUpdateSupport.fixture(name, in: root)
             let before = try ZipEditTestSupport.info(source)
             // L9 is sparse: compare its stored prefix and stat, without reading a 4 GiB hole.
-            let bytes = try ZipUpdateSource(url: source).bytes(at: 0, count: min(Int(before.st_size), 65536))
+            let bytes = try ArchiveFileSource(url: source).bytes(at: 0, count: min(Int(before.st_size), 65536))
             let reader = try ArchiveReader.open(url: source, options: TestSupport.editingReaderOptions)
             let work = try TestSupport.work(in: root)
             XCTAssertThrowsError(try LHAUpdater.open(url: source, output: work.appendingPathComponent("out.lzh"))) {
@@ -27,7 +27,7 @@ final class LHAUpdaterRefusalTests: XCTestCase {
             XCTAssertEqual(before.st_ino, after.st_ino); XCTAssertEqual(before.st_size, after.st_size)
             XCTAssertEqual(before.st_mtimespec.tv_sec, after.st_mtimespec.tv_sec)
             XCTAssertEqual(before.st_mtimespec.tv_nsec, after.st_mtimespec.tv_nsec)
-            XCTAssertEqual(try ZipUpdateSource(url: source).bytes(at: 0, count: bytes.count), bytes)
+            XCTAssertEqual(try ArchiveFileSource(url: source).bytes(at: 0, count: bytes.count), bytes)
             XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: work.path), [], name)
         }
     }

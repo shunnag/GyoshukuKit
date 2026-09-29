@@ -25,8 +25,8 @@ enum LHAUpdateSupport {
         }
         return url
     }
-    static func scan(_ url: URL) throws -> (LHALayout, ZipUpdateSource, ArchiveReader) {
-        let source = try ZipUpdateSource(url: url)
+    static func scan(_ url: URL) throws -> (LHALayout, ArchiveFileSource, ArchiveReader) {
+        let source = try ArchiveFileSource(url: url)
         let reader = try ArchiveReader.open(source: source, sourceURL: url, options: TestSupport.editingReaderOptions)
         return (try LHALayout.scan(source: source, reader: reader), source, reader)
     }
@@ -39,13 +39,13 @@ enum LHAUpdateSupport {
         try writer.finish()
         return url
     }
-    static func bytes(_ source: ZipUpdateSource, _ range: Range<UInt64>) throws -> Data {
+    static func bytes(_ source: ArchiveFileSource, _ range: Range<UInt64>) throws -> Data {
         try source.bytes(at: range.lowerBound, count: Int(range.upperBound - range.lowerBound))
     }
     static func digest(_ reader: ArchiveReader, _ index: Int) throws -> Data {
         Data(SHA256.hash(data: try reader.read(reader.entries[index])))
     }
-    static func unchanged(_ before: (LHALayout, ZipUpdateSource, ArchiveReader), _ after: (LHALayout, ZipUpdateSource, ArchiveReader), indices: [Int], file: StaticString = #filePath, line: UInt = #line) throws {
+    static func unchanged(_ before: (LHALayout, ArchiveFileSource, ArchiveReader), _ after: (LHALayout, ArchiveFileSource, ArchiveReader), indices: [Int], file: StaticString = #filePath, line: UInt = #line) throws {
         for index in indices {
             let name = before.2.entries[index].name
             let new = try XCTUnwrap(after.2.entries.firstIndex { $0.name == name }, name, file: file, line: line)

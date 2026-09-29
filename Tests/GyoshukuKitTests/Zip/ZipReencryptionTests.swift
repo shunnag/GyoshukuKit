@@ -157,7 +157,7 @@ final class ZipReencryptionTests: XCTestCase {
             XCTAssertEqual(d.subdata(in: Int(er.recordRange.lowerBound)..<Int(er.payloadRange.lowerBound)),
                            o.subdata(in: Int(ar.recordRange.lowerBound)..<Int(ar.payloadRange.lowerBound)))
         }
-        let ds = try ZipUpdateSource(url: direct), os = try ZipUpdateSource(url: output)
+        let ds = try ArchiveFileSource(url: direct), os = try ArchiveFileSource(url: output)
         let dl = try ZipUpdateLayout(source: ds), ol = try ZipUpdateLayout(source: os)
         XCTAssertEqual(try ds.bytes(at: dl.centralOffset, count: Int(dl.centralSize)), try os.bytes(at: ol.centralOffset, count: Int(ol.centralSize)))
         try ReencryptionSupport.assertStoredEqual(plain, output, current: nil, password: ReencryptionSupport.new)
@@ -303,7 +303,7 @@ final class ZipReencryptionTests: XCTestCase {
         for mutation in 0..<6 {
             try ReencryptionSupport.assertFailure(source, password: "new", current: nil, modify: { updater in
                 updater.testingAfterRebuild = { url in
-                    let source = try ZipUpdateSource(url: url), layout = try ZipUpdateLayout(source: source)
+                    let source = try ArchiveFileSource(url: url), layout = try ZipUpdateLayout(source: source)
                     let reader = try ReencryptionSupport.reader(url)
                     let raw = try XCTUnwrap(reader.zipRawRecordLayout(at: 2))
                     let directory = try ZipCentralDirectory.validate(source: source, reader: reader, centralOffset: layout.centralOffset, centralSize: layout.centralSize)
@@ -379,8 +379,8 @@ final class ZipReencryptionTests: XCTestCase {
         let inode = UInt64(try ZipEditTestSupport.info(source).st_ino)
         let updater = try ArchiveUpdater.open(url: source)
         try updater.reencryptExistingEntries(currentPassword: "old")
-        let events = ZipIOEvents()
-        try ZipUpdateSource.$readObserver.withValue(events.read) { try updater.commit() }
+        let events = IOEvents()
+        try ArchiveFileSource.$readObserver.withValue(events.read) { try updater.commit() }
         let reads = events.events.filter { $0.inode == inode }
         XCTAssertFalse(reads.isEmpty)
         XCTAssertTrue(reads.allSatisfy { $0.offset >= raw.recordRange.lowerBound })

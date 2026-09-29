@@ -25,7 +25,7 @@ final class SevenZipSharedOutputGateTests: XCTestCase {
             terminal: Data([7]), finalLength: 39,
             finalPatch: (offset: 0, bytes: Data(repeating: 9, count: 32)),
             formatVerificationUnits: 0)
-        let writes = ZipIOEvents()
+        let writes = IOEvents()
         let units = output.units(for: plan)
         let meter = CommitProgressMeter(total: units, progress: nil)
         let strategy = try ZipCopyEngine.$writeObserver.withValue(writes.write) {

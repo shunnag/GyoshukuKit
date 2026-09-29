@@ -64,7 +64,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         let writer = try ArchiveWriter.create(url: url)
         try writer.add(data: Data([1, 2, 3]), as: "x", modificationDate: TestSupport.date)
         try writer.finish()
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         let header = try ZipRebuild.CentralHeader(source: source, at: layout.centralOffset, end: layout.centralOffset + layout.centralSize)
         let limit = UInt64(UInt32.max)
@@ -85,7 +85,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
             // 旧 CD に ZIP64 がある場合も小さい新 offset / size では field 自体を落とす。
             let centralURL = directory.appendingPathComponent("central.bin")
             try data.write(to: centralURL)
-            let large = try ZipRebuild.CentralHeader(source: ZipUpdateSource(url: centralURL), at: 0, end: UInt64(data.count))
+            let large = try ZipRebuild.CentralHeader(source: ArchiveFileSource(url: centralURL), at: 0, end: UInt64(data.count))
             let small = ZipBytes(data: try large.rebuilt(offset: 0, size: 3, compressedSize: 5, name: nil))
             XCTAssertNil(small.extras(0, local: false)[1])
             XCTAssertEqual(small.u32(24), 3)
@@ -157,7 +157,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         XCTAssertLessThan(raw.recordRange.lowerBound, UInt64(UInt32.max))
         // offset 用 ZIP64 extra だけを足した小さい対照入力でも、KaitoKit が descriptor を
         // wide と解釈することを実 API で確認する。payload の通常読取は成功する。
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         let first = try ZipRebuild.CentralHeader(source: source, at: layout.centralOffset,
             end: layout.centralOffset + layout.centralSize)
@@ -232,7 +232,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
         let updater = try ArchiveUpdater.open(url: url)
         try updater.rename(entryAt: 0, to: "longer-first-name")
         try updater.commit()
-        let source = try ZipUpdateSource(url: url)
+        let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
         let firstCentral = try source.bytes(at: layout.centralOffset, count: 46)
         let tailCentralOffset = layout.centralOffset + 46 + UInt64(firstCentral.zip16(28)) + UInt64(firstCentral.zip16(30))
