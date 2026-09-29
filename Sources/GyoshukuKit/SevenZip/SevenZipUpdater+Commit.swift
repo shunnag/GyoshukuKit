@@ -67,8 +67,8 @@ extension SevenZipUpdater {
         }
     }
 
-    func preliminaryPrefix(_ plan: SevenZipEditPlan) throws -> [SplicedSegment] {
-        var prefix: [SplicedSegment] = [.literal(length: 32, bytes: { Data(count: 32) })]
+    func preliminaryPrefix(_ plan: SevenZipEditPlan) throws -> [OutputSegment] {
+        var prefix: [OutputSegment] = [.literal(length: 32, bytes: { Data(count: 32) })]
         for work in plan.works {
             let folder = model.folders[work.index]
             switch work {
@@ -89,8 +89,8 @@ extension SevenZipUpdater {
         return prefix
     }
 
-    func makePrefix(_ plan: SevenZipEditPlan) throws -> [SplicedSegment] {
-        var prefix: [SplicedSegment] = [.literal(length: 32, bytes: { Data(count: 32) })]
+    func makePrefix(_ plan: SevenZipEditPlan) throws -> [OutputSegment] {
+        var prefix: [OutputSegment] = [.literal(length: 32, bytes: { Data(count: 32) })]
         for work in plan.works {
             switch work {
             case .carry(let index):
@@ -234,7 +234,7 @@ extension SevenZipUpdater {
         stats.headerSeconds = ProcessInfo.processInfo.systemUptime - headerStart
         let prefix = plan.unchanged ? [.source(0..<snapshot.source.length)] : try makePrefix(plan)
         let checkUnits = plan.unchanged ? 0 : Self.verificationUnits(assembly: assembly, plan: plan, conversions: conversions)
-        let outputPlan = SplicedCommitPlan(prefix: prefix, appended: plan.unchanged ? nil : appended,
+        let outputPlan = SegmentCommitPlan(prefix: prefix, appended: plan.unchanged ? nil : appended,
             terminal: plan.unchanged ? Data() : terminal.bytes,
             finalLength: plan.unchanged ? snapshot.source.length : terminal.nextRange.upperBound,
             finalPatch: plan.unchanged ? nil : (0, terminal.signature), formatVerificationUnits: checkUnits)
@@ -243,10 +243,10 @@ extension SevenZipUpdater {
         let fault = Self.faultAction(plan: plan, assembly: assembly)
         let scratchBefore = reencoded.mapValues { $0.scratch.copySeconds }
         let packsStart = ProcessInfo.processInfo.systemUptime
-        let strategy: SplicedCommitStrategy
+        let strategy: SegmentCommitStrategy
         do {
-            strategy = try SplicedArchiveOutput.$testingBeforeSynchronize.withValue(fault ?? SplicedArchiveOutput.testingBeforeSynchronize) {
-                try SplicedArchiveOutput.$testingVerificationElapsed.withValue({ seconds in totalVerification.withLock { $0 = seconds } }) {
+            strategy = try SegmentedArchiveOutput.$testingBeforeSynchronize.withValue(fault ?? SegmentedArchiveOutput.testingBeforeSynchronize) {
+                try SegmentedArchiveOutput.$testingVerificationElapsed.withValue({ seconds in totalVerification.withLock { $0 = seconds } }) {
                     try destination.commit(outputPlan, meter: meter!) { fd, advance in
                         if !plan.unchanged { try self.selfCheck(fd: fd, plan: plan, assembly: assembly, advance: advance, statistics: &stats) }
                     }
@@ -274,7 +274,7 @@ extension SevenZipUpdater {
     }
 
     private func unchangedCommit(progress: @escaping (ArchiveUpdater.CommitProgress) throws -> Void) throws -> SevenZipCommitStatistics {
-        let plan = SplicedCommitPlan(prefix: [.source(0..<snapshot.source.length)], appended: nil, terminal: Data(),
+        let plan = SegmentCommitPlan(prefix: [.source(0..<snapshot.source.length)], appended: nil, terminal: Data(),
                                     finalLength: snapshot.source.length, formatVerificationUnits: 0)
         let meter = CommitProgressMeter(total: destination.units(for: plan), progress: progress)
         try meter.start()

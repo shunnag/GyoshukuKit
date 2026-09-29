@@ -1,10 +1,10 @@
 import Foundation
 
-// 出力の計画。形式側（tar / 7z / LHA の updater）が組み立て、SplicedArchiveOutput が実行して照合する。
-enum SplicedSegment {
+// 出力の計画。形式側（tar / 7z / LHA の updater）が組み立て、SegmentedArchiveOutput が実行して照合する。
+enum OutputSegment {
     case source(Range<UInt64>)
     case literal(length: UInt64, bytes: () throws -> Data)
-    case generated(length: UInt64, write: (SplicedSink) throws -> Void)
+    case generated(length: UInt64, write: (SegmentSink) throws -> Void)
     case scratch(ScratchFile, Range<UInt64>)
 
     var length: UInt64 {
@@ -16,8 +16,8 @@ enum SplicedSegment {
     }
 }
 
-struct SplicedCommitPlan {
-    var prefix: [SplicedSegment]
+struct SegmentCommitPlan {
+    var prefix: [OutputSegment]
     var appended: Range<UInt64>?
     var terminal: Data
     var finalLength: UInt64
@@ -25,4 +25,4 @@ struct SplicedCommitPlan {
     var formatVerificationUnits: UInt64
 }
 
-enum SplicedCommitStrategy { case unchanged, inPlacePatch, appendOnly, splice, sequential, relocatedAppend }
+enum SegmentCommitStrategy { case unchanged, inPlacePatch, appendOnly, splice, sequential, relocatedAppend }

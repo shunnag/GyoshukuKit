@@ -2,14 +2,14 @@ import Foundation
 private import Darwin
 internal import KaitoKit
 
-/// 非圧縮 tar の commit 後の自己照合。SplicedArchiveOutput.commit の verify callback として、
+/// 非圧縮 tar の commit 後の自己照合。SegmentedArchiveOutput.commit の verify callback として、
 /// fsync 後・公開前の出力 descriptor に対して走る。失敗は全て TarUpdaterError.outputVerificationFailed。
 /// - V4 length: fstat の長さが計画の finalLength
 /// - V1 header group: 変更した header 群を原本から独立に再生成して byte と checksum を比較
 /// - V2 boundary header: source segment 境界の header block を原本と比較（boundaryUnits ずつ進捗に数える）
 /// - V3 added name / bounds: 追加群を独立に walk し、名前と終端を writer の記録と比較
 /// - V4 EOF: 終端の空 block と record fill
-/// V5（書いた source 範囲の byte 比較）は SplicedArchiveOutput.verifySources が行う。
+/// V5（書いた source 範囲の byte 比較）は SegmentedArchiveOutput.verifySources が行う。
 enum TarSelfCheck {
     /// V2 は境界ごとに原本と出力の header を 1 block ずつ読む。commit の total と advance が同じ値を使う。
     static let boundaryUnits = UInt64(2 * TarRecords.blockSize)
@@ -27,14 +27,14 @@ enum TarSelfCheck {
             for change in plan.changed {
                 let expected = try TarHeaderRewrite.rewrite(source: source, unit: layout.member(change.index),
                     name: change.name, link: change.link, materializedSize: change.materializedTarget.map { layout.member($0).storedSize })
-                let actual = try SplicedArchiveOutput.read(descriptor, at: change.outputOffset, count: Int(change.headerLength))
+                let actual = try SegmentedArchiveOutput.read(descriptor, at: change.outputOffset, count: Int(change.headerLength))
                 guard actual == expected else { throw TarUpdaterError.outputVerificationFailed(reason: "V1 header group") }
                 try TarLayout.validateChecksum(Data(actual.suffix(TarRecords.blockSize)))
             }
             for boundary in plan.boundaries {
                 try Task.checkCancellation()
-                let original = try SplicedArchiveOutput.read(source.descriptor, at: boundary.source, count: TarRecords.blockSize, counted: true)
-                let output = try SplicedArchiveOutput.read(descriptor, at: boundary.output, count: TarRecords.blockSize, counted: true)
+                let original = try SegmentedArchiveOutput.read(source.descriptor, at: boundary.source, count: TarRecords.blockSize, counted: true)
+                let output = try SegmentedArchiveOutput.read(descriptor, at: boundary.output, count: TarRecords.blockSize, counted: true)
                 do { try advance(boundaryUnits) } catch { progressError = error; throw error }
                 guard original == output else { throw TarUpdaterError.outputVerificationFailed(reason: "V2 boundary header") }
             }
@@ -51,7 +51,7 @@ enum TarSelfCheck {
                     throw TarUpdaterError.outputVerificationFailed(reason: "V3 added bounds")
                 }
             }
-            let terminal = try SplicedArchiveOutput.read(descriptor, at: plan.membersEnd + additionLength, count: plan.terminal.count)
+            let terminal = try SegmentedArchiveOutput.read(descriptor, at: plan.membersEnd + additionLength, count: plan.terminal.count)
             guard terminal == plan.terminal, terminal.count >= TarRecords.endOfArchiveSize else {
                 throw TarUpdaterError.outputVerificationFailed(reason: "V4 EOF")
             }
@@ -73,7 +73,7 @@ enum TarSelfCheck {
             switch fault {
             case .flipWrittenByte(let value): offset = value
             case .shiftSourceSegment:
-                let bytes = try SplicedArchiveOutput.read(fd, at: moved + block, count: TarRecords.blockSize)
+                let bytes = try SegmentedArchiveOutput.read(fd, at: moved + block, count: TarRecords.blockSize)
                 try bytes.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: moved) }
                 return
             case .corruptWrittenHeader: offset = changedOffset
@@ -81,7 +81,7 @@ enum TarSelfCheck {
                 try FileHandle(fileDescriptor: fd, closeOnDealloc: false).truncate(atOffset: finalLength - block)
                 return
             }
-            var byte = try SplicedArchiveOutput.read(fd, at: offset, count: 1)
+            var byte = try SegmentedArchiveOutput.read(fd, at: offset, count: 1)
             byte[0] ^= 1
             try byte.withUnsafeBytes { try ZipCopyEngine.pwrite(fd, bytes: $0, at: offset) }
         }
@@ -93,7 +93,7 @@ enum TarSelfCheck {
         let length: UInt64
         func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
             guard offset < length, !buffer.isEmpty else { return 0 }
-            let bytes = try SplicedArchiveOutput.read(descriptor, at: offset, count: Int(min(UInt64(buffer.count), length - offset)))
+            let bytes = try SegmentedArchiveOutput.read(descriptor, at: offset, count: Int(min(UInt64(buffer.count), length - offset)))
             bytes.withUnsafeBytes { buffer.baseAddress!.copyMemory(from: $0.baseAddress!, byteCount: bytes.count) }
             return bytes.count
         }

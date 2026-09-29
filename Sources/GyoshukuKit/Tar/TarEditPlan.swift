@@ -11,7 +11,7 @@ struct TarEditPlan {
         let materializedTarget: Int?
     }
     struct Boundary { let source: UInt64; let output: UInt64 }
-    let prefix: [SplicedSegment]
+    let prefix: [OutputSegment]
     let membersEnd: UInt64
     let unitOffsets: [UInt64?]
     let changed: [ChangedUnit]
@@ -22,7 +22,7 @@ struct TarEditPlan {
     static func make(layout: TarLayout, source: any ByteSource, names: [String], rawNames: [Data],
                      hardLinkTargets: [Int: Int], dataTargets: [Int: Int], removed: Set<Int>,
                      renamed: [Int: String], additionLength: UInt64 = 0) throws -> TarEditPlan {
-        var segments: [SplicedSegment] = []
+        var segments: [OutputSegment] = []
         var offsets: [UInt64?] = []
         var changed: [ChangedUnit] = []
         var position: UInt64 = 0
@@ -32,7 +32,7 @@ struct TarEditPlan {
             if let name = renamed[index], name != names[index] { return Data(name.utf8) }
             return rawNames[index]
         }
-        func append(_ segment: SplicedSegment) throws {
+        func append(_ segment: OutputSegment) throws {
             guard segment.length > 0 else { return }
             position = try checkedAdd(position, segment.length)
             if case .source(let next) = segment, let last = segments.last, case .source(let previous) = last,

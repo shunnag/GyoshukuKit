@@ -35,7 +35,7 @@ final class LHAUpdaterTests: XCTestCase {
                     let writes = IOEvents(), reads = IOEvents()
                     var progress: [ArchiveUpdater.CommitProgress] = []
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
-                        try SplicedArchiveOutput.$verificationReadObserver.withValue(reads.write) { try updater.commit { progress.append($0) } }
+                        try SegmentedArchiveOutput.$verificationReadObserver.withValue(reads.write) { try updater.commit { progress.append($0) } }
                     }
                     let added = [5, 6, 12].contains(operation)
                     let new = try LHAUpdateSupport.scan(output)
@@ -147,7 +147,7 @@ final class LHAUpdaterTests: XCTestCase {
             let writes = IOEvents(), copies = IOEvents(), verification = IOEvents()
             try ZipCopyEngine.$writeObserver.withValue(writes.write) {
                 try ArchiveFileSource.$readObserver.withValue(copies.read) {
-                    try SplicedArchiveOutput.$verificationReadObserver.withValue(verification.write) { try editor.commit() }
+                    try SegmentedArchiveOutput.$verificationReadObserver.withValue(verification.write) { try editor.commit() }
                 }
             }
             let copied = copies.events.filter { $0.inode == inode }.reduce(UInt64(0)) { $0 + UInt64($1.count) }

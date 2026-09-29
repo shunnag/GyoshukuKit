@@ -34,7 +34,7 @@ final class TarUpdaterTests: XCTestCase {
                     let writes = IOEvents(), reads = IOEvents()
                     var progress: [ArchiveUpdater.CommitProgress] = []
                     try ZipCopyEngine.$writeObserver.withValue(writes.write) {
-                        try SplicedArchiveOutput.$verificationReadObserver.withValue(reads.write) {
+                        try SegmentedArchiveOutput.$verificationReadObserver.withValue(reads.write) {
                             try updater.commit { progress.append($0) }
                         }
                     }

@@ -19,10 +19,10 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
     private func embeddedEnd(_ data: Data) -> Data {
         let bytes = ZipBytes(data: data)
         var fake = Data(data.suffix(22))
-        fake.zipSet(bytes.u32(bytes.end + 12) + 30, at: 12)
-        fake.zipSet(UInt16(4), at: 20)
+        fake.leSet(bytes.u32(bytes.end + 12) + 30, at: 12)
+        fake.leSet(UInt16(4), at: 20)
         var result = data
-        result.zipSet(UInt16(34), at: bytes.end + 20)
+        result.leSet(UInt16(34), at: bytes.end + 20)
         result.append(Data("filler!!".utf8))
         result.append(fake)
         result.append(Data("tail".utf8))
@@ -87,7 +87,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         var bytes = try Data(contentsOf: url)
         var comment = Data([0x50, 0x4B, 0x05, 0x06])
         comment.append(Data(repeating: 0xFF, count: 22)) // Comment length 65535 does not fit.
-        bytes.zipSet(UInt16(comment.count), at: bytes.count - 2)
+        bytes.leSet(UInt16(comment.count), at: bytes.count - 2)
         bytes.append(comment)
         try bytes.write(to: url)
         XCTAssertEqual(try ArchiveUpdater.probe(url: url).entryCount, 2)
@@ -133,7 +133,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         var data = try Data(contentsOf: url)
         let bytes = ZipBytes(data: data)
         for offset in [18, 22, bytes.central + 20, bytes.central + 24] {
-            data.zipSet(UInt32(bytes.central), at: offset)
+            data.leSet(UInt32(bytes.central), at: offset)
         }
         try data.write(to: url)
         XCTAssertEqual(try ArchiveReader.open(url: url).entries.count, 2)
@@ -149,7 +149,7 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         let reader = try ArchiveReader.open(data: bytes)
         let original = ZipBytes(data: bytes)
         let second = original.central + 46 + Int(original.u16(original.central + 28)) + Int(original.u16(original.central + 30))
-        bytes.zipSet(UInt32(0), at: second + 42)
+        bytes.leSet(UInt32(0), at: second + 42)
         try bytes.write(to: url)
         assertInvalid({
             try ZipCentralDirectory.validate(source: ArchiveFileSource(url: url), reader: reader,
@@ -211,13 +211,13 @@ final class ZipUpdaterIntegrityTests: XCTestCase {
         zip64.le(UInt64(bytes.u32(bytes.central + 20)))
         zip64.le(UInt64(bytes.u32(bytes.central + 42)))
         var patched = bytes.data
-        patched.zipSet(UInt16(45), at: bytes.central + 6)
-        patched.zipSet(UInt32.max, at: bytes.central + 20)
-        patched.zipSet(UInt32.max, at: bytes.central + 24)
-        patched.zipSet(UInt32.max, at: bytes.central + 42)
-        patched.zipSet(bytes.u16(bytes.central + 30) + UInt16(zip64.count), at: bytes.central + 30)
+        patched.leSet(UInt16(45), at: bytes.central + 6)
+        patched.leSet(UInt32.max, at: bytes.central + 20)
+        patched.leSet(UInt32.max, at: bytes.central + 24)
+        patched.leSet(UInt32.max, at: bytes.central + 42)
+        patched.leSet(bytes.u16(bytes.central + 30) + UInt16(zip64.count), at: bytes.central + 30)
         patched.insert(contentsOf: zip64, at: nameEnd)
-        patched.zipSet(bytes.u32(bytes.end + 12) + UInt32(zip64.count), at: patched.count - 10)
+        patched.leSet(bytes.u32(bytes.end + 12) + UInt32(zip64.count), at: patched.count - 10)
         try patched.write(to: url)
         let updater = try ArchiveUpdater.open(url: url)
         try updater.add(data: Data([7]), as: "added.txt")

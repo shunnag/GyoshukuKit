@@ -61,14 +61,14 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
                 let local = try ZipRebuild.LocalHeader(source: resultSource, layout: raw)
                 let cd = try ZipRebuild.CentralHeader(bytes: resultDirectory.bytes, range: resultDirectory.records[index].centralRange)
                 let old = try ZipRebuild.CentralHeader(bytes: oldDirectory.bytes, range: oldDirectory.records[index].centralRange)
-                XCTAssertEqual(local.fixed.zip16(6) & 9, 1)
-                XCTAssertEqual(local.fixed.zip16(6), cd.fixed.zip16(8))
-                XCTAssertEqual(local.fixed.zip16(8), encryption == .aes256 ? 99 : 8)
-                XCTAssertEqual(local.fixed.zip16(4) & 0xff00, 0x300)
-                XCTAssertEqual(cd.fixed.zip16(6) & 0xff00, 0x300)
-                XCTAssertEqual(local.fixed.zip32(14), cd.fixed.zip32(16))
-                XCTAssertEqual(UInt64(local.fixed.zip32(18)), reader.entries[index].compressedSize)
-                XCTAssertEqual(UInt64(local.fixed.zip32(22)), reader.entries[index].uncompressedSize)
+                XCTAssertEqual(local.fixed.le16(6) & 9, 1)
+                XCTAssertEqual(local.fixed.le16(6), cd.fixed.le16(8))
+                XCTAssertEqual(local.fixed.le16(8), encryption == .aes256 ? 99 : 8)
+                XCTAssertEqual(local.fixed.le16(4) & 0xff00, 0x300)
+                XCTAssertEqual(cd.fixed.le16(6) & 0xff00, 0x300)
+                XCTAssertEqual(local.fixed.le32(14), cd.fixed.le32(16))
+                XCTAssertEqual(UInt64(local.fixed.le32(18)), reader.entries[index].compressedSize)
+                XCTAssertEqual(UInt64(local.fixed.le32(22)), reader.entries[index].uncompressedSize)
                 XCTAssertEqual(cd.name, old.name); XCTAssertEqual(cd.comment, old.comment)
                 for range in [4..<6, 12..<16, 36..<42] { XCTAssertEqual(cd.fixed.subdata(in: range), old.fixed.subdata(in: range)) }
                 let oldFields = ZipRebuild.extraFields(old.extra).filter { $0.id != 1 }.map { old.extra.subdata(in: $0.range) }
@@ -150,8 +150,8 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
             let padding = try XCTUnwrap(fields.first { $0.id == 0xffff })
             XCTAssertTrue(extra[(padding.range.lowerBound + 4)..<padding.range.upperBound].allSatisfy { $0 == 0 })
         }
-        XCTAssertEqual(local.fixed.zip16(6) & 0x800, 0x800)
-        XCTAssertEqual(cd.fixed.zip16(8) & 0x800, 0x800)
+        XCTAssertEqual(local.fixed.le16(6) & 0x800, 0x800)
+        XCTAssertEqual(cd.fixed.le16(8) & 0x800, 0x800)
     }
 
     private func setMethod(_ method: UInt16, in url: URL) throws {
@@ -161,14 +161,14 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
         var bytes = try Data(contentsOf: url)
         if case .winZipAES = raw.encryption {
             for (offset, fixed, nameOffset, extraOffset) in [(Int(raw.recordRange.lowerBound), 30, 26, 28), (Int(layout.centralOffset), 46, 28, 30)] {
-                let start = offset + fixed + Int(bytes.zip16(offset + nameOffset))
-                let extra = bytes.subdata(in: start..<(start + Int(bytes.zip16(offset + extraOffset))))
+                let start = offset + fixed + Int(bytes.le16(offset + nameOffset))
+                let extra = bytes.subdata(in: start..<(start + Int(bytes.le16(offset + extraOffset))))
                 let field = try XCTUnwrap(ZipRebuild.extraFields(extra).first { $0.id == 0x9901 })
-                bytes.zipSet(method, at: start + field.range.lowerBound + 9)
+                bytes.leSet(method, at: start + field.range.lowerBound + 9)
             }
         } else {
-            bytes.zipSet(method, at: Int(raw.recordRange.lowerBound) + 8)
-            bytes.zipSet(method, at: Int(layout.centralOffset) + 10)
+            bytes.leSet(method, at: Int(raw.recordRange.lowerBound) + 8)
+            bytes.leSet(method, at: Int(layout.centralOffset) + 10)
         }
         try bytes.write(to: url)
     }
@@ -205,7 +205,7 @@ final class ZipReencryptionBoundaryTests: XCTestCase {
                 items: [("special", Data(repeating: 120, count: 25))])
             let layout = try ZipUpdateLayout(source: ArchiveFileSource(url: source))
             var bytes = try Data(contentsOf: source)
-            bytes.zipSet(UInt32(mode) << 16, at: Int(layout.centralOffset) + 38)
+            bytes.leSet(UInt32(mode) << 16, at: Int(layout.centralOffset) + 38)
             if mode == 0o40755 {
                 // directory は末尾 / で判定する。長さを保ち payload 位置を変えない。
                 bytes[30 + "special".utf8.count - 1] = 47

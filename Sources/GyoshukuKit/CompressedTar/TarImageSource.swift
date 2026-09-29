@@ -4,7 +4,8 @@ internal import KaitoKit
 
 // 圧縮 tar の区切り単位の更新。経路は
 // TarEditPlan → TarImageSource（+ScratchFile）→ CompressedTarSplicePlan → CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify。
-// この経路は SplicedArchiveOutput（segment 計画を実行する共通の commit）を使わない。出力 inode の所有は OwnedOutputFile を共有する。
+// CompressedTarSpliceOutput は圧縮 tar の区切りを更新し、SegmentedArchiveOutput は形式共通の segment 計画を実行する。
+// 出力 inode の所有は OwnedOutputFile を共有する。
 // このファイルは編集後の tar image。原本の区間と作業ファイルの区間を繋いだ ByteSource で、member の座標表も持つ。
 struct TarImageSource: ByteSource {
     struct Span: Sendable {

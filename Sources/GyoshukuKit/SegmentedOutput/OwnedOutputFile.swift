@@ -3,7 +3,7 @@ internal import Darwin
 
 /// 出力 file の inode を、作成から公開（adopt）または削除（discard）まで所有する。
 /// path と fd の一致は ArchiveOwnedFile.matches の FAT/exFAT 規則（fresh fstat/lstat）で検査し、
-/// 失敗時は自分の inode だけを消す。SplicedArchiveOutput と CompressedTarSpliceOutput が一つずつ持つ。
+/// 失敗時は自分の inode だけを消す。SegmentedArchiveOutput と CompressedTarSpliceOutput が一つずつ持つ。
 /// clone 出力は open の前に expectClone で所有を登録し、open した fd がその inode であることを確かめてから handle を持つ。
 /// 検査に失敗した fd は handle に入れないので、discard は他人の file を消さない。
 final class OwnedOutputFile {

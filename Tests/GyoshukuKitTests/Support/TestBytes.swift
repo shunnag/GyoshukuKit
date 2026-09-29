@@ -1,7 +1,7 @@
 import Foundation
 
 // 試験の byte 検査器（ZipBytes・SevenZipBytes・LHABytes など）が共有する little-endian の読み出し。
-// 製品の `zip16` / `zip32` を oracle にしないため、別の名前で独立に持つ。
+// 製品の `le16` / `le32` を oracle にしないため、別の名前で独立に持つ。
 // `offset` は Data の実際の添字で、slice でも 0 始まりに直さない。
 extension Data {
     func uint16LE(at offset: Int) -> UInt16 {

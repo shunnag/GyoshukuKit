@@ -30,7 +30,7 @@ final class FATVolumeTests: XCTestCase {
         try ownership(try directory(nested, "deeper"), clusterInodes: clusterInodes)
         try tarCommits(root)
         try await tarFailures(root)
-        try splicedOutput(root)
+        try segmentedOutput(root)
         try writersAndRewriters(root)
         try zipUpdater(root)
     }
@@ -186,14 +186,14 @@ final class FATVolumeTests: XCTestCase {
         }
     }
 
-    private func splicedOutput(_ root: URL) throws {
+    private func segmentedOutput(_ root: URL) throws {
         for action in ["commit", "relocate", "discard", "empty-discard", "scratch-discard", "scratch-failure", "foreign-empty"] {
             let work = try directory(root, "spliced-" + action), source = work.appendingPathComponent("source.bin")
             let bytes = Data((0..<100).map(UInt8.init))
             try bytes.write(to: source)
             let path = work.appendingPathComponent("output.bin")
             let snapshot = try ArchiveSourceSnapshot(url: source, directory: work, pathExtension: "bin", disablesClone: true)
-            let output = SplicedArchiveOutput(snapshot: snapshot, output: path, pathExtension: "bin", sequential: true)
+            let output = SegmentedArchiveOutput(snapshot: snapshot, output: path, pathExtension: "bin", sequential: true)
             let scratch = try output.makeScratch(tag: "volume")
             XCTAssertEqual(try scratch.source().length, 0)
             try scratch.append(Data([201, 202]))
@@ -217,12 +217,12 @@ final class FATVolumeTests: XCTestCase {
                 try handle.close()
                 if action == "discard" || action == "scratch-discard" { output.discard() }
                 else {
-                    let prefix: [SplicedSegment]
+                    let prefix: [OutputSegment]
                     if action == "scratch-failure" { prefix = [.generated(length: 1, write: { try $0.write(Data([1, 2])) })] }
                     else if action == "relocate" { prefix = [.source(10..<40)] }
                     else { prefix = [.generated(length: 2, write: { try $0.copy(0..<2, from: scratch.source()) })] }
                     let length: UInt64 = action == "scratch-failure" ? 1 : action == "relocate" ? 30 : 2
-                    let plan = SplicedCommitPlan(prefix: prefix, appended: 50..<52, terminal: Data([255]),
+                    let plan = SegmentCommitPlan(prefix: prefix, appended: 50..<52, terminal: Data([255]),
                         finalLength: length + 3, formatVerificationUnits: 0)
                     let meter = CommitProgressMeter(total: output.units(for: plan), progress: nil)
                     if action == "scratch-failure" {

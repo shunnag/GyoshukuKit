@@ -11,7 +11,7 @@ struct LHAEditPlan {
         let output: UInt64
         let length: UInt64
     }
-    let prefix: [SplicedSegment]
+    let prefix: [OutputSegment]
     let membersEnd: UInt64
     let memberOffsets: [UInt64?]
     let changed: [Changed]
@@ -21,13 +21,13 @@ struct LHAEditPlan {
     let isChanged: Bool
 
     static func make(layout: LHALayout, removed: Set<Int>, renamed: [Int: Data], additionLength: UInt64 = 0) throws -> LHAEditPlan {
-        var segments: [SplicedSegment] = []
+        var segments: [OutputSegment] = []
         var offsets: [UInt64?] = []
         var changed: [Changed] = []
         var boundaries: [Boundary] = []
         var position: UInt64 = 0, boundaryBytes: UInt64 = 0
         let existingChanged = !removed.isEmpty || !renamed.isEmpty
-        func append(_ segment: SplicedSegment, boundary: Boundary? = nil) throws {
+        func append(_ segment: OutputSegment, boundary: Boundary? = nil) throws {
             guard segment.length > 0 else { return }
             position = try checkedAdd(position, segment.length)
             if case .source(let next) = segment, let last = segments.last, case .source(let previous) = last,

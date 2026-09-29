@@ -71,7 +71,7 @@ struct ZipCopyEngine {
         try move(to: offset, progress: progress)
         if range.count <= buffer.count - used {
             if used == 0 { try Task.checkCancellation() }
-            let changed = bytes.zip32(range.lowerBound + 42) != UInt32(localOffset)
+            let changed = bytes.le32(range.lowerBound + 42) != UInt32(localOffset)
             var encoded = UInt32(localOffset).littleEndian
             buffer.withUnsafeMutableBytes { target in
                 bytes.withUnsafeBytes { source in

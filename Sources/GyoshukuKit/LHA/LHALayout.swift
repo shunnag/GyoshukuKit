@@ -112,7 +112,7 @@ struct LHALayout {
         let first = try cache.bytes(at: offset, count: 21)
         let level = first[20]
         guard level <= 2, first[0] != 0 else { throw refuse("header level") }
-        let length = level == 2 ? Int(first.zip16(0)) : Int(first[0]) + 2
+        let length = level == 2 ? Int(first.le16(0)) : Int(first[0]) + 2
         guard length >= (level == 0 ? 24 : level == 1 ? 27 : 26) else { throw refuse("short header") }
         var header = try cache.bytes(at: offset, count: length)
         let methodBytes = header[2..<7]
@@ -121,8 +121,8 @@ struct LHALayout {
             throw refuse("method")
         }
         let method = String(decoding: methodBytes, as: UTF8.self)
-        var filename = Data(), directory = Data(), packed = UInt64(header.zip32(7))
-        var originalSize = UInt64(header.zip32(11))
+        var filename = Data(), directory = Data(), packed = UInt64(header.le32(7))
+        var originalSize = UInt64(header.le32(11))
         let crc: UInt16, osID: UInt8?
         var headerCRC: (offset: Int, value: UInt16)?
         var extendedSize = false
@@ -130,12 +130,12 @@ struct LHALayout {
             switch type {
             case 0:
                 guard data.count >= 2, headerCRC == nil else { throw refuse("header CRC field") }
-                headerCRC = (start, data.zip16(0))
+                headerCRC = (start, data.le16(0))
             case 1: if !data.isEmpty { filename = data }
             case 2: if !data.isEmpty { directory = data }
             case 0x42:
                 guard data.count == 16, !extendedSize else { throw refuse("extended sizes") }
-                packed = data.zip64(0); originalSize = data.zip64(8); extendedSize = true
+                packed = data.le64(0); originalSize = data.le64(8); extendedSize = true
             default: break
             }
         }
@@ -144,11 +144,11 @@ struct LHALayout {
             let endName = 22 + Int(header[21])
             guard endName <= header.count - (level == 0 ? 2 : 5) else { throw refuse("name bounds") }
             filename = header.subdata(in: 22..<endName)
-            crc = header.zip16(endName)
+            crc = header.le16(endName)
             osID = level == 1 || endName + 2 < header.count ? header[endName + 2] : nil
             if level == 1 {
                 let skip = packed
-                var next = Int(header.zip16(length - 2)), total: UInt64 = 0
+                var next = Int(header.le16(length - 2)), total: UInt64 = 0
                 while next != 0 {
                     guard next >= 3, try checkedAdd(total, UInt64(next)) <= skip else { throw refuse("extension bounds") }
                     let start = header.count
@@ -156,16 +156,16 @@ struct LHALayout {
                     try extended(record[0], record.subdata(in: 1..<(next - 2)), at: start + 1)
                     total += UInt64(next)
                     header.append(record)
-                    next = Int(record.zip16(record.count - 2))
+                    next = Int(record.le16(record.count - 2))
                 }
                 if !extendedSize { packed = skip - total }
             }
         } else {
-            crc = header.zip16(21); osID = header[23]
+            crc = header.le16(21); osID = header[23]
             var cursor = 24
             while true {
                 guard cursor <= header.count - 2 else { throw refuse("extension length bounds") }
-                let next = Int(header.zip16(cursor))
+                let next = Int(header.le16(cursor))
                 if next == 0 { break }
                 guard next >= 3, next <= header.count - cursor - 2 else { throw refuse("extension bounds") }
                 try extended(header[cursor + 2], header.subdata(in: (cursor + 3)..<(cursor + next)), at: cursor + 3)

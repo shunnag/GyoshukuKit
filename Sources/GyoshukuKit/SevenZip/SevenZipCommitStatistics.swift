@@ -38,7 +38,7 @@ extension SevenZipCommitStatistics {
     /// clone mode では動いた carry pack だけを書き、動かなかった pack は照合も読まない。
     /// 共有出力が relocatedAppend / sequential に落ちた場合はその strategy が優先する。
     mutating func summarize(plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly, original model: SevenZipEditModel,
-                            shared: SplicedCommitStrategy, isCloneMode: Bool, appended: Range<UInt64>?, hasAdditions: Bool,
+                            shared: SegmentCommitStrategy, isCloneMode: Bool, appended: Range<UInt64>?, hasAdditions: Bool,
                             conversions: [Int: SevenZipFolderConversion], reencoded: [Int: SevenZipReencodedFolder],
                             scratchBefore: [Int: Double]) {
         var shifted = false, converted = false, reencodedAny = false
