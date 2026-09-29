@@ -15,7 +15,7 @@ final class SplicedArchiveOutputTests: XCTestCase {
     }
 
     private func commit(_ output: SplicedArchiveOutput, _ plan: SplicedCommitPlan) throws -> SplicedCommitStrategy {
-        let writes = ZipIOEvents(), reads = ZipIOEvents()
+        let writes = IOEvents(), reads = IOEvents()
         var progress: [ArchiveUpdater.CommitProgress] = []
         let meter = CommitProgressMeter(total: output.units(for: plan)) { progress.append($0) }
         try meter.start()
@@ -35,7 +35,7 @@ final class SplicedArchiveOutputTests: XCTestCase {
     func testUnshiftedCloneAndSequentialPrefix() throws {
         for sequential in [false, true] {
             let (_, path, output) = try setup("prefix-\(sequential)", sequential: sequential)
-            let before = ZipIOEvents()
+            let before = IOEvents()
             let handle = try ZipCopyEngine.$writeObserver.withValue(before.write) {
                 try output.beginAppend(at: 50, prefix: [.source(0..<50)])
             }

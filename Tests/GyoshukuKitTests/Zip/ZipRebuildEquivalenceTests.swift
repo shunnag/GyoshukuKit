@@ -24,7 +24,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
             let reader = try ArchiveReader.open(url: source, options: ArchiveUpdater.readerOptions)
             let count = reader.entries.count
             if source.lastPathComponent == "infozip-unicode.zip" {
-                let input = try ZipUpdateSource(url: source), layout = try ZipUpdateLayout(source: input)
+                let input = try ArchiveFileSource(url: source), layout = try ZipUpdateLayout(source: input)
                 let validated = try ZipCentralDirectory.validate(source: input, reader: reader,
                     centralOffset: layout.centralOffset, centralSize: layout.centralSize)
                 XCTAssertTrue(try validated.records.contains { record in

@@ -39,15 +39,14 @@ public final class ArchiveUpdater: ArchiveEditing {
     var writerUsesLiveNameCheck: Bool { writer?.existingPathCheck != nil }
     var hasPathReservations: Bool { pathReservations != nil }
 
-    /// commit が選ぶ経路と、それを実行する型。
-    /// - unchanged: 削除・改名・追加がない。`commitUnchanged` が output を同期するだけ。
-    /// - appendOnly: 追加だけ。`commitAppendOnly` から `ArchiveWriter.finish(existingCount:…)`（実体は `ZipWriter.finish`）が旧 CD を運び、
-    ///   `ZipCentralDirectory.CopyValidator` が検査する。
-    /// - inPlacePatch: 改名だけで record が動かない。`ZipRebuild.plan` が `Plan.inPlace` を立て、`execute` は header を patch する。
-    /// - rebuild: 削除・改名・再暗号化で record を詰め直す。`ZipRebuild.plan` / `execute`、変換は `ZipReencryption`。
-    /// - rebuildThenAppend: rebuild に加え、予測位置に書いた追加 record をそのまま残す。`ZipAppendedRecordSelfCheck` が照合する。
-    /// - stagedRebuild: 追加 record の予測位置が外れ、複製（staged）から `ZipRebuild.execute(… stagedSource:)` で運び直す。
-    /// 後の四つは `commitRebuild` が担う。
+    /// commit が選ぶ書庫の更新方法と検証内容。
+    /// - unchanged: 変更がなく書庫の byte を保つ。output 指定時は複製を同期し、原本の不変性を確かめる。
+    /// - appendOnly: 既存 record の後ろに追加 record を書き、旧 central directory を運んで構造と件数を照合する。
+    /// - inPlacePatch: 改名だけ。header の長さと終端が保たれることを確かめ、record を動かさず header を書き換える。
+    /// - rebuild: 削除・改名・再暗号化で record を詰め直す。再暗号化時は出力の配置・属性と復号した内容を照合する。
+    /// - rebuildThenAppend: 詰め直しの上で、予測位置に書いた追加 record をそのまま残し、header・配置・解釈を自己照合する。
+    /// - stagedRebuild: 追加 record の予測位置が外れたため複製から運び直し、header・配置・解釈を自己照合する。
+    /// 追加を伴う詰め直しでも、再暗号化時は出力の配置・属性と復号した内容を照合する。
     @_spi(Testing) public enum CommitStrategy: Sendable, Equatable {
         case unchanged, appendOnly, inPlacePatch, rebuild, rebuildThenAppend, stagedRebuild
     }

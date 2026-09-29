@@ -26,8 +26,8 @@ final class ZipUpdaterOutputModeTests: XCTestCase {
         try FileManager.default.copyItem(at: source, to: replacement)
         let replace = try ArchiveUpdater.open(url: replacement)
         try replace.remove(entriesAt: [0]); try replace.commit()
-        let events = ZipIOEvents()
-        try ZipUpdateSource.$readObserver.withValue(events.read) {
+        let events = IOEvents()
+        try ArchiveFileSource.$readObserver.withValue(events.read) {
             let updater = try ArchiveUpdater.open(url: source, output: output)
             let snapshots = try FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)
             XCTAssertEqual(snapshots.count, 1, "APFS must create one source snapshot")

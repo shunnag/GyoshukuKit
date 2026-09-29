@@ -26,18 +26,18 @@ public final class SevenZipUpdater: ArchiveReencrypting {
     private let ledger: EntryEditLedger
     let filesByFolder: [[Int]]
     let destination: SplicedArchiveOutput
-    let headerPassword: String?
-    var reencrypt = false
-    var currentPassword: String?
+    private let headerPassword: String?
+    private(set) var reencrypt = false
+    private var currentPassword: String?
     private var encryptors: SevenZipAESEncryptor.Factory
     private var writerPathsNeedRefresh = false
     var writer: ArchiveWriter?
-    var appendStart: UInt64?
+    private(set) var appendStart: UInt64?
     var reencoded: [Int: SevenZipReencodedFolder] = [:]
     var conversions: [Int: SevenZipFolderConversion] = [:]
     var passwordChecked: Set<Int> = []
     enum State { case adding, committing, committed, failed }
-    var state = State.adding
+    private(set) var state = State.adding
     private var additionsClosed = false
 
     public var entryNames: [String] { reader.entries.map(\.name) }

@@ -44,7 +44,7 @@ final class SevenZipUpdaterLargeOffsetTests: XCTestCase {
             let output = root.appendingPathComponent(operation + ".7z")
             let updater = try SevenZipUpdater.open(url: source, output: output)
             guard updater.destination.isCloneMode else { throw XCTSkip("APFS clone unavailable") }
-            let events = ZipIOEvents(), start = ProcessInfo.processInfo.systemUptime
+            let events = IOEvents(), start = ProcessInfo.processInfo.systemUptime
             try ZipCopyEngine.$writeObserver.withValue(events.write) {
                 if operation == "rename" { try updater.rename(entryAt: 1, to: "renamed") }
                 else if operation == "first" { try updater.remove(entriesAt: [0]) }

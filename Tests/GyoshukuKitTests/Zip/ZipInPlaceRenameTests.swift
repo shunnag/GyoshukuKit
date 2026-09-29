@@ -10,7 +10,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
         for count in [1, 1000] {
             let source = try ZipEditTestSupport.fixture(directory, name: "source-\(count).zip", count: count, payloadSize: 32)
             let reader = try ArchiveReader.open(url: source)
-            let input = try ZipUpdateSource(url: source), layout = try ZipUpdateLayout(source: input)
+            let input = try ArchiveFileSource(url: source), layout = try ZipUpdateLayout(source: input)
             let validated = try ZipCentralDirectory.validate(source: input, reader: reader, centralOffset: layout.centralOffset, centralSize: layout.centralSize)
             let operations = (0..<count).map { ZipEditTestSupport.Operation.rename($0, String(format: "other-%06d.txt", $0)) }
             let output = directory.appendingPathComponent("output-\(count).zip")
@@ -18,7 +18,7 @@ final class ZipInPlaceRenameTests: XCTestCase {
             try ZipEditTestSupport.legacy(source: source, output: oracle, operations: operations)
             let updater = try ArchiveUpdater.open(url: source, output: output)
             try ZipEditTestSupport.mutate(updater, operations)
-            let events = ZipIOEvents()
+            let events = IOEvents()
             try ZipCopyEngine.$writeObserver.withValue(events.write) { try updater.commit() }
             XCTAssertEqual(updater.lastCommitStrategy, .inPlacePatch)
             let ranges = validated.records.flatMap { record -> [Range<UInt64>] in
