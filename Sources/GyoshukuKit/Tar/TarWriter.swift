@@ -74,7 +74,7 @@ final class TarWriter {
             entry.link = Data(hardLink.utf8)
             entry.size = 0
         }
-        let headers = try entry.headers()
+        let headers = entry.headers()
         let bodyLength = entry.type == TypeFlag.regular ? try checkedAdd(size, UInt64(TarRecords.padding(size))) : 0
         let groupStart = position
         let dataStart = try checkedAdd(position, UInt64(headers.count))
