@@ -72,13 +72,13 @@
 書庫と外部ツールの log を調べるためで、同じ label の次の実行が消す。数十 MiB を超える出力はその試験が成功後に消す。
 label は suite の中で重ねない（重なると別の試験の出力を消す）。
 
-## 外部ツールが無いとき（現状）
+## 外部ツールが無いとき
 
-- `ReferenceTool.run` と、それを使う `TestSupport.run`・各 `*TestSupport` の `run` / `verify` は失敗する（skip しない）。
-- 次は skip する: `ArchiveRewriterTests`（PATH で探す zip・bsdtar・7zz・lha）、`ReferenceTool.firstAvailable` の候補が
-  一つも無いとき（`ParallelDeflateBzip2WriterTests`・`ParallelLZMA2WriterTests`・`ParallelZIP64BoundaryTests`）、
-  `LHAUpdaterInteropTests`（比べるツールごと）、`SevenZipExternalOracles`（7zz と bsdtar。`SevenZipUpdaterInteropTests`・
-  `SevenZipUpdaterSolidTests` と、`check` を呼ぶ 7z の試験）、`ArchiveTestDisk`（hdiutil が image を作れないとき）。
+- 方針は一つ: 参照ツールが無ければ失敗する（skip しない）。`ReferenceTool.run` と `ReferenceTool.require(候補)`、それを使う
+  `TestSupport.run`・各 `*TestSupport` の `run` / `verify`・`SevenZipExternalOracles.check` は XCTFail して throw する。
+- skip するのは名前に `WhenAvailable` を含む試験（`ReferenceTool.optional(候補)`。現状は `ArchiveRewriterTests.testLHAOutputPassesLhasaWhenAvailable`）と、
+  ツールではなく環境の機能が無いとき（`ArchiveTestDisk` の hdiutil image、APFS clone、sparse file）だけ。
+  `ReferenceToolPolicyTests` が両方の経路を固定する。
 - 7zz や GNU tar があるときだけ照合を足す: `LHAUpdaterLargeOffsetTests`・`SevenZipUpdaterLargeOffsetTests`・
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
 - CI（`.github/workflows/ci.yml`）は `brew install sevenzip xz lhasa gnu-tar` で全てのツールを入れる。

@@ -30,7 +30,13 @@
   `TarEditTestSupport` ほか）。環境変数で有効にする計測は `Probes/` に置き、閾値の検査は `GYOSHUKU_SCALE_ASSERT=1` のときだけ
   失敗する（`GYOSHUKU_P14_ASSERT` は別名として残る）。計測行は tab 区切りで stderr に出す。編集予約の時間計測は既定の
   suite から opt-in の probe に移した。`Tests/README.md` に helper・fixture・環境変数・外部ツールの一覧を書いた。
-  `SevenZipExternalOracles.check` は 7zz / bsdtar が無いとき黙って通らず skip する。
+  `SevenZipExternalOracles.check` は 7zz / bsdtar が無いとき黙って通らず失敗する。
+- 2026-09-29 の追加整理。公開 API・`@_spi`・出力 byte は変えていない。
+  - `TarChunkLayout` を `TarChunkCutter` に改名し、`Layout` は書庫の構造の語に揃えた。
+  - `TarSpliceStorage`・`SplicedScratchFile`・`LHACompressionSpool` を一つの `ScratchFile` にした。寿命は一つ: 出力の隣に O_EXCL で作り、
+    inode の一致を確かめて直ちに unlink し、fd だけを持つ。commit 中も scratch file は名前では見えず、失敗時に消す名前も残らない。
+  - 試験の方針: 参照ツールが無ければ skip ではなく失敗する（`ReferenceTool.require`）。名前に `WhenAvailable` を含む試験だけ
+    `ReferenceTool.optional` で skip を許す。
 
 ## [0.6.0] - 2026-09-27
 

@@ -52,7 +52,7 @@ file 名は中の主な型の名前に合わせ、`Records` / `Layout` / `EditPl
 | `Compression/` | byte を圧縮 byte にする codec と framing(`DeflateBlock`、`OrderedChunkPipeline`、`GzipFraming`、`XZFraming`、`LH5Encoder`、…)。hot path。命名・comment・定数以外は触らない |
 | `Support/` | 書庫を知らない補助(`checkedAdd`、`Range<UInt64>.byteLength`、`updateCRC`、little-endian の `Data` 拡張、`IOChunk.size`、`FileMode`、`FileRead`、`EncryptionPrimitives`) |
 
-圧縮 tar の経路(`TarEditPlan → TarImageSource(+TarSpliceStorage)→ CompressedTarSplicePlan →
+圧縮 tar の経路(`TarEditPlan → TarImageSource(+ScratchFile)→ CompressedTarSplicePlan →
 CompressedTarSpliceOutput.commit → CompressedTarSelfCheck.verify`)は `SplicedArchiveOutput` を使わず、
 出力 inode の所有だけを `OwnedOutputFile` で共有する。
 
@@ -234,13 +234,13 @@ open は P2 の `TarLayout` と K1 の member/header/global/EOF 境界を照合�
 pax/sparse header 群の変更、comment の global header、所有者と未変更名の byte を保つ。
 変更 commit は新しい EOF と record fill を作り、変更なしは圧縮 byte もそのまま複写する。
 `TarImageSource` は旧 image と追加/literal の区間を二分探索し、image 全体を複写しない。
-追加/literal だけの保存領域は出力の隣に O_EXCL・0600 で作って直ちに unlink し、
+追加/literal だけの保存領域は形式共通の `ScratchFile`（出力の隣に O_EXCL・0600 で作り、inode の一致を確かめて直ちに unlink し、fd だけを持つ。2026-09-29 に再配置の scratch・7z folder の scratch・LHA の圧縮 spool も同じ型に統一）で、
 固定の予備容量や空き容量の事前検査は設けず、実際の書込みエラーを伝えて後始末する。
 出力 volume 上で追加と literal だけを保存するため、出力本体と同じ容量方針にする。
 
 運ぶ chunk は新 image の一つの連続する source 区間に収まるものだけとする。
 gzip はさらに直前 32 KiB も同じ source 区間に収め、BFINAL を途中へ運ばない。
-残りの橋を `TarChunkLayout(limits:)` で切る。`TarChunkLimits` は詰める上限 packing と片の上限 piece を持つ。
+残りの橋を `TarChunkCutter(limits:)` で切る。`TarChunkLimits` は詰める上限 packing と片の上限 piece を持つ。
 gzip は両方1 MiB、bzip2 は両方5 × level × 100,000 B。xz は packing が
 `ParallelXZCompressor.memberPackingSize`（4 MiB）、piece が `defaultBlockSize`（16 MiBの片）。
 header 群・本文・詰め物を合わせて packing を越える member は header 群と本文を分け、
@@ -319,7 +319,7 @@ hdrcharset・不安定な名前 encoding・sparse hard link などは open で `
 形式共通の `SplicedArchiveOutput` が clone、新規 output、4 MiB copy、追加 block の再配置、scratch、
 truncate、fsync、close、inode に限定した cleanup を所有する。TarUpdater は計画と終端・形式照合を渡す。
 同じ位置の source は clone 上で書かない。sequential の初回 add は先に prefix を埋め、予約の変更で
-追加位置や prefix が変わった場合だけ同じ directory の scratch へ追加を退避する。
+追加位置や prefix が変わった場合だけ同じ directory の scratch（`ScratchFile`。名前は作成直後に unlink され、commit 中も名前では見えない）へ追加を退避する。
 generated 区間と最初の fsync 後の finalPatch も形式共通の契約として用意し、後続の updater が再利用する。
 
 V1 は変更 header、V2 は source 境界 header、V3 は追加群、V4 は終端と長さ、V5 は書いた source と
@@ -327,7 +327,7 @@ V1 は変更 header、V2 は source 境界 header、V3 は追加群、V4 は終�
 V2/V5 の読取を一つの `SplicedArchiveOutput.verificationReadObserver` に報告する。
 共通 `CommitProgress` の total は計画後に固定し、commit 中の書込み（再配置の往復を含む）と
 V2/V5 の読取を数える。初回 add の書込みは含めない。単調に通知し、最後は 0 を含め completed == total。
-callback の throw・再入・取消しは失敗として、自分の inode の output / snapshot / scratch を削除する。
+callback の throw・再入・取消しは失敗として、自分の inode の output / snapshot を削除し、scratch は fd を閉じて解放する。
 
 試験・互換性・計測値は [P2-G 検証記録](verification/2026-09-25-p2g-tar-updater.md) に記す。
 
@@ -793,7 +793,7 @@ total は計画時に固定し、完了時の一致を確認してから公開�
 
 ### P5-G: 共有出力の scratch segment（S24-c1）
 
-2026-09-26 のオーケストレータ修正により、`SplicedSegment.scratch(SplicedScratchFile, Range<UInt64>)` を追加する。
+2026-09-26 のオーケストレータ修正により、`SplicedSegment.scratch(ScratchFile, Range<UInt64>)`（当時の名は `SplicedScratchFile`）を追加する。
 `makeScratch` の append-only な同じ object（`===`）と同じ範囲は同じ byte を表す。
 sequential mode の `beginAppend` が既に書いた prefix は、その組が同じなら commit で再利用する。
 範囲外・別の出力部品に属する scratch は `outputVerificationFailed`。scratch は snapshot の範囲ではないので
