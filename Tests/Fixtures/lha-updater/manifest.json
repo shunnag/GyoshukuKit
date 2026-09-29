@@ -412,7 +412,7 @@
     "commit": "d35f2da",
     "sourceTreeSHA256": "46ab1ef0aa965eb61445d851de9ed6756bd4ee3b251691603a26cf8376a3faa1",
     "stage": "S14",
-    "version": "0.11.0"
+    "version": "0.12.0"
   },
   "schemaVersion": 1,
   "sha256AndSizeScope": "Decoded base64 bytes: complete archive, except sparse-prefix entries contain only the header; logicalSize is the materialized file length.",

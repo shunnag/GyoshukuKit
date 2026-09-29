@@ -30,8 +30,8 @@ GyoshukuKit ──依存──> KaitoKit
 書庫の**更新**(追加・削除・改名)は、生き残る entry を再圧縮せずに運ぶために
 既存書庫を読む必要がある。その堅い parser は KaitoKit が既に持っているので、
 二つ目の ZIP parser は書かない。開発中は `.package(path: "../KaitoKit")`、
-release では `.upToNextMinor(from: "0.11.0")` の tag 参照を使う。
-GyoshukuKit 0.6.0 は KaitoKit 0.11.x に依存する。`@_spi` は SemVer の保証外で、
+release では `.upToNextMinor(from: "0.12.0")` の tag 参照を使う。
+GyoshukuKit 0.7.0 は KaitoKit 0.12.x に依存する。`@_spi` は SemVer の保証外で、
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
@@ -548,8 +548,8 @@ String 辞書と entry 全体の等値比較を作らず、範囲 2 つと descr
 
 試験用 `@_spi(Testing)` は `ArchiveUpdater.CommitStrategy`（unchanged / appendOnly / inPlacePatch /
 rebuild / rebuildThenAppend / stagedRebuild）と `lastCommitStrategy` だけを公開する。
-KaitoKit 0.11.0 が SPI を提供するため、GyoshukuKit 0.6.0 の URL 依存は
-`.upToNextMinor(from: "0.11.0")` とする。開発中は sibling の KaitoKit を使い、manifest の自動選択規則は変えない。
+KaitoKit 0.11.0 以降が SPI を提供するため、GyoshukuKit 0.7.0 の URL 依存は
+`.upToNextMinor(from: "0.12.0")` とする。開発中は sibling の KaitoKit を使い、manifest の自動選択規則は変えない。
 
 従来の public rawRecord API（0.4.0）は引き続き利用できる。
 
@@ -813,7 +813,7 @@ open は P1-G の descriptor 起点の `ArchiveSourceSnapshot` を使い、Kaito
 非 0 の main packPosition、entry / file / folder / substream / pack の不一致を、変更前に
 `UpdaterRouteError.requiresRewrite` で返す。`assess(reader:)` は既存 reader の構造だけを判定する。
 KaitoKit 0.11.0 の P5-K SPI が必要。Package.swift の tag 依存は
-`.upToNextMinor(from: "0.11.0")` とし、KaitoKit 0.11.0 → GyoshukuKit 0.6.0 → KaitoFinder 0.4.0 の順にリリースする。
+`.upToNextMinor(from: "0.12.0")` とし、KaitoKit 0.12.0 → GyoshukuKit 0.7.0 → KaitoFinder 0.5.0 の順にリリースする。
 
 生存 file は元の順、追加は呼出し順で末尾へ置く。運ぶ folder の圧縮 byte、coder と props、bind、
 packed input、unpack size、CRC、AES の IV を保ち、file の UTF-16LE の生の名前、FILETIME、属性、
