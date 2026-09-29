@@ -8,7 +8,7 @@
 | 項目 | 内容 | commit |
 |---|---|---|
 | GK-B F11 | `TarChunkLayout` → `TarChunkCutter` | 4d6a2a6 |
-| GK-B F9 | 三つの scratch 型を一つの `ScratchFile`（作成直後に unlink、fd のみ）に | 1e1e0b8 の系列（refactor/2026-09-29-followups） |
+| GK-B F9 | 三つの scratch 型を一つの `ScratchFile`（作成直後に unlink、fd のみ）に | f75ef3f |
 | GK-T F18 | 参照ツール欠如は skip ではなく失敗（`ReferenceTool.require` / `optional`） | ce328e8 |
 | GK-B F4 (a) | `SevenZipUpdater` の状態を可能な範囲で `private` に（scoping probe） | e7f9725 |
 | SPI doc | `ArchiveUpdater.CommitStrategy` の doc を内部名でなく挙動で書く | e7f9725 |
@@ -22,6 +22,7 @@
 | 項目 | 理由 | 合意 |
 |---|---|---|
 | `CompressedTarSpliceDeterminismTests` の 3 class | 形式ごとに `--filter` で選べるようにした意図的な構成で、file の header に明記されている | Fable |
+| KaitoFinder `Documentation/pending/specs-2026-09-26/*` の旧名（`ZipUpdateSource`・`SevenZipUpdatePlan` など） | 日付付きの spec は当時の記録として残す | Fable |
 
 ## 検証
 
