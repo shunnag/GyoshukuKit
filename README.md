@@ -4,7 +4,7 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 読み取り専用の [KaitoKit](https://github.com/shunnag/KaitoKit)(解凍Kit)と対をなします。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
-- 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib)
+- 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib) / BZip2 (system libbz2) / XZ (Apple Compression)
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
 - 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
 - 一括追加と進捗: `ArchiveAddition` と `add(_:events:)`、ディスク読取の byte 進捗、`finishAdditions(progress:)`、updater / rewriter の commit 進捗
@@ -114,25 +114,43 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 
 | `WriterOptions` | 既定値 | 意味 |
 |---|---|---|
-| `compressionMethod` | `.deflate` | `.stored` または `.deflate` |
+| `compressionMethod` | `.deflate` | ZIP の `.stored` / `.deflate` / `.bzip2` / `.xz` |
 | `deflateLevel` | `6` | ZIP / tar.gz の zlib level `0...9` |
-| `bzip2Level` | `9` | tar.bz2 の block size level `1...9`（100,000〜900,000 byte） |
+| `bzip2Level` | `9` | ZIP BZip2 / tar.bz2 の block size level `1...9`（100,000〜900,000 byte） |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
 | `preserveOwnerIDs` | `false` | true のときディスク由来の uid/gid を 0x7875 に保存 |
 | `preserveMacOSMetadata` | `false` | true はこの段階では `unsupportedOption` |
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
-| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz / LHA の並列数 `1...64`。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z / tar.xz / LHA の並列数 `1...64`。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
+
+ZIP の書き込み方式は次の四つです。updater の新規追加と ZIP への rewriter も同じ設定を使います。
+
+| 方式 | method | encoder |
+|---|---|---|
+| `.stored` | 0 | 無圧縮 |
+| `.deflate`（既定） | 8 | system zlib の raw deflate |
+| `.bzip2` | 12 | system libbz2 の単一 bzip2 stream |
+| `.xz` | 95 | Apple Compression の LZMA2 と XZFraming の完全な単一 XZ stream |
+
+macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 95 を展開できません。
+互換性のため Deflate を既定に保ち、BZip2 / XZ は KaitoKit や 7-Zip を使う場合の opt-in にします。
+AES-256 では header の method は99、0x9901 に実際の12 / 95を記録します。ZipCrypto も圧縮後の byte を暗号化します。
 
 ZIP の空ファイル・ディレクトリ・symlink は常に stored です。通常ファイルの payload は
 256 KiB 単位で読み書きし、作業メモリをファイルサイズに比例させません。central directory 用の
 メタデータは entry 数と名前長に比例します。
 
 ZIP deflate（ZipCrypto を除く）/ tar.gz は最大 1 MiB ごとに raw deflate を圧縮し、直前の末尾 32 KiB を辞書に使います。
-ZIP の小さい member は個別の `add(contentsOf:as:)` 呼出し間でも並列化し、出力は追加順です。
+ZIP Deflate の小さい member は個別の `add(contentsOf:as:)` 呼出し間でも並列化し、出力は追加順です。
+ZIP BZip2 は項目ごとに同期処理し、一つの stream を完結させます。ZIP XZ は最大16 MiBの block を
+`compressionThreads` で並列化し、一つの stream header・index・footer で包みます。一括 disk 追加も同じ経路です。
+`maximumPendingInputBytes(for: .zip)` は BZip2 では0、XZでは `(compressionThreads + 1) × 16 MiB` 以下です。
+両方式とも項目の追加終了時には全て出力します。BZip2 の codec state は最大約7.6 MBと I/O buffer、
+XZは thread ごとに約130 MiBと組立中16 MiBを使います。XZ の index は block 数に比例します。
 tar.gz は従来の header を持つ単一 gzip member、tar.bz2 は最大 `5 × bzip2Level × 100,000` byte の
 完全な bzip2 stream の連結です。通常の tar member は途中で切らず、先頭で gzip の同期点・bzip2 stream を区切り、
 上限を越える member は header 群と本文を分けて片にします。tar の終端は独立した区切りです。
@@ -141,14 +159,14 @@ tar.xz は header 群・本文・詰め物を合わせて4 MiB以下の member �
 4 MiBを越える member は header 群と本文を別の block にし、本文と大きな header 群は最大16 MiBの片に分けます。
 tar の終端は独立した block です。既存書庫の編集では、変更した区間だけにこの規則を使います。
 ZIP の暗号化では salt が毎回変わります。圧縮失敗は後続の `add` / `finish` で通知されることがあります。
-deflate / bzip2 の未出力 chunk と組立中の入力は合計で最大 `compressionThreads` 個に抑えます。
+ZIP deflate / tar.gz / tar.bz2 の未出力 chunk と組立中の入力は合計で最大 `compressionThreads` 個に抑えます。
 tar.xz の未出力 block は、並列数が2以上のとき64 KiB以下を並列数に数えず、合計で最大
 `2 × compressionThreads + 1` 個です。並列数1は同時に一つだけを符号化します。
 deflate / bzip2 の主なメモリは thread ごとに入力と出力（約2 × chunk size）と codec state、
 LZMA2 は16 MiBの片を使うと thread ごとに約130 MiBです。待機中の取消しは50 msごとに確認します。
 tar.xz の待機中の入力と組立中の入力の上界は `(compressionThreads + 1) × (16 MiBの片 + 64 KiB)` です。
 この入力の上界は codec state と出力を含みません。小さなファイルの多い tar.xz は従来より5–12%大きくなります。
-bzip2 の chunk は内部 block size の5倍です。level 9 は4,500,000 byteごとの独立streamとなり、
+tar.bz2 の chunk は内部 block size の5倍です。level 9 は4,500,000 byteごとの独立streamとなり、
 thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB（約15.8 MiB）を使います。
 
 ZIP のパスワードは UTF-8、7z は UTF-16LE を使います。ZIP は空ファイルも暗号化し、

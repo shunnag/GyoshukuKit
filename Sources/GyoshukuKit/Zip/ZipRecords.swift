@@ -22,7 +22,7 @@ enum ZipRecords {
         static let infoZipUnicodePath: UInt16 = 0x7075
         static let infoZipUnixNew: UInt16 = 0x7875
         static let winZipAES: UInt16 = 0x9901
-        /// 予約領域。deflate の最大長で確保した ZIP64 の余白と、無効化した Unicode 名の跡に使う。
+        /// 予約領域。圧縮の最大長で確保した ZIP64 の余白と、無効化した Unicode 名の跡に使う。
         static let reservedPadding: UInt16 = 0xFFFF
         /// 名前と他の metadata が混在し得る extra。改名時は黙って捨てず拒否する。
         static let nameBearing: Set<UInt16> = [0x0008, 0x2605, 0x334D, 0x4F4C, 0x554E]
@@ -87,7 +87,14 @@ enum ZipRecords {
         var entryFlags: UInt16 { flags | (encryption == nil ? 0 : 1) }
 
         var needsSize64: Bool { size >= limit || compressedSize >= limit }
-        var version: UInt16 { aesVersion != nil ? 51 : (needsSize64 || offset >= limit ? 45 : 20) }
+        var version: UInt16 {
+            // APPNOTE 6.3.10 §4.4.3・§4.4.5: method 12 は4.6。method 95 の要求 version は明記されていない。
+            // XZ は7-Zip 26.03の生成 ZIP と公開定義に合わせて2.0とし、LZMA（method 14）の6.3は流用しない。
+            // https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
+            // https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHeader.h
+            let compressionVersion: UInt16 = method == .bzip2 ? 46 : 20
+            return max(compressionVersion, aesVersion != nil ? 51 : 20, needsSize64 || offset >= limit ? 45 : 20)
+        }
 
         func extras(local: Bool) -> Data {
             var result = Data()
@@ -106,7 +113,7 @@ enum ZipRecords {
             }
             if !zip64.isEmpty { result.append(field(ExtraID.zip64, zip64)) }
             if local && reservedZIP64 && zip64.isEmpty {
-                // deflate の最大長で予約した領域。不要になっても payload 位置は動かさない。
+                // 圧縮の最大長で予約した領域。不要になっても payload 位置は動かさない。
                 result.append(field(ExtraID.reservedPadding, Data(repeating: 0, count: 16)))
             }
             var timestamp = Data([local ? 3 : 1])

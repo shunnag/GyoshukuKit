@@ -4,6 +4,10 @@ import Foundation
 public enum CompressionMethod: UInt16, Sendable {
     case stored = 0
     case deflate = 8
+    /// system libbz2 による単一 bzip2 stream。展開には method 12 対応の reader が必要。
+    case bzip2 = 12
+    /// Apple Compression による完全な XZ stream。展開には method 95 対応の reader が必要。
+    case xz = 95
 }
 
 /// ZIP のパスワード暗号化方式。
@@ -40,14 +44,15 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
-    /// ZIP deflate（ZipCrypto を除く）/ tar.gz / tar.bz2 / 7z / tar.xz / LHA の圧縮並列数（1...64）。
+    /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z / tar.xz / LHA の圧縮並列数（1...64）。
+    /// ZIP bzip2 は項目ごとに同期処理する。ZIP XZ は最大16 MiBの block を使う。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
     /// （tar.xz は2以上のとき64 KiB以下の block を数えず、合計2 × この数 + 1まで）。
-    /// deflate / bzip2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB（16 MiB の片）。
-    /// chunk 上限は deflate が1 MiB、bzip2 が5 × level × 100,000 byte、LZMA2 が詰める block 4 MiB・片16 MiB（7z は片のみ）。
+    /// deflate / tar.bz2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB（16 MiB の片）。
+    /// chunk 上限は deflate が1 MiB、tar.bz2 が5 × level × 100,000 byte、tar.xz が詰める block 4 MiB・片16 MiB（ZIP XZ / 7z は片のみ）。
     /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
-    /// bzip2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
+    /// tar.bz2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
     /// LHA は thread ごとに入力1 MiB + 履歴8 KiB + 出力と表約1.1 MiB。1 は同期、2以上は出力が後続の add / finish まで遅れ得る。
     public var compressionThreads: Int?
     /// rewriter の追加位置。updater は末尾への追加を使う。
@@ -90,12 +95,19 @@ public struct WriterOptions: Sendable {
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は 16 MiB の通常枠、64 KiB 以下の軽い block と、4 MiB の組立中 block を含む。
+    /// ZIP bzip2 は同期処理なので 0。codec state は最大約7.6 MBと I/O buffer で、入力長に依存しない。
+    /// ZIP XZ は通常枠 t 個と組立中1個の16 MiB block を上界とし、項目の終了時には全て出力する。
+    /// XZ の codec state・出力（thread ごとに約130 MiB）と block 数に比例する index はこの入力 byte に含まない。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
         let threads = UInt64(max(1, min(64, resolvedCompressionThreads)))
         switch format {
         case .zip:
-            return compressionMethod == .stored || (password != nil && zipEncryption == .zipCrypto)
-                ? 0 : threads * UInt64(DeflateBlock.size)
+            switch compressionMethod {
+            case .stored, .bzip2: return 0
+            case .deflate:
+                return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
+            case .xz: return (threads + 1) * UInt64(ParallelXZCompressor.defaultBlockSize)
+            }
         case .tar: return 0
         case .tarGzip: return (threads + 1) * UInt64(DeflateBlock.size)
         case .tarBzip2: return (threads + 1) * UInt64(ParallelBzip2Compressor.chunkSize(level: max(1, min(9, bzip2Level))))
@@ -110,6 +122,7 @@ public struct WriterOptions: Sendable {
 
     // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
     func validate(for format: ArchiveFormat) throws {
+        // ZIP bzip2 は同期、XZ は有界の block 並列なので、AES / ZipCrypto と全ての並列数を併用できる。
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
         if let compressionThreads, !(1...64).contains(compressionThreads) {

@@ -118,7 +118,7 @@ final class ZipWriter {
              read: (Int) throws -> Data) throws {
         try Task.checkCancellation()
         let method = compression(name: name, mode: mode, size: size)
-        if method == .stored || encryptsWithZipCrypto {
+        if method != .deflate || encryptsWithZipCrypto {
             try pipeline.drain(emit: emitDeflate)
         }
         var entry = try makeEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners, method: method)
@@ -224,13 +224,33 @@ final class ZipWriter {
             offset: try checkedAdd(recordBase, position - appendStart), size: size)
         entry.encryption = mode.isRegularFileMode && options.password != nil ? options.zipEncryption : nil
         // ZipCrypto は spool の後に確定したサイズで header を書くので予約しない。他は圧縮後の最大長
-        // （deflate の上限、AES は salt・verifier・認証 tag の 28 byte を足す）が 4 GiB に届けば ZIP64 を予約する。
+        // （各 codec の上限、AES は salt・verifier・認証 tag の 28 byte を足す）が 4 GiB に届けば ZIP64 を予約する。
         if entry.encryption != .zipCrypto {
-            var bound = method == .deflate ? try DeflateBlock.bound(size: size, blockSize: deflateBlockSize) : size
+            var bound = try compressedSizeBound(size: size, method: method)
             if entry.encryption == .aes256 { bound = try checkedAdd(bound, 28) }
             entry.reservedZIP64 = bound >= ZipRecords.limit
         }
         return entry
+    }
+
+    // local header の長さを patch 後も保つため、圧縮が膨らむ場合も先に ZIP64 の余白を予約する。
+    private func compressedSizeBound(size: UInt64, method: CompressionMethod) throws -> UInt64 {
+        switch method {
+        case .stored: return size
+        case .deflate: return try DeflateBlock.bound(size: size, blockSize: deflateBlockSize)
+        case .bzip2:
+            // libbz2 の入力長 + 1% + 600 byte の出力上界を使う。
+            // https://sourceware.org/bzip2/manual/manual.html §3.5.1
+            return try checkedAdd(checkedAdd(size, size / 100), 600)
+        case .xz:
+            // encodeXZ は block ごとに入力長の2倍 + 65,536 byte まで。
+            // 組み直す block header・check・index record は各1,024 byte、stream 終端も1,024 byteで覆う。
+            let blockSize = UInt64(ParallelXZCompressor.defaultBlockSize)
+            let blocks = size / blockSize + (size % blockSize == 0 ? 0 : 1)
+            let (overhead, overflow) = blocks.multipliedReportingOverflow(by: 65_536 + 1_024)
+            guard !overflow else { throw WriterError.sizeOverflow }
+            return try checkedAdd(checkedAdd(checkedAdd(size, size), overhead), 1_024)
+        }
     }
 
     // 完成済みの単一 block は、既存と同じ header/data を一度の write で出力する。
@@ -269,6 +289,11 @@ final class ZipWriter {
 
     private func compressEntry(name: String, size: UInt64, method: CompressionMethod,
                                read: (Int) throws -> Data, emit: (Data) throws -> Void) throws -> UInt32 {
+        // ZIP method 12 は一つの encoder を最後まで使い、tar.bz2 の連結 stream 経路は使わない。
+        let bzip2 = method == .bzip2 ? try Bzip2StreamEncoder(level: options.bzip2Level) : nil
+        // APPNOTE §4.4.5 の method 95 は、7-Zip 26.03 の生成 ZIP で完全な .xz stream と確認した。
+        // ParallelXZCompressor は stream header・blocks・index・footer を一組だけ出力する。
+        let xz = method == .xz ? try ParallelXZCompressor(threads: options.resolvedCompressionThreads) : nil
         let compressor: DeflateCompressor?
         if method == .deflate {
             if let deflateCompressor {
@@ -289,10 +314,15 @@ final class ZipWriter {
             guard !chunk.isEmpty, chunk.count <= requested else { throw WriterError.sourceChanged(name) }
             crc = updateCRC(crc, chunk)
             remaining -= UInt64(chunk.count)
-            if let compressor { try compressor.write(chunk, emit: emit) } else { try emit(chunk) }
+            if let compressor { try compressor.write(chunk, emit: emit) }
+            else if let bzip2 { try bzip2.write(chunk, finish: false, emit: emit) }
+            else if let xz { try xz.write(chunk, finish: false, emit: emit) }
+            else { try emit(chunk) }
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
         if let compressor { try compressor.write(Data(), finish: true, emit: emit) }
+        if let bzip2 { try bzip2.write(Data(), finish: true, emit: emit) }
+        if let xz { try xz.write(Data(), finish: true, emit: emit) }
         return crc
     }
 
@@ -349,9 +379,11 @@ final class ZipWriter {
 
     // MARK: 一括追加
 
-    // 一つの block で読み切る大きさ。deflate は指定の block 幅、それ以外は既定の block 幅まで。
+    // bzip2 / XZ を選ぶ一括追加は通常ファイルを項目別の streaming 経路へ戻す。
+    // deflate は指定の block 幅、stored は既定の block 幅まで先読みする。
     func singleBlockLimit(name: String, mode: UInt16, size: UInt64) -> Int {
-        compression(name: name, mode: mode, size: size) == .deflate ? deflateBlockSize : DeflateBlock.size
+        if options.compressionMethod == .bzip2 || options.compressionMethod == .xz { return 0 }
+        return compression(name: name, mode: mode, size: size) == .deflate ? deflateBlockSize : DeflateBlock.size
     }
 
     func waitForCapacity(emit: (Tag, Prefetched?) throws -> Void) throws {

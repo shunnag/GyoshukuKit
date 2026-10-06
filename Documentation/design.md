@@ -121,6 +121,34 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 従来の追加位置・所有者設定と open 時に拒否される入力は ArchiveRewriter を使う。
 UI 側は進捗と取り消しを必ず出す。
 
+### ZIP の圧縮方式
+
+`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、XZ（95）を持ち、既定は Deflate。
+writer と updater の新規追加、ZIP への ArchiveRewriter は同じ ZipWriter を使う。
+updater の既存 local record・圧縮 byte・central directory は追加時にそのまま運ぶ。
+空ファイル・directory・symlink と、heuristic が選ぶ圧縮済み拡張子は stored。
+
+method 12 は `Bzip2StreamEncoder` を項目ごとに一つ作り、`bzip2Level` で同期圧縮する。
+tar.bz2 の chunk stream の連結は使わない。最大の codec state は level 9 で約7.6 MBと I/O buffer。
+method 95 は `ParallelXZCompressor` と `XZFraming` を使い、最大16 MiBの block を
+`compressionThreads` で並列化する。hint の無い固定幅を使い、stream header・blocks・index・footer を
+一組だけ書く。通常枠 t 個と組立中1個の入力は `(t + 1) × 16 MiB` 以下で、codec と出力は
+thread ごとに約130 MiB。index は block 数に比例する。両方式とも add の終了時に出力を完了する。
+一括 disk 追加では通常ファイルを項目別の streaming 経路へ戻し、Deflate 専用 worker に渡さない。
+全ての並列数と AES / ZipCrypto を併用でき、追加の unsupportedOption はない。
+
+[APPNOTE 6.3.10](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) §4.4.3・§4.4.5 は
+BZip2 の展開要求 version を4.6とする。XZ の要求 version は明記されていないので、
+[7-Zip 26.03 の公開定義](https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHeader.h) と
+生成した ZIP の2.0を使う。LZMA（method 14）の6.3は流用しない。
+method 95 の file data が完全な .xz stream であることは、7zz が作った ZIP の stream 単独復号と
+KaitoKit の往復で確認する。圧縮方式、ZIP64、暗号化の要求 version の最大値を両 header に書く。
+CRC32・確定サイズ・ZIP64 の事前予約・seek による local header patch は既存の経路を使い、descriptor は書かない。
+XZ の予約長は Apple encoder の block ごとの容量上限と framing の上界から算出する。
+
+macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 95 を展開できない。
+Deflate を互換性の既定とし、BZip2 / XZ は KaitoKit や 7-Zip を使う場合の opt-in とする。
+
 ### LHA の並列 LH5（P4-G-a）
 
 `ArchiveWriter.create` は `options.resolvedCompressionThreads` を LHAWriter に渡す。
@@ -468,6 +496,7 @@ throw は元の error のまま失敗し、既存の cleanup 契約に従う（�
 
 窓は `resolvedCompressionThreads` 件以下。open から close の並列数は Step 0-P7 で採った
 `min(threads, 4)` とし、ZIP deflate は `deflateBlockSize`、他は 1 MiB 以下だけを先読みする。
+ZIP bzip2 / XZ の通常ファイルは大きさにかかわらず項目別の streaming 経路を使う。
 worker は O_NOFOLLOW の open、dev/ino/mode/size/mtime の fstat 照合、厳密な長さと EOF、
 読後の fstat を経てから内容を返す。hook は仕事の作成時に capture する。取消し・失敗では
 未着手の仕事を放棄し、着手済みの仕事が descriptor を閉じるまで合流してから戻る。
@@ -496,7 +525,9 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 
 | 形式 | 上界（byte） |
 |---|---|
-| ZIP | `t × DeflateBlock.size`（stored または ZipCrypto は 0） |
+| ZIP stored / BZip2 | 0（BZip2 は同期処理） |
+| ZIP Deflate | `t × DeflateBlock.size`（ZipCrypto は 0） |
+| ZIP XZ | `(t + 1) × 16 MiB`（ZipCrypto も同じ。項目の終了時には全て出力） |
 | tar | 0 |
 | tar.gz | `(t + 1) × DeflateBlock.size` |
 | tar.bz2 | `(t + 1) × (5 × bzip2Level × 100,000)` |
@@ -584,7 +615,7 @@ writer / updater / rewriter は同じ検証関数を使い、出力作成前に�
 ### ZIP WinZip AES-256
 
 通常ファイルだけ（空ファイルを含む）を暗号化する。directory / symlink は平文の stored。
-圧縮方式は既存の拡張子 heuristic と stored / deflate 設定を使い、両 header の method を 99、
+圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / xz 設定を使い、両 header の method を 99、
 version needed を 51、flag を bit 0 + bit 11 にする。0x9901 の 7 byte 本体は、vendor version、
 `AE`、strength 3、実際の圧縮 method。20 byte 未満を AE-1 と実 CRC、以上を AE-2 と CRC 0 にする。
 これはこの writer の選択方針で、AE-1 / AE-2 の wire format は公開仕様に従う。
