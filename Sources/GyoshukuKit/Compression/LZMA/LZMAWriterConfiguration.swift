@@ -9,7 +9,7 @@ struct LZMAWriterConfiguration: Sendable {
     let memoryPerThread: UInt64
     let memoryBudget: UInt64
 
-    init(options: WriterOptions, raw: Bool = false,
+    init(options: WriterOptions, raw: Bool = false, lzip: Bool = false,
          physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) throws {
         if let level = options.lzmaLevel, !(0...9).contains(level) { throw WriterError.invalidOption("lzmaLevel") }
         memoryBudget = min(options.memoryLimit ?? physicalMemory / 2, physicalMemory / 2)
@@ -23,14 +23,14 @@ struct LZMAWriterConfiguration: Sendable {
         let p = LZMAEncoderProperties.preset(options.lzmaLevel ?? 6,
             extreme: options.lzmaLevel != nil && options.lzmaExtreme)
         properties = p
-        pieceSize = raw ? IOChunk.size : p.dictSize > ParallelXZCompressor.defaultBlockSize
+        pieceSize = lzip ? max(16 << 20, 3 * p.dictSize) : raw ? IOChunk.size : p.dictSize > ParallelXZCompressor.defaultBlockSize
             ? max(ParallelXZCompressor.defaultBlockSize, 3 * p.dictSize) : ParallelXZCompressor.defaultBlockSize
         // LZMA2 の range buffer は64 KiBの pack limit 内。raw は最大16 MiBの伸長分も予約する。
         encoderMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
             + (raw ? (16 << 20) - 131072 : 0)
         memoryPerThread = UInt64(encoderMemory) + 2 * UInt64(pieceSize)
         guard memoryPerThread <= memoryBudget else { throw WriterError.invalidOption("memoryLimit") }
-        threads = raw ? 1 : min(options.resolvedCompressionThreads, Int(min(64, memoryBudget / memoryPerThread)))
+        threads = raw && !lzip ? 1 : min(options.resolvedCompressionThreads, Int(min(64, memoryBudget / memoryPerThread)))
     }
 
     var encoder: LZMA2ChunkPipeline<Void>.Encoder {
@@ -51,6 +51,13 @@ struct LZMAWriterConfiguration: Sendable {
         return try lzmaWriterOperation {
             try LZMAEncoder(properties: properties, expectedSize: size, endMarker: endMarker, memoryLimit: encoderMemory)
         }
+    }
+
+    /// 単独 LZMA / lzip は nil も自前 level 6。既存 ZIP / 7z の nil の解決は変えない。
+    static func singleStream(options: WriterOptions, lzip: Bool = false) throws -> Self {
+        var resolved = options
+        resolved.lzmaLevel = options.lzmaLevel ?? 6
+        return try Self(options: resolved, raw: true, lzip: lzip)
     }
 }
 

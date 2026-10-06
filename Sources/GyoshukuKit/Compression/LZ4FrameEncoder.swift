@@ -34,6 +34,15 @@ final class LZ4FrameEncoder {
 
     deinit { abandon() }
 
+    /// frame を閉じずに、受取済みの block を出力する。組立中の block もここで区切る。
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {
+        guard !finished else { throw WriterError.invalidState }
+        do {
+            if !input.isEmpty { try submit(didEmit: didEmit, emit: emit) }
+            try pipeline.drain(didEmit: didEmit) { _, result in try emit(result!) }
+        } catch { abandon(); throw error }
+    }
+
     func write(_ data: Data, finish: Bool = false, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
@@ -90,10 +99,10 @@ final class LZ4FrameEncoder {
         finished = true
     }
 
-    private func submit(emit: (Data) throws -> Void) throws {
+    private func submit(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Data) throws -> Void) throws {
         let block = input
         input = Data()
-        try pipeline.submit(block, tag: (), weight: UInt64(block.count)) { _, result in try emit(result!) }
+        try pipeline.submit(block, tag: (), weight: UInt64(block.count), didEmit: didEmit) { _, result in try emit(result!) }
     }
 
     private static func encodeBlock(_ input: Data, checksum: Bool) throws -> Data {

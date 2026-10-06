@@ -31,6 +31,7 @@
 | `IOEvents` | 製品の task-local の I/O 観測点に渡し、読み書きの範囲と量を記録する |
 | `ArchiveTestDisk` | hdiutil で作る FAT32・ExFAT・HFS+ の disk image（作れなければ skip） |
 | `ByteAssertions`・`TestCorpus`・`ArchiveFormat+Testing` | 大きな file の chunk ごとの比較、seed を固定した byte 列、形式ごとの拡張子 |
+| `SingleStreamTestSupport` | 単独 stream の実ツール復号、decoder と bsdtar の pipe、lzip trailer の独立検査 |
 | その他 | `SevenZipExternalOracles`・`CompressedTarCompatibility`・`SevenZipProbePayload`・`BatchAdditionTestSupport`・`AdditionProgressTestSupport` |
 
 ## Fixtures
@@ -84,7 +85,7 @@ label は suite の中で重ねない（重なると別の試験の出力を消�
   `ReferenceToolPolicyTests` が両方の経路を固定する。
 - 7zz や GNU tar があるときだけ照合を足す: `LHAUpdaterLargeOffsetTests`・`SevenZipUpdaterLargeOffsetTests`・
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
-- CI（`.github/workflows/ci.yml`）は `brew install sevenzip xz lhasa gnu-tar autoconf automake` と
+- CI（`.github/workflows/ci.yml`）は `brew install sevenzip xz lzip lz4 brotli lhasa gnu-tar autoconf automake` と
   固定commitの LHa for UNIX の一時ビルドで必須ツールを入れる。製品の依存には加えない。
 
 `LHACompressionMethodTests` は Lhasa・7zz に加えて `~/.local/bin/lha-unix`（LHa for UNIX）を必須にする。
@@ -92,3 +93,15 @@ label は suite の中で重ねない（重なると別の試験の出力を消�
 空 LHA の `[0]` を認識しないツールは同じ byte の基準書庫と終了値を比較する。
 CP932 の日本語名は raw header と KaitoKit、文字コードを指定した LHa for UNIX の `-t` で検証する。
 macOS の Lhasa / 7zz は日本語名での抽出を復元できないため、全 member の `t` と ASCII member の抽出を照合する。
+
+`CompressedTarNewFormatTests` は tar.lzma / tar.lz / tar.lz4 / tar.br / tar.Z を実ツールで復号し、
+bsdtar の stdin に pipe して一覧・抽出を検査する。20 MiB の混合入力、lzip level 0 / 6 / 9 と
+trailer から数えた複数 member、KaitoKit の全 byte 往復も検査する。`ArchiveRewriterNewTarFormatTests` は
+ZIP との相互変換と tar.lz4 / tar.lz の削除・改名・追加を扱う。
+`SingleStreamCompressorTests` は8形式で空・1 byte・1 MiB text・9 MiB乱数の実ツールとKaitoKit往復、
+読取 byte 進捗、directory / symlink / 既存出力の拒否、公開時の競合、途中取消しの一時file削除を検査する。
+`LzipCompressorTests` はメモリ予算による並列数制限、辞書を保った拒否、DSの分数、
+16 MiB境界を越える入力の逐次・並列byte一致とpending input上界を検査する。
+`/opt/homebrew/bin/lzip`・`lz4`・`brotli`、xz、macOS の gzip / bzip2 / uncompress と bsdtar を必須にする。
+空 .Z を BSD uncompress が拒否する既知の制限は終了値・診断・空出力を照合し、KaitoKit と7zzで復号する。
+制限付き環境が `uncompress -c` の `/dev/stdout` 再openだけを拒否した場合は同じ実ツールのfile出力を使う。

@@ -43,8 +43,8 @@ file 名は中の主な型の名前に合わせ、`Records` / `Layout` / `EditPl
 
 | directory | 内容 |
 | --- | --- |
-| `API/` | 公開の形式・設定・error(`ArchiveEditing`、`ArchiveFormat`、`WriterOptions`、`WriterError`、`UpdaterError`、`UpdaterRouteError`) |
-| `Writer/` | 新規作成の facade `ArchiveWriter`(形式ごとの writer への振り分け)と、ディスク側の先読み・署名 |
+| `API/` | 公開の形式・設定・error(`ArchiveEditing`、`ArchiveFormat`、`SingleStreamFormat`、`SingleStreamCompressor`、`WriterOptions`、`WriterError`、`UpdaterError`、`UpdaterRouteError`) |
+| `Writer/` | 新規作成の facade `ArchiveWriter`(形式ごとの writer への振り分け)、`SingleStreamWriter`の原子的公開と、ディスク側の先読み・署名 |
 | `Editing/` | 全 updater と rewriter が共有する層(`ArchiveRewriter`、`ArchiveRepresentability`、`EntryEditLedger`、`EditPathReservations`、`ArchiveFileSource`、`CommitProgressMeter`、`EntryStream` の読取) |
 | `SegmentedOutput/` | 形式中立の出力 engine(`SegmentedArchiveOutput`、`SegmentCommitPlan` / `OutputSegment`、`ScratchFile`、`OwnedOutputFile`、`ArchiveSourceSnapshot`、`ArchiveOwnedFile` / `FileIdentity`)。圧縮 tar の splice(`CompressedTarSpliceOutput`)は別の engine なので語を分ける |
 | `Zip/`、`Zip/Update/` | ZIP の record 表・`ZipWriter`・暗号化と、`ArchiveUpdater` の編集経路(layout の門番、中央 directory、rebuild、再暗号化、copy engine、自己照合) |
@@ -111,6 +111,8 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
+| 2 | tar.lzma / .lz / .lz4 / .br / .Z | ○ | ○(ArchiveRewriter) | ○(全体再符号化) |
+| 2 | 単独 gzip / bzip2 / XZ / LZMA / lzip / LZ4 / Brotli / compress | ○(SingleStreamCompressor) | 対象外 | 対象外 |
 | 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
 | 4 | LHA / LZH | ○(`-lh5-` / `-lh6-` / `-lh7-` / `-lh0-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
@@ -1210,3 +1212,71 @@ CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sa
 /opt/homebrew/bin/7zz x -so output.Z > restored
 git diff --stat
 ```
+
+
+### 新しい圧縮 tar と lzip framing（2026-10-06）
+
+`ArchiveFormat.tarLZMA / tarLzip / tarLZ4 / tarBrotli / tarCompress` は `isTar` に含め、
+名前・日時・所有者・リンク・record は既存の `TarWriter` を共有する。拡張子は呼出側が決める。
+`StreamCompressor` が tar と単独 file の sink を作る。既存 gzip / bzip2 / XZ の writer 接続・区切り・byte は維持する。
+
+LZMA_Alone は自前 LZMA1 の逐次単一 stream。properties 1 byte、dictionary LE32、
+未知サイズ `UInt64.max` の13 byte headerを出し、EOSで閉じる。`lzmaLevel` の nil は6で、
+extreme は nil にも適用する。従来の ZIP / 7z の nil と extreme の解決は変えない。
+LZ4 は content checksum 付き単一 frame、4 MiBの独立blockを並列化する。レベルは一つ。
+`finishAdditions` は組立中blockを区切ってdrainし、frameは `finish` まで閉じない。
+Brotli は Apple の固定level 2、逐次単一stream。compressはblock modeのLZW、maxbits 16で逐次処理する。
+
+lzip は [manual の File format](https://www.nongnu.org/lzip/manual/lzip_manual.html#File-format)
+に従う独立framingで、lzip / lzlib / tarlzのGPL sourceを参照・移植しない。
+各memberは `LZIP` + VN=1 + DSの6 byte header、自前LZMA1（lc=3 / lp=0 / pb=2、EOSあり）、
+CRC32 LE32 + data size LE64 + member size LE64の20 byte trailerを持つ。
+DSの下位5 bitをn、上位3 bitをfとして辞書は `2^n - (2^n / 16) × f`。
+encoder presetの辞書は2の冪なのでf=0を使う。辞書を入力長やメモリ不足に合わせて宣言上縮めない。
+
+`ParallelLzipCompressor` は `TarChunkCutter` と `OrderedChunkPipeline` を使い、member境界を優先する。
+上限は `max(16 MiB, 3 × 辞書)`。大きいtar memberはheader群と本文を分け、それぞれ上限で分割する。
+終端は独立member。level 0 / 6 / 9の上限は16 / 24 / 192 MiB。
+入力全体を集めず、組立中を含め未出力はt個の枠に収め、独立memberを並列符号化して順序どおり出す。
+`finishAdditions` は残りの入力をmemberとして出してdrainする。
+
+`LZMAWriterConfiguration` の raw予算に入力・出力二片を加え、
+`t × (encoder memory + 2 × member上限) <= min(memoryLimit, 物理メモリの50%)` を満たすよう並列数を制限する。
+nilのmemoryLimitは物理メモリの50%、一つも入らなければ出力作成前に `invalidOption("memoryLimit")`。
+raw encoderの予算は完全な辞書とrange buffer最大16 MiBを含む。pushは256 KiBずつdrainする。
+入力byteの上界はlzipが `t × member上限`、LZ4が `t × 4 MiB`、逐次3形式が0。
+codecの内部buffer・辞書・出力はpending inputの集計に含めない。
+
+KaitoKitのsplice地図がある形式は引き続きgzip / bzip2 / XZだけ。
+新しい5形式の `CompressedTarUpdater.assess` はnil、`open` は `UpdaterRouteError.requiresRewrite`。
+`ArchiveRewriter` は各形式を出力でき、既存項目の削除・改名と追加はTarWriter経由の全体再符号化に戻す。
+入力が別形式でも同じ経路を使い、KaitoKitは変更しない。
+
+### 単独ファイルの圧縮 API（2026-10-06）
+
+`SingleStreamFormat: Sendable, CaseIterable` はgzip / bzip2 / xz / lzma / lzip / lz4 / brotli / compress。
+`SingleStreamCompressor.compress(file:to:format:options:progress:)` は通常ファイル一つから圧縮ファイル一つを新規作成する。
+編集・複数source・メタデータ保存は扱わず、複数sourceは呼出側がtar.Xを作る。
+公開の型は `API/SingleStreamCompressor.swift`、fileの寿命と公開は `Writer/SingleStreamWriter.swift`。
+
+sourceをlstatし、通常ファイル以外（directory / symlinkを含む）は `WriterError.unsupportedFileType`。
+`O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC` で開いてdevice / inode / mode / size / mtimeを照合し、
+既知サイズを256 KiBずつ読む。EOFと終了時のfd・pathのstatを照合し、変更時は `sourceChanged`。
+`Progress` は入力長をtotal、実際に読んだbyteをcompletedへ設定する。圧縮の終了とは独立する。
+
+出力の隣にUUID名の `.gyoshuku-stream-*.tmp` を `O_CREAT | O_EXCL` で作り、
+圧縮終了・synchronize・取消し検査・pathとfdの所有照合後に `renamex_np(..., RENAME_EXCL)` で公開する。
+先に出力存在を検査するが、最終renameも排他的なので読取中に現れたfileを上書きしない。
+失敗・Task cancellation・Progress.cancelでは `ArchiveOwnedFile` のpath/fd照合で自分のinodeだけを削除する。
+
+gzipは決定的header（FNAMEなし、MTIME 0、OS=3）と1 MiBの並列deflate block。
+bzip2はtarと同じ独立streamの連結、XZは単一stream内の独立blockで、nilはApple、指定levelは自前LZMA2。
+LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、BrotliはApple固定level 2、compressはmaxbits 16。
+既存の `WriterOptions` のvalidationとLZMAメモリ予算を出力作成前に適用する。
+
+試験は `CompressedTarNewFormatTests` / `ArchiveRewriterNewTarFormatTests` / `SingleStreamCompressorTests`。
+新tarはfile・空file・directory・symlink・日本語名・20 MiB混合入力を各独立decoderからbsdtarへpipeして
+一覧・抽出・全byteを照合し、KaitoKitでも照合する。lzip level 0 / 6 / 9と複数memberはtrailerから数え `lzip -t` も使う。
+ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独8形式の空・1 byte・1 MiB text・9 MiB乱数の全byte復号、
+読取進捗・種別拒否・既存出力とrename競合・取消しcleanupを検査する。
+空.Zと制限されたstdout再openは上記LZW節の実ツール方針を共有する。

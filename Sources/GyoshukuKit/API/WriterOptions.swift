@@ -86,10 +86,11 @@ public struct WriterOptions: Sendable {
     public var deflateLevel: Int
     /// bzip2 の block size level (1...9)。既定は9（900,000 byte block）。
     public var bzip2Level: Int
-    /// tar.xz / 7z LZMA2 / ZIP XZ のレベル (0...9)。nil は従来の Apple preset-6 経路。
-    /// ZIP LZMA / 7z LZMA は常に自前 encoder を使い、nil はレベル6。
+    /// tar.xz / 単独 XZ / 7z LZMA2 / ZIP XZ のレベル (0...9)。nil は従来の Apple preset-6 経路。
+    /// ZIP LZMA / 7z LZMA / tar.lzma / tar.lz / 単独 LZMA・lzip は常に自前 encoder を使い、nil はレベル6。
     public var lzmaLevel: Int?
-    /// 自前 LZMA の探索量を増やす。既定は false。lzmaLevel を指定したときだけ使う。
+    /// 自前 LZMA の探索量を増やす。既定は false。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使う。
+    /// 他の形式は lzmaLevel を指定したときだけ使う。
     public var lzmaExtreme: Bool
     /// 自前 LZMA の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
     /// 物理メモリの50%との小さい方で並列数を抑える。一つも入らなければ invalidOption("memoryLimit")。
@@ -109,7 +110,8 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
-    /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
+    /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / tar.lz / tar.lz4 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
+    /// 単独 gzip / bzip2 / XZ / lzip / LZ4 も同じ設定。LZMA_Alone / Brotli / compress は逐次。
     /// ZIP / 7z LZMA・bzip2 と 7z Copy は項目ごとに同期処理する。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
@@ -119,8 +121,10 @@ public struct WriterOptions: Sendable {
     /// t × (encoder memory + 2 × 片) <= min(memoryLimit, 物理メモリの50%) に制限する。
     /// 自前経路は小さい block も並列数に数える。Apple 経路の片は常に16 MiB。
     /// chunk 上限は deflate が1 MiB、tar.bz2 が5 × level × 100,000 byte。tar.xz の packing は4 MiB。
-    /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
+    /// gzip / bzip2 / XZ / lzip の圧縮 tar は member 境界で区切り、上限を超える header 群・本文を分割し、終端を独立させる。
     /// tar.bz2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
+    /// lzip は片が max(16 MiB, 3 × 辞書)、raw LZMA1 と入力・出力二片をメモリ予算に含む。
+    /// LZ4 は組立中を含め t 個の4 MiB block。Brotli は Apple 固定 level 2、LZ4 は単一 level。
     /// LHA は thread ごとに入力1 MiB + 履歴8/32/64 KiB、hash 表512 KiB、chain 表64/256/512 KiB、
     /// command 表512 KiBと圧縮出力約1.1 MiB（64-bit Int）。stored は同期で codec 表を持たない。
     /// 1 は同期、2以上は出力が後続の add / finish まで遅れ得る。
@@ -196,6 +200,12 @@ public struct WriterOptions: Sendable {
             case .xz: return (lzmaThreads + 1) * piece
             }
         case .tar: return 0
+        case .tarLZMA, .tarBrotli, .tarCompress: return 0
+        case .tarLZ4: return threads * UInt64(LZ4FrameEncoder.blockSize)
+        case .tarLzip:
+            let configuration = try? LZMAWriterConfiguration.singleStream(options: self, lzip: true)
+            let resolved = UInt64(max(1, min(64, configuration?.threads ?? 1)))
+            return resolved * UInt64(configuration?.pieceSize ?? (16 << 20))
         case .tarGzip: return (threads + 1) * UInt64(DeflateBlock.size)
         case .tarBzip2: return (threads + 1) * UInt64(ParallelBzip2Compressor.chunkSize(level: max(1, min(9, bzip2Level))))
         case .tarXZ:
@@ -238,6 +248,8 @@ public struct WriterOptions: Sendable {
         }
         switch format {
         case .tarXZ: _ = try LZMAWriterConfiguration(options: self)
+        case .tarLZMA: _ = try LZMAWriterConfiguration.singleStream(options: self)
+        case .tarLzip: _ = try LZMAWriterConfiguration.singleStream(options: self, lzip: true)
         case .zip where compressionMethod == .xz || compressionMethod == .lzma:
             _ = try LZMAWriterConfiguration(options: self, raw: compressionMethod == .lzma)
         case .sevenZip where sevenZipMethod == .lzma2 || sevenZipMethod == .lzma:

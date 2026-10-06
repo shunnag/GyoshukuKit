@@ -16,6 +16,20 @@ public enum ArchiveFormat: Sendable {
     /// 4 MiB を越える member は header 群と本文を分け、本文と大きな header 群は最大 16 MiB の片に区切る。
     /// tar 終端は独立した block にする。
     case tarXZ
+    /// restricted pax tar を未知サイズの LZMA_Alone（13 byte header + EOS）で包む。
+    /// 自前 LZMA1 の逐次単一 stream。lzmaLevel は0...9、nil は6。extreme も使える。
+    case tarLZMA
+    /// restricted pax tar を lzip version 1 の独立 member に区切り、メモリ上限内で並列化する。
+    /// member 境界を優先し、上限を越える header 群・本文は max(16 MiB, 3 × 辞書) で分割する。
+    /// 終端は独立 member。LZMA1 + EOS、CRC32・入力長・member 長を持ち、lzmaLevel の nil は6。
+    case tarLzip
+    /// restricted pax tar を content checksum 付きの単一 LZ4 frame で包む。
+    /// 4 MiB の独立 block を並列化する。圧縮レベルは一つ。
+    case tarLZ4
+    /// restricted pax tar を Apple Brotli の固定 level 2 で包む。逐次単一 stream、レベル指定なし。
+    case tarBrotli
+    /// restricted pax tar を UNIX compress の block mode LZW（maxbits 16）で包む。逐次単一 stream。
+    case tarCompress
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
     /// CP932 名の level-2 LHA。既定は -lh5-。-lh6- / -lh7- / -lh0- を選択でき、縮まなければ -lh0-。
@@ -24,7 +38,7 @@ public enum ArchiveFormat: Sendable {
 
     var isTar: Bool {
         switch self {
-        case .tar, .tarGzip, .tarBzip2, .tarXZ: true
+        case .tar, .tarGzip, .tarBzip2, .tarXZ, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress: true
         default: false
         }
     }
