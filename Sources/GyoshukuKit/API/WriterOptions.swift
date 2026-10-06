@@ -10,6 +10,8 @@ public enum CompressionMethod: UInt16, Sendable {
     case lzma = 14
     /// 完全な XZ stream。レベル未指定は Apple Compression、指定時は自前 LZMA2。
     case xz = 95
+    /// 自前 encoder の単一 PPMd var.I rev.1 stream。展開には method 98 対応の reader が必要。
+    case ppmd = 98
 }
 
 /// 7z の非空 folder に使う圧縮方式。既定は LZMA2。
@@ -22,6 +24,8 @@ public enum SevenZipCompressionMethod: Sendable {
     case deflate
     /// system libbz2 の単一 stream。bzip2Level (1...9) を使う。
     case bzip2
+    /// 自前 encoder の単一 PPMd var.H stream。ppmdLevel と order / memory の上書きを使う。
+    case ppmd
     /// 入力 byte をそのまま保存する無圧縮方式。
     case copy
 }
@@ -29,7 +33,7 @@ public enum SevenZipCompressionMethod: Sendable {
 /// 7z の新規 folder のまとめ方。空ファイルと directory は block に数えない。
 public enum SevenZipSolidMode: Sendable, Equatable {
     case off
-    /// 入力順。nil のサイズは min(4 GiB, max(64 MiB, 辞書 × 2))、件数は1,000,000。
+    /// 入力順。nil のサイズは min(4 GiB, max(64 MiB, 辞書または PPMd model memory × 2))、件数は1,000,000。
     /// ファイルは分割せず、上限より大きいファイルは単独の folder にする。
     case on(blockSize: UInt64? = nil, filesPerBlock: Int? = nil)
 }
@@ -110,6 +114,14 @@ public struct WriterOptions: Sendable {
     public var deflateLevel: Int
     /// bzip2 の block size level (1...9)。既定は9（900,000 byte block）。
     public var bzip2Level: Int
+    /// PPMd の order / model memory preset (1...9)。既定の6は ZIP が order 8、7z が order 6、共に16 MiB。
+    /// model memory は順に1・2・4・8・16・16・32・64・192 MiB。entry / folder ごとに同期符号化する。
+    public var ppmdLevel: Int
+    /// preset の order を上書きする。ZIP var.I は2...16、7z var.H は2...32。nil は preset。
+    public var ppmdOrder: Int?
+    /// preset の model memory を MiB 単位で上書きする。ZIP は1...256、7z は1...1024。nil は preset。
+    /// 一つの entry / solid folder につき一つのモデルを確保し、memoryLimit や並列数による縮小は行わない。
+    public var ppmdMemoryMiB: Int?
     /// tar.xz / 単独 XZ / 7z LZMA2 / ZIP XZ のレベル (0...9)。nil は従来の Apple preset-6 経路。
     /// ZIP LZMA / 7z LZMA / tar.lzma / tar.lz / 単独 LZMA・lzip は常に自前 encoder を使い、nil はレベル6。
     public var lzmaLevel: Int?
@@ -136,7 +148,8 @@ public struct WriterOptions: Sendable {
     public var encryptsSevenZipHeaders: Bool
     /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / tar.lz / tar.lz4 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
     /// 単独 gzip / bzip2 / XZ / lzip / LZ4 も同じ設定。LZMA_Alone / Brotli / compress は逐次。
-    /// ZIP / 7z LZMA・bzip2 と 7z Copy は項目ごとに同期処理する。
+    /// ZIP / 7z LZMA・bzip2・PPMd と 7z Copy は項目ごとに同期処理する。
+    /// PPMd は入力を片に分けず、モデルの指定メモリと固定 I/O buffer を使う。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
     /// （Apple 経路の tar.xz は2以上のとき64 KiB以下を数えず、合計2 × この数 + 1まで）。
@@ -167,6 +180,9 @@ public struct WriterOptions: Sendable {
         lhaLevel: Int = 6,
         deflateLevel: Int = 6,
         bzip2Level: Int = 9,
+        ppmdLevel: Int = 6,
+        ppmdOrder: Int? = nil,
+        ppmdMemoryMiB: Int? = nil,
         lzmaLevel: Int? = nil,
         lzmaExtreme: Bool = false,
         memoryLimit: UInt64? = nil,
@@ -188,6 +204,9 @@ public struct WriterOptions: Sendable {
         self.lhaLevel = lhaLevel
         self.deflateLevel = deflateLevel
         self.bzip2Level = bzip2Level
+        self.ppmdLevel = ppmdLevel
+        self.ppmdOrder = ppmdOrder
+        self.ppmdMemoryMiB = ppmdMemoryMiB
         self.lzmaLevel = lzmaLevel
         self.lzmaExtreme = lzmaExtreme
         self.memoryLimit = memoryLimit
@@ -209,7 +228,8 @@ public struct WriterOptions: Sendable {
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
-    /// ZIP / 7z LZMA・bzip2 と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
+    /// ZIP / 7z LZMA・bzip2・PPMd と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
+    /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
     /// ZIP XZ は通常枠 t 個と組立中1個の片を上界とし、項目の終了時には全て出力する。
     /// LHA は t 個の1 MiB入力と方式ごとの履歴を含む。逐次と forced store は0。
@@ -223,7 +243,7 @@ public struct WriterOptions: Sendable {
         switch format {
         case .zip:
             switch compressionMethod {
-            case .stored, .bzip2, .lzma: return 0
+            case .stored, .bzip2, .lzma, .ppmd: return 0
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
             case .xz: return (lzmaThreads + 1) * piece
@@ -247,7 +267,7 @@ public struct WriterOptions: Sendable {
             switch sevenZipMethod {
             case .lzma2: return lzmaThreads * piece
             case .deflate: return threads * UInt64(DeflateBlock.size)
-            case .lzma, .bzip2, .copy: return 0
+            case .lzma, .bzip2, .ppmd, .copy: return 0
             }
         case .lha:
             return threads == 1 || lhaMethod == .stored ? 0
@@ -260,6 +280,13 @@ public struct WriterOptions: Sendable {
         // ZIP bzip2 は同期、XZ は有界の block 並列なので、AES / ZipCrypto と全ての並列数を併用できる。
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
+        guard (1...9).contains(ppmdLevel) else { throw WriterError.invalidOption("ppmdLevel") }
+        if let ppmdOrder, !(2...(format == .zip ? 16 : 32)).contains(ppmdOrder) {
+            throw WriterError.invalidOption("ppmdOrder")
+        }
+        if let ppmdMemoryMiB, !(1...(format == .zip ? 256 : 1024)).contains(ppmdMemoryMiB) {
+            throw WriterError.invalidOption("ppmdMemoryMiB")
+        }
         guard (1...9).contains(lhaLevel) else { throw WriterError.invalidOption("lhaLevel") }
         if case let .on(blockSize, filesPerBlock) = sevenZipSolid {
             if blockSize == 0 || filesPerBlock.map({ $0 <= 0 }) == true {
@@ -299,8 +326,25 @@ public struct WriterOptions: Sendable {
 
     var resolvedSevenZipBlockSize: UInt64 {
         if case let .on(size?, _) = sevenZipSolid { return size }
-        let dictionary = sevenZipMethod == .lzma || (sevenZipMethod == .lzma2 && lzmaLevel != nil)
+        let dictionary = sevenZipMethod == .ppmd ? UInt64((try? ppmd7Properties().memorySize) ?? (16 << 20))
+            : sevenZipMethod == .lzma || (sevenZipMethod == .lzma2 && lzmaLevel != nil)
             ? UInt64(LZMAEncoderProperties.preset(lzmaLevel ?? 6).dictSize) : 8 << 20
         return min(4 << 30, max(64 << 20, dictionary * 2))
+    }
+
+    func ppmd7Properties() throws -> PPMd7EncoderProperties {
+        let preset = try PPMd7EncoderProperties.preset(ppmdLevel)
+        if let ppmdMemoryMiB, !(1...1024).contains(ppmdMemoryMiB) {
+            throw WriterError.invalidOption("ppmdMemoryMiB")
+        }
+        return try .init(order: ppmdOrder ?? preset.order, memorySize: ppmdMemoryMiB.map { $0 << 20 } ?? preset.memorySize)
+    }
+
+    func ppmd8Properties() throws -> PPMd8EncoderProperties {
+        let preset = try PPMd8EncoderProperties.preset(ppmdLevel)
+        if let ppmdMemoryMiB, !(1...256).contains(ppmdMemoryMiB) {
+            throw WriterError.invalidOption("ppmdMemoryMiB")
+        }
+        return try .init(order: ppmdOrder ?? preset.order, memorySize: ppmdMemoryMiB.map { $0 << 20 } ?? preset.memorySize)
     }
 }

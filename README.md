@@ -4,7 +4,7 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 読み取り専用の [KaitoKit](https://github.com/shunnag/KaitoKit)(解凍Kit)と対をなします。
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
-- 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib) / BZip2 (system libbz2) / LZMA (自前) / XZ (Apple Compression または自前)
+- 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib) / BZip2 (system libbz2) / LZMA (自前) / XZ (Apple Compression または自前) / PPMd var.I rev.1 (自前)
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / tar.lzma / tar.lz / tar.lz4 / tar.br / tar.Z / 7z（solid・BCJ / ARM64 / Delta を選択可能）/ LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
 - 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
 - 単独ファイルの圧縮: `SingleStreamCompressor` で .gz / .bz2 / .xz / .lzma / .lz / .lz4 / .br / .Z を新規作成
@@ -115,14 +115,17 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 
 | `WriterOptions` | 既定値 | 意味 |
 |---|---|---|
-| `compressionMethod` | `.deflate` | ZIP の `.stored` / `.deflate` / `.bzip2` / `.lzma` / `.xz` |
-| `sevenZipMethod` | `.lzma2` | 7z の `.lzma2` / `.lzma` / `.deflate` / `.bzip2` / `.copy`。追加・再圧縮・7z への rewriter に適用 |
+| `compressionMethod` | `.deflate` | ZIP の `.stored` / `.deflate` / `.bzip2` / `.lzma` / `.xz` / `.ppmd` |
+| `sevenZipMethod` | `.lzma2` | 7z の `.lzma2` / `.lzma` / `.deflate` / `.bzip2` / `.ppmd` / `.copy`。追加・再圧縮・7z への rewriter に適用 |
 | `sevenZipSolid` | `.off` | `.on(blockSize:filesPerBlock:)` で入力順に非空ファイルを一つの folder にまとめる。nil は下記の既定上限 |
 | `sevenZipFilter` | `.none` | `.auto` / `.bcjX86` / `.arm64` / `.delta(distance: 1...256)`。圧縮前の変換 |
 | `lhaMethod` | `.lh5` | LHA の `.lh5` / `.lh6` / `.lh7` / `.stored`。新規追加・LHA への rewriter に適用。updater が運ぶ既存 member の byte は保持 |
 | `lhaLevel` | `6` | LHA の探索量 `1...9`。既定の LH5 出力 byte は従来と同じ。stored は探索しない |
 | `deflateLevel` | `6` | ZIP / 7z Deflate / tar.gz / 単独 gzip の zlib level `0...9` |
 | `bzip2Level` | `9` | ZIP / 7z BZip2 / tar.bz2 / 単独 bzip2 の block size level `1...9`（100,000〜900,000 byte） |
+| `ppmdLevel` | `6` | ZIP / 7z PPMd の order / model memory preset `1...9`。下表を参照 |
+| `ppmdOrder` | `nil` | preset の order を上書き。ZIP は `2...16`、7z は `2...32` |
+| `ppmdMemoryMiB` | `nil` | preset のモデルメモリを MiB 単位で上書き。ZIP は `1...256`、7z は encoder が対応する `1...1024` |
 | `lzmaLevel` | `nil` | tar.xz / 7z LZMA2 / ZIP XZ は nil なら従来の Apple preset-6。`0...9` は自前 encoder。ZIP / 7z LZMA と tar.lzma / tar.lz は常に自前で nil は6。単独 XZ / LZMA / lzip も同じ解決 |
 | `lzmaExtreme` | `false` | 自前 LZMA の探索量を増やす。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使い、他はレベル指定時だけ |
 | `memoryLimit` | `nil` | 自前 LZMA の作業メモリ上限（byte）。nil は物理メモリの50%。並列数を抑え、一つも入らなければ `invalidOption("memoryLimit")`。Apple 経路と他の codec には適用しない |
@@ -136,7 +139,7 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
 
-ZIP の書き込み方式は次の五つです。updater の新規追加と ZIP への rewriter も同じ設定を使います。
+ZIP の書き込み方式は次の六つです。updater の新規追加と ZIP への rewriter も同じ設定を使います。
 
 | 方式 | method | encoder |
 |---|---|---|
@@ -145,10 +148,11 @@ ZIP の書き込み方式は次の五つです。updater の新規追加と ZIP 
 | `.bzip2` | 12 | system libbz2 の単一 bzip2 stream |
 | `.lzma` | 14 | 自前の単一 raw LZMA1 stream、EOS 付き。展開要求 version 6.3 |
 | `.xz` | 95 | Apple または自前 LZMA2 と XZFraming の完全な単一 XZ stream |
+| `.ppmd` | 98 | 自前の単一 PPMd var.I rev.1 stream。2 byte parameter word、restoration は restart。展開要求 version 6.3 |
 
-macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 を展開できません。
-互換性のため Deflate を既定に保ち、BZip2 / LZMA / XZ は KaitoKit や 7-Zip を使う場合の opt-in にします。
-AES-256 では header の method は99、0x9901 に実際の12 / 14 / 95を記録します。ZipCrypto も圧縮後の byte を暗号化します。
+macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 / 98 を展開できません。
+互換性のため Deflate を既定に保ち、BZip2 / LZMA / XZ / PPMd は KaitoKit や 7-Zip を使う場合の opt-in にします。
+AES-256 では header の method は99、0x9901 に実際の12 / 14 / 95 / 98を記録します。ZipCrypto も圧縮後の byte を暗号化します。
 
 7z の書き込み方式は `SevenZipCompressionMethod` で選びます。既定は非空ファイルごとに一つの non-solid folder です。
 
@@ -158,19 +162,43 @@ AES-256 では header の method は99、0x9901 に実際の12 / 14 / 95を記�
 | `.lzma` | `03 01 01` | 自前の単一 raw LZMA1 stream、EOS 無し。lc/lp/pb + 辞書 LE32 の5 byte properties |
 | `.deflate` | `04 01 08` | system zlib の raw deflate、`deflateLevel` |
 | `.bzip2` | `04 02 02` | system libbz2 の単一 bzip2 stream、`bzip2Level` |
+| `.ppmd` | `03 04 01` | 自前の単一 PPMd var.H stream。order byte + model memory LE32 の5 byte properties |
 | `.copy` | `00` | 無圧縮。入力 byte をそのまま保存 |
 
 Copy / Deflate / BZip2 の coder に properties は置きません。7z は ZIP の拡張子 heuristic を使わず、
 指定方式を全ての非空 stream に適用します。updater の追加と solid folder の再圧縮、7z への rewriter も
 `sevenZipMethod` を使います。運ぶ既存 folder の coder と packed byte は保持し、AES の設定・変更・解除も再圧縮しません。
 Deflate は最大1 MiBの block を直前の末尾32 KiBの辞書で圧縮し、一つの raw deflate stream に連結します。
-LZMA / BZip2 は folder ごとに一つの stream を同期で完結させ、Copy も同期出力します。
+LZMA / BZip2 / PPMd は folder ごとに一つの stream を同期で完結させ、Copy も同期出力します。
 `maximumPendingInputBytes(for: .sevenZip)` は LZMA2 が `解決した並列数 × 片サイズ`、
-Deflate が `compressionThreads × 1 MiB`、LZMA / BZip2 / Copy が0です。BZip2 の codec state は最大約7.6 MBと I/O buffer です。
+Deflate が `compressionThreads × 1 MiB`、LZMA / BZip2 / PPMd / Copy が0です。BZip2 の codec state は最大約7.6 MBと I/O buffer です。
+
+PPMd の preset は次の通りです。ZIP と7zで variant と order が異なります。
+
+| `ppmdLevel` | ZIP var.I order | 7z var.H order | model memory（MiB） |
+|---|---|---|---|
+| 1 | 3 | 3 | 1 |
+| 2 | 4 | 4 | 2 |
+| 3 | 5 | 4 | 4 |
+| 4 | 6 | 5 | 8 |
+| 5 | 8 | 6 | 16 |
+| 6（既定） | 8 | 6 | 16 |
+| 7 | 10 | 8 | 32 |
+| 8 | 12 | 12 | 64 |
+| 9 | 16 | 16 | 192 |
+
+`WriterOptions(compressionMethod: .ppmd, ppmdLevel: 9, ppmdOrder: 7, ppmdMemoryMiB: 3)` は
+order 7・3 MiB の ZIP を書きます。7z は `sevenZipMethod: .ppmd` を使います。
+モデルは ZIP の entry / 7z の folder ごとに一つ、solid では block 内の file 境界を越えて保持します。
+指定した model memory と固定 I/O buffer を使い、入力長に比例してメモリを増やしません。
+`compressionThreads` による片の並列化は行わず、`memoryLimit` は PPMd に適用しません。
+モデルのメモリが尽きると restart します。AES・7z header 暗号化・全 filter を併用できます。
+7zz の ZIP 一覧は `PPMd` のみを表示し、7z は `PPMD:o6:mem24` のように表示します。
+`mem24` は2^24 byte、2の冪でない192 MiBは `mem192m` です。
 
 `sevenZipSolid: .on()` は入力順を保ち、空ファイルと directory を件数・サイズに数えません。
 サイズの既定上限は `min(4 GiB, max(64 MiB, 辞書 × 2))`、件数は1,000,000です。
-Apple LZMA2 と非 LZMA 方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は選択 level の辞書を使います。
+Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は選択 level の辞書、PPMd は model memory を使います。
 ファイルは分割せず、上限を超えるものは単独の folder にします。全方式と AES・header 暗号化を併用できます。
 一つの block の入力を出力の隣の unlink 済み一時ファイルへ流し、確定したサイズで圧縮します。
 一時ディスク容量は最大 `max(blockSize, 最大ファイルサイズ)`、圧縮のメモリ上限は従来と同じです。
@@ -196,9 +224,9 @@ ZIP の空ファイル・ディレクトリ・symlink は常に stored です。
 
 ZIP deflate（ZipCrypto を除く）/ tar.gz は最大 1 MiB ごとに raw deflate を圧縮し、直前の末尾 32 KiB を辞書に使います。
 ZIP Deflate の小さい member は個別の `add(contentsOf:as:)` 呼出し間でも並列化し、出力は追加順です。
-ZIP BZip2 は項目ごとに同期処理し、一つの stream を完結させます。ZIP XZ の既定は最大16 MiBの block を
+ZIP BZip2 / PPMd は項目ごとに同期処理し、一つの stream を完結させます。ZIP XZ の既定は最大16 MiBの block を
 `compressionThreads` で並列化し、一つの stream header・index・footer で包みます。一括 disk 追加も同じ経路です。
-`maximumPendingInputBytes(for: .zip)` は LZMA / BZip2 では0、XZでは `(解決した並列数 + 1) × 片サイズ` 以下です。
+`maximumPendingInputBytes(for: .zip)` は LZMA / BZip2 / PPMd では0、XZでは `(解決した並列数 + 1) × 片サイズ` 以下です。
 いずれの方式も項目の追加終了時には全て出力します。BZip2 の codec state は最大約7.6 MBと I/O buffer、
 Apple XZ は thread ごとに約130 MiBと組立中16 MiBを使います。XZ の index は block 数に比例します。
 tar.gz は従来の header を持つ単一 gzip member、tar.bz2 は最大 `5 × bzip2Level × 100,000` byte の

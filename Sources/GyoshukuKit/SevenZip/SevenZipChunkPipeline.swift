@@ -6,7 +6,7 @@ enum SevenZipChunkOutput: Sendable {
     case input(Data)
 }
 
-/// LZMA2 / Deflate の block は並列化し、LZMA / Copy / BZip2 の入力は同期で folder encoder に渡す。
+/// LZMA2 / Deflate の block は並列化し、LZMA / Copy / BZip2 / PPMd の入力は同期で folder encoder に渡す。
 /// BZip2 の状態は folder が持つので、複数の bzip2 stream を連結しない。
 final class SevenZipChunkPipeline<Tag> {
     private enum Input: Sendable {
@@ -30,7 +30,7 @@ final class SevenZipChunkPipeline<Tag> {
         switch method {
         case .lzma2: self.chunkSize = pieceSize
         case .deflate: self.chunkSize = min(pieceSize, DeflateBlock.size)
-        case .lzma, .bzip2, .copy: self.chunkSize = min(pieceSize, IOChunk.size)
+        case .lzma, .bzip2, .ppmd, .copy: self.chunkSize = min(pieceSize, IOChunk.size)
         }
         pipeline = OrderedChunkPipeline(threads: method == .lzma2 ? configuration.threads : options.resolvedCompressionThreads) { input in
             switch input {
@@ -50,7 +50,7 @@ final class SevenZipChunkPipeline<Tag> {
             let block = data.map { DeflateBlock(input: $0, dictionary: dictionary, final: isLast) }
             dictionary = isLast ? Data() : data.map(DeflateBlock.dictionary(from:)) ?? Data()
             try pipeline.submit(block.map { .deflate($0) }, tag: tag, weight: weight, emit: emit)
-        case .lzma, .bzip2, .copy:
+        case .lzma, .bzip2, .ppmd, .copy:
             try Task.checkCancellation()
             try emit(tag, data.map { .input($0) })
         }

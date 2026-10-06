@@ -33,9 +33,11 @@ final class SevenZipWriter {
                 deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
                 lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
                     ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
+                ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
                 size: record.size)
             self.record.method = options.sevenZipMethod
             self.record.lzmaProperties = encoder.lzmaProperties
+            self.record.ppmdProperties = encoder.ppmdProperties
             self.record.aesProperties = aes?.properties
         }
     }

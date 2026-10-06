@@ -89,11 +89,11 @@ enum ZipRecords {
 
         var needsSize64: Bool { size >= limit || compressedSize >= limit }
         var version: UInt16 {
-            // APPNOTE 6.3.10 §4.4.3・§4.4.5: method 12 は4.6。method 95 の要求 version は明記されていない。
+            // APPNOTE 6.3.10 §4.4.3・§4.4.5: method 12 は4.6、method 14 / 98 は6.3。method 95 の要求 version は明記されていない。
             // XZ は7-Zip 26.03の生成 ZIP と公開定義に合わせて2.0とし、LZMA（method 14）の6.3は流用しない。
             // https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
             // https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHeader.h
-            let compressionVersion: UInt16 = method == .lzma ? 63 : method == .bzip2 ? 46 : 20
+            let compressionVersion: UInt16 = method == .lzma || method == .ppmd ? 63 : method == .bzip2 ? 46 : 20
             return max(compressionVersion, aesVersion != nil ? 51 : 20, needsSize64 || offset >= limit ? 45 : 20)
         }
 

@@ -125,7 +125,7 @@ UI 側は進捗と取り消しを必ず出す。
 
 ### ZIP の圧縮方式
 
-`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、LZMA（14）、XZ（95）を持ち、既定は Deflate。
+`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、LZMA（14）、XZ（95）、PPMd（98）を持ち、既定は Deflate。
 writer と updater の新規追加、ZIP への ArchiveRewriter は同じ ZipWriter を使う。
 updater の既存 local record・圧縮 byte・central directory は追加時にそのまま運ぶ。
 空ファイル・directory・symlink と、heuristic が選ぶ圧縮済み拡張子は stored。
@@ -139,6 +139,15 @@ raw LZMA1 stream の順に置く。EOS を書き、両 header の general purpos
 展開要求 version は6.3。`lzmaLevel == nil` は6、extreme はレベル指定時だけ有効。
 AES / ZipCrypto は properties header を含む圧縮結果全体を暗号化し、ZIP64 の予約と updater / rewriter は既存経路を使う。
 7-Zip 26.03 の ZIP listing は辞書を省略し `LZMA:eos` と表示するので、辞書は properties byte でも検査する。
+
+method 98 は `PPMd8StreamEncoder` の PPMd var.I rev.1 を entry ごとに一つ作る。
+[APPNOTE §5.10](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の2 byte parameter word を
+little endian で stream の直前に置く。下位4 bitは order−1、続く8 bitはメモリ MiB−1、上位4 bitは restoration。
+writer は restoration 0（restart）を選び、EOF と4 byte flush を一度だけ書く。
+order は2...16、メモリは1...256 MiB。両 header の展開要求 version は6.3、LZMA 用 bit 1 は立てない。
+parameter word も AES / ZipCrypto の暗号化対象で、AES の0x9901には実 method 98を記録する。
+ZIP64 は最大 order の suffix escape と range 正規化を覆う保守的な出力上界で local の余白を予約する。
+updater の追加・rewriter も同じ経路を使う。7zz の ZIP 一覧は order / memory を省略するため parameter word を直接検査する。
 
 method 95 は `ParallelXZCompressor` と `XZFraming` を使い、既定は最大16 MiBの block を
 `compressionThreads` で並列化する。hint の無い固定幅を使い、stream header・blocks・index・footer を
@@ -159,8 +168,8 @@ CRC32・確定サイズ・ZIP64 の事前予約・seek による local header pa
 XZ の予約長は選択した片サイズで Apple encoder の容量上限と framing の上界を使い、自前 LZMA2 の raw chunk 膨張も覆う。
 LZMA1 は最悪 literal 膨張の上界として16 × 入力長 + 1,024 byteを予約する。
 
-macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 を展開できない。
-Deflate を互換性の既定とし、BZip2 / LZMA / XZ は KaitoKit や 7-Zip を使う場合の opt-in とする。
+macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 / 98 を展開できない。
+Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 7-Zip を使う場合の opt-in とする。
 
 ### LHA の方式・探索 level と並列圧縮（P4-G-a）
 
@@ -683,8 +692,8 @@ writer / updater / rewriter は同じ検証関数を使い、出力作成前に�
 ### ZIP WinZip AES-256
 
 通常ファイルだけ（空ファイルを含む）を暗号化する。directory / symlink は平文の stored。
-圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / lzma / xz 設定を使い、両 header の method を 99、
-version needed は方式との最大値（LZMA は63、それ以外は51）、flag は bit 0 + bit 11（LZMA はさらに bit 1）にする。0x9901 の 7 byte 本体は、vendor version、
+圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / lzma / xz / ppmd 設定を使い、両 header の method を 99、
+version needed は方式との最大値（LZMA / PPMd は63、それ以外は51）、flag は bit 0 + bit 11（LZMA はさらに bit 1）にする。0x9901 の 7 byte 本体は、vendor version、
 `AE`、strength 3、実際の圧縮 method。20 byte 未満を AE-1 と実 CRC、以上を AE-2 と CRC 0 にする。
 これはこの writer の選択方針で、AE-1 / AE-2 の wire format は公開仕様に従う。
 
@@ -711,7 +720,7 @@ compressed size は spool + 12 byte。deinit による失敗時の削除と、�
 ### 7z の圧縮方式・AES-256 と header
 
 既定は非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
-LZMA2（既定）/ LZMA / Deflate / BZip2 / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
+LZMA2（既定）/ LZMA / Deflate / BZip2 / PPMd / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
 
 | 方式 | method ID | properties | level と stream |
 |---|---|---|---|
@@ -719,11 +728,12 @@ LZMA2（既定）/ LZMA / Deflate / BZip2 / Copy を選ぶ。ZIP の `compressio
 | LZMA | `03 01 01` | lc/lp/pb + 辞書 LE32 の5 byte | 自前 raw LZMA1、一つの同期 stream、EOS 無し |
 | Deflate | `04 01 08` | 無し | `deflateLevel`（0...9）、一つの raw deflate stream |
 | BZip2 | `04 02 02` | 無し | `bzip2Level`（1...9）、folder ごとに単一 bzip2 stream |
+| PPMd | `03 04 01` | order byte + memory LE32 の5 byte | `ppmdLevel`（1...9）、自前 var.H、folder ごとに単一 stream |
 | Copy | `00` | 無し | 入力をそのまま保存。無圧縮 level 用 |
 
 method ID と coder の flags は `inbox/lzma-sdk-26.03/DOC/Methods.txt` と `DOC/7zFormat.txt` で照合する。
 `SevenZipEditModel.Coder` は method ID の byte 列・任意の properties・入出力数を持ち、writer と updater は
-`SevenZipHeaderSerializer.coder` で共通に直列化する。LZMA・BCJ / ARM64 / Delta と将来の PPMd も同じ表現で記録できる。
+`SevenZipHeaderSerializer.coder` で共通に直列化する。LZMA・PPMd・BCJ / ARM64 / Delta も同じ表現で記録する。
 `SevenZipChunkPipeline` は既存の `OrderedChunkPipeline` 上で LZMA2 と Deflate を並列化する。
 Deflate は `DeflateBlock` の最大1 MiB入力と直前の末尾32 KiBを辞書に使い、最後だけ Z_FINISH、
 中間は Z_SYNC_FLUSH で一つの byte-aligned raw stream に連結する。7zz の検査・展開で受理を確認する。
@@ -731,7 +741,33 @@ LZMA は `LZMAEncoder` を folder ごとに保持し、size を expectedSize に
 solid folder の再圧縮と追加も WriterOptions 全体を FolderEncoder に渡すので方式・level・extreme が揃う。
 header の再圧縮は従来の Apple LZMA2 の設定を保つ。
 BZip2 は `Bzip2StreamEncoder` の状態を folder ごとに持ち、I/O ごとの入力を同期処理して一度だけ終端を書く。
+PPMd は `PPMd7StreamEncoder` の状態を folder ごとに持つ。properties は stream の外側の coder に書き、
+folder の展開サイズで終端を知るため EOF を書かず5 byte flush を一度だけ出力する。
+order は2...32、encoder の対応メモリは1...1024 MiB。solid は block 全体を一つのモデルで符号化する。
+BCJ / ARM64 / Delta の出力を PPMd に渡し、その圧縮 byte に AES を適用する。header 暗号化は従来の経路を使う。
+updater の新規追加と solid の一部削除の再圧縮、rewriter は同じ properties を渡す。
+7zz は `PPMD:o6:mem24`（16 MiB）、`PPMD:o16:mem192m`（192 MiB）のように表示する。
 Copy は同じ I/O 境界で同期出力する。LZMA2 の既定 byte 列は凍結済み hash と既存試験で固定する。
+
+`ppmdLevel` の preset は GyoshukuKit の定義で、既定の6は encoder の既定 order / memory と一致する。
+`ppmdOrder` / `ppmdMemoryMiB` はそれぞれ独立に preset を上書きし、出力を作る前に形式ごとの範囲を検証する。
+
+| level | ZIP var.I order | 7z var.H order | model memory（MiB） |
+|---|---|---|---|
+| 1 | 3 | 3 | 1 |
+| 2 | 4 | 4 | 2 |
+| 3 | 5 | 4 | 4 |
+| 4 | 6 | 5 | 8 |
+| 5 | 8 | 6 | 16 |
+| 6（既定） | 8 | 6 | 16 |
+| 7 | 10 | 8 | 32 |
+| 8 | 12 | 12 | 64 |
+| 9 | 16 | 16 | 192 |
+
+モデルは ZIP の entry / 7z の folder につき一つ。指定 model memory と固定の頻度表・64 KiB出力 buffer・
+256 KiB I/O buffer を使い、入力全体を保持しない。メモリ不足時はモデルを restart する。
+同期符号化で片の並列化を行わず、`compressionThreads` / LZMA 用 `memoryLimit` はモデルサイズに作用しない。
+non-solid の `maximumPendingInputBytes` は0で、モデルのメモリを pending input に含めない。
 
 実測した `7zz a -p... -mhe=off -mhc=off` と
 同じ decoder 順で AES（06 F1 07 01）を coder 0、選択方式を coder 1 に置く。Copy も同じ chain を使う。
@@ -759,7 +795,7 @@ raw LZMA は256 KiBずつ同期入力するので pending input は0。
 それ以外は `SevenZipBlockWriter` が入力順に非空 file を集め、`ScratchFile` に256 KiBずつ流す。
 solid の上限は `blockSize` と `filesPerBlock`。nil のサイズは
 `min(4 GiB, max(64 MiB, dictionary × 2))`、件数は1,000,000とする。
-Apple LZMA2 と非 LZMA 方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指定 level の辞書。
+Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指定 level の辞書、PPMd は model memory。
 次の file が上限を越える前に folder を閉じ、file 自体は分割しない。上限超過 file は単独にする。
 空 file / directory は EmptyStream のままで、件数とサイズには数えない。拡張子による並べ替えは行わない。
 folder の全サイズ確定後に `SevenZipFolderEncoder` を使うので raw LZMA の expectedSize も既知となる。
@@ -1329,7 +1365,8 @@ ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独8形式の空・1 byte
 
 `Compression/PPMd/` の internal `PPMd7StreamEncoder` は 7z method `03 04 01` の var.H、
 `PPMd8StreamEncoder` は ZIP method 98 の var.I revision 1 を純 Swift で書く。
-writer / `WriterOptions` / `ArchiveFormat` への接続は別の作業とする。
+ZIP / 7z の writer と `WriterOptions.ppmdLevel` に接続し、updater の追加・7z solid 再圧縮・rewriter でも使う。
+方式・framing・preset とメモリの契約は上の ZIP / 7z 節を参照する。
 同期 API は `write(_:finish:emit:)`。呼出しをまたいで同じ model と range coder を更新し、入力全体を保存しない。
 finish でない空 write は何も出さず、入力付き finish と別呼出しの finish をともに扱う。
 finish、emit の失敗、キャンセルの後は instance を再使用できない。
@@ -1375,7 +1412,7 @@ ZIP の preset は既定 restart、指定した restoration も保持する。
 | 8 | 12 | 64 MiB | 12 | 64 MiB |
 | 9 | 16 | 192 MiB | 16 | 192 MiB |
 
-試験は製品の serializer に頼らず、PPMd coder 一つの folder を持つ最小 7z と method 98 の最小 ZIP を作る。
+encoder 単独試験は製品の serializer に頼らず、PPMd coder 一つの folder を持つ最小 7z と method 98 の最小 ZIP を作る。
 KaitoKit の PPMd decoder は internal なので、公開 `ArchiveReader` の stream で全 byte を照合する。
 独立 oracle は必須の `7zz t`、`7zz x -so`、`7zz l -slt`。
 7zz 26.03 の表示は 7z が `PPMD:o6:mem24`（16 MiB は log2=24）、ZIP が `PPMd`。

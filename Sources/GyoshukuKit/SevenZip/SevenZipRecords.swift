@@ -12,12 +12,15 @@ enum SevenZipRecords {
         var compressedSize: UInt64 = 0
         var properties: UInt8 = 0
         var lzmaProperties = LZMAEncoderProperties.preset(6).bytes
+        var ppmdProperties = Data([6, 0, 0, 0, 1])
         var method: SevenZipCompressionMethod = .lzma2
         var crc: UInt32 = 0
         var aesProperties: Data?
 
         var isDirectory: Bool { mode.isDirectoryMode }
-        var coder: SevenZipEditModel.Coder { .compression(method, properties: properties, lzmaProperties: lzmaProperties) }
+        var coder: SevenZipEditModel.Coder {
+            .compression(method, properties: properties, lzmaProperties: lzmaProperties, ppmdProperties: ppmdProperties)
+        }
     }
 
     static func timestamp(_ date: Date) throws -> UInt64 {

@@ -77,6 +77,12 @@
 書庫と外部ツールの log を調べるためで、同じ label の次の実行が消す。数十 MiB を超える出力はその試験が成功後に消す。
 label は suite の中で重ねない（重なると別の試験の出力を消す）。
 
+`ZipPPMdWriterTests` / `SevenZipPPMdWriterTests` は level 1・既定6・9と order / memory の上書き、
+ZIP AES / ZipCrypto、7z AES / header 暗号化・solid・BCJ / ARM64 / Delta、updater / rewriter を検査する。
+必須の7zz `t / l -slt / x` と KaitoKit の全 byte 往復、7zz が書く PPMd の逆方向、
+20 MiB text と1 MiBモデルの restart、thread 数による出力 byte 一致を扱う。
+ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7z は表示の order / memory と5 byte propertiesを照合する。
+
 ## 外部ツールが無いとき
 
 - 方針は一つ: 参照ツールが無ければ失敗する（skip しない）。`ReferenceTool.run` と `ReferenceTool.require(候補)`、それを使う

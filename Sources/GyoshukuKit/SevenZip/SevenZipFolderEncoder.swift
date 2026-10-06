@@ -9,18 +9,23 @@ final class SevenZipFolderEncoder {
     private let bzip2Level: Int
     private var bzip2: Bzip2StreamEncoder?
     private var rawLZMA: LZMAEncoder?
+    private var ppmd: PPMd7StreamEncoder?
+    private let ppmdConfiguration: PPMd7EncoderProperties?
     private let lzma: LZMAWriterConfiguration?
     private let size: UInt64
     private let filter: SevenZipWriteFilter
     var lzmaProperties: Data { lzma?.properties?.bytes ?? LZMAEncoderProperties.preset(6).bytes }
+    var ppmdProperties: Data { ppmdConfiguration?.coderProperties ?? Data([6, 0, 0, 0, 1]) }
     private(set) var properties: UInt8 = 0
     private(set) var compressedSize: UInt64 = 0
     private(set) var packedSize: UInt64 = 0
 
     init(aes: SevenZipAESEncryptor?, method: SevenZipCompressionMethod = .lzma2, deflateLevel: Int = 6, bzip2Level: Int = 9,
-         lzma: LZMAWriterConfiguration? = nil, size: UInt64 = 0, filter: SevenZipWriteFilter = .none) {
+         lzma: LZMAWriterConfiguration? = nil, ppmd: PPMd7EncoderProperties? = nil,
+         size: UInt64 = 0, filter: SevenZipWriteFilter = .none) {
         self.aes = aes; self.method = method; self.deflateLevel = deflateLevel; self.bzip2Level = bzip2Level
         self.lzma = lzma; self.size = size; self.filter = filter
+        ppmdConfiguration = ppmd
         // 空の solid folder でも選択した辞書を宣言する。Apple 経路の既定値は変えない。
         if method == .lzma2, let properties = lzma?.properties {
             self.properties = LZMA2Encoder.dictionaryProperty(for: properties.dictSize)
@@ -42,6 +47,9 @@ final class SevenZipFolderEncoder {
             } else if method == .bzip2 {
                 if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
                 try bzip2!.write(bytes, finish: false) { try emit($0, write: write) }
+            } else if method == .ppmd {
+                try beginPPMd()
+                try ppmd!.write(bytes, finish: false) { try emit($0, write: write) }
             } else { try emit(bytes, write: write) }
         }
     }
@@ -56,6 +64,10 @@ final class SevenZipFolderEncoder {
             if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
             try bzip2!.write(Data(), finish: true) { try emit($0, write: write) }
             bzip2 = nil
+        case .ppmd:
+            try beginPPMd()
+            try ppmd!.write(Data(), finish: true) { try emit($0, write: write) }
+            ppmd = nil
         case .deflate:
             // 生存する substream が全て空でも、Deflate の終端を持つ一つの stream にする。
             if compressedSize == 0 {
@@ -69,6 +81,12 @@ final class SevenZipFolderEncoder {
         if rawLZMA == nil {
             guard let lzma else { throw WriterError.invalidState }
             rawLZMA = try lzma.rawEncoder(size: size, endMarker: false)
+        }
+    }
+    private func beginPPMd() throws {
+        if ppmd == nil {
+            guard let ppmdConfiguration else { throw WriterError.invalidState }
+            ppmd = try PPMd7StreamEncoder(properties: ppmdConfiguration)
         }
     }
     private func emit(_ data: Data, write: (Data) throws -> Void) throws {
@@ -86,7 +104,8 @@ final class SevenZipFolderEncoder {
     }
 
     func folder(size: UInt64, crc: UInt32? = nil, substreamCount: Int = 1) -> SevenZipEditModel.Folder {
-        let methodCoder = SevenZipEditModel.Coder.compression(method, properties: properties, lzmaProperties: lzmaProperties)
+        let methodCoder = SevenZipEditModel.Coder.compression(method, properties: properties,
+            lzmaProperties: lzmaProperties, ppmdProperties: ppmdProperties)
         var coders: [SevenZipEditModel.Coder] = aes.map { [.aes(properties: Array($0.properties))] } ?? []
         coders.append(methodCoder)
         if let coder = filter.coder { coders.append(coder) }
@@ -104,7 +123,8 @@ final class SevenZipFolderEncoder {
         let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
             deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
             lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil, size: size, filter: filter)
+                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
+            ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil, size: size, filter: filter)
         let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize)
         let filtered = filter == .none ? nil : SevenZipFilteredInput(filter: filter, size: size)
         defer { pipeline.abandon() }

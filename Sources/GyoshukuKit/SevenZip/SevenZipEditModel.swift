@@ -9,6 +9,7 @@ struct SevenZipEditModel: Sendable, Equatable {
         static let lzmaMethodID: [UInt8] = [0x03, 0x01, 0x01]
         static let deflateMethodID: [UInt8] = [0x04, 0x01, 0x08]
         static let bzip2MethodID: [UInt8] = [0x04, 0x02, 0x02]
+        static let ppmdMethodID: [UInt8] = [0x03, 0x04, 0x01]
         static let copy = Coder(methodID: [0])
         static let deflate = Coder(methodID: deflateMethodID)
         static let bzip2 = Coder(methodID: bzip2MethodID)
@@ -22,14 +23,16 @@ struct SevenZipEditModel: Sendable, Equatable {
         static func aes(properties: [UInt8]) -> Coder { Coder(methodID: aesMethodID, properties: properties) }
         /// LZMA2 coder。properties は dictionary size を表す 1 byte。
         static func lzma2(properties: UInt8) -> Coder { Coder(methodID: lzma2MethodID, properties: [properties]) }
-        /// 書き込み方式から単入力・単出力 coder を作る。LZMA は5 byte、LZMA2 は1 byteの properties。
+        /// 書き込み方式から単入力・単出力 coder を作る。LZMA / PPMd は5 byte、LZMA2 は1 byteの properties。
         static func compression(_ method: SevenZipCompressionMethod, properties: UInt8 = 0,
-                                lzmaProperties: Data = LZMAEncoderProperties.preset(6).bytes) -> Coder {
+                                lzmaProperties: Data = LZMAEncoderProperties.preset(6).bytes,
+                                ppmdProperties: Data = Data([6, 0, 0, 0, 1])) -> Coder {
             switch method {
             case .lzma2: return .lzma2(properties: properties)
             case .lzma: return Coder(methodID: lzmaMethodID, properties: Array(lzmaProperties))
             case .deflate: return .deflate
             case .bzip2: return .bzip2
+            case .ppmd: return Coder(methodID: ppmdMethodID, properties: Array(ppmdProperties))
             case .copy: return .copy
             }
         }
