@@ -9,6 +9,7 @@ extension GyoshukuKit.ArchiveFormat {
         case .tar: "tar"
         case .tarGzip: "tar.gz"
         case .tarBzip2: "tar.bz2"
+        case .tarZstd: "tar.zst"
         case .tarXZ: "tar.xz"
         case .tarLZMA: "tar.lzma"
         case .tarLzip: "tar.lz"

@@ -92,7 +92,7 @@ ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7
   `ReferenceToolPolicyTests` が両方の経路を固定する。
 - 7zz や GNU tar があるときだけ照合を足す: `LHAUpdaterLargeOffsetTests`・`SevenZipUpdaterLargeOffsetTests`・
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
-- CI（`.github/workflows/ci.yml`）は `brew install sevenzip xz lzip lz4 brotli lhasa gnu-tar autoconf automake` と
+- CI（`.github/workflows/ci.yml`）は `brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake` と
   固定commitの LHa for UNIX の一時ビルドで必須ツールを入れる。製品の依存には加えない。
 
 `LHACompressionMethodTests` は Lhasa・7zz に加えて `~/.local/bin/lha-unix`（LHa for UNIX）を必須にする。
@@ -105,10 +105,16 @@ macOS の Lhasa / 7zz は日本語名での抽出を復元できないため、�
 bsdtar の stdin に pipe して一覧・抽出を検査する。20 MiB の混合入力、lzip level 0 / 6 / 9 と
 trailer から数えた複数 member、KaitoKit の全 byte 往復も検査する。`ArchiveRewriterNewTarFormatTests` は
 ZIP との相互変換と tar.lz4 / tar.lz の削除・改名・追加を扱う。
-`SingleStreamCompressorTests` は8形式で空・1 byte・1 MiB text・9 MiB乱数の実ツールとKaitoKit往復、
+`SingleStreamCompressorTests` は9形式で空・1 byte・1 MiB text・9 MiB乱数の実ツールとKaitoKit往復、
 読取 byte 進捗、directory / symlink / 既存出力の拒否、公開時の競合、途中取消しの一時file削除を検査する。
 `LzipCompressorTests` はメモリ予算による並列数制限、辞書を保った拒否、DSの分数、
 16 MiB境界を越える入力の逐次・並列byte一致とpending input上界を検査する。
 `/opt/homebrew/bin/lzip`・`lz4`・`brotli`、xz、macOS の gzip / bzip2 / uncompress と bsdtar を必須にする。
+`CompressedTarZstdTests` は level 1 / 3 / 19、20 MiB入力と4 threadの複数frame、
+`zstd -t` と decoderからbsdtarへのpipe、KaitoKit往復、ArchiveRewriterの追加・削除・改名を検査する。
+単独 .zstも `SingleStreamCompressorTests` の空・1 byte・1 MiB text・9 MiB乱数に含める。
+`ZipZstdWriterTests` は必須7zzの `i / t / l -slt / x` とKaitoKitで非暗号・AES・ZipCryptoを照合し、
+raw entry dataのzstd復号、単一frame・ZIP64・updater追加・rewriterも検査する。
+7-Zip 26.03はmethod 93の実抽出に成功する。必須の `/opt/homebrew/bin/zstd` はCIでも導入する。
 空 .Z を BSD uncompress が拒否する既知の制限は終了値・診断・空出力を照合し、KaitoKit と7zzで復号する。
 制限付き環境が `uncompress -c` の `/dev/stdout` 再openだけを拒否した場合は同じ実ツールのfile出力を使う。

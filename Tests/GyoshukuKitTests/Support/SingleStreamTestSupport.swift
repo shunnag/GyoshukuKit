@@ -14,6 +14,7 @@ enum SingleStreamTestSupport {
         case .gzip: "gz"
         case .bzip2: "bz2"
         case .xz: "xz"
+        case .zstd: "zst"
         case .lzma: "lzma"
         case .lzip: "lz"
         case .lz4: "lz4"
@@ -27,6 +28,7 @@ enum SingleStreamTestSupport {
         case .gzip: (ReferenceTool.gzip, ["-dc"])
         case .bzip2: (ReferenceTool.bzip2, ["-dc"])
         case .xz: (ReferenceTool.xz, ["-dc"])
+        case .zstd: (ReferenceTool.zstd, ["-dc"])
         case .lzma: (ReferenceTool.xz, ["--format=lzma", "-dc"])
         case .lzip: (ReferenceTool.lzip, ["-dc"])
         case .lz4: (StreamEncoderTestSupport.lz4, ["-dc"])
@@ -36,7 +38,7 @@ enum SingleStreamTestSupport {
     }
 
     static func check(_ url: URL, format: SingleStreamFormat, in directory: URL, label: String) throws {
-        if [.lzip, .lz4, .brotli].contains(format) {
+        if [.zstd, .lzip, .lz4, .brotli].contains(format) {
             try ReferenceTool.run(decoder(format).0, ["-t", url.path], in: directory, log: label + "-test")
         }
     }

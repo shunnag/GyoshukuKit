@@ -9,6 +9,7 @@ enum ReferenceTool {
     static let sevenZip = "/opt/homebrew/bin/7zz"
     static let lhasa = "/opt/homebrew/bin/lha"
     static let xz = "/opt/homebrew/bin/xz"
+    static let zstd = "/opt/homebrew/bin/zstd"
     static let lzip = "/opt/homebrew/bin/lzip"
 
     static let bsdtar = "/usr/bin/bsdtar"

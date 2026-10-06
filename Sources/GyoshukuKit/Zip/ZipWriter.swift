@@ -247,6 +247,10 @@ final class ZipWriter {
             let (bound, overflow) = size.multipliedReportingOverflow(by: 16)
             guard !overflow else { throw WriterError.sizeOverflow }
             return try checkedAdd(bound, 1024)
+        case .zstd:
+            // raw fallback 以下の block と3 byte header、frame header・checksum の上界。
+            let blocks = size / UInt64(ZstdFrameEncoder.blockSize) + 1
+            return try checkedAdd(checkedAdd(size, blocks * 3), 18)
         case .ppmd:
             // 最大 order の全 suffix で escape しても、各 range 操作の正規化は最大4 byte。
             // literal と EOF、parameter word・flush を含む保守的な上界で ZIP64 の余白を予約する。
@@ -305,6 +309,8 @@ final class ZipWriter {
         let bzip2 = method == .bzip2 ? try Bzip2StreamEncoder(level: options.bzip2Level) : nil
         // parameter word は encoder が一度だけ出力し、ZIP 暗号化の内側に含める。
         let ppmd = method == .ppmd ? try PPMd8StreamEncoder(properties: options.ppmd8Properties()) : nil
+        // method 93 は一 entry に一 frame。AES / ZipCrypto の共通 sink の内側へ逐次出力する。
+        let zstd = method == .zstd ? try ZstdFrameEncoder(level: options.zstdLevel, contentSize: size) : nil
         // APPNOTE §4.4.5 の method 95 は、7-Zip 26.03 の生成 ZIP で完全な .xz stream と確認した。
         // ParallelXZCompressor は stream header・blocks・index・footer を一組だけ出力する。
         let configuration = method == .xz || method == .lzma
@@ -342,6 +348,7 @@ final class ZipWriter {
             if let compressor { try compressor.write(chunk, emit: emit) }
             else if let bzip2 { try bzip2.write(chunk, finish: false, emit: emit) }
             else if let ppmd { try ppmd.write(chunk, finish: false, emit: emit) }
+            else if let zstd { try zstd.write(chunk, emit: emit) }
             else if let xz { try xz.write(chunk, finish: false, emit: emit) }
             else if let lzma { try emit(lzmaWriterOperation { try lzma.push(chunk) }) }
             else { try emit(chunk) }
@@ -350,6 +357,7 @@ final class ZipWriter {
         if let compressor { try compressor.write(Data(), finish: true, emit: emit) }
         if let bzip2 { try bzip2.write(Data(), finish: true, emit: emit) }
         if let ppmd { try ppmd.write(Data(), finish: true, emit: emit) }
+        if let zstd { try zstd.write(Data(), finish: true, emit: emit) }
         if let xz { try xz.write(Data(), finish: true, emit: emit) }
         if let lzma { try emit(lzmaWriterOperation { try lzma.finish() }) }
         return crc
@@ -408,11 +416,11 @@ final class ZipWriter {
 
     // MARK: 一括追加
 
-    // bzip2 / LZMA / XZ / PPMd を選ぶ一括追加は通常ファイルを項目別の streaming 経路へ戻す。
+    // bzip2 / LZMA / XZ / Zstandard / PPMd を選ぶ一括追加は通常ファイルを項目別の streaming 経路へ戻す。
     // deflate は指定の block 幅、stored は既定の block 幅まで先読みする。
     func singleBlockLimit(name: String, mode: UInt16, size: UInt64) -> Int {
         switch options.compressionMethod {
-        case .bzip2, .lzma, .xz, .ppmd: return 0
+        case .bzip2, .lzma, .xz, .zstd, .ppmd: return 0
         case .stored, .deflate: break
         }
         return compression(name: name, mode: mode, size: size) == .deflate ? deflateBlockSize : DeflateBlock.size

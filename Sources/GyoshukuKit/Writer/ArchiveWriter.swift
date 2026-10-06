@@ -1,7 +1,7 @@
 import Foundation
 private import Darwin
 
-/// ZIP / ZIP64、tar（8種の stream 圧縮を含む）、7z、LHA を新規作成する。既存の出力先は上書きしない。
+/// ZIP / ZIP64、tar（9種の stream 圧縮を含む）、7z、LHA を新規作成する。既存の出力先は上書きしない。
 ///
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
@@ -108,7 +108,7 @@ public final class ArchiveWriter {
             compressor = try ParallelXZCompressor(threads: configuration.threads,
                 chunkSize: lzmaChunkSize, packingSize: xzPackingSize, allowsLightChunks: configuration.properties == nil,
                 encoder: lzmaEncoder ?? configuration.encoder)
-        case .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress:
+        case .tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress:
             compressor = try StreamCompressor.make(format: format, options: options)
         default: compressor = nil
         }

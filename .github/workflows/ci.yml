@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
-        run: brew install sevenzip xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+        run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
       - name: Install LHa for UNIX oracle
         # Lhasa は展開専用。逆方向の -o6 / -o7 試験には別の実行ファイルを置く。
         # source は runner の一時領域でビルドするだけで、製品・fixture へ取り込まない。

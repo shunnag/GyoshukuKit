@@ -13,6 +13,7 @@ enum StreamCompressor {
             return try ParallelXZCompressor(threads: configuration.threads, chunkSize: configuration.pieceSize,
                 allowsLightChunks: configuration.properties == nil, encoder: configuration.encoder)
         case .tarLZMA: return try LZMAAloneCompressor(options: options)
+        case .tarZstd: return try ParallelZstdCompressor(options: options)
         case .tarLzip: return try ParallelLzipCompressor(options: options)
         case .tarLZ4: return try LZ4TarCompressor(threads: options.resolvedCompressionThreads)
         case .tarBrotli: return try SequentialStreamCompressor(brotli: BrotliStreamEncoder())

@@ -2,8 +2,8 @@
 // https://www.rfc-editor.org/rfc/rfc8878 (frame, literals, sequences, entropy coding)
 import Foundation
 
-/// A synchronous bounded-memory encoder for one independent RFC 8878 frame.
-/// Internal for later .zst / tar.zst / ZIP method 93 writer integration.
+/// 一つの独立した RFC 8878 frame を有界メモリで同期符号化する。
+/// .zst / tar.zst は独立 frame の並列化、ZIP method 93 は単一 frame の逐次出力に使う。
 final class ZstdFrameEncoder {
     static let blockSize = 128 << 10
     let properties: ZstdEncoderProperties

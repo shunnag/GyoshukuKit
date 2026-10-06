@@ -111,8 +111,8 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
-| 2 | tar.lzma / .lz / .lz4 / .br / .Z | ○ | ○(ArchiveRewriter) | ○(全体再符号化) |
-| 2 | 単独 gzip / bzip2 / XZ / LZMA / lzip / LZ4 / Brotli / compress | ○(SingleStreamCompressor) | 対象外 | 対象外 |
+| 2 | tar.zst / .lzma / .lz / .lz4 / .br / .Z | ○ | ○(ArchiveRewriter) | ○(全体再符号化) |
+| 2 | 単独 gzip / bzip2 / XZ / Zstandard / LZMA / lzip / LZ4 / Brotli / compress | ○(SingleStreamCompressor) | 対象外 | 対象外 |
 | 3 | 7z | ○(solid・BCJ / ARM64 / Delta・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
 | 4 | LHA / LZH | ○(`-lh5-` / `-lh6-` / `-lh7-` / `-lh0-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
@@ -125,8 +125,9 @@ UI 側は進捗と取り消しを必ず出す。
 
 ### ZIP の圧縮方式
 
-`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、LZMA（14）、XZ（95）、PPMd（98）を持ち、既定は Deflate。
+`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、LZMA（14）、Zstandard（93）、XZ（95）、PPMd（98）を持ち、既定は Deflate。
 writer と updater の新規追加、ZIP への ArchiveRewriter は同じ ZipWriter を使う。
+method 93 の Zstandard は下の「Zstandard の writer 接続」節に framing・version・メモリの規則を記す。
 updater の既存 local record・圧縮 byte・central directory は追加時にそのまま運ぶ。
 空ファイル・directory・symlink と、heuristic が選ぶ圧縮済み拡張子は stored。
 
@@ -599,12 +600,13 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 
 | 形式 | 上界（byte） |
 |---|---|
-| ZIP stored / BZip2 | 0（BZip2 は同期処理） |
+| ZIP stored / BZip2 / Zstandard | 0（BZip2 / Zstandard は同期処理） |
 | ZIP Deflate | `t × DeflateBlock.size`（ZipCrypto は 0） |
 | ZIP XZ | `(t + 1) × 16 MiB`（ZipCrypto も同じ。項目の終了時には全て出力） |
 | tar | 0 |
 | tar.gz | `(t + 1) × DeflateBlock.size` |
 | tar.bz2 | `(t + 1) × (5 × bzip2Level × 100,000)` |
+| tar.zst | `t × max(4 MiB, level の window)`（t はメモリ予算で解決） |
 | tar.xz | `t × 16 MiB + 4 MiB + (t > 1 ? (t + 1) × 64 KiB : 0)` |
 | 7z LZMA2 | `t × 16 MiB` |
 | 7z Deflate | `t × 1 MiB` |
@@ -692,8 +694,8 @@ writer / updater / rewriter は同じ検証関数を使い、出力作成前に�
 ### ZIP WinZip AES-256
 
 通常ファイルだけ（空ファイルを含む）を暗号化する。directory / symlink は平文の stored。
-圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / lzma / xz / ppmd 設定を使い、両 header の method を 99、
-version needed は方式との最大値（LZMA / PPMd は63、それ以外は51）、flag は bit 0 + bit 11（LZMA はさらに bit 1）にする。0x9901 の 7 byte 本体は、vendor version、
+圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / lzma / zstd / xz / ppmd 設定を使い、両 header の method を 99、
+version needed は方式との最大値（LZMA / Zstandard / PPMd は63、それ以外は51）、flag は bit 0 + bit 11（LZMA はさらに bit 1）にする。0x9901 の 7 byte 本体は、vendor version、
 `AE`、strength 3、実際の圧縮 method。20 byte 未満を AE-1 と実 CRC、以上を AE-2 と CRC 0 にする。
 これはこの writer の選択方針で、AE-1 / AE-2 の wire format は公開仕様に従う。
 
@@ -1334,7 +1336,7 @@ KaitoKitのsplice地図がある形式は引き続きgzip / bzip2 / XZだけ。
 
 ### 単独ファイルの圧縮 API（2026-10-06）
 
-`SingleStreamFormat: Sendable, CaseIterable` はgzip / bzip2 / xz / lzma / lzip / lz4 / brotli / compress。
+`SingleStreamFormat: Sendable, CaseIterable` はgzip / bzip2 / xz / zstd / lzma / lzip / lz4 / brotli / compress。
 `SingleStreamCompressor.compress(file:to:format:options:progress:)` は通常ファイル一つから圧縮ファイル一つを新規作成する。
 編集・複数source・メタデータ保存は扱わず、複数sourceは呼出側がtar.Xを作る。
 公開の型は `API/SingleStreamCompressor.swift`、fileの寿命と公開は `Writer/SingleStreamWriter.swift`。
@@ -1357,7 +1359,7 @@ LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、Brotli�
 試験は `CompressedTarNewFormatTests` / `ArchiveRewriterNewTarFormatTests` / `SingleStreamCompressorTests`。
 新tarはfile・空file・directory・symlink・日本語名・20 MiB混合入力を各独立decoderからbsdtarへpipeして
 一覧・抽出・全byteを照合し、KaitoKitでも照合する。lzip level 0 / 6 / 9と複数memberはtrailerから数え `lzip -t` も使う。
-ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独8形式の空・1 byte・1 MiB text・9 MiB乱数の全byte復号、
+ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独9形式の空・1 byte・1 MiB text・9 MiB乱数の全byte復号、
 読取進捗・種別拒否・既存出力とrename競合・取消しcleanupを検査する。
 空.Zと制限されたstdout再openは上記LZW節の実ツール方針を共有する。
 
@@ -1444,7 +1446,7 @@ CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sa
 同期 API は `write(_:finish:emit:)`、独立 frame を作る helper は `encode(_:level:)`。
 `contentSize` が既知なら header に保存し、受取長の過不足を `sourceChanged` として拒否する。
 空の非 finish write は出力しない。finish、emit の失敗、取消しの後は `invalidState` で再利用を拒否する。
-後続の .zst / tar.zst / ZIP method 93 への接続と、chunk ごとの frame の並列化は別の作業とする。
+writer 接続と独立 frame の並列化は下の節を参照する。
 
 frame は magic、dictionary ID なしの header、最大 128 KiB の block、XXH64(seed=0) の下位 32 bit checksum。
 checksum flag は常に有効。既知サイズが window 以下なら single segment、それ以外は window descriptor を書く。
@@ -1568,3 +1570,74 @@ release の env-gated benchmark とその時点の全 Zstd tests も成功（12 
 追加の 43,690 sequence までの 1 / 2 / 3 byte count header、圧縮 section が展開長を超える test frame、
 8 byte content size header と取消し後の terminal state は通常テストで成功した。
 `git diff --check` は成功。変更は Zstd の新規 source 9 file、test 3 file と本節の追記だけで、commit は作らない。
+
+### Zstandard の writer 接続（2026-10-06）
+
+公開 API は `ArchiveFormat.tarZstd`、`SingleStreamFormat.zstd`、`CompressionMethod.zstd = 93`。
+`WriterOptions.zstdLevel` は1...19、既定3。参照 encoder の parameter と同一ではない自前 preset を使う。
+範囲外は `invalidOption("zstdLevel")`。既定の書庫形式・ZIP Deflate・既存 codec の framing は変えない。
+
+`ZstdWriterConfiguration` は片を `C = max(4 MiB, properties.windowSize)` にする。
+現行 preset はレベル1...12で4 MiB、13...19で8 MiB。`ParallelZstdCompressor` は
+`TarChunkCutter` と `OrderedChunkPipeline` を使い、片ごとに独立した `ZstdFrameEncoder` を作る。
+frame は既知の content size と content checksum を必ず持ち、辞書 ID は使わない。
+[RFC 8878 §3.1](https://www.rfc-editor.org/rfc/rfc8878.html#section-3.1) の frame 連結で
+入力順を保つ。連結先に依存した履歴や entropy table は持たない。
+
+tar.zst は小さい member 群を上限 C まで詰める。次の member 全体が入らなければその前で区切る。
+C を越える member は header 群と本文を分け、それぞれを C 以下に分割する。
+tar の終端二 block と blocking factor 20 の padding は、一つの独立した最後の frame にする。
+単独 .zst は hint を使わず固定 C の片にし、空入力でも空 frame を一つ書く。
+`compressionThreads` を上限とし、組立中の入力も未出力 frame の枠に含める。
+`maximumPendingInputBytes(for: .tarZstd)` は解決した並列数 t × C。
+finishAdditions は残りの片を出力し、入力 byte の進捗を通知する。終端は finish が書く。
+
+`memoryLimit` は自前 LZMA に加えて Zstandard にも適用する。予算 B は
+`min(memoryLimit（nil は物理メモリの50%）, 物理メモリの50%)`。
+encoder の見積り E と入力・出力二片、framing の余白を数え、
+一 worker の予約 M を `E + 2C + 3 × (C / 128 KiB + 1) + 1024` byte にする。
+t は要求並列数と64、`B / M` の最小値。一つも入らなければ出力作成前に `invalidOption("memoryLimit")`。
+window は縮めない。allocator の管理領域は見積りに含めない。
+
+ZIP method 93 は entry ごとに一つの frame を同期符号化する。
+ZIP 内の frame 連結は使わず、`compressionThreads` による entry 内の並列化も行わない。
+既知サイズの header、128 KiB block と checksum を共通 sink に逐次渡し、入力長に比例するメモリを確保しない。
+ZIP の M は上の C を128 KiBに置き換えたもの、t は1。pending input は add の終了時に残らず上界0。
+[APPNOTE 6.3.10 §4.4.5](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の
+Zstandard の現行 ID は93（20は非推奨）。§4.4.3の要求 version 表には Zstandard の明記がないため、
+writer は6.3を選び、local / central の両 header に63を記録する。
+AES は外側の method 99と0x9901内の実 method 93、ZipCrypto は spool 後の CRC付き header を使う。
+全 frame が暗号化対象。ZIP64 / updater の一括追加 / rewriter は共通の ZipWriter 経路で扱う。
+予約長は `入力長 + 3 × (入力長 / 128 KiB + 1) + 18` byteとし、AES の28 byteを加える。
+圧縮して縮まらない block の raw fallback と frame overhead を覆い、local header の patch 長を保つ。
+macOS Archive Utility / ditto / unzip は method 93 を展開できない。
+
+隣接 KaitoKit の `FormatReaderFactory` が圧縮地図を記録するのは gzip / bzip2 / XZ のみ。
+Zstandard は `TarContainer.other(.zstd)` で、tar member の配置を持つ場合も splice 用 chunkMap はない。
+`CompressedTarUpdater.assess` はnil、`open` は requiresRewriteで拒否し、出力を作らない。
+tar.zst の削除・改名・追加・形式変換は `ArchiveRewriter` が全体を再符号化する。
+
+実ツールは Zstandard CLI 1.5.7と7-Zip 26.03。`7zz i` と method 93の実書庫で対応を確認した。
+`CompressedTarZstdTests` は level 1 / 3 / 19の `zstd -t`、`zstd -dc | bsdtar -xf -` と
+KaitoKitの全 byte 往復、20 MiB入力の4 thread・frame境界・逐次とのbyte一致、rewriter編集を扱う。
+`SingleStreamCompressorTests` の9形式に .zstを含め、空・1 byte・1 MiB text・9 MiB乱数を両 readerで復元する。
+`ZipZstdWriterTests` は上記3 levelの非暗号・AES・ZipCryptoを `7zz t / l -slt / x` とKaitoKitで照合し、
+非暗号 entry の raw dataを `zstd -dc` でも独立に照合する。9 MiB超のentryが単一frameであること、
+ZIP64予約・updater追加・rewriterの削除・改名・追加も検査する。
+`ZstdWriterConfigurationTests` はメモリ拒否・並列数制限と実際のpending input上界、固定片のthread間byte一致を扱う。
+
+検証は下のコマンドで成功。sandbox が user cache への書込を拒否するため、module cacheを作業ツリー内に置く。
+
+```sh
+export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
+export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
+swift build --disable-sandbox
+swift test --disable-sandbox --filter 'Zstd|CompressedTar|SingleStream|Zip'
+swift test --disable-sandbox --filter DefaultOutput
+git diff --check
+git diff --stat
+```
+
+指定 filter は352件、既定のopt-in / 環境条件によるskipが16件、失敗0件（約42分）。
+frozen出力の `LHADefaultOutputTests` / `LZMAWriterDefaultOutputTests` は2件成功。
+`SevenZipWriterByteIdentityTests` も指定filter内で成功。fixtureは再生成せず、KaitoKitの変更とcommitは行わない。

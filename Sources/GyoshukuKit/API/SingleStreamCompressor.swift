@@ -8,6 +8,8 @@ public enum SingleStreamFormat: Sendable, CaseIterable {
     case bzip2
     /// 単一 XZ stream。lzmaLevel の nil は Apple、指定時は自前 LZMA2。
     case xz
+    /// content checksum 付き独立 frame を max(4 MiB, level の window) で並列化する。zstdLevel は1...19、既定3。
+    case zstd
     /// 未知サイズ header と EOS を持つ逐次 LZMA_Alone。lzmaLevel の nil は6。
     case lzma
     /// lzip version 1。最大 max(16 MiB, 3 × 辞書) の独立 member を並列化する。nil は level 6。
@@ -24,6 +26,7 @@ public enum SingleStreamFormat: Sendable, CaseIterable {
         case .gzip: .tarGzip
         case .bzip2: .tarBzip2
         case .xz: .tarXZ
+        case .zstd: .tarZstd
         case .lzma: .tarLZMA
         case .lzip: .tarLzip
         case .lz4: .tarLZ4

@@ -93,7 +93,8 @@ enum ZipRecords {
             // XZ は7-Zip 26.03の生成 ZIP と公開定義に合わせて2.0とし、LZMA（method 14）の6.3は流用しない。
             // https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
             // https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHeader.h
-            let compressionVersion: UInt16 = method == .lzma || method == .ppmd ? 63 : method == .bzip2 ? 46 : 20
+            // method 93 は§4.4.5の Zstandard。要求 version の明記はないが、writer は6.3を選ぶ。
+            let compressionVersion: UInt16 = method == .lzma || method == .zstd || method == .ppmd ? 63 : method == .bzip2 ? 46 : 20
             return max(compressionVersion, aesVersion != nil ? 51 : 20, needsSize64 || offset >= limit ? 45 : 20)
         }
 

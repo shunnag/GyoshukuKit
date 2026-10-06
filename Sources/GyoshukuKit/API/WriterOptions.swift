@@ -10,6 +10,9 @@ public enum CompressionMethod: UInt16, Sendable {
     case lzma = 14
     /// 完全な XZ stream。レベル未指定は Apple Compression、指定時は自前 LZMA2。
     case xz = 95
+    /// 自前 encoder の content checksum 付き単一 Zstandard frame。method 93 対応 reader が必要。
+    /// macOS Archive Utility / unzip は非対応。抽出要求 version は6.3。
+    case zstd = 93
     /// 自前 encoder の単一 PPMd var.I rev.1 stream。展開には method 98 対応の reader が必要。
     case ppmd = 98
 }
@@ -114,6 +117,8 @@ public struct WriterOptions: Sendable {
     public var deflateLevel: Int
     /// bzip2 の block size level (1...9)。既定は9（900,000 byte block）。
     public var bzip2Level: Int
+    /// tar.zst / 単独 .zst / ZIP method 93 のレベル (1...19)。既定3、自前 encoder の探索 preset。
+    public var zstdLevel: Int
     /// PPMd の order / model memory preset (1...9)。既定の6は ZIP が order 8、7z が order 6、共に16 MiB。
     /// model memory は順に1・2・4・8・16・16・32・64・192 MiB。entry / folder ごとに同期符号化する。
     public var ppmdLevel: Int
@@ -128,9 +133,10 @@ public struct WriterOptions: Sendable {
     /// 自前 LZMA の探索量を増やす。既定は false。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使う。
     /// 他の形式は lzmaLevel を指定したときだけ使う。
     public var lzmaExtreme: Bool
-    /// 自前 LZMA の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
+    /// 自前 LZMA / Zstandard の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
     /// 物理メモリの50%との小さい方で並列数を抑える。一つも入らなければ invalidOption("memoryLimit")。
     /// 辞書を上限に合わせて縮小しない。レベル未指定の Apple 経路と他の codec には適用しない。
+    /// Zstandard は encoder の見積りと入出力 buffer を数え、ZIP の逐次 frame も予算を検証する。
     public var memoryLimit: UInt64?
     /// ZIP で既知の圧縮済み拡張子は stored にする。false なら指定方式を使う。
     /// 空ファイル、ディレクトリ、symlink は常に stored。
@@ -147,8 +153,9 @@ public struct WriterOptions: Sendable {
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
     /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / tar.lz / tar.lz4 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
+    /// tar.zst / 単独 Zstandard は max(4 MiB, level の window) の独立 frame を同じ並列数で処理する。
     /// 単独 gzip / bzip2 / XZ / lzip / LZ4 も同じ設定。LZMA_Alone / Brotli / compress は逐次。
-    /// ZIP / 7z LZMA・bzip2・PPMd と 7z Copy は項目ごとに同期処理する。
+    /// ZIP Zstandard / ZIP・7z LZMA・bzip2・PPMd と 7z Copy は項目ごとに同期処理する。
     /// PPMd は入力を片に分けず、モデルの指定メモリと固定 I/O buffer を使う。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
@@ -161,6 +168,7 @@ public struct WriterOptions: Sendable {
     /// gzip / bzip2 / XZ / lzip の圧縮 tar は member 境界で区切り、上限を超える header 群・本文を分割し、終端を独立させる。
     /// tar.bz2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
     /// lzip は片が max(16 MiB, 3 × 辞書)、raw LZMA1 と入力・出力二片をメモリ予算に含む。
+    /// Zstandard は組立中を含め t 個の frame。t × (encoder 見積り + 入出力二片 + framing) を予算内にする。
     /// LZ4 は組立中を含め t 個の4 MiB block。Brotli は Apple 固定 level 2、LZ4 は単一 level。
     /// LHA は thread ごとに入力1 MiB + 履歴8/32/64 KiB、hash 表512 KiB、chain 表64/256/512 KiB、
     /// command 表512 KiBと圧縮出力約1.1 MiB（64-bit Int）。stored は同期で codec 表を持たない。
@@ -180,6 +188,7 @@ public struct WriterOptions: Sendable {
         lhaLevel: Int = 6,
         deflateLevel: Int = 6,
         bzip2Level: Int = 9,
+        zstdLevel: Int = 3,
         ppmdLevel: Int = 6,
         ppmdOrder: Int? = nil,
         ppmdMemoryMiB: Int? = nil,
@@ -204,6 +213,7 @@ public struct WriterOptions: Sendable {
         self.lhaLevel = lhaLevel
         self.deflateLevel = deflateLevel
         self.bzip2Level = bzip2Level
+        self.zstdLevel = zstdLevel
         self.ppmdLevel = ppmdLevel
         self.ppmdOrder = ppmdOrder
         self.ppmdMemoryMiB = ppmdMemoryMiB
@@ -228,10 +238,11 @@ public struct WriterOptions: Sendable {
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
-    /// ZIP / 7z LZMA・bzip2・PPMd と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
+    /// ZIP Zstandard / ZIP・7z LZMA・bzip2・PPMd と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
     /// ZIP XZ は通常枠 t 個と組立中1個の片を上界とし、項目の終了時には全て出力する。
+    /// tar.zst はメモリ予算で解決した t × max(4 MiB, level の window)。組立中の frame も枠に含む。
     /// LHA は t 個の1 MiB入力と方式ごとの履歴を含む。逐次と forced store は0。
     /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
     /// 7z solid は disk 上で待つ一つの block の上限。圧縮メモリの大きさとは独立する。
@@ -243,13 +254,16 @@ public struct WriterOptions: Sendable {
         switch format {
         case .zip:
             switch compressionMethod {
-            case .stored, .bzip2, .lzma, .ppmd: return 0
+            case .stored, .bzip2, .lzma, .zstd, .ppmd: return 0
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
             case .xz: return (lzmaThreads + 1) * piece
             }
         case .tar: return 0
         case .tarLZMA, .tarBrotli, .tarCompress: return 0
+        case .tarZstd:
+            let configuration = try? ZstdWriterConfiguration(options: self)
+            return UInt64(max(1, min(64, configuration?.threads ?? 1))) * UInt64(configuration?.chunkSize ?? (4 << 20))
         case .tarLZ4: return threads * UInt64(LZ4FrameEncoder.blockSize)
         case .tarLzip:
             let configuration = try? LZMAWriterConfiguration.singleStream(options: self, lzip: true)
@@ -280,6 +294,7 @@ public struct WriterOptions: Sendable {
         // ZIP bzip2 は同期、XZ は有界の block 並列なので、AES / ZipCrypto と全ての並列数を併用できる。
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
+        guard (1...19).contains(zstdLevel) else { throw WriterError.invalidOption("zstdLevel") }
         guard (1...9).contains(ppmdLevel) else { throw WriterError.invalidOption("ppmdLevel") }
         if let ppmdOrder, !(2...(format == .zip ? 16 : 32)).contains(ppmdOrder) {
             throw WriterError.invalidOption("ppmdOrder")
@@ -313,6 +328,8 @@ public struct WriterOptions: Sendable {
             throw WriterError.invalidOption("encryptsSevenZipHeaders")
         }
         switch format {
+        case .tarZstd: _ = try ZstdWriterConfiguration(options: self)
+        case .zip where compressionMethod == .zstd: _ = try ZstdWriterConfiguration(options: self, streaming: true)
         case .tarXZ: _ = try LZMAWriterConfiguration(options: self)
         case .tarLZMA: _ = try LZMAWriterConfiguration.singleStream(options: self)
         case .tarLzip: _ = try LZMAWriterConfiguration.singleStream(options: self, lzip: true)

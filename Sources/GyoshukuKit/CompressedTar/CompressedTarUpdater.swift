@@ -71,7 +71,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     public static func open(reader: sending ArchiveReader, output: URL, format: ArchiveFormat,
                             options: WriterOptions = WriterOptions()) throws -> CompressedTarUpdater {
         try options.validate(for: format)
-        if [.tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress].contains(format) {
+        if [.tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress].contains(format) {
             throw TarLayout.refuse("container has no splice layout; use ArchiveRewriter")
         }
         guard [.tarGzip, .tarBzip2, .tarXZ].contains(format) else { throw WriterError.unsupportedOption("format") }

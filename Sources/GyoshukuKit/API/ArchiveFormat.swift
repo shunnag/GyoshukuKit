@@ -16,6 +16,10 @@ public enum ArchiveFormat: Sendable {
     /// 4 MiB を越える member は header 群と本文を分け、本文と大きな header 群は最大 16 MiB の片に区切る。
     /// tar 終端は独立した block にする。
     case tarXZ
+    /// restricted pax tar を content checksum 付きの独立 Zstandard frame に区切り、メモリ上限内で並列化する。
+    /// member 境界を優先し、大きい header 群・本文は max(4 MiB, level の window) で分割する。
+    /// 終端は独立 frame。RFC 8878 の frame 連結を使い、zstdLevel は1...19、既定3。
+    case tarZstd
     /// restricted pax tar を未知サイズの LZMA_Alone（13 byte header + EOS）で包む。
     /// 自前 LZMA1 の逐次単一 stream。lzmaLevel は0...9、nil は6。extreme も使える。
     case tarLZMA
@@ -38,7 +42,7 @@ public enum ArchiveFormat: Sendable {
 
     var isTar: Bool {
         switch self {
-        case .tar, .tarGzip, .tarBzip2, .tarXZ, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress: true
+        case .tar, .tarGzip, .tarBzip2, .tarXZ, .tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress: true
         default: false
         }
     }
