@@ -1,10 +1,29 @@
 import Foundation
 
-// KaitoKit の LZSStaticHuffmanDecoder が読む -lh5- 文法の逆変換。
+// KaitoKit の LHAStaticHuffmanDecoder が読む -lh5- / -lh6- / -lh7- 文法の逆変換。
+// 辞書と最大一致長は LHa for UNIX header.doc.md、文法は既存 LH5 と task の parameter に基づく。
+// https://github.com/jca02266/lha/blob/master/header.doc.md
+// https://github.com/fragglet/lhasa/blob/master/doc/lha.1
 // dictionary は block を跨いで維持し、Huffman 木だけを command 数ごとに作り直す。
 enum LH5Encoder {
     static let windowSize = 8192
     static let blockCommands = 32_768
+
+    struct Configuration: Sendable {
+        let method: LHACompressionMethod
+        let probeCount: Int
+        let lazyMatching: Bool
+        var windowSize: Int { method.windowSize }
+        var positionSymbols: Int { method.dictionaryBits + 1 }
+        var positionCountBits: Int { method == .lh5 ? 4 : 5 }
+
+        init(method: LHACompressionMethod = .lh5, level: Int = 6) {
+            precondition((1...9).contains(level))
+            self.method = method
+            probeCount = 8 << (level - 1)
+            lazyMatching = level >= 8
+        }
+    }
 
     struct Command {
         let symbol: Int
@@ -13,16 +32,24 @@ enum LH5Encoder {
     }
 
     static func encode(_ input: Data) throws -> Data {
+        try encode(input, configuration: Configuration())
+    }
+
+    static func encode(_ input: Data, configuration: Configuration) throws -> Data {
+        if configuration.method == .stored { return input }
         var bits = Bits()
-        try write(input, to: &bits)
+        try write(input, configuration: configuration, to: &bits)
         return bits.finish()
     }
 
     // streaming の入力は、既に出力した history を window 一つ分まで先頭に含めてよい。その prefix は match の
-    // 種にするだけで、再出力しない。LH5 の block には byte 境界の padding がないので、bit writer は入力を跨いで保つ。
-    static func write(_ input: Data, startingAt initialOffset: Int = 0, to bits: inout Bits) throws {
+    // 種にするだけで、再出力しない。各方式の block に byte padding は無いので、bit writer は入力を跨いで保つ。
+    static func write(_ input: Data, startingAt initialOffset: Int = 0,
+                      configuration: Configuration = Configuration(), to bits: inout Bits) throws {
         try Task.checkCancellation()
-        guard initialOffset >= 0, initialOffset <= windowSize, initialOffset <= input.count else {
+        let windowSize = configuration.windowSize
+        guard configuration.method != .stored,
+              initialOffset >= 0, initialOffset <= windowSize, initialOffset <= input.count else {
             throw WriterError.invalidState
         }
         guard initialOffset < input.count else { return }
@@ -44,54 +71,69 @@ enum LH5Encoder {
                     try Task.checkCancellation()
                     checkpoint = offset + 4096
                 }
-                let maximum = min(256, bytes.count - offset)
-                var length = 2
-                var distance = 0
-                if maximum >= 3 {
-                    var candidate = heads[hash(bytes, offset)]
-                    let oldest = max(0, offset - windowSize)
-                    var probes = 0
-                    // chain は絶対位置の降順。古い位置で必ず止め、ring の再利用を循環にしない。
-                    // 衝突の多い入力でも 256 候補で打ち切るため、探索量は入力長に比例する。
-                    while candidate >= oldest, probes < 256 {
-                        if bytes[candidate] == bytes[offset], bytes[candidate + 1] == bytes[offset + 1],
-                           bytes[candidate + length] == bytes[offset + length] {
-                            var count = 2
-                            // distance より長い一致も許す。decoder の前向きコピーで同じ byte が再生される。
-                            while count < maximum, bytes[candidate + count] == bytes[offset + count] { count += 1 }
-                            if count > length {
-                                length = count
-                                distance = offset - candidate
-                                if length == maximum { break }
-                            }
-                        }
-                        candidate = previous[candidate & (windowSize - 1)]
-                        probes += 1
-                    }
+                var match = findMatch(bytes, at: offset, heads: heads, previous: previous, configuration: configuration)
+                var registered = false
+                if configuration.lazyMatching, match.distance > 0, match.length < 256,
+                   offset + 3 < bytes.count {
+                    // 次の位置の探索には現在の byte も辞書へ入れる。消費後の登録で二重に chain を結ばない。
+                    let bucket = hash(bytes, offset)
+                    previous[offset & (windowSize - 1)] = heads[bucket]
+                    heads[bucket] = offset
+                    registered = true
+                    let next = findMatch(bytes, at: offset + 1, heads: heads, previous: previous, configuration: configuration)
+                    if next.length > match.length { match = (2, 0) }
                 }
                 let consumed: Int
-                if distance > 0 {
-                    commands.append(Command(symbol: length + 253, position: distance - 1))
-                    consumed = length
+                if match.distance > 0 {
+                    commands.append(Command(symbol: match.length + 253, position: match.distance - 1))
+                    consumed = match.length
                 } else {
                     commands.append(Command(symbol: Int(bytes[offset]), position: 0))
                     consumed = 1
                 }
                 // match で飛ばす byte も登録し、次の探索から dictionary 全体を参照できるようにする。
-                for index in offset..<(offset + consumed) where index + 2 < bytes.count {
+                for index in (offset + (registered ? 1 : 0))..<(offset + consumed) where index + 2 < bytes.count {
                     let bucket = hash(bytes, index)
                     previous[index & (windowSize - 1)] = heads[bucket]
                     heads[bucket] = index
                 }
                 offset += consumed
                 if commands.count == blockCommands {
-                    try writeBlock(commands, to: &bits)
+                    try writeBlock(commands, configuration: configuration, to: &bits)
                     commands.removeAll(keepingCapacity: true)
                 }
             }
-            if !commands.isEmpty { try writeBlock(commands, to: &bits) }
+            if !commands.isEmpty { try writeBlock(commands, configuration: configuration, to: &bits) }
             try Task.checkCancellation()
         }
+    }
+
+    private static func findMatch(_ bytes: UnsafeBufferPointer<UInt8>, at offset: Int,
+                                  heads: [Int], previous: [Int], configuration: Configuration) -> (length: Int, distance: Int) {
+        let maximum = min(256, bytes.count - offset)
+        var length = 2, distance = 0
+        guard maximum >= 3 else { return (length, distance) }
+        var candidate = heads[hash(bytes, offset)]
+        let oldest = max(0, offset - configuration.windowSize)
+        var probes = 0
+        // chain は絶対位置の降順。古い位置で止め、ring の再利用を循環にしない。
+        // level ごとの候補数で打ち切るため、衝突の多い入力でも探索量は入力長に比例する。
+        while candidate >= oldest, probes < configuration.probeCount {
+            if bytes[candidate] == bytes[offset], bytes[candidate + 1] == bytes[offset + 1],
+               bytes[candidate + length] == bytes[offset + length] {
+                var count = 2
+                // distance より長い一致も許す。decoder の前向きコピーで同じ byte が再生される。
+                while count < maximum, bytes[candidate + count] == bytes[offset + count] { count += 1 }
+                if count > length {
+                    length = count
+                    distance = offset - candidate
+                    if length == maximum { break }
+                }
+            }
+            candidate = previous[candidate & (configuration.windowSize - 1)]
+            probes += 1
+        }
+        return (length, distance)
     }
 
     private static func hash(_ bytes: UnsafeBufferPointer<UInt8>, _ offset: Int) -> Int {
@@ -99,10 +141,10 @@ enum LH5Encoder {
         return Int((value &* 0x1E35_A7BD) >> 16)
     }
 
-    static func writeBlock(_ commands: [Command], to bits: inout Bits) throws {
+    static func writeBlock(_ commands: [Command], configuration: Configuration = Configuration(), to bits: inout Bits) throws {
         try Task.checkCancellation()
         var commandFrequencies = [Int](repeating: 0, count: 510)
-        var positionFrequencies = [Int](repeating: 0, count: 14)
+        var positionFrequencies = [Int](repeating: 0, count: configuration.positionSymbols)
         for command in commands {
             commandFrequencies[command.symbol] += 1
             if command.symbol >= 256 { positionFrequencies[command.positionSymbol] += 1 }
@@ -127,8 +169,8 @@ enum LH5Encoder {
                 bits.write(token.extra, count: token.bits)
             }
         }
-        // LH5 は NP=14 でも count 欄は 4 bit。LH6/7 の 5 bit を流用すると以降がずれる。
-        writeLengths(positionTree, countBits: 4, special: false, to: &bits)
+        // LH5 は NP=14・count 4 bit、LH6 は NP=16・count 5 bit、LH7 は NP=17・count 5 bit。
+        writeLengths(positionTree, countBits: configuration.positionCountBits, special: false, to: &bits)
         for (index, command) in commands.enumerated() {
             if index & 4095 == 0 { try Task.checkCancellation() }
             commandTree.write(command.symbol, to: &bits)

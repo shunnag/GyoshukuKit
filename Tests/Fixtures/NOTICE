@@ -1,4 +1,9 @@
 
+lha-methods/ (GyoshukuKit project-generated fixtures, MIT, frozen 2026-10-06):
+  lh5-edges.lzh, lh5-repetitive.lzh, lh5-japanese.lzh: existing LHAWriterTests outputs from
+  GyoshukuKit 06d005dbb4997a8152aac1f77fae02e5d87b58f3, before method / level changes.
+  Synthetic project-authored inputs; recipes and SHA-256 values are in lha-methods/README.md.
+
 sevenzip-edit/ (P5 Step 0, frozen 2026-09-26 in SP/p5; three filter archives replaced 2026-09-27; see that set's README.md):
   g_plain.7z, g_aes.7z, g_aesh.7z: byte-for-byte imports of the GyoshukuKit writer prototypes at SP/p45/t7; passwords secret.
   z_default.7z, z_plainhdr.7z, z_nonsolid.7z, z_aes.7z, z_aesh.7z: byte-for-byte imports of the 7zz prototypes at SP/p45/t7; passwords secret.

@@ -131,7 +131,7 @@ struct LH5Stream {
     var matches: [Match] = []
     var maximumLength = 0
 
-    init(_ data: Data, size: Int) throws {
+    init(_ data: Data, size: Int, dictionaryBits: Int = 13) throws {
         var bits = Cursor(bytes: Array(data))
         var produced = 0
         while produced < size {
@@ -157,7 +157,7 @@ struct LH5Stream {
                 XCTAssertEqual(values.count, encodedCount)
                 commands = try Tree(lengths: values)
             }
-            let positions = try bits.pt(symbols: 14, width: 4, special: false)
+            let positions = try bits.pt(symbols: dictionaryBits + 1, width: dictionaryBits == 13 ? 4 : 5, special: false)
             maximumLength = max(maximumLength, lengths.maximum, commands.maximum, positions.maximum)
             blocks.append(Block(count: count, bitOffset: start, outputOffset: produced,
                                 commandConstant: commands.constant, positionConstant: positions.constant,
@@ -171,7 +171,7 @@ struct LH5Stream {
                     let position = try bits.symbol(positions)
                     let distance = position == 0 ? 1 : (1 << (position - 1)) + (try bits.read(position - 1)) + 1
                     XCTAssertTrue((3...256).contains(length))
-                    XCTAssertTrue((1...8192).contains(distance))
+                    XCTAssertTrue((1...(1 << dictionaryBits)).contains(distance))
                     matches.append(Match(offset: produced, length: length, distance: distance))
                     produced += length
                 }

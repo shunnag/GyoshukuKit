@@ -112,7 +112,7 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
 | 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
-| 4 | LHA / LZH | ○(`-lh5-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
+| 4 | LHA / LZH | ○(`-lh5-` / `-lh6-` / `-lh7-` / `-lh0-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
 
@@ -149,15 +149,46 @@ XZ の予約長は Apple encoder の block ごとの容量上限と framing の�
 macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 95 を展開できない。
 Deflate を互換性の既定とし、BZip2 / XZ は KaitoKit や 7-Zip を使う場合の opt-in とする。
 
-### LHA の並列 LH5（P4-G-a）
+### LHA の方式・探索 level と並列圧縮（P4-G-a）
 
-`ArchiveWriter.create` は `options.resolvedCompressionThreads` を LHAWriter に渡す。
+`ArchiveWriter.create` は `options.lhaMethod`・`lhaLevel`・`resolvedCompressionThreads` を LHAWriter に渡す。
+既定は `.lh5`・level6。既存の `LH5Encoder` は `Configuration` で辞書と位置木を選び、Huffman の
+serializer を共有する。最大一致長は256 byte、blockは32,768 commandのままにする。
+
+| 方式 | 辞書 bit / 履歴 | position symbol数（NP） | pt-count欄 |
+|---|---|---|---|
+| `.lh5` | 13 / 8 KiB | 14 | 4 bit |
+| `.lh6` | 15 / 32 KiB | 16 | 5 bit |
+| `.lh7` | 16 / 64 KiB | 17 | 5 bit |
+| `.stored` | なし | なし | なし |
+
+辞書と最大一致長の一次資料は [LHa for UNIX header.doc](https://github.com/jca02266/lha/blob/master/header.doc.md)。
+[Lhasa 利用者文書](https://github.com/fragglet/lhasa/blob/master/doc/lha.1) は各methodが同じstatic-Huffman系列であること、
+`t`・`xw=<dir>`・`p` の使い方を確認する。Lhasa文書の窓表示（16 / 64 / 128 KiB）はheader.docの値の2倍なので、
+writerの辞書値にはheader.docを採用する。NP = 辞書bit + 1 とpt-count欄はtaskの指定と、read-onlyの
+KaitoKit `Codecs/LHA/LHAStaticHuffmanDecoder.swift` のparameter表を照合した。Lhasa・LHa for UNIX・7zzの
+黒箱でCRC・method表示・展開byteを確認し、LHa for UNIX `-ao62` / `-ao72` の逆方向も読む。
+7zz 26.03の `l -slt` はmethodを `LH5` 等でなく `-lh5-` / `-lh6-` / `-lh7-` と表示するため、その表記を照合する。
+
+| level | chainの最大候補数 | 一致の選択 |
+|---|---|---|
+| 1 / 2 / 3 | 8 / 16 / 32 | 貪欲 |
+| 4 / 5 / 6（既定） | 64 / 128 / 256 | 貪欲 |
+| 7 | 512 | 貪欲 |
+| 8 / 9 | 1024 / 2048 | 次の1 byteで長い一致を見つけたときliteralを先に出すlazy matching |
+
+level6の候補順・同長一致の選び方・block境界・bit列は従来と同じ。既存入力の凍結byteを
+`Tests/Fixtures/lha-methods`、大きいmemberの凍結hashを `LHAWriterStreamedMemberIdentityTests` で固定する。
+`lhaLevel` は他のlevelと同じく出力作成前に1...9を検証する。storedでも不正なlevelは拒否する。
+`.stored` はspool・encoder・parallel pipelineを作らず、I/O chunkで本文とCRCを進めてheaderを確定する。
+通常の圧縮もmember全体が縮まなければ `-lh0-` に落とし、directoryは常に `-lhd-` にする。
+
 rewriter もこの経路を使う。1 は従来の同期処理、2 以上では 1 MiB 以下の member を
 `OrderedChunkPipeline` に渡し、CRC と入力の読み切りは呼出側で行う。directory も投入順を保つ。
 入力を確保する前に容量を待ち、同時に保持する入力を並列数までに抑える。
 
-大きい member は従来と同じ 1 MiB と直前 8 KiB の履歴に分ける。各 worker が返す完全な byte と
-端数 bit を投入順に padding なしで継ぐ。LH5 の辞書・Huffman block の区切りは従来どおりで、
+大きい member は 1 MiB と方式ごとの直前8 / 32 / 64 KiBの履歴に分ける。各 worker が返す完全な byte と
+端数 bit を投入順に padding なしで継ぐ。各方式の辞書・Huffman block の区切りは一定で、
 どの並列数でも直列時の byte と一致する。raw を先に出力し、縮めば spool から置き換える。
 完成 byte の累計が原本サイズ以上になった区切りで残りの符号化を破棄し、raw の保存を続ける。
 
@@ -167,6 +198,24 @@ internal の `endAppendedMembers()`（tar と共通）は終端・fsync・close 
 init の `recordsMembers` を有効にしたとき（updater が使う `ArchiveWriter.lhaAppend` は常に有効）だけ、実際の出力時点の header 絶対位置・header/data 長・method と
 canonical な名前の byte（directory の 0xFF を `/` に変換し filename を連結）を保存する。
 LHAUpdater はこの追加 writer を既存の `SegmentedArchiveOutput` と組み合わせる。
+新規追加には選んだmethod・levelを適用し、運ぶmemberの圧縮byteとmethodは変えない。
+LHAへのrewriterでは既存memberも再符号化するので、追加と同じmethod・levelを使う。
+
+64-bit Int環境のthreadごとの主要buffer（Huffmanの一時領域・Foundationのコピーを除く）:
+
+| 方式 | 入力 + 履歴 | hash表 | chain表 | command表 | 圧縮出力の目安 | 合計の目安 |
+|---|---|---|---|---|---|---|
+| LH5 | 1 MiB + 8 KiB | 512 KiB | 64 KiB | 512 KiB | 約1.1 MiB | 約3.2 MiB |
+| LH6 | 1 MiB + 32 KiB | 512 KiB | 256 KiB | 512 KiB | 約1.1 MiB | 約3.4 MiB |
+| LH7 | 1 MiB + 64 KiB | 512 KiB | 512 KiB | 512 KiB | 約1.1 MiB | 約3.7 MiB |
+
+storedはI/O bufferだけを使う。levelは探索時間を変え、これらの表の大きさは変えない。
+この合計はpeak RSSの保証ではなく、圧縮出力のbyte配列とDataが一時的に同時に存在する場合もある。
+
+2026-10-06の参照incident: 形式文書の確認中にLhasaの `lib/lh_new_decoder.c` と
+`lib/lh5_decoder.c`・`lh6_decoder.c`・`lh7_decoder.c` を誤って開いた。
+以後は上記の許可された形式・利用者文書に限定し、追加実装は既存LH5、taskのparameter、KaitoKitの
+既存parameter表から導いた。Lhasaのコードは転記・vendoringせず、互換性は実行ファイルの黒箱出力で検証する。
 
 ### LHA の更新（P4-G-b）
 
@@ -535,7 +584,8 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 | 7z LZMA2 | `t × 16 MiB` |
 | 7z Deflate | `t × 1 MiB` |
 | 7z BZip2 / Copy | 0（同期処理） |
-| LHA | `t > 1 ? t × 1 MiB : 0` |
+| LHA LH5 / LH6 / LH7 | `t > 1 ? t × (1 MiB + 8 / 32 / 64 KiB) : 0` |
+| LHA stored | 0（同期処理） |
 
 tar.xz は通常 block が最大 t 個、軽量 block と合わせて最大 `2t + 1` 個。最大 byte は通常 t 個と
 軽量 `t + 1` 個で得られる。add から戻ると大きな member の header 群と本文は既に送信済みで、

@@ -18,7 +18,7 @@ public enum ArchiveFormat: Sendable {
     case tarXZ
     /// ファイルごとに Apple LZMA2 を使う non-solid 7z。AES-256 と header 暗号化を選択できる。
     case sevenZip
-    /// CP932 名の level-2 LHA。各ファイルは -lh5-、縮まなければ -lh0-。
+    /// CP932 名の level-2 LHA。既定は -lh5-。-lh6- / -lh7- / -lh0- を選択でき、縮まなければ -lh0-。
     /// 1 MiB 以下は member ごと、それ以上は 1 MiB と 8 KiB の履歴で並列に符号化する。出力は並列数によらず同一。
     case lha
 

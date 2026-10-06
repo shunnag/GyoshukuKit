@@ -89,7 +89,7 @@ public final class ArchiveWriter {
         lzmaChunkSize: Int,
         xzPackingSize: Int? = nil,
         lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode,
-        lh5Encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode
+        lh5Encoder: (@Sendable (Data) throws -> Data)? = nil
     ) throws -> ArchiveWriter {
         try FileRead.validateFileURL(url)
         try options.validate(for: format)
@@ -118,7 +118,8 @@ public final class ArchiveWriter {
             ? SevenZipWriter(output: handle, url: url, options: options,
                              chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
         let lha = format == .lha ? LHAWriter(output: handle, url: url,
-                                            threads: options.resolvedCompressionThreads, encoder: lh5Encoder) : nil
+                                            threads: options.resolvedCompressionThreads,
+                                            method: options.lhaMethod, level: options.lhaLevel, encoder: lh5Encoder) : nil
         return ArchiveWriter(output: handle, url: url, format: format, options: options,
                              tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha,
                              deflateBlockSize: deflateBlockSize, deflateEncoder: deflateEncoder, zipSalt: zipSalt)
@@ -301,8 +302,9 @@ public final class ArchiveWriter {
 
     static func lhaAppend(output: FileHandle, url: URL, at offset: UInt64, options: WriterOptions,
                           existingPaths: [(String, Bool)],
-                          encoder: @escaping @Sendable (Data) throws -> Data) throws -> ArchiveWriter {
+                          encoder: (@Sendable (Data) throws -> Data)?) throws -> ArchiveWriter {
         let lha = LHAWriter(output: output, url: url, threads: options.resolvedCompressionThreads,
+                            method: options.lhaMethod, level: options.lhaLevel,
                             recordsMembers: true, encoder: encoder)
         let writer = ArchiveWriter(output: output, url: url, format: .lha, options: options, lhaWriter: lha)
         try writer.prepareAppend(at: offset, existingPaths: existingPaths)

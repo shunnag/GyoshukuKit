@@ -116,6 +116,8 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 |---|---|---|
 | `compressionMethod` | `.deflate` | ZIP の `.stored` / `.deflate` / `.bzip2` / `.xz` |
 | `sevenZipMethod` | `.lzma2` | 7z の `.lzma2` / `.deflate` / `.bzip2` / `.copy`。追加・再圧縮・7z への rewriter に適用 |
+| `lhaMethod` | `.lh5` | LHA の `.lh5` / `.lh6` / `.lh7` / `.stored`。新規追加・LHA への rewriter に適用。updater が運ぶ既存 member の byte は保持 |
+| `lhaLevel` | `6` | LHA の探索量 `1...9`。既定の LH5 出力 byte は従来と同じ。stored は探索しない |
 | `deflateLevel` | `6` | ZIP / 7z Deflate / tar.gz の zlib level `0...9` |
 | `bzip2Level` | `9` | ZIP / 7z BZip2 / tar.bz2 の block size level `1...9`（100,000〜900,000 byte） |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
@@ -200,12 +202,32 @@ EmptyStream として保存します。header 暗号化は名前も隠します�
 読取・暗号化・書込は 256 KiB 単位です。Apple の 8 MiB 辞書を使い、16 MiB 以下のファイルは
 従来の全体圧縮と同じ圧縮 payload になります。大きいファイルだけ 16 MiB 境界で辞書を reset します。
 主な作業メモリは最大 16 MiB の入力とその圧縮出力です。
-LHA は1 MiBまでのmemberをメモリで処理し、それより大きいmemberは1 MiB入力と8 KiB辞書履歴で
-分割圧縮します。LH5 block間のbitを継続し、圧縮結果が大きければ従来どおりstoredにします。
+LHA は `WriterOptions(lhaMethod: .lh7, lhaLevel: 9)` のように方式と探索量を選べます。
+`.lh5` / `.lh6` / `.lh7` は8 / 32 / 64 KiB辞書を使い、縮まないファイルは `-lh0-` にします。
+`.stored` は圧縮を試さず全ファイルを `-lh0-` で逐次保存します。ディレクトリは常に `-lhd-`、名前はCP932です。
+圧縮する場合は1 MiBまでのmemberをメモリで処理し、それより大きいmemberは1 MiB入力と方式ごとの辞書履歴で
+分割します。block間のbitを継続し、同じ設定なら逐次・並列の出力byteは一致します。
+
+| `lhaLevel` | 一致探索の候補数（chain depth） | 探索 |
+|---|---|---|
+| 1 / 2 / 3 | 8 / 16 / 32 | 貪欲 |
+| 4 / 5 / 6（既定） | 64 / 128 / 256 | 貪欲 |
+| 7 | 512 | 貪欲 |
+| 8 / 9 | 1024 / 2048 | 1 byte先に長い一致があればliteralを先に置くlazy matching |
+
+最大一致長は全levelで256 byte、Huffman blockは32,768 commandです。level6は従来の探索を維持します。
+64-bit環境でthreadごとの主なbufferは入力1 MiB + 履歴8 / 32 / 64 KiB、hash表512 KiB、
+chain表64 / 256 / 512 KiB、command表512 KiBと圧縮出力約1.1 MiBで、合計の目安は約3.2 / 3.4 / 3.7 MiBです。
+Foundationの一時コピー・Huffman木の作業領域は別に必要です。storedは通常のI/O bufferだけを使います。
+`maximumPendingInputBytes(for: .lha)` は圧縮並列数 `t > 1` のとき `t × (1 MiB + 辞書履歴)`、
+逐次またはstoredなら0です。出力・codec表はこの入力byte数に含みません。
+
 圧縮候補は作成直後unlinkするmode0600のspoolへ書き、raw bytesは未完成出力に保持します。
 作業用ディスクには一時的にraw bytesと圧縮候補の空きが必要です。取消し・途中失敗・容量不足時は
 spoolを閉じ、未完成出力を無効化して削除します。256 MiB入力でのwriter単体peak RSSは約14 MiBでした。
 再現できる測定条件と限界は[横断検証](Documentation/verification/2026-09-17-release-hardening.md)に記録します。
+方式の辞書サイズと最大一致長は [LHa for UNIX header.doc](https://github.com/jca02266/lha/blob/master/header.doc.md)、
+methodの対応と検査・抽出コマンドは [Lhasa 利用者文書](https://github.com/fragglet/lhasa/blob/master/doc/lha.1) を参照します。
 tar（tar.gz / tar.bz2 / tar.xz を含む）/ LHA のパスワード指定は `unsupportedOption("password")`、
 パスワードなしの header 暗号化指定は `invalidOption("encryptsSevenZipHeaders")` です。
 

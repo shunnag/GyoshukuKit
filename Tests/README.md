@@ -37,6 +37,7 @@
 
 - `appledouble/` — ditto（Finder の圧縮）と macOS の tar が書いた AppleDouble sidecar 付きの ZIP / tar。`AppleDoubleSidecarEditingTests` が読む。
 - `lha-updater/` — KaitoKit ef06e22 の LHA 書庫と manifest。`LHAUpdateSupport` が hash を照合してから使う。
+- `lha-methods/` は method / level 追加前の既存 LH5 fixture 出力。`LHADefaultOutputTests` が byte 比較し、再生成しない。
 - `sevenzip-edit/` — 7z の編集の 33 書庫と、期待する構造・復号の JSON。`SevenZipEditSupport`・`SevenZipHeaderSerializerTests` が読む。
 - `zip-modern/` — KaitoKit 26b84ca の XZ / Zstandard（AES・ZipCrypto 付きを含む）ZIP。`ZipModernMethodEditingTests`・`ZipReencryptionInteropTests` が読む。
 - 出自と license は `Fixtures/NOTICE` と各 set の README にある。
@@ -81,4 +82,11 @@ label は suite の中で重ねない（重なると別の試験の出力を消�
   `ReferenceToolPolicyTests` が両方の経路を固定する。
 - 7zz や GNU tar があるときだけ照合を足す: `LHAUpdaterLargeOffsetTests`・`SevenZipUpdaterLargeOffsetTests`・
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
-- CI（`.github/workflows/ci.yml`）は `brew install sevenzip xz lhasa gnu-tar` で全てのツールを入れる。
+- CI（`.github/workflows/ci.yml`）は `brew install sevenzip xz lhasa gnu-tar autoconf automake` と
+  固定commitの LHa for UNIX の一時ビルドで必須ツールを入れる。製品の依存には加えない。
+
+`LHACompressionMethodTests` は Lhasa・7zz に加えて `~/.local/bin/lha-unix`（LHa for UNIX）を必須にする。
+`--help` の `o[567]` を確認して `-ao62` / `-ao72` で逆方向の書庫も作る。未導入なら失敗する。
+空 LHA の `[0]` を認識しないツールは同じ byte の基準書庫と終了値を比較する。
+CP932 の日本語名は raw header と KaitoKit、文字コードを指定した LHa for UNIX の `-t` で検証する。
+macOS の Lhasa / 7zz は日本語名での抽出を復元できないため、全 member の `t` と ASCII member の抽出を照合する。
