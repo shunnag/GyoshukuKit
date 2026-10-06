@@ -84,7 +84,8 @@ enum ZipRecords {
         var aesVersion: UInt16? { encryption == .aes256 ? (size < 20 ? 1 : 2) : nil }
         var storedCRC: UInt32 { aesVersion == 2 ? 0 : crc }
         var storedMethod: UInt16 { aesVersion == nil ? method.rawValue : 99 }
-        var entryFlags: UInt16 { flags | (encryption == nil ? 0 : 1) }
+        // APPNOTE §5.8.9: method 14 の stream は EOS 付きなので bit 1 を立てる。AES の内側も同じ。
+        var entryFlags: UInt16 { flags | (encryption == nil ? 0 : 1) | (method == .lzma ? 2 : 0) }
 
         var needsSize64: Bool { size >= limit || compressedSize >= limit }
         var version: UInt16 {
@@ -92,7 +93,7 @@ enum ZipRecords {
             // XZ は7-Zip 26.03の生成 ZIP と公開定義に合わせて2.0とし、LZMA（method 14）の6.3は流用しない。
             // https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
             // https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHeader.h
-            let compressionVersion: UInt16 = method == .bzip2 ? 46 : 20
+            let compressionVersion: UInt16 = method == .lzma ? 63 : method == .bzip2 ? 46 : 20
             return max(compressionVersion, aesVersion != nil ? 51 : 20, needsSize64 || offset >= limit ? 45 : 20)
         }
 

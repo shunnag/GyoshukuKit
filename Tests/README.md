@@ -39,6 +39,7 @@
 - `lha-updater/` — KaitoKit ef06e22 の LHA 書庫と manifest。`LHAUpdateSupport` が hash を照合してから使う。
 - `lha-methods/` は method / level 追加前の既存 LH5 fixture 出力。`LHADefaultOutputTests` が byte 比較し、再生成しない。
 - `sevenzip-edit/` — 7z の編集の 33 書庫と、期待する構造・復号の JSON。`SevenZipEditSupport`・`SevenZipHeaderSerializerTests` が読む。
+- `lzma-writers/`: 自前 LZMA encoder の writer 接続前の Apple tar.xz / 7z LZMA2 / ZIP XZ 出力。`LZMAWriterDefaultOutputTests` が byte 比較し、再生成しない。
 - `zip-modern/` — KaitoKit 26b84ca の XZ / Zstandard（AES・ZipCrypto 付きを含む）ZIP。`ZipModernMethodEditingTests`・`ZipReencryptionInteropTests` が読む。
 - 出自と license は `Fixtures/NOTICE` と各 set の README にある。
 

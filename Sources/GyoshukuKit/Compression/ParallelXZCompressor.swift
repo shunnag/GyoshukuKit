@@ -22,15 +22,17 @@ final class ParallelXZCompressor: TarCompressor {
     init(threads: Int = WriterOptions().resolvedCompressionThreads,
          chunkSize: Int = ParallelXZCompressor.defaultBlockSize,
          packingSize: Int? = nil,
+         allowsLightChunks: Bool = true,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) throws {
         guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
-        precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))
+        precondition(chunkSize > 0)
         let packing = min(packingSize ?? Self.memberPackingSize, chunkSize)
         precondition((1...chunkSize).contains(packing))
         self.chunkSize = chunkSize
         layout = TarChunkCutter(limits: .init(packing: packing, piece: chunkSize))
         pipeline = LZMA2ChunkPipeline(threads: threads, checksum: true,
-                                     lightWeightLimit: threads > 1 ? UInt64(Self.lightChunkLimit) : 0, encoder: encoder)
+                                     lightWeightLimit: allowsLightChunks && threads > 1 ? UInt64(Self.lightChunkLimit) : 0,
+                                     pieceSize: chunkSize, encoder: encoder)
     }
 
     deinit { abandon() }

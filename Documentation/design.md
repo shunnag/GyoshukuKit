@@ -123,17 +123,27 @@ UI 側は進捗と取り消しを必ず出す。
 
 ### ZIP の圧縮方式
 
-`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、XZ（95）を持ち、既定は Deflate。
+`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、LZMA（14）、XZ（95）を持ち、既定は Deflate。
 writer と updater の新規追加、ZIP への ArchiveRewriter は同じ ZipWriter を使う。
 updater の既存 local record・圧縮 byte・central directory は追加時にそのまま運ぶ。
 空ファイル・directory・symlink と、heuristic が選ぶ圧縮済み拡張子は stored。
 
 method 12 は `Bzip2StreamEncoder` を項目ごとに一つ作り、`bzip2Level` で同期圧縮する。
 tar.bz2 の chunk stream の連結は使わない。最大の codec state は level 9 で約7.6 MBと I/O buffer。
-method 95 は `ParallelXZCompressor` と `XZFraming` を使い、最大16 MiBの block を
+method 14 は自前 `LZMAEncoder` を entry ごとに一つ作り、同期符号化する。
+[APPNOTE §5.8](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) に従い、
+SDK version `[26, 3]`、properties size `[5, 0]`、lc/lp/pb byte と辞書 LE32 の5 byte、
+raw LZMA1 stream の順に置く。EOS を書き、両 header の general purpose bit 1 を立てる。
+展開要求 version は6.3。`lzmaLevel == nil` は6、extreme はレベル指定時だけ有効。
+AES / ZipCrypto は properties header を含む圧縮結果全体を暗号化し、ZIP64 の予約と updater / rewriter は既存経路を使う。
+7-Zip 26.03 の ZIP listing は辞書を省略し `LZMA:eos` と表示するので、辞書は properties byte でも検査する。
+
+method 95 は `ParallelXZCompressor` と `XZFraming` を使い、既定は最大16 MiBの block を
 `compressionThreads` で並列化する。hint の無い固定幅を使い、stream header・blocks・index・footer を
-一組だけ書く。通常枠 t 個と組立中1個の入力は `(t + 1) × 16 MiB` 以下で、codec と出力は
-thread ごとに約130 MiB。index は block 数に比例する。両方式とも add の終了時に出力を完了する。
+一組だけ書く。レベル指定時は自前 `LZMA2Encoder` の結果を `XZLZMA2` として同じ framing に渡す。
+block header の filter properties も preset の辞書から作る。片サイズと並列数は自前 encoder 節の予算を使う。
+通常枠 t 個と組立中1個の入力は `(t + 1) × 片サイズ` 以下で、Apple の codec と出力は
+thread ごとに約130 MiB。index は block 数に比例する。これらの方式は add の終了時に出力を完了する。
 一括 disk 追加では通常ファイルを項目別の streaming 経路へ戻し、Deflate 専用 worker に渡さない。
 全ての並列数と AES / ZipCrypto を併用でき、追加の unsupportedOption はない。
 
@@ -144,10 +154,11 @@ BZip2 の展開要求 version を4.6とする。XZ の要求 version は明記�
 method 95 の file data が完全な .xz stream であることは、7zz が作った ZIP の stream 単独復号と
 KaitoKit の往復で確認する。圧縮方式、ZIP64、暗号化の要求 version の最大値を両 header に書く。
 CRC32・確定サイズ・ZIP64 の事前予約・seek による local header patch は既存の経路を使い、descriptor は書かない。
-XZ の予約長は Apple encoder の block ごとの容量上限と framing の上界から算出する。
+XZ の予約長は選択した片サイズで Apple encoder の容量上限と framing の上界を使い、自前 LZMA2 の raw chunk 膨張も覆う。
+LZMA1 は最悪 literal 膨張の上界として16 × 入力長 + 1,024 byteを予約する。
 
-macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 95 を展開できない。
-Deflate を互換性の既定とし、BZip2 / XZ は KaitoKit や 7-Zip を使う場合の opt-in とする。
+macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 を展開できない。
+Deflate を互換性の既定とし、BZip2 / LZMA / XZ は KaitoKit や 7-Zip を使う場合の opt-in とする。
 
 ### LHA の方式・探索 level と並列圧縮（P4-G-a）
 
@@ -363,18 +374,21 @@ GK の自己照合だけでは、書いた後の運ぶ payload の破損を検�
 
 ### tar.xz の並列圧縮（P14-G）
 
-writer と updater は同じ二つの上限で区切る。hint の無い入力は16 MiBの固定幅のまま、
-組立の予約も16 MiBの片のままとする。hint の無い経路に packing を使うと固定幅へ届かず停止する。
+writer と updater は同じ二つの上限で区切る。packing は4 MiB、片は nil レベルなら16 MiB、
+自前 encoder では辞書が16 MiBを超えると3 × 辞書にする。hint の無い入力と組立の予約は片サイズの固定幅を使う。
+hint の無い経路に packing を使うと固定幅へ届かず停止する。
 `OrderedChunkPipeline` の `weight` は入力 byte 数。`lightWeightLimit > 0` かつ
 `0 < weight <= lightWeightLimit` の item だけを軽いものとする。
 未出力の重い item が threads 以上、または全 item が `2 × threads + 1` 以上の間、
 先頭を順に書き出してから次を投入する。次の item の重みは待機条件に使わない。
 既定の limit と weight は0で、従来の枠を保つ。取消し・失敗・abandon の扱いも共通。
 
-tar.xz だけが threads > 1 のとき `lightChunkLimit`（64 KiB）を指定する。
+Apple 経路の tar.xz だけが threads > 1 のとき `lightChunkLimit`（64 KiB）を指定する。
 writer は block の入力長、updater の事前符号化と書出しは part の image 長を weight にする。
 運ぶ part と cache 済みの part は入力が無いので weight 0。threads == 1 は同時に一つだけを符号化する。
 待機中の入力と組立中の入力の上界は `(threads + 1) × (piece + lightChunkLimit)`。
+自前経路は小さい block も並列枠に数え、解決した並列数 t に対する入力上界は `t × 片 + 4 MiB`。
+`CompressedTarSplicePlan` / `CompressedTarSpliceOutput` も同じ片・encoder・並列数を使い、運ぶ block は変えない。
 codec state と圧縮出力は別で、P9 の `30 + 135 × t` MiB は実測に合わせた見積りであり上界ではない。
 試験と計測の引継ぎは [P14 検証記録](verification/2026-09-26-p14-xz-packing.md) に記す。
 
@@ -667,8 +681,8 @@ writer / updater / rewriter は同じ検証関数を使い、出力作成前に�
 ### ZIP WinZip AES-256
 
 通常ファイルだけ（空ファイルを含む）を暗号化する。directory / symlink は平文の stored。
-圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / xz 設定を使い、両 header の method を 99、
-version needed を 51、flag を bit 0 + bit 11 にする。0x9901 の 7 byte 本体は、vendor version、
+圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / lzma / xz 設定を使い、両 header の method を 99、
+version needed は方式との最大値（LZMA は63、それ以外は51）、flag は bit 0 + bit 11（LZMA はさらに bit 1）にする。0x9901 の 7 byte 本体は、vendor version、
 `AE`、strength 3、実際の圧縮 method。20 byte 未満を AE-1 と実 CRC、以上を AE-2 と CRC 0 にする。
 これはこの writer の選択方針で、AE-1 / AE-2 の wire format は公開仕様に従う。
 
@@ -695,21 +709,25 @@ compressed size は spool + 12 byte。deinit による失敗時の削除と、�
 ### 7z の圧縮方式・AES-256 と header
 
 非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
-LZMA2（既定）/ Deflate / BZip2 / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
+LZMA2（既定）/ LZMA / Deflate / BZip2 / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
 
 | 方式 | method ID | properties | level と stream |
 |---|---|---|---|
-| LZMA2 | `21` | dictionary size の1 byte | 従来の最大16 MiBの片と終端を保持 |
+| LZMA2 | `21` | dictionary size の1 byte | nil は従来の Apple、レベル指定時は自前 encoder |
+| LZMA | `03 01 01` | lc/lp/pb + 辞書 LE32 の5 byte | 自前 raw LZMA1、一つの同期 stream、EOS 無し |
 | Deflate | `04 01 08` | 無し | `deflateLevel`（0...9）、一つの raw deflate stream |
 | BZip2 | `04 02 02` | 無し | `bzip2Level`（1...9）、folder ごとに単一 bzip2 stream |
 | Copy | `00` | 無し | 入力をそのまま保存。無圧縮 level 用 |
 
 method ID と coder の flags は `inbox/lzma-sdk-26.03/DOC/Methods.txt` と `DOC/7zFormat.txt` で照合する。
 `SevenZipEditModel.Coder` は method ID の byte 列・任意の properties・入出力数を持ち、writer と updater は
-`SevenZipHeaderSerializer.coder` で共通に直列化する。将来の LZMA / PPMd / BCJ も同じ表現で記録できる。
+`SevenZipHeaderSerializer.coder` で共通に直列化する。LZMA と将来の PPMd / BCJ も同じ表現で記録できる。
 `SevenZipChunkPipeline` は既存の `OrderedChunkPipeline` 上で LZMA2 と Deflate を並列化する。
 Deflate は `DeflateBlock` の最大1 MiB入力と直前の末尾32 KiBを辞書に使い、最後だけ Z_FINISH、
 中間は Z_SYNC_FLUSH で一つの byte-aligned raw stream に連結する。7zz の検査・展開で受理を確認する。
+LZMA は `LZMAEncoder` を folder ごとに保持し、size を expectedSize に渡して EOS 無しで一度だけ finish する。
+solid folder の再圧縮と追加も WriterOptions 全体を FolderEncoder に渡すので方式・level・extreme が揃う。
+header の再圧縮は従来の Apple LZMA2 の設定を保つ。
 BZip2 は `Bzip2StreamEncoder` の状態を folder ごとに持ち、I/O ごとの入力を同期処理して一度だけ終端を書く。
 Copy は同じ I/O 境界で同期出力する。LZMA2 の既定 byte 列は凍結済み hash と既存試験で固定する。
 
@@ -724,11 +742,16 @@ AES property は `53 0F` + 16 byte IV（NumCyclesPower 19、salt なし）。UTF
 最後の block の不足だけを zero pad する。真の圧縮長を AES の unpack size に記録する。
 空ファイル・directory は従来の EmptyStream / EmptyFile 表現を使う。
 
-LZMA2 の `SevenZipChunkPipeline.chunkSize` は **16 MiB**、I/O 用の `IOChunk.size` は **256 KiB** と分離する。
+nil レベルの LZMA2 の `SevenZipChunkPipeline.chunkSize` は **16 MiB**、I/O 用の `IOChunk.size` は **256 KiB** と分離する。
 短い read が返っても最大 16 MiB まで入力を集めてから Apple の LZMA buffer API を一度呼ぶ。
 各片の LZMA2 辞書 reset を残して終端 byte だけを取り除き、最後に一度だけ終端を書く。
 圧縮出力も 256 KiB ごとに分割して暗号化・書込を行う。一つの folder 内で decoder が reset する
 正当な stream であり、平文・暗号出力とも spool は不要。
+
+自前 LZMA2 は選んだ辞書 property を保持し、辞書が16 MiBより大きいと片を3倍にする。
+encoder closure は片ごとに新しい encoder を作り、辞書 reset を残して連結する。
+並列数と memoryLimit は自前 encoder 節で解決し、`maximumPendingInputBytes` は t × 片。
+raw LZMA は256 KiBずつ同期入力するので pending input は0。
 
 Apple の encoder は 8 MiB の辞書を使う。16 MiB 以下のファイルは従来の whole-file buffer API と
 同じ一回の圧縮なので、圧縮 payload と圧縮率は変わらない。16 MiB を超えるファイルだけ境界で
@@ -988,8 +1011,11 @@ Archive Utility による LZMA2 header。試験と計測、sandbox で実行で�
 ### 自前 LZMA encoder（2026-10-06）
 
 `Compression/LZMA/` は internal の raw LZMA1 encoder と、その上の LZMA2 chunker。
-`LZMAEncoderProperties`、`LZMAEncoder`、`LZMA2Encoder` を後続の .lzma / lzip / ZIP method 14 / 7z LZMA と
-圧縮 level 選択の共通基盤にする。この段階では既存 writer の Apple Compression 経路と既定出力を変えない。
+`LZMAEncoderProperties`、`LZMAEncoder`、`LZMA2Encoder` は ZIP method 14 / 7z LZMA と
+tar.xz / 7z LZMA2 / ZIP XZ のレベル選択を共有する。`lzmaLevel: Int?` は nil なら従来の Apple preset-6、
+0...9 なら自前の `preset(level, extreme:)`。`lzmaExtreme` は既定 false、レベル指定時だけ有効。
+ZIP / 7z LZMA は常に自前で、nil は6。nil の既存三形式は片16 MiB・圧縮 byte を変えない。
+`Tests/Fixtures/lzma-writers` は接続前の出力を凍結し、並列数1・4で byte 比較する。
 `push(Data)` の戻り値を順に出力し、`finish()` の戻り値を最後に出力する。instance は直列に使い、設定だけを
 `Sendable` にする。LZMA1 は EOS の有無と既知サイズを独立に指定でき、`alone(_:properties:knownSize:)` は
 13 byte header（未知サイズは all-ones と EOS）を付ける。
@@ -1037,8 +1063,40 @@ match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが
 range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
 extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、それ以外は niceLen 273・depth 512。
 
+`LZMAWriterConfiguration` は encoder closure とメモリ解決を writer / updater 間で共有する。
+自前 encoder を `LZMA2ChunkPipeline` / `ParallelXZCompressor` / `SevenZipChunkPipeline` の
+`(Data) throws -> XZLZMA2` に接続する。片ごとの encoder は独立で、property は宣言辞書から作る。
+辞書が16 MiBを超えたときの片は `max(16 MiB, 3 × 辞書)`（xz の既定 block size 規則）。
+レベル8は96 MiB、9は192 MiB、それ以下は16 MiB。
+
+自前 LZMA2 の実際の並列数 t は `t × (encoder memory + 2 × 片サイズ)` が
+`min(memoryLimit（nil は物理メモリの50%）, 物理メモリの50%)` 以下になる最大数に制限します。
+要求した並列数を上限とし、1個分も入らなければ書庫を作る前に `WriterError.invalidOption("memoryLimit")` を返します。
+メモリ不足で宣言辞書を縮小しません。自前 tar.xz は小さい block も t 個の枠に数えます。
+入力の上界は tar.xz が `t × 片 + 4 MiB`、7z が `t × 片`、ZIP XZ が `(t + 1) × 片` です。
+
+| `lzmaLevel` | 辞書 MiB | LZMA2 encoder MiB | 片 MiB | LZMA2 1 thread の予算 MiB | raw LZMA1 の同期予算 MiB |
+|---|---:|---:|---:|---:|---:|
+| 0 | 0.25 | 5 | 16 | 37 | 20 |
+| 1 | 1 | 10 | 16 | 42 | 25 |
+| 2 | 2 | 17 | 16 | 49 | 32 |
+| 3 | 4 | 31 | 16 | 63 | 46 |
+| 4 | 4 | 47 | 16 | 79 | 62 |
+| 5 / 6 | 8 | 91 | 16 | 123 | 106 |
+| 7 | 16 | 179 | 16 | 211 | 194 |
+| 8 | 32 | 355 | 96 | 547 | 370 |
+| 9 | 64 | 643 | 192 | 1027 | 658 |
+
+64-bit の通常 preset を MiB 単位で切り上げた値です。extreme のレベル0〜3は BT4 に替わり、
+それぞれ1 / 4 / 8 / 16 MiB増えます。raw LZMA1 の予算は range buffer の最大16 MiBと I/O を含みます。
+短い入力では encoder の実確保が減りますが、検証・並列数解決は表の完全な辞書で行います。
+Apple の nil レベル経路は従来の byte と16 MiB境界を維持し、この予算で並列数を変えません。
+
 試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
-独立 oracle を使う。外部ツール不在は Tests/README.md の規則どおり失敗する。
+独立 oracle を使う。writer は tar.xz の xz / tar 展開、7z と ZIP の `7zz t / l -slt / x`、
+暗号化、updater の追加・solid 再圧縮、128 MiB入力の level-9 並列数制限も照合する。
+7z の listing は LZMA2:18/20/23/26 と LZMA:18/20/23/26、ZIP 14 は LZMA:eos。
+外部ツール不在は Tests/README.md の規則どおり失敗する。
 benchmark は通常の試験で skip し、固定 seed の 4 MiB 辞書単語 text と `/usr/lib/dyld` から始める
 Framework の実在 Mach-O（path 順、最大 32 MiB）を使う。corpus の path と長さも表示する。
 単一 thread の Swift raw LZMA2、`xz -<level> -T1 --format=raw -c`、現行 Apple 経路の raw LZMA2 size と MB/s を出す。

@@ -100,8 +100,7 @@ final class SevenZipFolderWorkset {
             let input = SevenZipSolidInput(reader: reader, files: filesByFolder[index], surviving: files, advance: advance)
             let sizes = files.map { model.substreams[model.files[$0].substreamIndex!].size }
             let size = try sizes.reduce(UInt64(0)) { try checkedAdd($0, $1) }
-            let encoder = try SevenZipFolderEncoder.encode(size: size, threads: options.resolvedCompressionThreads,
-                method: options.sevenZipMethod, deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
+            let encoder = try SevenZipFolderEncoder.encode(size: size, options: options,
                 aes: aes, read: input.read, write: { _ = try scratch.append($0) })
             var offset: UInt64 = 0
             let streams: [SevenZipEditModel.Substream] = zip(files, sizes).map { file, size in

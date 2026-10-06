@@ -70,7 +70,7 @@ final class SevenZipCompressionMethodTests: XCTestCase {
                         bzip2Level: method.value == .bzip2 ? level : 9, compressionThreads: threads)
                     FileManager.default.createFile(atPath: url.path, contents: nil)
                     let handle = try FileHandle(forWritingTo: url)
-                    let writer = SevenZipWriter(output: handle, url: url, options: options)
+                    let writer = try SevenZipWriter(output: handle, url: url, options: options)
                     for item in items {
                         if shortReads {
                             var position = 0

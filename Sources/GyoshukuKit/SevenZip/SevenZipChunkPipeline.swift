@@ -6,7 +6,7 @@ enum SevenZipChunkOutput: Sendable {
     case input(Data)
 }
 
-/// LZMA2 / Deflate の block は並列化し、Copy / BZip2 の入力は同期で folder encoder に渡す。
+/// LZMA2 / Deflate の block は並列化し、LZMA / Copy / BZip2 の入力は同期で folder encoder に渡す。
 /// BZip2 の状態は folder が持つので、複数の bzip2 stream を連結しない。
 final class SevenZipChunkPipeline<Tag> {
     private enum Input: Sendable {
@@ -19,18 +19,22 @@ final class SevenZipChunkPipeline<Tag> {
     let chunkSize: Int
     var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
-    init(options: WriterOptions, chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
-         encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) {
-        precondition((1...LZMA2ChunkPipeline<Void>.chunkSize).contains(chunkSize))
+    init(options: WriterOptions, chunkSize: Int? = nil,
+         encoder: LZMA2ChunkPipeline<Void>.Encoder? = nil) throws {
+        let configuration = try LZMAWriterConfiguration(options: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
+            ? options : WriterOptions(compressionThreads: options.compressionThreads), raw: options.sevenZipMethod == .lzma)
+        let pieceSize = chunkSize ?? configuration.pieceSize
+        precondition(pieceSize > 0)
+        let encode = encoder ?? configuration.encoder
         method = options.sevenZipMethod
         switch method {
-        case .lzma2: self.chunkSize = chunkSize
-        case .deflate: self.chunkSize = min(chunkSize, DeflateBlock.size)
-        case .bzip2, .copy: self.chunkSize = min(chunkSize, IOChunk.size)
+        case .lzma2: self.chunkSize = pieceSize
+        case .deflate: self.chunkSize = min(pieceSize, DeflateBlock.size)
+        case .lzma, .bzip2, .copy: self.chunkSize = min(pieceSize, IOChunk.size)
         }
-        pipeline = OrderedChunkPipeline(threads: options.resolvedCompressionThreads) { input in
+        pipeline = OrderedChunkPipeline(threads: method == .lzma2 ? configuration.threads : options.resolvedCompressionThreads) { input in
             switch input {
-            case .lzma2(let bytes): return .lzma2(try encoder(bytes))
+            case .lzma2(let bytes): return .lzma2(try encode(bytes))
             case .deflate(let block): return .packed(try DeflateBlock.encode(block, level: options.deflateLevel))
             }
         }
@@ -46,7 +50,7 @@ final class SevenZipChunkPipeline<Tag> {
             let block = data.map { DeflateBlock(input: $0, dictionary: dictionary, final: isLast) }
             dictionary = isLast ? Data() : data.map(DeflateBlock.dictionary(from:)) ?? Data()
             try pipeline.submit(block.map { .deflate($0) }, tag: tag, weight: weight, emit: emit)
-        case .bzip2, .copy:
+        case .lzma, .bzip2, .copy:
             try Task.checkCancellation()
             try emit(tag, data.map { .input($0) })
         }

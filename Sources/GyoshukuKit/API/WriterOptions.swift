@@ -6,14 +6,18 @@ public enum CompressionMethod: UInt16, Sendable {
     case deflate = 8
     /// system libbz2 による単一 bzip2 stream。展開には method 12 対応の reader が必要。
     case bzip2 = 12
-    /// Apple Compression による完全な XZ stream。展開には method 95 対応の reader が必要。
+    /// 自前 encoder の単一 raw LZMA1 stream。EOS を付け、展開には method 14 対応の reader が必要。
+    case lzma = 14
+    /// 完全な XZ stream。レベル未指定は Apple Compression、指定時は自前 LZMA2。
     case xz = 95
 }
 
 /// 7z の非空 folder に使う圧縮方式。既定は LZMA2。
 public enum SevenZipCompressionMethod: Sendable {
-    /// Apple Compression の LZMA2。最大16 MiBの片と dictionary property を使う。
+    /// LZMA2。レベル未指定は Apple Compression、指定時は自前 encoder。
     case lzma2
+    /// 自前 encoder の単一 raw LZMA1 stream。folder のサイズが既知なので EOS は付けない。
+    case lzma
     /// system zlib の raw deflate。deflateLevel (0...9) を使う。
     case deflate
     /// system libbz2 の単一 stream。bzip2Level (1...9) を使う。
@@ -82,6 +86,15 @@ public struct WriterOptions: Sendable {
     public var deflateLevel: Int
     /// bzip2 の block size level (1...9)。既定は9（900,000 byte block）。
     public var bzip2Level: Int
+    /// tar.xz / 7z LZMA2 / ZIP XZ のレベル (0...9)。nil は従来の Apple preset-6 経路。
+    /// ZIP LZMA / 7z LZMA は常に自前 encoder を使い、nil はレベル6。
+    public var lzmaLevel: Int?
+    /// 自前 LZMA の探索量を増やす。既定は false。lzmaLevel を指定したときだけ使う。
+    public var lzmaExtreme: Bool
+    /// 自前 LZMA の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
+    /// 物理メモリの50%との小さい方で並列数を抑える。一つも入らなければ invalidOption("memoryLimit")。
+    /// 辞書を上限に合わせて縮小しない。レベル未指定の Apple 経路と他の codec には適用しない。
+    public var memoryLimit: UInt64?
     /// ZIP で既知の圧縮済み拡張子は stored にする。false なら指定方式を使う。
     /// 空ファイル、ディレクトリ、symlink は常に stored。
     public var useCompressionHeuristic: Bool
@@ -97,12 +110,15 @@ public struct WriterOptions: Sendable {
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
     /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
-    /// ZIP / 7z bzip2 と 7z Copy は項目ごとに同期処理する。ZIP XZ は最大16 MiBの block を使う。
+    /// ZIP / 7z LZMA・bzip2 と 7z Copy は項目ごとに同期処理する。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
-    /// （tar.xz は2以上のとき64 KiB以下の block を数えず、合計2 × この数 + 1まで）。
-    /// deflate / tar.bz2 は thread ごとに約2 × chunk size + codec state、LZMA2 は約130 MiB（16 MiB の片）。
-    /// chunk 上限は deflate が1 MiB、tar.bz2 が5 × level × 100,000 byte、tar.xz が詰める block 4 MiB・片16 MiB（ZIP XZ / 7z は片のみ）。
+    /// （Apple 経路の tar.xz は2以上のとき64 KiB以下を数えず、合計2 × この数 + 1まで）。
+    /// deflate / tar.bz2 は thread ごとに約2 × chunk size + codec state、Apple LZMA2 は約130 MiB。
+    /// 自前 LZMA2 の辞書が16 MiBを超えると片は3 × 辞書。実際の並列数は
+    /// t × (encoder memory + 2 × 片) <= min(memoryLimit, 物理メモリの50%) に制限する。
+    /// 自前経路は小さい block も並列数に数える。Apple 経路の片は常に16 MiB。
+    /// chunk 上限は deflate が1 MiB、tar.bz2 が5 × level × 100,000 byte。tar.xz の packing は4 MiB。
     /// 圧縮 tar は member 境界で区切り、上限を超える header 群・本文はそれぞれ分割する。終端は独立させる。
     /// tar.bz2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
     /// LHA は thread ごとに入力1 MiB + 履歴8/32/64 KiB、hash 表512 KiB、chain 表64/256/512 KiB、
@@ -121,6 +137,9 @@ public struct WriterOptions: Sendable {
         lhaLevel: Int = 6,
         deflateLevel: Int = 6,
         bzip2Level: Int = 9,
+        lzmaLevel: Int? = nil,
+        lzmaExtreme: Bool = false,
+        memoryLimit: UInt64? = nil,
         useCompressionHeuristic: Bool = true,
         preserveOwnerIDs: Bool = false,
         preserveMacOSMetadata: Bool = false,
@@ -137,6 +156,9 @@ public struct WriterOptions: Sendable {
         self.lhaLevel = lhaLevel
         self.deflateLevel = deflateLevel
         self.bzip2Level = bzip2Level
+        self.lzmaLevel = lzmaLevel
+        self.lzmaExtreme = lzmaExtreme
+        self.memoryLimit = memoryLimit
         self.useCompressionHeuristic = useCompressionHeuristic
         self.preserveOwnerIDs = preserveOwnerIDs
         self.preserveMacOSMetadata = preserveMacOSMetadata
@@ -154,34 +176,37 @@ public struct WriterOptions: Sendable {
     }
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
-    /// tar.xz は 16 MiB の通常枠、64 KiB 以下の軽い block と、4 MiB の組立中 block を含む。
-    /// ZIP / 7z bzip2 と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
-    /// 7z Deflate は t 個の1 MiB block、LZMA2 は t 個の16 MiBの片を上界にする。
-    /// ZIP XZ は通常枠 t 個と組立中1個の16 MiB block を上界とし、項目の終了時には全て出力する。
+    /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
+    /// ZIP / 7z LZMA・bzip2 と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
+    /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
+    /// ZIP XZ は通常枠 t 個と組立中1個の片を上界とし、項目の終了時には全て出力する。
     /// LHA は t 個の1 MiB入力と方式ごとの履歴を含む。逐次と forced store は0。
-    /// XZ の codec state・出力（thread ごとに約130 MiB）と block 数に比例する index はこの入力 byte に含まない。
+    /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
+        let lzma = try? LZMAWriterConfiguration(options: self)
+        let lzmaThreads = UInt64(max(1, min(64, lzma?.threads ?? 1)))
+        let piece = UInt64(lzma?.pieceSize ?? ParallelXZCompressor.defaultBlockSize)
         let threads = UInt64(max(1, min(64, resolvedCompressionThreads)))
         switch format {
         case .zip:
             switch compressionMethod {
-            case .stored, .bzip2: return 0
+            case .stored, .bzip2, .lzma: return 0
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
-            case .xz: return (threads + 1) * UInt64(ParallelXZCompressor.defaultBlockSize)
+            case .xz: return (lzmaThreads + 1) * piece
             }
         case .tar: return 0
         case .tarGzip: return (threads + 1) * UInt64(DeflateBlock.size)
         case .tarBzip2: return (threads + 1) * UInt64(ParallelBzip2Compressor.chunkSize(level: max(1, min(9, bzip2Level))))
         case .tarXZ:
             // 未出力は通常枠 t 個、合計 2t + 1 個以下。member の終了時の組立中は packing 以下。
-            let light = threads > 1 ? (threads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
-            return threads * UInt64(ParallelXZCompressor.defaultBlockSize) + light + UInt64(ParallelXZCompressor.memberPackingSize)
+            let light = lzmaLevel == nil && lzmaThreads > 1 ? (lzmaThreads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
+            return lzmaThreads * piece + light + UInt64(ParallelXZCompressor.memberPackingSize)
         case .sevenZip:
             switch sevenZipMethod {
-            case .lzma2: return threads * UInt64(LZMA2ChunkPipeline<Void>.chunkSize)
+            case .lzma2: return lzmaThreads * piece
             case .deflate: return threads * UInt64(DeflateBlock.size)
-            case .bzip2, .copy: return 0
+            case .lzma, .bzip2, .copy: return 0
             }
         case .lha:
             return threads == 1 || lhaMethod == .stored ? 0
@@ -195,6 +220,8 @@ public struct WriterOptions: Sendable {
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
         guard (1...9).contains(lhaLevel) else { throw WriterError.invalidOption("lhaLevel") }
+        if let lzmaLevel, !(0...9).contains(lzmaLevel) { throw WriterError.invalidOption("lzmaLevel") }
+        if let memoryLimit, memoryLimit == 0 { throw WriterError.invalidOption("memoryLimit") }
         if let compressionThreads, !(1...64).contains(compressionThreads) {
             throw WriterError.invalidOption("compressionThreads")
         }
@@ -208,6 +235,14 @@ public struct WriterOptions: Sendable {
         }
         if encryptsSevenZipHeaders, password == nil {
             throw WriterError.invalidOption("encryptsSevenZipHeaders")
+        }
+        switch format {
+        case .tarXZ: _ = try LZMAWriterConfiguration(options: self)
+        case .zip where compressionMethod == .xz || compressionMethod == .lzma:
+            _ = try LZMAWriterConfiguration(options: self, raw: compressionMethod == .lzma)
+        case .sevenZip where sevenZipMethod == .lzma2 || sevenZipMethod == .lzma:
+            _ = try LZMAWriterConfiguration(options: self, raw: sevenZipMethod == .lzma)
+        default: break
         }
     }
 }
