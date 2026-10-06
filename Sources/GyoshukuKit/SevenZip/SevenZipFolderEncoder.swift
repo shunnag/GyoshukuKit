@@ -1,23 +1,50 @@
 import Foundation
 internal import KaitoKit
 
-// writer・solid の作り直し・header で同じ LZMA2 の連結規則を使う。
+// writer・solid の作り直しで圧縮方式と AES の framing を共有する。header の既定は LZMA2。
 final class SevenZipFolderEncoder {
     let aes: SevenZipAESEncryptor?
+    private let method: SevenZipCompressionMethod
+    private let deflateLevel: Int
+    private let bzip2Level: Int
+    private var bzip2: Bzip2StreamEncoder?
     private(set) var properties: UInt8 = 0
     private(set) var compressedSize: UInt64 = 0
     private(set) var packedSize: UInt64 = 0
 
-    init(aes: SevenZipAESEncryptor?) { self.aes = aes }
+    init(aes: SevenZipAESEncryptor?, method: SevenZipCompressionMethod = .lzma2, deflateLevel: Int = 6, bzip2Level: Int = 9) {
+        self.aes = aes; self.method = method; self.deflateLevel = deflateLevel; self.bzip2Level = bzip2Level
+    }
 
-    func consume(_ compressed: XZLZMA2, write: (Data) throws -> Void) throws {
-        guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
-              compressed.payload.last == 0 else { throw WriterError.compression(-1) }
-        properties = max(properties, compressed.properties)
-        try emit(compressed.payload.dropLast(), write: write)
+    func consume(_ result: SevenZipChunkOutput, write: (Data) throws -> Void) throws {
+        switch result {
+        case .lzma2(let compressed):
+            guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
+                  compressed.payload.last == 0 else { throw WriterError.compression(-1) }
+            properties = max(properties, compressed.properties)
+            try emit(compressed.payload.dropLast(), write: write)
+        case .packed(let bytes): try emit(bytes, write: write)
+        case .input(let bytes):
+            if method == .bzip2 {
+                if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
+                try bzip2!.write(bytes, finish: false) { try emit($0, write: write) }
+            } else { try emit(bytes, write: write) }
+        }
     }
     func finish(write: (Data) throws -> Void) throws {
-        try emit(Data([0]), write: write)
+        switch method {
+        case .lzma2: try emit(Data([0]), write: write)
+        case .bzip2:
+            if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
+            try bzip2!.write(Data(), finish: true) { try emit($0, write: write) }
+            bzip2 = nil
+        case .deflate:
+            // 生存する substream が全て空でも、Deflate の終端を持つ一つの stream にする。
+            if compressedSize == 0 {
+                try emit(DeflateBlock.encode(.init(input: Data(), dictionary: Data(), final: true), level: deflateLevel), write: write)
+            }
+        case .copy: break
+        }
         if let aes { try output(aes.finish(), write: write) }
     }
     private func emit(_ data: Data, write: (Data) throws -> Void) throws {
@@ -35,28 +62,30 @@ final class SevenZipFolderEncoder {
     }
 
     func folder(size: UInt64, crc: UInt32? = nil, substreamCount: Int = 1) -> SevenZipEditModel.Folder {
-        let lzma = SevenZipEditModel.Coder.lzma2(properties: properties)
+        let methodCoder = SevenZipEditModel.Coder.compression(method, properties: properties)
         let coders: [SevenZipEditModel.Coder]
-        if let aes { coders = [.aes(properties: Array(aes.properties)), lzma] }
-        else { coders = [lzma] }
+        if let aes { coders = [.aes(properties: Array(aes.properties)), methodCoder] }
+        else { coders = [methodCoder] }
         return .init(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)], packedInputs: [0],
                      unpackSizes: aes == nil ? [size] : [compressedSize, size], finalOutput: aes == nil ? 0 : 1,
                      crc32: crc, packIndices: 0..<1, substreamIndices: 0..<substreamCount)
     }
 
     static func encode(size: UInt64, threads: Int, chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
+                       method: SevenZipCompressionMethod = .lzma2, deflateLevel: Int = 6, bzip2Level: Int = 9,
                        aes: SevenZipAESEncryptor?, read: (Int) throws -> Data,
                        write: (Data) throws -> Void) throws -> SevenZipFolderEncoder {
-        let encoder = SevenZipFolderEncoder(aes: aes)
-        let pipeline = LZMA2ChunkPipeline<Void>(threads: threads)
+        let encoder = SevenZipFolderEncoder(aes: aes, method: method, deflateLevel: deflateLevel, bzip2Level: bzip2Level)
+        let pipeline = SevenZipChunkPipeline<Void>(options: WriterOptions(sevenZipMethod: method,
+            deflateLevel: deflateLevel, bzip2Level: bzip2Level, compressionThreads: threads), chunkSize: chunkSize)
         defer { pipeline.abandon() }
-        func emit(_: Void, _ result: LZMA2ChunkPipeline<Void>.Output?) throws {
-            if let result { try encoder.consume(result.compressed, write: write) }
+        func emit(_: Void, _ result: SevenZipChunkOutput?) throws {
+            if let result { try encoder.consume(result, write: write) }
         }
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            let count = Int(min(UInt64(chunkSize), remaining))
+            let count = Int(min(UInt64(pipeline.chunkSize), remaining))
             var data = Data()
             data.reserveCapacity(count)
             while data.count < count {
@@ -65,7 +94,7 @@ final class SevenZipFolderEncoder {
                 data.append(chunk)
             }
             remaining -= UInt64(data.count)
-            try pipeline.submit(data, tag: (), emit: emit)
+            try pipeline.submit(data, tag: (), isLast: remaining == 0, emit: emit)
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged("7z folder") }
         try pipeline.finish(emit: emit)

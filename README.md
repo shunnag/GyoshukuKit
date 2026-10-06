@@ -115,15 +115,16 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 | `WriterOptions` | 既定値 | 意味 |
 |---|---|---|
 | `compressionMethod` | `.deflate` | ZIP の `.stored` / `.deflate` / `.bzip2` / `.xz` |
-| `deflateLevel` | `6` | ZIP / tar.gz の zlib level `0...9` |
-| `bzip2Level` | `9` | ZIP BZip2 / tar.bz2 の block size level `1...9`（100,000〜900,000 byte） |
+| `sevenZipMethod` | `.lzma2` | 7z の `.lzma2` / `.deflate` / `.bzip2` / `.copy`。追加・再圧縮・7z への rewriter に適用 |
+| `deflateLevel` | `6` | ZIP / 7z Deflate / tar.gz の zlib level `0...9` |
+| `bzip2Level` | `9` | ZIP / 7z BZip2 / tar.bz2 の block size level `1...9`（100,000〜900,000 byte） |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
 | `preserveOwnerIDs` | `false` | true のときディスク由来の uid/gid を 0x7875 に保存 |
 | `preserveMacOSMetadata` | `false` | true はこの段階では `unsupportedOption` |
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
-| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z / tar.xz / LHA の並列数 `1...64`。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z LZMA2・Deflate / tar.xz / LHA の並列数 `1...64`。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
 
@@ -139,6 +140,23 @@ ZIP の書き込み方式は次の四つです。updater の新規追加と ZIP 
 macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 95 を展開できません。
 互換性のため Deflate を既定に保ち、BZip2 / XZ は KaitoKit や 7-Zip を使う場合の opt-in にします。
 AES-256 では header の method は99、0x9901 に実際の12 / 95を記録します。ZipCrypto も圧縮後の byte を暗号化します。
+
+7z の書き込み方式は `SevenZipCompressionMethod` で選びます。非空ファイルごとに一つの non-solid folder を作ります。
+
+| 方式 | method ID | encoder |
+|---|---|---|
+| `.lzma2`（既定） | `21` | Apple Compression の LZMA2、dictionary property 1 byte |
+| `.deflate` | `04 01 08` | system zlib の raw deflate、`deflateLevel` |
+| `.bzip2` | `04 02 02` | system libbz2 の単一 bzip2 stream、`bzip2Level` |
+| `.copy` | `00` | 無圧縮。入力 byte をそのまま保存 |
+
+Copy / Deflate / BZip2 の coder に properties は置きません。7z は ZIP の拡張子 heuristic を使わず、
+指定方式を全ての非空 stream に適用します。updater の追加と solid folder の再圧縮、7z への rewriter も
+`sevenZipMethod` を使います。運ぶ既存 folder の coder と packed byte は保持し、AES の設定・変更・解除も再圧縮しません。
+Deflate は最大1 MiBの block を直前の末尾32 KiBの辞書で圧縮し、一つの raw deflate stream に連結します。
+BZip2 は folder ごとに一つの stream を同期で完結させ、Copy も同期出力します。
+`maximumPendingInputBytes(for: .sevenZip)` は LZMA2 が `compressionThreads × 16 MiB`、
+Deflate が `compressionThreads × 1 MiB`、BZip2 / Copy が0です。BZip2 の codec state は最大約7.6 MBと I/O buffer です。
 
 ZIP の空ファイル・ディレクトリ・symlink は常に stored です。通常ファイルの payload は
 256 KiB 単位で読み書きし、作業メモリをファイルサイズに比例させません。central directory 用の
@@ -176,7 +194,8 @@ ZipCrypto は CRC の確定が必要なので、出力の隣で mode 0600 の一
 書込前に unlink した descriptor へ圧縮結果を spool します。暗号化してコピーした後や失敗時に
 descriptor を閉じます。圧縮中に名前付きの平文 spool を残しません。
 
-7z は非空 stream ごとに LZMA2 → AES-256-CBC を使い、空ファイルは従来どおり
+7z は非空 stream ごとに選択方式で圧縮してから AES-256-CBC を使い、Copy も暗号化できます。decoder 順は
+packed → AES → 選択方式です。空ファイルは従来どおり
 EmptyStream として保存します。header 暗号化は名前も隠します。LZMA2 の圧縮単位は最大 16 MiB、
 読取・暗号化・書込は 256 KiB 単位です。Apple の 8 MiB 辞書を使い、16 MiB 以下のファイルは
 従来の全体圧縮と同じ圧縮 payload になります。大きいファイルだけ 16 MiB 境界で辞書を reset します。

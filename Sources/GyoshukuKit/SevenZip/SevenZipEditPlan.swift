@@ -106,7 +106,7 @@ struct SevenZipEditPlan {
             let streamIndex: Int? = record.size > 0 ? model.substreams.count : nil
             if record.size > 0 {
                 let aes = record.aesProperties.map(Array.init)
-                let coders: [Model.Coder] = (aes.map { [.aes(properties: $0)] } ?? []) + [.lzma2(properties: record.properties)]
+                let coders: [Model.Coder] = (aes.map { [.aes(properties: $0)] } ?? []) + [record.coder]
                 let folder = Model.Folder(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)],
                     packedInputs: [0], unpackSizes: aes == nil ? [record.size] : [record.compressedSize, record.size],
                     finalOutput: aes == nil ? 0 : 1, packIndices: 0..<1, substreamIndices: 0..<1)

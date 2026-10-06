@@ -16,17 +16,18 @@ final class SevenZipWriter {
     private var position: UInt64 = 0
     private var finished = false
     private var aborted = false
-    private let lzmaChunkSize: Int
-    private let pipeline: LZMA2ChunkPipeline<ChunkTag>
+    private let pipeline: SevenZipChunkPipeline<ChunkTag>
 
     private final class PendingEntry {
         var record: SevenZipRecords.Entry
         let encoder: SevenZipFolderEncoder
         var start: UInt64?
 
-        init(record: SevenZipRecords.Entry, aes: SevenZipAESEncryptor?) {
+        init(record: SevenZipRecords.Entry, aes: SevenZipAESEncryptor?, options: WriterOptions) {
             self.record = record
-            encoder = SevenZipFolderEncoder(aes: aes)
+            encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
+                                            deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level)
+            self.record.method = options.sevenZipMethod
             self.record.aesProperties = aes?.properties
         }
     }
@@ -46,8 +47,7 @@ final class SevenZipWriter {
         encryptors = SevenZipAESEncryptor.Factory(password: options.password)
         isAppend = startPosition != nil
         position = startPosition ?? 0
-        lzmaChunkSize = chunkSize
-        pipeline = LZMA2ChunkPipeline(threads: options.resolvedCompressionThreads, encoder: encoder)
+        pipeline = SevenZipChunkPipeline(options: options, chunkSize: chunkSize, encoder: encoder)
     }
 
     deinit { abort() }
@@ -63,11 +63,11 @@ final class SevenZipWriter {
         let record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
-        let entry = PendingEntry(record: record, aes: size > 0 ? try encryptors.make() : nil)
+        let entry = PendingEntry(record: record, aes: size > 0 ? try encryptors.make() : nil, options: options)
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            let inputSize = Int(min(UInt64(lzmaChunkSize), remaining))
+            let inputSize = Int(min(UInt64(pipeline.chunkSize), remaining))
             var input = Data()
             input.reserveCapacity(inputSize)
             // 短い read でも圧縮境界を変えず、I/O だけを 256 KiB に保つ。
@@ -83,11 +83,12 @@ final class SevenZipWriter {
             if remaining == 0 {
                 guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
             }
-            try pipeline.submit(input, tag: ChunkTag(entry: entry, isLast: remaining == 0), weight: UInt64(input.count), emit: emit)
+            try pipeline.submit(input, tag: ChunkTag(entry: entry, isLast: remaining == 0), isLast: remaining == 0,
+                                weight: UInt64(input.count), emit: emit)
         }
         if size == 0 {
             guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
-            try pipeline.submit(nil, tag: ChunkTag(entry: entry, isLast: true), emit: emit)
+            try pipeline.submit(nil, tag: ChunkTag(entry: entry, isLast: true), isLast: true, emit: emit)
         }
         try Task.checkCancellation()
     }
@@ -95,7 +96,7 @@ final class SevenZipWriter {
     // 検証済みの単一 chunk は、読み直し・コピー・CRC の再計算をせず既存の encoder へ渡す。
     func add(name: String, mode: UInt16, date: Date, prefetched: Prefetched) throws {
         let data = prefetched.data
-        guard data.count <= lzmaChunkSize else {
+        guard data.count <= pipeline.chunkSize else {
             var offset = data.startIndex
             try add(name: name, mode: mode, size: UInt64(data.count), date: date) { count in
                 let end = min(offset + count, data.endIndex)
@@ -109,9 +110,9 @@ final class SevenZipWriter {
                                            mtime: try SevenZipRecords.timestamp(date))
         record.crc = prefetched.crc
         try reserveSignature()
-        let entry = PendingEntry(record: record, aes: data.isEmpty ? nil : try encryptors.make())
+        let entry = PendingEntry(record: record, aes: data.isEmpty ? nil : try encryptors.make(), options: options)
         try pipeline.submit(data.isEmpty ? nil : data, tag: ChunkTag(entry: entry, isLast: true),
-                            weight: UInt64(data.count), emit: emit)
+                            isLast: true, weight: UInt64(data.count), emit: emit)
         try Task.checkCancellation()
     }
 
@@ -162,11 +163,11 @@ final class SevenZipWriter {
         if position == 0 { try write(Data(count: 32)) }
     }
 
-    private func emit(_ tag: ChunkTag, _ result: LZMA2ChunkPipeline<ChunkTag>.Output?) throws {
+    private func emit(_ tag: ChunkTag, _ result: SevenZipChunkOutput?) throws {
         try Task.checkCancellation()
         let entry = tag.entry
         if entry.start == nil { entry.start = position }
-        if let compressed = result?.compressed { try entry.encoder.consume(compressed, write: write) }
+        if let result { try entry.encoder.consume(result, write: write) }
         if tag.isLast {
             if entry.record.size > 0 {
                 try entry.encoder.finish(write: write)

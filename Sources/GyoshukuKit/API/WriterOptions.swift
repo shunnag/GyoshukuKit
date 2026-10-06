@@ -10,6 +10,18 @@ public enum CompressionMethod: UInt16, Sendable {
     case xz = 95
 }
 
+/// 7z の非空 folder に使う圧縮方式。既定は LZMA2。
+public enum SevenZipCompressionMethod: Sendable {
+    /// Apple Compression の LZMA2。最大16 MiBの片と dictionary property を使う。
+    case lzma2
+    /// system zlib の raw deflate。deflateLevel (0...9) を使う。
+    case deflate
+    /// system libbz2 の単一 stream。bzip2Level (1...9) を使う。
+    case bzip2
+    /// 入力 byte をそのまま保存する無圧縮方式。
+    case copy
+}
+
 /// ZIP のパスワード暗号化方式。
 public enum ZipEncryption: Sendable {
     case aes256
@@ -24,8 +36,11 @@ public enum CarriedOwnerIDs: Sendable, Equatable { case keep, reset }
 
 /// instance 間で共有できる書き込み設定。
 public struct WriterOptions: Sendable {
-    /// ZIP の member に使う圧縮方式。tar.gz は全体を deflate、7z は LZMA2、LHA は LH5 にする。
+    /// ZIP の member に使う圧縮方式。tar.gz は全体を deflate、LHA は LH5 にする。
     public var compressionMethod: CompressionMethod
+    /// 7z の新規 folder と updater が再圧縮する folder の方式。既定は LZMA2。
+    /// rewriter の 7z 出力にも適用する。updater が運ぶ既存 folder の coder は保持する。
+    public var sevenZipMethod: SevenZipCompressionMethod
     /// zlib の level (0...9)。既定は Info-ZIP と同じ 6。
     public var deflateLevel: Int
     /// bzip2 の block size level (1...9)。既定は9（900,000 byte block）。
@@ -44,8 +59,8 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
-    /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z / tar.xz / LHA の圧縮並列数（1...64）。
-    /// ZIP bzip2 は項目ごとに同期処理する。ZIP XZ は最大16 MiBの block を使う。
+    /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
+    /// ZIP / 7z bzip2 と 7z Copy は項目ごとに同期処理する。ZIP XZ は最大16 MiBの block を使う。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
     /// （tar.xz は2以上のとき64 KiB以下の block を数えず、合計2 × この数 + 1まで）。
@@ -62,6 +77,7 @@ public struct WriterOptions: Sendable {
 
     public init(
         compressionMethod: CompressionMethod = .deflate,
+        sevenZipMethod: SevenZipCompressionMethod = .lzma2,
         deflateLevel: Int = 6,
         bzip2Level: Int = 9,
         useCompressionHeuristic: Bool = true,
@@ -75,6 +91,7 @@ public struct WriterOptions: Sendable {
         carriedTarOwnerIDs: CarriedOwnerIDs = .keep
     ) {
         self.compressionMethod = compressionMethod
+        self.sevenZipMethod = sevenZipMethod
         self.deflateLevel = deflateLevel
         self.bzip2Level = bzip2Level
         self.useCompressionHeuristic = useCompressionHeuristic
@@ -95,7 +112,8 @@ public struct WriterOptions: Sendable {
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は 16 MiB の通常枠、64 KiB 以下の軽い block と、4 MiB の組立中 block を含む。
-    /// ZIP bzip2 は同期処理なので 0。codec state は最大約7.6 MBと I/O buffer で、入力長に依存しない。
+    /// ZIP / 7z bzip2 と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
+    /// 7z Deflate は t 個の1 MiB block、LZMA2 は t 個の16 MiBの片を上界にする。
     /// ZIP XZ は通常枠 t 個と組立中1個の16 MiB block を上界とし、項目の終了時には全て出力する。
     /// XZ の codec state・出力（thread ごとに約130 MiB）と block 数に比例する index はこの入力 byte に含まない。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
@@ -115,7 +133,12 @@ public struct WriterOptions: Sendable {
             // 未出力は通常枠 t 個、合計 2t + 1 個以下。member の終了時の組立中は packing 以下。
             let light = threads > 1 ? (threads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
             return threads * UInt64(ParallelXZCompressor.defaultBlockSize) + light + UInt64(ParallelXZCompressor.memberPackingSize)
-        case .sevenZip: return threads * UInt64(LZMA2ChunkPipeline<Void>.chunkSize)
+        case .sevenZip:
+            switch sevenZipMethod {
+            case .lzma2: return threads * UInt64(LZMA2ChunkPipeline<Void>.chunkSize)
+            case .deflate: return threads * UInt64(DeflateBlock.size)
+            case .bzip2, .copy: return 0
+            }
         case .lha: return threads == 1 ? 0 : threads * UInt64(LHAWriter.compressionChunkSize)
         }
     }

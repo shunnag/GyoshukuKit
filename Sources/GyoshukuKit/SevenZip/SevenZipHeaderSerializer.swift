@@ -45,6 +45,19 @@ enum SevenZipHeaderSerializer {
         if values.allSatisfy({ $0 }) { result.append(1) }
         else { result.append(0); result.append(bits(values)) }
     }
+    /// method ID と任意の properties・入出力数を共通の 7z coder 表現にする。
+    static func coder(_ coder: Model.Coder, to result: inout Data) {
+        result.append(UInt8(coder.methodID.count) | (coder.isComplex ? 0x10 : 0) | (coder.properties != nil ? 0x20 : 0))
+        result.append(contentsOf: coder.methodID)
+        if coder.isComplex {
+            result.append(SevenZipRecords.number(UInt64(coder.inputCount)))
+            result.append(SevenZipRecords.number(UInt64(coder.outputCount)))
+        }
+        if let properties = coder.properties {
+            result.append(SevenZipRecords.number(UInt64(properties.count)))
+            result.append(contentsOf: properties)
+        }
+    }
     static func streams(_ model: Model, substreams: Bool = true, to result: inout Data) {
         if !model.packs.isEmpty {
             result.append(6)
@@ -62,16 +75,7 @@ enum SevenZipHeaderSerializer {
             for folder in model.folders {
                 result.append(SevenZipRecords.number(UInt64(folder.coders.count)))
                 for coder in folder.coders {
-                    result.append(UInt8(coder.methodID.count) | (coder.isComplex ? 0x10 : 0) | (coder.properties != nil ? 0x20 : 0))
-                    result.append(contentsOf: coder.methodID)
-                    if coder.isComplex {
-                        result.append(SevenZipRecords.number(UInt64(coder.inputCount)))
-                        result.append(SevenZipRecords.number(UInt64(coder.outputCount)))
-                    }
-                    if let properties = coder.properties {
-                        result.append(SevenZipRecords.number(UInt64(properties.count)))
-                        result.append(contentsOf: properties)
-                    }
+                    Self.coder(coder, to: &result)
                 }
                 for bind in folder.bindPairs {
                     result.append(SevenZipRecords.number(UInt64(bind.input)))

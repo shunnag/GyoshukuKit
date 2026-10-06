@@ -532,7 +532,9 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 | tar.gz | `(t + 1) × DeflateBlock.size` |
 | tar.bz2 | `(t + 1) × (5 × bzip2Level × 100,000)` |
 | tar.xz | `t × 16 MiB + 4 MiB + (t > 1 ? (t + 1) × 64 KiB : 0)` |
-| 7z | `t × 16 MiB` |
+| 7z LZMA2 | `t × 16 MiB` |
+| 7z Deflate | `t × 1 MiB` |
+| 7z BZip2 / Copy | 0（同期処理） |
 | LHA | `t > 1 ? t × 1 MiB : 0` |
 
 tar.xz は通常 block が最大 t 個、軽量 block と合わせて最大 `2t + 1` 個。最大 byte は通常 t 個と
@@ -640,12 +642,31 @@ compressed size は spool + 12 byte。deinit による失敗時の削除と、�
 両 ZIP 方式とも **data descriptor は書かない**。既存の seek / patch と updater の layout 契約を
 維持するためで、ZipCrypto の spool はそのために必要になる。AES は spool を使わない。
 
-### 7z AES-256 と header
+### 7z の圧縮方式・AES-256 と header
 
-非空 stream ごとに non-solid folder を作る。実測した `7zz a -p... -mhe=off -mhc=off` と
-同じ decoder 順で AES（06 F1 07 01）を coder 0、LZMA2（21）を coder 1 に置く。
+非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
+LZMA2（既定）/ Deflate / BZip2 / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
+
+| 方式 | method ID | properties | level と stream |
+|---|---|---|---|
+| LZMA2 | `21` | dictionary size の1 byte | 従来の最大16 MiBの片と終端を保持 |
+| Deflate | `04 01 08` | 無し | `deflateLevel`（0...9）、一つの raw deflate stream |
+| BZip2 | `04 02 02` | 無し | `bzip2Level`（1...9）、folder ごとに単一 bzip2 stream |
+| Copy | `00` | 無し | 入力をそのまま保存。無圧縮 level 用 |
+
+method ID と coder の flags は `inbox/lzma-sdk-26.03/DOC/Methods.txt` と `DOC/7zFormat.txt` で照合する。
+`SevenZipEditModel.Coder` は method ID の byte 列・任意の properties・入出力数を持ち、writer と updater は
+`SevenZipHeaderSerializer.coder` で共通に直列化する。将来の LZMA / PPMd / BCJ も同じ表現で記録できる。
+`SevenZipChunkPipeline` は既存の `OrderedChunkPipeline` 上で LZMA2 と Deflate を並列化する。
+Deflate は `DeflateBlock` の最大1 MiB入力と直前の末尾32 KiBを辞書に使い、最後だけ Z_FINISH、
+中間は Z_SYNC_FLUSH で一つの byte-aligned raw stream に連結する。7zz の検査・展開で受理を確認する。
+BZip2 は `Bzip2StreamEncoder` の状態を folder ごとに持ち、I/O ごとの入力を同期処理して一度だけ終端を書く。
+Copy は同じ I/O 境界で同期出力する。LZMA2 の既定 byte 列は凍結済み hash と既存試験で固定する。
+
+実測した `7zz a -p... -mhe=off -mhc=off` と
+同じ decoder 順で AES（06 F1 07 01）を coder 0、選択方式を coder 1 に置く。Copy も同じ chain を使う。
 bind pair は input 1 ← output 0、packed input は暗黙の 0。unpack sizes は AES 出力である
-圧縮結果の真の長さ、LZMA2 出力であるファイル長の順で、substream CRC は元ファイルの CRC。
+圧縮結果の真の長さ、選択方式の出力であるファイル長の順で、substream CRC は元ファイルの CRC。
 
 AES property は `53 0F` + 16 byte IV（NumCyclesPower 19、salt なし）。UTF-16LE パスワードと
 8 byte little-endian counter を 0 から 2^19 - 1 まで連結して SHA-256 へ入力し、鍵を得る。
@@ -653,7 +674,7 @@ AES property は `53 0F` + 16 byte IV（NumCyclesPower 19、salt なし）。UTF
 最後の block の不足だけを zero pad する。真の圧縮長を AES の unpack size に記録する。
 空ファイル・directory は従来の EmptyStream / EmptyFile 表現を使う。
 
-`SevenZipWriter.lzmaChunkSize` は **16 MiB**、I/O 用の `chunkSize` は **256 KiB** と分離する。
+LZMA2 の `SevenZipChunkPipeline.chunkSize` は **16 MiB**、I/O 用の `IOChunk.size` は **256 KiB** と分離する。
 短い read が返っても最大 16 MiB まで入力を集めてから Apple の LZMA buffer API を一度呼ぶ。
 各片の LZMA2 辞書 reset を残して終端 byte だけを取り除き、最後に一度だけ終端を書く。
 圧縮出力も 256 KiB ごとに分割して暗号化・書込を行う。一つの folder 内で decoder が reset する
@@ -852,14 +873,15 @@ empty / anti / StartPos も保つ。改名だけは NFC と directory の末尾 
 改名は元の byte のままにする。予約と衝突判定は既存の共通部品を使う。
 
 全部を削除した folder は落とし、solid の一部だけを削除した場合は、その folder 全体を順に復号して
-CRC を照合し、生存 file を元の順の一つの LZMA2 folder に作り直す。他の folder は復号しない。
+CRC を照合し、生存 file を元の順の一つの `options.sevenZipMethod` の folder に作り直す。他の folder は復号しない。
 AES の folder は暗号化の予約が無ければ AES のまま。作り直しの出力は `makeScratch` に先に書いて長さを
 確定し、S24-c1 の `.scratch` で写す。後続 pack は新しい位置へ写す。生存 stream が 0 byte だけの場合も
-LZMA2 の `00` と各 substream の CRC を持つ folder を書く。
+選択方式の空 stream と各 substream の CRC を持つ folder を書く（LZMA2 は `00`、Copy の packed size は0）。
 folder ごとの作り直し・AES 変換・password 検証の状態と encryptor は `SevenZipFolderWorkset` が持ち、`SevenZipUpdater` は
 追加・commit・自己照合のライフサイクルと出力だけを担う（2026-09-29）。
-`SevenZipFolderEncoder` は既存 writer の連結規則を共用し、本文 16 MiB / header 1 MiB の片を
-`resolvedCompressionThreads` で並列化する。通常の writer の出力 byte は変えない。
+`SevenZipFolderEncoder` は writer と同じ方式・level・AES の出力規則を使う。新規追加と 7z への rewriter も
+`options.sevenZipMethod` に従う。圧縮 header は従来の LZMA2 の1 MiBの片を使い、本文の選択方式から独立させる。
+既定 LZMA2 の writer の出力 byte は変えない。
 
 最初の add は共有部品の `beginAppend` の dup descriptor へ直接書く。追加専用 writer は
 `endEntries` で記録を返し、header を書いたり output を閉じたりしない。sequential の場合は先に prefix を

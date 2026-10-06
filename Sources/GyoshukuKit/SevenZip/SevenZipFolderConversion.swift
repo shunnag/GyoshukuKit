@@ -33,7 +33,7 @@ final class SevenZipFolderConversion {
                 guard let aes else { throw WriterError.invalidState }
                 folder.coders[index].properties = Array(aes.properties)
             } else if folder.coders.count == 1 {
-                folder.coders = [.init(methodID: [0])]
+                folder.coders = [.copy]
             } else {
                 guard let consumer = folder.bindPairs.first(where: { $0.output == output }) else { throw WriterError.invalidState }
                 folder.coders.remove(at: index)
