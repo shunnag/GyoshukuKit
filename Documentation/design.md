@@ -1134,3 +1134,79 @@ text の level 6 速度は xz の 93.1%（目標 40% 以上）、level 1 / 6 は
 release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests と追加 2 tests、release benchmark を検証済み。
 通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
 検証時の log は `.build/verification/lzma-encoder-run/`、oracle の書庫と log は `.build/verification/lzma-encoder-oracles/` に保存する。
+
+### LZ4 frame encoder（2026-10-06）
+
+`LZ4FrameEncoder` は [LZ4 Frame Format v1.6.4](https://github.com/lz4/lz4/blob/dev/doc/lz4_Frame_format.md)
+から独立に実装した internal codec。magic `0x184D2204`、version 01、独立 block、BD=7（4 MiB）、
+content checksum 有効の一つの frame を書く。既知の `contentSize` は header に載せ、入力長も照合する。
+block checksum は既定 off で指定可能。header / block / content の XXH32 は
+[公開 xxHash 仕様](https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md)から自前実装し、末尾は最大 15 byte。
+block 本体だけを Apple の `compression_encode_buffer(..., COMPRESSION_LZ4_RAW)` に委ねる。
+SDK `usr/include/compression.h` は RAW を buffer API 専用と記載する。`COMPRESSION_LZ4` の
+Apple 独自 wrapper は使わない。縮まない block は長さの最上位 bit を立ててそのまま格納する。
+
+frame の連結ではなく、`OrderedChunkPipeline` で同じ frame の独立 block を並列化し順序どおり出す。
+組立中を含め最大 `threads` block の枠、各 block は入力 4 MiB、圧縮試行 4 MiB 未満、framing 済み結果
+4 MiB + 8 byte 以下なので、Swift 側の上限は概ね `threads × 12 MiB`（呼出元の入力・emit の保持分を除く）。
+これに各 native 呼出しの固定 scratch が加わる。stream 全体の index / 入力を保持しない。
+空、1 byte、64 KiB zeros、9 MiB random の stored block、4 MiB 境界を越える 12 MiB text を
+content size / block checksum の全組み合わせで試験し、KaitoKit と `lz4 -t` / `lz4 -dc` で検証する。
+
+### Brotli stream encoder（2026-10-06）
+
+`BrotliStreamEncoder` は [RFC 7932](https://www.rfc-editor.org/rfc/rfc7932) の stream を、Apple の
+`compression_stream_init(..., COMPRESSION_STREAM_ENCODE, COMPRESSION_BROTLI)` と
+`compression_stream_process` / `COMPRESSION_STREAM_FINALIZE` で書く。圧縮本体・framing は OS が提供し、
+Swift は入力供給・出力排出・native state の寿命と失敗を管理する。stream は連結できないので、全 write を
+一つの逐次 stream に渡す。Apple は固定 level 2 の encoder を提供するため、level 設定は公開しない。
+[Apple の API 文書](https://developer.apple.com/documentation/compression/compression_brotli)と、検証した
+MacOSX27.0.sdk の `usr/include/compression.h:114-126` に固定 level 2 と macOS 12.0 以降の記載がある。
+stream API 自体は同 header の macOS 10.11 以降。Package.swift の最低 macOS 26.0 は双方を満たす。
+
+Swift が保持するのは 256 KiB の出力 buffer と空入力用 1 byte、native state だけで、入力を全量収集しない。
+native の辞書・作業領域は固定 encoder の window に従う（具体的な確保量は Apple API の保証にない）。
+LZ4 と同じ五つの入力を不揃いな chunk に分け、別呼出しの finish、byte ごとの write、入力付き finish も試験する。
+KaitoKit と `brotli -t` / `brotli -dc` が同じ内容を復元することを確認する。
+
+### UNIX compress / LZW stream encoder（2026-10-06）
+
+`LZWStreamEncoder` は [公開 LZC 形式説明](https://ciderpress2.com/formatdoc/LZC-notes.html)と
+[compress(1) の辞書規則](https://man.openbsd.org/compress.1)からの独立した純 Swift 実装。Apple の圧縮 API は
+使わない。header は `1F 9D` と block mode `0x80 | maxbits`、maxbits は 12...16（既定 16）。
+形式の範囲は 9...16 だが、macOS の gzip / uncompress が 12 未満を拒否するため 9...11 は
+`WriterError.invalidOption("compressMaxbits")` とする。tool 固有の CLEAR 回避策は入れない。
+prefix code と次の byte の辞書を使い、9 bit から最大幅まで LSB first の 8-code group に詰める。
+幅を増やすのは旧幅の code を出した直後、次の辞書 entry を登録する前。幅変更と CLEAR=256 の後は
+旧幅の group を `width` byte まで埋め、EOF だけは byte 境界まで詰める。CLEAR 後は 9 bit literal から再開する。
+KaitoKit の `LZWDecoder` が幅変更 / CLEAR 時に旧 group の残りを破棄することも読み、実ツールで互換性を検査する。
+
+辞書が満杯になった後、10,000 入力 byte ごと（次の code 出力時）に累積圧縮率を比較する。
+悪化したら CLEAR を出し辞書と最高比を reset する。評価時点の違いで `compress(1)` との byte 一致は要求しない。
+保持量は最大 `2^maxbits - 257` 辞書 entry（16 bit で 65,279）、256 KiB + 最大 15 byte の出力、
+16 byte の group、現在の prefix とカウンター。入力長に比例する保存領域はない。
+maxbits 12 / 16 で五つの入力と text → random → text の 7 MiB を試験し、CLEAR が発生することも検査する。
+KaitoKit と `/usr/bin/uncompress -c`、OS の `/usr/bin/gzip -dc`、`/opt/homebrew/bin/7zz x -so` で byte を照合し、
+`/usr/bin/compress -c -b <maxbits>` のサイズから 25% を越えて離れないことを確認する。
+空の `.Z` は EOF code がなく header のみで、BSD gzip / uncompress は拒否するため、
+その特定の終了値・診断と空の出力も試験に明記する。KaitoKit と 7zz は空を正常に復元する。
+制限付き環境で `compress -c` が `/dev/stdout` の再 open を拒否された場合だけ、同じ OS codec を
+`compress -f -b <maxbits> <一時入力>` の file 出力で呼ぶ。`uncompress -c` も同じ再 open を行うため、
+`uncompress -c` が同じ診断を返した場合だけ `uncompress -f <一時コピー.Z>` で全 byte を照合する。
+gzip と 7zz の stdout 復号も常に試験する。必須の実ツール照合は維持する。
+
+新 codec の外部ツール不在は Tests/README.md の規則どおり失敗とする。製品の外部依存には加えない。
+検証コマンド（CLI 復号 byte の照合は XCTest 内で行う）:
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter "LZ4|Brotli|LZW|Compress|XXH32"
+/opt/homebrew/bin/lz4 -t output.lz4
+/opt/homebrew/bin/lz4 -dc output.lz4 > restored
+/opt/homebrew/bin/brotli -t output.br
+/opt/homebrew/bin/brotli -dc output.br > restored
+/usr/bin/uncompress -c output.Z > restored
+/usr/bin/compress -c -b 16 input > reference.Z
+/opt/homebrew/bin/7zz x -so output.Z > restored
+git diff --stat
+```
