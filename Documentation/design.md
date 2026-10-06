@@ -113,7 +113,7 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
 | 2 | tar.lzma / .lz / .lz4 / .br / .Z | ○ | ○(ArchiveRewriter) | ○(全体再符号化) |
 | 2 | 単独 gzip / bzip2 / XZ / LZMA / lzip / LZ4 / Brotli / compress | ○(SingleStreamCompressor) | 対象外 | 対象外 |
-| 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
+| 3 | 7z | ○(solid・BCJ / ARM64 / Delta・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
 | 4 | LHA / LZH | ○(`-lh5-` / `-lh6-` / `-lh7-` / `-lh0-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
@@ -710,7 +710,7 @@ compressed size は spool + 12 byte。deinit による失敗時の削除と、�
 
 ### 7z の圧縮方式・AES-256 と header
 
-非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
+既定は非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
 LZMA2（既定）/ LZMA / Deflate / BZip2 / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
 
 | 方式 | method ID | properties | level と stream |
@@ -723,7 +723,7 @@ LZMA2（既定）/ LZMA / Deflate / BZip2 / Copy を選ぶ。ZIP の `compressio
 
 method ID と coder の flags は `inbox/lzma-sdk-26.03/DOC/Methods.txt` と `DOC/7zFormat.txt` で照合する。
 `SevenZipEditModel.Coder` は method ID の byte 列・任意の properties・入出力数を持ち、writer と updater は
-`SevenZipHeaderSerializer.coder` で共通に直列化する。LZMA と将来の PPMd / BCJ も同じ表現で記録できる。
+`SevenZipHeaderSerializer.coder` で共通に直列化する。LZMA・BCJ / ARM64 / Delta と将来の PPMd も同じ表現で記録できる。
 `SevenZipChunkPipeline` は既存の `OrderedChunkPipeline` 上で LZMA2 と Deflate を並列化する。
 Deflate は `DeflateBlock` の最大1 MiB入力と直前の末尾32 KiBを辞書に使い、最後だけ Z_FINISH、
 中間は Z_SYNC_FLUSH で一つの byte-aligned raw stream に連結する。7zz の検査・展開で受理を確認する。
@@ -748,12 +748,56 @@ nil レベルの LZMA2 の `SevenZipChunkPipeline.chunkSize` は **16 MiB**、I/
 短い read が返っても最大 16 MiB まで入力を集めてから Apple の LZMA buffer API を一度呼ぶ。
 各片の LZMA2 辞書 reset を残して終端 byte だけを取り除き、最後に一度だけ終端を書く。
 圧縮出力も 256 KiB ごとに分割して暗号化・書込を行う。一つの folder 内で decoder が reset する
-正当な stream であり、平文・暗号出力とも spool は不要。
+正当な stream であり、既定の non-solid・filter 無しの平文・暗号出力は spool 不要。
 
 自前 LZMA2 は選んだ辞書 property を保持し、辞書が16 MiBより大きいと片を3倍にする。
 encoder closure は片ごとに新しい encoder を作り、辞書 reset を残して連結する。
 並列数と memoryLimit は自前 encoder 節で解決し、`maximumPendingInputBytes` は t × 片。
 raw LZMA は256 KiBずつ同期入力するので pending input は0。
+
+`sevenZipSolid: .off` と `sevenZipFilter: .none` は従来の writer 経路を保持する。
+それ以外は `SevenZipBlockWriter` が入力順に非空 file を集め、`ScratchFile` に256 KiBずつ流す。
+solid の上限は `blockSize` と `filesPerBlock`。nil のサイズは
+`min(4 GiB, max(64 MiB, dictionary × 2))`、件数は1,000,000とする。
+Apple LZMA2 と非 LZMA 方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指定 level の辞書。
+次の file が上限を越える前に folder を閉じ、file 自体は分割しない。上限超過 file は単独にする。
+空 file / directory は EmptyStream のままで、件数とサイズには数えない。拡張子による並べ替えは行わない。
+folder の全サイズ確定後に `SevenZipFolderEncoder` を使うので raw LZMA の expectedSize も既知となる。
+作業 disk は最大 `max(blockSize, 最大 file サイズ)`、圧縮メモリは既存 pipeline の上限を保つ。
+巨大 file の folder は add の終了時に出力し、待つ spool は必ず blockSize 以下にする。
+`pendingInputBytes` / `maximumPendingInputBytes` は solid では spool の未圧縮 byte を数える。
+`finishAdditions` は残る block を閉じ、読んだ byte を進捗へ通知する。finish だけの場合と出力 byte は同じ。
+
+folder 一つに pack 一つ、非空 file ごとに substream 一つを対応させる。
+`SevenZipHeaderSerializer` は `NumUnpackStream (0D)` と、各 folder の最後以外の substream size (09)、
+元 file の CRC (0A) を `SubStreamsInfo` に書く。folder CRC は省略する。
+updater の追加帳簿にも folder 定義と folder 内の substream 添字を渡し、元 folder には結合しない。
+
+`SevenZipFilterEncoder` は public domain SDK 26.03 の `C/Bra86.c`・`C/Bra.c`・`C/Delta.c` と
+KaitoKit `Codecs/SevenZipFilters` の逆変換を基準に、Swift で前向き変換する。
+BCJ x86 は `03 03 01 03`、ARM64 は新しい `DOC/Methods.txt` の `0A`、Delta は `03`。
+x86 は E8/E9 候補 mask と25 bit符号拡張を持ち、ARM64 は BL と範囲を限定した ADRP を変換する。
+Delta は元 byte の履歴から距離1〜256の差分を取る。properties は距離−1の1 byte。
+branch filter の開始位置が0なら properties を省略し、既存の4 byte開始位置は再圧縮でも保つ。
+7zz の BCJ coder は properties を受け付けないため、新規 BCJ は開始位置0とし、開始位置保持の実ツール試験は ARM64 で行う。
+命令の端数は次の I/O へ持ち越し、folder 末尾だけ無変換で出す。状態・位置は file 境界で reset しない。
+decoder 順は packed → [AES] → method → filter → file、単入力・単出力の coder をこの順に置く。
+bind は `input i ← output i−1`、packed input は暗黙の0。
+unpack sizes は [圧縮結果の真の長さ]・folder サイズ・filter 出力の folder サイズ。
+AES は folder に一つで、header の暗号化経路は本文の filter から独立する。
+
+`.auto` は先頭64 KiB内の PE header / 単一 Mach-O / ELF64 の CPU を読む。
+x86・x86_64 PE / Mach-O は BCJ、arm64 PE / Mach-O / ELF は ARM64、universal Mach-O と未判定は none。
+non-solid は file ごと、solid は filter class が変わったら block を閉じる。
+削除による solid の再圧縮は元の filter と開始位置を使い、指定方式だけを変更する。carry の coder・pack は保持する。
+新規作成、updater の追加、7z への rewriter は同じ options と block writer を使う。
+
+試験は全方式、Apple / 自前 LZMA2、AES / header 暗号化、複数のサイズ・件数上限、空 file / directory、
+10,000小ファイル、短い read、filter をまたぐ auto block、BCJ / ARM64 / Delta の固有状態と開始位置を扱う。
+必須の7zz `t / l -slt / x` と KaitoKit の byte 照合、7zz `-ms=on -mf=BCJ/ARM64/Delta:4` の逆方向、
+filter + Copy の packed byte の7zzとの直接比較、実在 arm64 binary corpus の圧縮サイズ比較、既定の凍結済みhashを用いる。
+2026-10-06 の `/usr/lib/dyld`・`/usr/bin/ditto`・`/usr/bin/git` の arm64 slice を入力順にまとめた
+Apple LZMA2 の packed サイズは、filter 無し348,699 byte、ARM64付き329,089 byteだった。
 
 Apple の encoder は 8 MiB の辞書を使う。16 MiB 以下のファイルは従来の whole-file buffer API と
 同じ一回の圧縮なので、圧縮 payload と圧縮率は変わらない。16 MiB を超えるファイルだけ境界で
@@ -902,7 +946,7 @@ total は計画時に固定し、完了時の一致を確認してから公開�
 > arithmetic done on KaitoKit's side so writer and reader cannot disagree. Stage
 > one does not need it. GyoshukuKit does not change KaitoKit's source.
 >
-> Password output supports ZIP WinZip AES-256 or ZipCrypto, plus non-solid 7z
+> Password output supports ZIP WinZip AES-256 or ZipCrypto, plus 7z
 > AES-256-CBC and optional encrypted headers. ZIP still writes no descriptors;
 > ZipCrypto spools compressed bytes to learn the CRC first, while AES streams.
 > 7z bounds its LZMA2 input to 16 MiB while I/O and encryption stay at 256 KiB.

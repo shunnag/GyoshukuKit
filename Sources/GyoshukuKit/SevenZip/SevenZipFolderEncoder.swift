@@ -11,15 +11,16 @@ final class SevenZipFolderEncoder {
     private var rawLZMA: LZMAEncoder?
     private let lzma: LZMAWriterConfiguration?
     private let size: UInt64
+    private let filter: SevenZipWriteFilter
     var lzmaProperties: Data { lzma?.properties?.bytes ?? LZMAEncoderProperties.preset(6).bytes }
     private(set) var properties: UInt8 = 0
     private(set) var compressedSize: UInt64 = 0
     private(set) var packedSize: UInt64 = 0
 
     init(aes: SevenZipAESEncryptor?, method: SevenZipCompressionMethod = .lzma2, deflateLevel: Int = 6, bzip2Level: Int = 9,
-         lzma: LZMAWriterConfiguration? = nil, size: UInt64 = 0) {
+         lzma: LZMAWriterConfiguration? = nil, size: UInt64 = 0, filter: SevenZipWriteFilter = .none) {
         self.aes = aes; self.method = method; self.deflateLevel = deflateLevel; self.bzip2Level = bzip2Level
-        self.lzma = lzma; self.size = size
+        self.lzma = lzma; self.size = size; self.filter = filter
         // 空の solid folder でも選択した辞書を宣言する。Apple 経路の既定値は変えない。
         if method == .lzma2, let properties = lzma?.properties {
             self.properties = LZMA2Encoder.dictionaryProperty(for: properties.dictSize)
@@ -86,22 +87,26 @@ final class SevenZipFolderEncoder {
 
     func folder(size: UInt64, crc: UInt32? = nil, substreamCount: Int = 1) -> SevenZipEditModel.Folder {
         let methodCoder = SevenZipEditModel.Coder.compression(method, properties: properties, lzmaProperties: lzmaProperties)
-        let coders: [SevenZipEditModel.Coder]
-        if let aes { coders = [.aes(properties: Array(aes.properties)), methodCoder] }
-        else { coders = [methodCoder] }
-        return .init(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)], packedInputs: [0],
-                     unpackSizes: aes == nil ? [size] : [compressedSize, size], finalOutput: aes == nil ? 0 : 1,
+        var coders: [SevenZipEditModel.Coder] = aes.map { [.aes(properties: Array($0.properties))] } ?? []
+        coders.append(methodCoder)
+        if let coder = filter.coder { coders.append(coder) }
+        var sizes: [UInt64] = aes == nil ? [] : [compressedSize]
+        sizes.append(size)
+        if filter.coder != nil { sizes.append(size) }
+        return .init(coders: coders, bindPairs: (1..<coders.count).map { .init(input: $0, output: $0 - 1) }, packedInputs: [0],
+                     unpackSizes: sizes, finalOutput: coders.count - 1,
                      crc32: crc, packIndices: 0..<1, substreamIndices: 0..<substreamCount)
     }
 
     static func encode(size: UInt64, options: WriterOptions, chunkSize: Int? = nil,
-                       aes: SevenZipAESEncryptor?, read: (Int) throws -> Data,
+                       aes: SevenZipAESEncryptor?, filter: SevenZipWriteFilter = .none, read: (Int) throws -> Data,
                        write: (Data) throws -> Void) throws -> SevenZipFolderEncoder {
         let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
             deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
             lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil, size: size)
+                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil, size: size, filter: filter)
         let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize)
+        let filtered = filter == .none ? nil : SevenZipFilteredInput(filter: filter, size: size)
         defer { pipeline.abandon() }
         func emit(_: Void, _ result: SevenZipChunkOutput?) throws {
             if let result { try encoder.consume(result, write: write) }
@@ -113,7 +118,8 @@ final class SevenZipFolderEncoder {
             var data = Data()
             data.reserveCapacity(count)
             while data.count < count {
-                let chunk = try read(min(IOChunk.size, count - data.count))
+                let requested = min(IOChunk.size, count - data.count)
+                let chunk = try filtered.map { try $0.read(requested, source: read) } ?? read(requested)
                 guard !chunk.isEmpty, chunk.count <= count - data.count else { throw WriterError.sourceChanged("7z folder") }
                 data.append(chunk)
             }

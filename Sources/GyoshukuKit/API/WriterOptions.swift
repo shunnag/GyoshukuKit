@@ -26,6 +26,26 @@ public enum SevenZipCompressionMethod: Sendable {
     case copy
 }
 
+/// 7z の新規 folder のまとめ方。空ファイルと directory は block に数えない。
+public enum SevenZipSolidMode: Sendable, Equatable {
+    case off
+    /// 入力順。nil のサイズは min(4 GiB, max(64 MiB, 辞書 × 2))、件数は1,000,000。
+    /// ファイルは分割せず、上限より大きいファイルは単独の folder にする。
+    case on(blockSize: UInt64? = nil, filesPerBlock: Int? = nil)
+}
+
+/// 圧縮前に適用する 7z filter。状態は同じ solid folder のファイル境界を越えて続く。
+public enum SevenZipFilterMode: Sendable, Equatable {
+    case none
+    /// PE / 単一 Mach-O の x86・x86_64 は BCJ、PE / Mach-O / ELF の arm64 は ARM64。
+    /// universal Mach-O と未判定の入力は none。solid は種別が変わるたびに block を区切る。
+    case auto
+    case bcjX86
+    case arm64
+    /// 元 byte の距離1〜256の差分を取る。範囲外は invalidOption("sevenZipFilter")。
+    case delta(distance: Int)
+}
+
 /// LHA の新規 member に使う圧縮方式。ディレクトリは常に -lhd-。
 public enum LHACompressionMethod: Sendable {
     /// 8 KiB 辞書の static Huffman。既定の方式。
@@ -75,6 +95,10 @@ public struct WriterOptions: Sendable {
     /// 7z の新規 folder と updater が再圧縮する folder の方式。既定は LZMA2。
     /// rewriter の 7z 出力にも適用する。updater が運ぶ既存 folder の coder は保持する。
     public var sevenZipMethod: SevenZipCompressionMethod
+    /// 7z の新規作成・追加・rewriter の solid 設定。既定は従来と同じ .off。
+    public var sevenZipSolid: SevenZipSolidMode
+    /// 新規 folder の filter。既存 folder の一部削除では元の filter を保持する。
+    public var sevenZipFilter: SevenZipFilterMode
     /// LHA の追加と LHA への rewriter に使う方式。既定は .lh5。縮まなければ -lh0-。
     /// updater が運ぶ既存 member の圧縮 byte と method は保持する。
     public var lhaMethod: LHACompressionMethod
@@ -137,6 +161,8 @@ public struct WriterOptions: Sendable {
     public init(
         compressionMethod: CompressionMethod = .deflate,
         sevenZipMethod: SevenZipCompressionMethod = .lzma2,
+        sevenZipSolid: SevenZipSolidMode = .off,
+        sevenZipFilter: SevenZipFilterMode = .none,
         lhaMethod: LHACompressionMethod = .lh5,
         lhaLevel: Int = 6,
         deflateLevel: Int = 6,
@@ -156,6 +182,8 @@ public struct WriterOptions: Sendable {
     ) {
         self.compressionMethod = compressionMethod
         self.sevenZipMethod = sevenZipMethod
+        self.sevenZipSolid = sevenZipSolid
+        self.sevenZipFilter = sevenZipFilter
         self.lhaMethod = lhaMethod
         self.lhaLevel = lhaLevel
         self.deflateLevel = deflateLevel
@@ -186,6 +214,7 @@ public struct WriterOptions: Sendable {
     /// ZIP XZ は通常枠 t 個と組立中1個の片を上界とし、項目の終了時には全て出力する。
     /// LHA は t 個の1 MiB入力と方式ごとの履歴を含む。逐次と forced store は0。
     /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
+    /// 7z solid は disk 上で待つ一つの block の上限。圧縮メモリの大きさとは独立する。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
         let lzma = try? LZMAWriterConfiguration(options: self)
         let lzmaThreads = UInt64(max(1, min(64, lzma?.threads ?? 1)))
@@ -213,6 +242,8 @@ public struct WriterOptions: Sendable {
             let light = lzmaLevel == nil && lzmaThreads > 1 ? (lzmaThreads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
             return lzmaThreads * piece + light + UInt64(ParallelXZCompressor.memberPackingSize)
         case .sevenZip:
+            // solid の未圧縮入力は disk 上の spool。最大一つの block を finishAdditions で出力する。
+            if case .on = sevenZipSolid { return resolvedSevenZipBlockSize }
             switch sevenZipMethod {
             case .lzma2: return lzmaThreads * piece
             case .deflate: return threads * UInt64(DeflateBlock.size)
@@ -230,6 +261,14 @@ public struct WriterOptions: Sendable {
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
         guard (1...9).contains(lhaLevel) else { throw WriterError.invalidOption("lhaLevel") }
+        if case let .on(blockSize, filesPerBlock) = sevenZipSolid {
+            if blockSize == 0 || filesPerBlock.map({ $0 <= 0 }) == true {
+                throw WriterError.invalidOption("sevenZipSolid")
+            }
+        }
+        if case let .delta(distance) = sevenZipFilter, !(1...256).contains(distance) {
+            throw WriterError.invalidOption("sevenZipFilter")
+        }
         if let lzmaLevel, !(0...9).contains(lzmaLevel) { throw WriterError.invalidOption("lzmaLevel") }
         if let memoryLimit, memoryLimit == 0 { throw WriterError.invalidOption("memoryLimit") }
         if let compressionThreads, !(1...64).contains(compressionThreads) {
@@ -256,5 +295,12 @@ public struct WriterOptions: Sendable {
             _ = try LZMAWriterConfiguration(options: self, raw: sevenZipMethod == .lzma)
         default: break
         }
+    }
+
+    var resolvedSevenZipBlockSize: UInt64 {
+        if case let .on(size?, _) = sevenZipSolid { return size }
+        let dictionary = sevenZipMethod == .lzma || (sevenZipMethod == .lzma2 && lzmaLevel != nil)
+            ? UInt64(LZMAEncoderProperties.preset(lzmaLevel ?? 6).dictSize) : 8 << 20
+        return min(4 << 30, max(64 << 20, dictionary * 2))
     }
 }

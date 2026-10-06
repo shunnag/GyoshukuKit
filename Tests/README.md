@@ -33,6 +33,7 @@
 | `ByteAssertions`・`TestCorpus`・`ArchiveFormat+Testing` | 大きな file の chunk ごとの比較、seed を固定した byte 列、形式ごとの拡張子 |
 | `SingleStreamTestSupport` | 単独 stream の実ツール復号、decoder と bsdtar の pipe、lzip trailer の独立検査 |
 | その他 | `SevenZipExternalOracles`・`CompressedTarCompatibility`・`SevenZipProbePayload`・`BatchAdditionTestSupport`・`AdditionProgressTestSupport` |
+| `SevenZipSolidFilterSupport` | 小さい Mach-O 相当の入力、solid / filter の必須7zz t / l / x と KaitoKit 往復、folder 数・substream CRC の照合 |
 
 ## Fixtures
 

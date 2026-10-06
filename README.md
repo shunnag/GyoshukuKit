@@ -5,7 +5,7 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 
 - 対象: macOS 26 以上、Swift 6、Apple Silicon
 - 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib) / BZip2 (system libbz2) / LZMA (自前) / XZ (Apple Compression または自前)
-- 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / tar.lzma / tar.lz / tar.lz4 / tar.br / tar.Z / non-solid 7z / LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
+- 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / tar.lzma / tar.lz / tar.lz4 / tar.br / tar.Z / 7z（solid・BCJ / ARM64 / Delta を選択可能）/ LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
 - 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
 - 単独ファイルの圧縮: `SingleStreamCompressor` で .gz / .bz2 / .xz / .lzma / .lz / .lz4 / .br / .Z を新規作成
 - 一括追加と進捗: `ArchiveAddition` と `add(_:events:)`、ディスク読取の byte 進捗、`finishAdditions(progress:)`、updater / rewriter の commit 進捗
@@ -117,6 +117,8 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 |---|---|---|
 | `compressionMethod` | `.deflate` | ZIP の `.stored` / `.deflate` / `.bzip2` / `.lzma` / `.xz` |
 | `sevenZipMethod` | `.lzma2` | 7z の `.lzma2` / `.lzma` / `.deflate` / `.bzip2` / `.copy`。追加・再圧縮・7z への rewriter に適用 |
+| `sevenZipSolid` | `.off` | `.on(blockSize:filesPerBlock:)` で入力順に非空ファイルを一つの folder にまとめる。nil は下記の既定上限 |
+| `sevenZipFilter` | `.none` | `.auto` / `.bcjX86` / `.arm64` / `.delta(distance: 1...256)`。圧縮前の変換 |
 | `lhaMethod` | `.lh5` | LHA の `.lh5` / `.lh6` / `.lh7` / `.stored`。新規追加・LHA への rewriter に適用。updater が運ぶ既存 member の byte は保持 |
 | `lhaLevel` | `6` | LHA の探索量 `1...9`。既定の LH5 出力 byte は従来と同じ。stored は探索しない |
 | `deflateLevel` | `6` | ZIP / 7z Deflate / tar.gz / 単独 gzip の zlib level `0...9` |
@@ -148,7 +150,7 @@ macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 を�
 互換性のため Deflate を既定に保ち、BZip2 / LZMA / XZ は KaitoKit や 7-Zip を使う場合の opt-in にします。
 AES-256 では header の method は99、0x9901 に実際の12 / 14 / 95を記録します。ZipCrypto も圧縮後の byte を暗号化します。
 
-7z の書き込み方式は `SevenZipCompressionMethod` で選びます。非空ファイルごとに一つの non-solid folder を作ります。
+7z の書き込み方式は `SevenZipCompressionMethod` で選びます。既定は非空ファイルごとに一つの non-solid folder です。
 
 | 方式 | method ID | encoder |
 |---|---|---|
@@ -165,6 +167,28 @@ Deflate は最大1 MiBの block を直前の末尾32 KiBの辞書で圧縮し、
 LZMA / BZip2 は folder ごとに一つの stream を同期で完結させ、Copy も同期出力します。
 `maximumPendingInputBytes(for: .sevenZip)` は LZMA2 が `解決した並列数 × 片サイズ`、
 Deflate が `compressionThreads × 1 MiB`、LZMA / BZip2 / Copy が0です。BZip2 の codec state は最大約7.6 MBと I/O buffer です。
+
+`sevenZipSolid: .on()` は入力順を保ち、空ファイルと directory を件数・サイズに数えません。
+サイズの既定上限は `min(4 GiB, max(64 MiB, 辞書 × 2))`、件数は1,000,000です。
+Apple LZMA2 と非 LZMA 方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は選択 level の辞書を使います。
+ファイルは分割せず、上限を超えるものは単独の folder にします。全方式と AES・header 暗号化を併用できます。
+一つの block の入力を出力の隣の unlink 済み一時ファイルへ流し、確定したサイズで圧縮します。
+一時ディスク容量は最大 `max(blockSize, 最大ファイルサイズ)`、圧縮のメモリ上限は従来と同じです。
+solid の `maximumPendingInputBytes` はメモリ使用量ではなく、disk 上に待つ一つの block のサイズ上限です。
+
+`.auto` は先頭64 KiB内の magic / CPU を調べ、x86・x86_64 PE / 単一 Mach-O に BCJ、
+arm64 PE / 単一 Mach-O / ELF64 に ARM64 を使います。universal Mach-O と未判定の入力は変換しません。
+non-solid はファイル別、solid は filter の種別が変わるたびに block を区切ります。
+filter の状態と命令位置は同じ folder のファイル境界を越えて続きます。Delta の距離は1〜256です。
+updater の追加は設定に従う新しい folder を末尾へ置き、既存 folder の一部削除では元の filter と開始位置を保ちます。
+既定の `.off` / `.none` の出力 byte は従来と同じです。
+
+```swift
+let options = WriterOptions(
+    sevenZipSolid: .on(blockSize: 128 << 20, filesPerBlock: 10_000),
+    sevenZipFilter: .auto
+)
+```
 
 ZIP の空ファイル・ディレクトリ・symlink は常に stored です。通常ファイルの payload は
 256 KiB 単位で読み書きし、作業メモリをファイルサイズに比例させません。central directory 用の
@@ -390,7 +414,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
 > GyoshukuKit 0.7.0 depends on KaitoKit 0.12.x through `.upToNextMinor(from: "0.12.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
-> Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, non-solid 7z and LHA.
+> Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, 7z and LHA. 7z supports optional solid blocks and BCJ / ARM64 / Delta filters.
 > `TarUpdater`, `CompressedTarUpdater`, `LHAUpdater` and `SevenZipUpdater` edit existing archives while carrying unchanged members or compressed regions. Changed compressed-tar regions and partially deleted solid 7z folders are recompressed. ZIP and 7z updaters also support password changes without recompression.
 > `ArchiveAddition` batches use `add(_:events:)`; byte progress covers disk reads, `finishAdditions(progress:)` and updater/rewriter commits.
 >

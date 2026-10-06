@@ -3,6 +3,22 @@ import XCTest
 @testable import GyoshukuKit
 
 final class SevenZipCompressionRewriterTests: XCTestCase {
+    func testRewriterHonoursSolidFilterAndAESOptions() throws {
+        let root = try TestSupport.directory("7z-solid-filter-rewriter"), source = root.appendingPathComponent("source.zip")
+        let items: [ExpectedEntry] = [.init(name: "a", data: SevenZipSolidFilterSupport.macho(arm64: true)),
+            .init(name: "empty"), .init(name: "b", data: SevenZipSolidFilterSupport.macho(arm64: true))]
+        let writer = try ArchiveWriter.create(url: source)
+        for item in items { try writer.add(data: item.data, as: item.name, modificationDate: TestSupport.date) }
+        try writer.finish()
+        let output = root.appendingPathComponent("output.7z")
+        let options = WriterOptions(sevenZipSolid: .on(), sevenZipFilter: .auto, password: "secret", encryptsSevenZipHeaders: true)
+        let rewriter = try ArchiveRewriter.open(url: source, output: output, format: .sevenZip, options: options)
+        let added = ExpectedEntry(name: "added", data: SevenZipSolidFilterSupport.macho(arm64: true))
+        try rewriter.add(data: added.data, as: added.name, modificationDate: TestSupport.date)
+        try rewriter.commit()
+        try SevenZipSolidFilterSupport.verify(output, items: items + [added], options: options, blocks: 1, solid: true, filter: "ARM64")
+    }
+
     func testRewriterToSevenZipUsesSelectedMethodForCarriedAndAddedFiles() throws {
         let root = try TestSupport.directory("7z-methods-rewriter")
         let items = SevenZipMethodTestSupport.corpus()
