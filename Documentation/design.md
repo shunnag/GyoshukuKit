@@ -1437,3 +1437,134 @@ CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sa
 # Swift 6.4 の swiftbuild が dSYM 作成を禁止される環境では debug 情報を省略できる。
 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release -debug-info-format none --filter PPMd
 ```
+
+### 自前 Zstandard frame encoder（2026-10-06）
+
+`Compression/Zstd/ZstdFrameEncoder.swift` の internal `ZstdFrameEncoder` は、RFC 8878 の frame を純 Swift で書く。
+同期 API は `write(_:finish:emit:)`、独立 frame を作る helper は `encode(_:level:)`。
+`contentSize` が既知なら header に保存し、受取長の過不足を `sourceChanged` として拒否する。
+空の非 finish write は出力しない。finish、emit の失敗、取消しの後は `invalidState` で再利用を拒否する。
+後続の .zst / tar.zst / ZIP method 93 への接続と、chunk ごとの frame の並列化は別の作業とする。
+
+frame は magic、dictionary ID なしの header、最大 128 KiB の block、XXH64(seed=0) の下位 32 bit checksum。
+checksum flag は常に有効。既知サイズが window 以下なら single segment、それ以外は window descriptor を書く。
+既知サイズの 1 / 2 / 4 / 8 byte 表現（2 byte の +256 を含む）、未知サイズ、空 frame、連結 frame に対応する。
+raw / RLE / compressed block を選び、圧縮して縮まらない block は raw に戻す。
+literals は raw / RLE / Huffman の完全な section サイズで選択し、Huffman は小入力で 1 stream、大入力で 4 streams。
+Huffman の深さは最大 11 bit。重みは最大 symbol が 128 以下なら直接 nibble、それ以外は 2 状態 FSE で記述する。
+sequence は LL / OF / ML の predefined / RLE / 独自に正規化した FSE table を、header と推定遷移 bit 数の費用で選ぶ。
+FSE log は LL / ML が 5...9、OF が 5...8。RFC の復号 table の各遷移区間を反転して符号化 table を得る。
+repeat offset の初期値 1 / 4 / 8、LL=0 の規則、rep1-1、compressed block 間の引継ぎを扱う。
+raw / RLE block は repeat offset を変更しない。treeless Huffman、sequence Repeat_Mode、dictionary、ultra は生成しない。
+
+以下は GyoshukuKit 独自の level 表で、参照実装の preset を転記していない。
+fast は 4 byte hash と不一致区間の適応サンプリング、double hash は 4 / 8 byte hash の greedy 解析。
+lazy / lazy2 は hash chain と 1 / 2 byte 先読み。optimal は 3 / 4 byte hash と binary tree を使い、
+byte ごとの最小推定費用・literal run・repeat 履歴を保持する近似最短路解析。
+各位置で一つの履歴に併合し、短い match の全長、長さ code 境界と最長 match を比較する。
+nice 長以上の一致は終端へ進むため、完全な最適解析ではない。前 block の sequence 頻度で費用を更新する。
+block 末尾の短い key は木の子を引き継がず、未知の後続 byte に依存した順序を持ち越さない。
+
+| level | strategy | window | hash log | depth | nice length | 概算 memory 上限 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | fast | 1 MiB | 17 | 1 | 32 | 7.50 MiB |
+| 2 | fast | 1 MiB | 18 | 1 | 48 | 8.00 MiB |
+| 3 | double hash | 2 MiB | 18 | 2 | 64 | 10.25 MiB |
+| 4 | double hash | 2 MiB | 19 | 2 | 80 | 11.25 MiB |
+| 5 | double hash | 2 MiB | 19 | 2 | 96 | 11.25 MiB |
+| 6 | lazy | 2 MiB | 19 | 16 | 64 | 13.25 MiB |
+| 7 | lazy | 2 MiB | 19 | 24 | 80 | 13.25 MiB |
+| 8 | lazy | 4 MiB | 19 | 32 | 96 | 19.25 MiB |
+| 9 | lazy2 | 4 MiB | 20 | 48 | 128 | 21.25 MiB |
+| 10 | lazy2 | 4 MiB | 20 | 64 | 160 | 21.25 MiB |
+| 11 | lazy2 | 4 MiB | 20 | 96 | 192 | 21.25 MiB |
+| 12 | lazy2 | 4 MiB | 20 | 128 | 256 | 21.25 MiB |
+| 13 | optimal | 8 MiB | 20 | 64 | 128 | 100.25 MiB |
+| 14 | optimal | 8 MiB | 20 | 96 | 160 | 100.25 MiB |
+| 15 | optimal | 8 MiB | 20 | 128 | 192 | 100.25 MiB |
+| 16 | optimal | 8 MiB | 21 | 192 | 256 | 104.25 MiB |
+| 17 | optimal | 8 MiB | 21 | 256 | 384 | 104.25 MiB |
+| 18 | optimal | 8 MiB | 21 | 384 | 512 | 104.25 MiB |
+| 19 | optimal | 8 MiB | 21 | 512 | 768 | 104.25 MiB |
+
+memory は `estimatedMemoryBytes` の保守的な見積り。二つ分の window、UInt32 hash head、chain または tree のリンク、
+block / entropy / parser scratch の予算を含み、呼出元が保持する入力・出力と allocator の管理領域は含めない。
+連続 buffer は window ごとに compact し、入力全体を保存しない。未処理入力は 128 KiB 以下。
+長い stream の table position は 2 GiB ごとに番号を縮め、live window を保つ。
+比較・table 反転・符号化の hot loop は検証済み範囲の unsafe buffer を使い、unaligned load は初期化済み入力だけを読む。
+
+出自は [RFC 8878](https://www.rfc-editor.org/rfc/rfc8878) と
+[公開 xxHash specification の XXH64](https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md) からの独立実装。
+各新規 Swift file の先頭に `Independent implementation from RFC 8878; no zstd source consulted` を記す。
+facebook/zstd の `lib/*` その他の参照実装 source は読んでおらず、移植・翻訳・vendor code はない。
+KaitoKit の MIT decoder の frame / Huffman / FSE / sequence の復号規則を相互運用の確認に読んだ。
+match finder も独自に実装し、LZMA SDK 由来の既存 finder の code を取り込まない。製品に外部 codec library を加えない。
+
+試験は `Tests/GyoshukuKitTests/Compression/Zstd/`。必須の `/opt/homebrew/bin/zstd` で `-t` と `-dc`、
+公開 KaitoKit reader で全 byte を照合する。level 1 / 3 / 9 / 19 の空・1 byte・64 KiB zeros・1 MiB text・
+8 MiB random・20 MiB text/binary、不揃い chunk、非ゼロ Data startIndex、未知 content size、連結 frame を検査する。
+全 19 level の短い周期列、Huffman の 1 / 4 streams と両 tree 表現、sequence 長さ code の境界と repeat 規則も扱う。
+4 MiB の text は木の block 末尾の回帰試験。XXH64 は既知 vector、stripe をまたぐ chunk、seed と非破壊 digest を検査する。
+外部ツールが無い場合は Tests/README.md の方針どおり失敗する。
+
+benchmark は `GYOSHUKU_ZSTD_BENCHMARK=1` の release 限定。
+text は `LZMAEncoderCorpus.text` の固定 seed の英文風単語列 4,194,304 byte。
+binary は `/usr/lib/dyld` 4,129,088 byte と実在する
+`/System/Library/Frameworks/CreateML.framework/Versions/A/CreateML` 16,559,504 byte の連結、計 20,688,592 byte。
+Swift は instance 確保・checksum を含む `encode` の最良時間（累積 0.3 秒以上、最大 20 回）を使う。
+サイズは `zstd -<level> -T1 -c` の出力、参照速度は同じ corpus の `zstd -b<level> -e<level> -i1 -T1` の内部計測。
+後者は process 起動と file I/O の時間を除く。MB/s は 1,000,000 byte/秒。
+目標未達は `ZSTD-BENCH-MISS` に記録し、計測試験の失敗条件にせず、実測値と profile をここに報告する。
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox -c release
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter Zstd
+GYOSHUKU_ZSTD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release -debug-info-format none --filter ZstdEncoderBenchmarkTests
+git diff --stat
+```
+
+実測（2026-10-06、Apple M4 Max / 128 GB、macOS 27.2、Apple Swift 6.4、Zstandard CLI 1.5.7）。
+以下の bytes は checksum を含む完全な frame。
+
+| corpus | level | Swift bytes | zstd bytes | サイズ差 | Swift MB/s | zstd MB/s | 速度比 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 1,008,821 | 1,022,409 | -1.329% | 157.424 | 584.800 | 26.9% |
+| text | 3 | 933,816 | 970,449 | -3.775% | 169.235 | 547.300 | 30.9% |
+| text | 9 | 916,309 | 944,619 | -2.997% | 18.412 | 86.400 | 21.3% |
+| text | 19 | 704,190 | 692,480 | +1.691% | 2.374 | 4.780 | 49.7% |
+| binary | 1 | 7,997,811 | 9,037,641 | -11.506% | 100.884 | 764.900 | 13.2% |
+| binary | 3 | 7,371,581 | 7,570,180 | -2.623% | 99.619 | 469.100 | 21.2% |
+| binary | 9 | 6,920,557 | 6,898,131 | +0.325% | 13.755 | 118.900 | 11.6% |
+| binary | 19 | 5,339,170 | 5,204,544 | +2.587% | 3.450 | 7.630 | 45.2% |
+
+level 3 のサイズ +10% 以内、level 19 のサイズ +8% 以内は両 corpus で達成。
+level 3 の速度 25% 以上は text で達成、binary は 21.2%（目標から -3.8 percentage points、目標速度 117.275 MB/s）。
+level 1 の速度 30% 以上は未達。text は 26.9%（-3.1 points、目標 175.440 MB/s）、
+binary は 13.2%（-16.8 points、目標 229.470 MB/s）。format の機能を減らして目標へ合わせない。
+
+最適化では候補 table の試し符号化を、正規化頻度から求める遷移区間の平均 bit 幅へ置き換えた。
+選択済み table だけを構築し、unsafe buffer による遷移反転、所有権を持つ noncopyable bit buffer、
+三つの FSE 遷移と三つの extra-bit field の一括出力、Huffman の 4 symbol 一括出力も行った。
+最初の測定の text level 1 / 3 は 86.989 / 105.139 MB/s、binary は 82.210 / 81.619 MB/s だった。
+
+別 pass の stage profile は次の秒数。初期確保、block の組立と emit、window compact、次 block の価格更新はこの表の外。
+計測 pass が違うため、合計は上の最良時間と一致しない。
+
+| corpus | level | input copy + XXH64 | match + parse | literals | sequences（codes / tables / bits） |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 0.000255 | 0.012444 | 0.000334 | 0.012128（0.003202 / 0.002528 / 0.006357） |
+| text | 3 | 0.000235 | 0.015031 | 0.000232 | 0.008973（0.002248 / 0.001705 / 0.004979） |
+| binary | 1 | 0.001196 | 0.108048 | 0.032601 | 0.059329（0.016656 / 0.012562 / 0.029778） |
+| binary | 3 | 0.001755 | 0.126427 | 0.032695 | 0.052448（0.014747 / 0.011228 / 0.026101） |
+
+未達の binary では match + parse が最大で、次いで sequence と Huffman literals。
+text level 1 は match + parse と sequence がほぼ半分ずつ。checksum はいずれも主要因ではない。
+level 19 は text 1.891985 秒、binary 5.610804 秒の match + parse がほぼ全時間を占める。
+生の TSV と oracle log は `.build/zstd-final-release.log` と `.build/verification/zstd-encoder-benchmark/` に保存した。
+
+検証は release build 成功、通常の `swift test --filter Zstd` は 13 件成功・benchmark 1 件 skip（約 120 秒）。
+release の env-gated benchmark とその時点の全 Zstd tests も成功（12 件、約 63 秒）。
+追加の 43,690 sequence までの 1 / 2 / 3 byte count header、圧縮 section が展開長を超える test frame、
+8 byte content size header と取消し後の terminal state は通常テストで成功した。
+`git diff --check` は成功。変更は Zstd の新規 source 9 file、test 3 file と本節の追記だけで、commit は作らない。
