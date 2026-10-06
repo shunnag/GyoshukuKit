@@ -1280,3 +1280,79 @@ LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、Brotli�
 ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独8形式の空・1 byte・1 MiB text・9 MiB乱数の全byte復号、
 読取進捗・種別拒否・既存出力とrename競合・取消しcleanupを検査する。
 空.Zと制限されたstdout再openは上記LZW節の実ツール方針を共有する。
+
+### PPMd var.H / var.I encoder（2026-10-06）
+
+`Compression/PPMd/` の internal `PPMd7StreamEncoder` は 7z method `03 04 01` の var.H、
+`PPMd8StreamEncoder` は ZIP method 98 の var.I revision 1 を純 Swift で書く。
+writer / `WriterOptions` / `ArchiveFormat` への接続は別の作業とする。
+同期 API は `write(_:finish:emit:)`。呼出しをまたいで同じ model と range coder を更新し、入力全体を保存しない。
+finish でない空 write は何も出さず、入力付き finish と別呼出しの finish をともに扱う。
+finish、emit の失敗、キャンセルの後は instance を再使用できない。
+
+出自は inbox の LZMA SDK 26.03 `C/Ppmd.h`、`Ppmd7.h`、`Ppmd7.c`、`Ppmd7Enc.c` と、
+7-Zip 26.03 から同じ inbox に置いた `Ppmd8.h`、`Ppmd8.c`、`Ppmd8Enc.c`。
+各原典は Igor Pavlov の公開ドメイン宣言を持ち、Dmitry Shkarin の公開ドメイン PPMd var.H（2001）/
+var.I（2002）、Dmitry Subbotin の公開ドメイン carryless range coder（1999）に基づく。
+SDK の `DOC/lzma-sdk.txt` と `inbox/7zip-License.txt` の明示された公開ドメイン条項を確認した。
+Swift へ移植したもので、C を同梱・コンパイルしない。7-Zip の LGPL C++ encoder / ZIP wrapper は参照しない。
+ZIP の parameter word は [PKWARE APPNOTE §5.10](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+による。KaitoKit の decoder は終了条件と公開 reader 経由の往復を確認するために読んだ。
+
+heap は一つの allocation に置き、6 byte STATE と 12 byte CONTEXT / free unit を SDK と同じ配置で管理する。
+永続 successor / suffix / stats は UInt32 offset。model 内の byte を文脈に昇格する処理、頻度の rescale、
+free block の結合も Swift が行う。heap のサイズは指定の memorySize + 最大 3 byte の整列領域。
+これに固定の確率表・mask・order 最大 32 の successor stack と 64 KiB 出力 buffer が加わる。
+emit 用 Data のコピーも最大 64 KiB で、追加保持量は概ね 192 KiB 以下。呼出元が保持する入力・出力は含めない。
+7z の carry 保留は byte 列ではなく UInt64 件数として保持し、排出時にも固定 buffer を使う。
+
+7z の order は 2...32、memorySize は 1 MiB...1 GiB（byte 単位）。5 byte coder properties は
+order byte と memorySize の LE32。raw stream に properties や EOF marker は入れず、7z range coder を
+5 byte flush する。展開サイズは folder に持たせる。メモリ不足時は model を restart する。
+ZIP の order は 2...16、memorySize は整数 MiB の 1...256 MiB。
+payload の先頭に `(order - 1) | ((memoryMiB - 1) << 4) | (restoration << 12)` の LE16 を置く。
+restoration は restart=0 と cut-off=1。freeze は rev.1 / rev.2 の非互換のため実装しない。
+Subbotin coder は各 escape の後と最終区間で正規化し、最後に root escape（symbol=-1）と 4 byte flush を書く。
+cut-off は失敗までの部分更新を戻し、高次文脈を削り、使用量が heap の 3/4 以下になるまで解放する。
+
+以下は GyoshukuKit 独自の level 1...9 表で、7-Zip C++ の default 計算からは導出していない。
+level 5 / 6 は 16 MiB を基準にし、高 level は文脈と heap を増やす。明示 properties で表以外の値も指定できる。
+ZIP の preset は既定 restart、指定した restoration も保持する。
+
+| level | 7z order | 7z heap | ZIP order | ZIP heap |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 3 | 1 MiB | 3 | 1 MiB |
+| 2 | 4 | 2 MiB | 4 | 2 MiB |
+| 3 | 4 | 4 MiB | 5 | 4 MiB |
+| 4 | 5 | 8 MiB | 6 | 8 MiB |
+| 5 | 6 | 16 MiB | 8 | 16 MiB |
+| 6 | 6 | 16 MiB | 8 | 16 MiB |
+| 7 | 8 | 32 MiB | 10 | 32 MiB |
+| 8 | 12 | 64 MiB | 12 | 64 MiB |
+| 9 | 16 | 192 MiB | 16 | 192 MiB |
+
+試験は製品の serializer に頼らず、PPMd coder 一つの folder を持つ最小 7z と method 98 の最小 ZIP を作る。
+KaitoKit の PPMd decoder は internal なので、公開 `ArchiveReader` の stream で全 byte を照合する。
+独立 oracle は必須の `7zz t`、`7zz x -so`、`7zz l -slt`。
+7zz 26.03 の表示は 7z が `PPMD:o6:mem24`（16 MiB は log2=24）、ZIP が `PPMd`。
+空、1 byte、64 KiB zeros、1 MiB text、8 MiB random、20 MiB text を扱い、1 MiB heap の text では
+H の restart、I の restart / cut-off の実行回数が非ゼロであることも検査する。
+byte ごと、不揃い chunk、非ゼロ startIndex の Data slice、終了後と emit 失敗後の拒否を検査する。
+固定 seed の英文風 corpus では order 6 / 16 MiB の両 variant が `xz -6` より小さいことを要求する。
+1 MiB の corpus の実測は H が 41,930 byte、I が 41,967 byte、xz -6 が 72,628 byte。
+release の 6 tests は 55.7 秒で成功し、上記の大入力と両復元方法を全て照合した。
+debug の大入力 2 tests も成功した（約 26 分）。大きな corpus の照合には release を推奨する。
+oracle 書庫と log は `.build/verification/ppmd-{small,large,restoration,compression}-{debug,release}/` に残す。
+
+```sh
+swift build
+swift test --filter PPMd
+git diff --stat
+# cache が sandbox 外になる環境の検証用。製品の実行条件ではない。
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter PPMd
+# 大きな corpus を高速に照合する場合
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release --filter PPMd
+# Swift 6.4 の swiftbuild が dSYM 作成を禁止される環境では debug 情報を省略できる。
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release -debug-info-format none --filter PPMd
+```
