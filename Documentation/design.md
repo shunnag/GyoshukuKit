@@ -984,3 +984,95 @@ bsdtar の展開、7zz t を検査する。該当 entry の削除後は 7zz x �
 （大きな offset の probe は Copy の sparse folder）、SFX stub の保持、BCJ2 の暗号化変換、古い 7-Zip と
 Archive Utility による LZMA2 header。試験と計測、sandbox で実行できなかった項目は
 [検証記録](verification/2026-09-26-p5g-sevenzip-updater.md) に記載する。
+
+### 自前 LZMA encoder（2026-10-06）
+
+`Compression/LZMA/` は internal の raw LZMA1 encoder と、その上の LZMA2 chunker。
+`LZMAEncoderProperties`、`LZMAEncoder`、`LZMA2Encoder` を後続の .lzma / lzip / ZIP method 14 / 7z LZMA と
+圧縮 level 選択の共通基盤にする。この段階では既存 writer の Apple Compression 経路と既定出力を変えない。
+`push(Data)` の戻り値を順に出力し、`finish()` の戻り値を最後に出力する。instance は直列に使い、設定だけを
+`Sendable` にする。LZMA1 は EOS の有無と既知サイズを独立に指定でき、`alone(_:properties:knownSize:)` は
+13 byte header（未知サイズは all-ones と EOS）を付ける。
+
+range coder は low / range / cache の carry 処理、確率 bit、direct bit、逆順 bit tree を持つ。
+HC4 は hash chain、BT4 は binary tree と短い一致用の 2 / 3 byte hash を使う。normal parser は SDK の
+GetOptimum の価格最小化を Swift の predecessor と到達 state / rep distance に置き換え、literal、short rep、
+match / rep の各長さ、literal + rep0、match / rep + literal + rep0 の複合遷移を比較する。
+fast parser は GetOptimumFast の rep 優先と次位置の一致による遅延選択を使う。
+window、hash、tree / chain、確率、価格、parser node は unsafe buffer で確保し、入力全体を別途保持しない。
+window は辞書と先読み、入力 staging 分で、空きが足りなくなったときにだけ履歴を移す。
+位置参照は UInt32 で正規化して 4 GiB を越える stream でも wrap しない。
+
+LZMA2 は最大 2 MiB の入力、64 KiB 以下の圧縮 byte に区切る。range coder を chunk ごとに flush し、
+辞書と確率 state は継続する。先頭 compressed chunk は辞書 / state / property を reset する。
+縮まない chunk は最大 64 KiB の raw chunk に分け、次の compressed chunk で state を reset する。
+先頭 raw chunk は辞書 reset を指定し、property は最初の compressed chunk で送る。最後は `0x00`。
+2 MiB の staging と parser の復元余地を含む pack limit の予約により、chunk の形式上限を越えない。
+LZMA2 では `lc + lp <= 4` を検査する。
+
+翻訳の出自は Igor Pavlov が public domain に置いた LZMA SDK 26.03 の `C/LzmaEnc.c`、`C/LzFind.c`、
+`C/LzHash.h`、`C/Lzma2Enc.c` と `lzma-specification.txt`。`DOC/lzma-sdk.txt` の public domain の宣言を確認した。
+各追加 Swift file の冒頭にも出自を書く。C の同梱・compile はせず、純 Swift と OS library の規則を維持する。
+preset の数値は [xz の lzma_encoder_presets.c](https://github.com/tukaani-project/xz/blob/v5.8.1/src/liblzma/lzma/lzma_encoder_presets.c)
+と照合した（この版の source 表示は 0BSD）。xz の level 0 は HC3 だが、本 API は指定された HC4 を使う。
+それ以外の通常 preset の辞書、mode、nice length、depth と extreme の値は同表に合わせる。
+
+| level | 辞書 MiB | finder / mode | niceLen | depth（自動値解決後） | hash MiB | tree / chain MiB | 辞書 + 表 MiB |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.25 | HC4 / fast | 128 | 4 | 0.754 | 1 | 2.004 |
+| 1 | 1 | HC4 / fast | 128 | 8 | 2.254 | 4 | 7.254 |
+| 2 | 2 | HC4 / fast | 273 | 24 | 4.254 | 8 | 14.254 |
+| 3 | 4 | HC4 / fast | 273 | 48 | 8.254 | 16 | 28.254 |
+| 4 | 4 | BT4 / normal | 16 | 24 | 8.254 | 32 | 44.254 |
+| 5 | 8 | BT4 / normal | 32 | 32 | 16.254 | 64 | 88.254 |
+| 6 | 8 | BT4 / normal | 64 | 48 | 16.254 | 64 | 88.254 |
+| 7 | 16 | BT4 / normal | 64 | 48 | 32.254 | 128 | 176.254 |
+| 8 | 32 | BT4 / normal | 64 | 48 | 64.254 | 256 | 352.254 |
+| 9 | 64 | BT4 / normal | 64 | 48 | 64.254 | 512 | 640.254 |
+
+表は入力サイズ未知のときの確保量。これに probability / price / optimum / range buffer と raw LZMA1 の staging が
+約 0.7 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
+match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが、確保前に総量と `memoryLimit` を照合する。
+既定の上限は 768 MiB で、上限超過や allocation 失敗は error にする。黙って小さい辞書へ変更しない。
+range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
+extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、それ以外は niceLen 273・depth 512。
+
+試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
+独立 oracle を使う。外部ツール不在は Tests/README.md の規則どおり失敗する。
+benchmark は通常の試験で skip し、固定 seed の 4 MiB 辞書単語 text と `/usr/lib/dyld` から始める
+Framework の実在 Mach-O（path 順、最大 32 MiB）を使う。corpus の path と長さも表示する。
+単一 thread の Swift raw LZMA2、`xz -<level> -T1 --format=raw -c`、現行 Apple 経路の raw LZMA2 size と MB/s を出す。
+Apple に level 指定はなく、各行は同じ OS encoder の比較値。MB/s は 1,000,000 byte/s。
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build -c release --disable-sandbox --build-system native
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --build-system native --filter LZMAEncoder
+GYOSHUKU_LZMA_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test -c release --disable-sandbox --build-system native --filter LZMAEncoderBenchmarkTests
+```
+
+Xcode build system の dSYM 生成が制限される環境では `--build-system native` を指定する。
+benchmark の速度閾値は通常の test failure にせず、size gap、対 xz 速度、level 1 / 6 比を実測して報告する。
+
+2026-10-06 の最終版の開発機計測（arm64、Swift 6.4、xz / liblzma 5.8.4、release、単一 thread）での実測。
+text は 4,194,304 byte、binary は dyld 4,129,088 byte と CreateML 16,559,504 byte の連結（合計 20,688,592 byte）。
+比較の size は全て raw LZMA2 で、container overhead を含まない。速度には encoder の確保と終了処理を含み、
+xz は process 起動と file I/O も含む。入力生成と Swift 出力の検証は計測区間外で行う。
+Apple の値は現行 `LZMA2Compressor.encode` 呼出し全体なので framing 抽出も含む。
+
+| corpus | level | Swift byte | xz byte | Apple byte | Swift MB/s | xz MB/s | Apple MB/s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 1,024,529 | 1,024,519 | 695,024 | 21.825 | 30.578 | 3.262 |
+| text | 6 | 694,823 | 695,024 | 695,024 | 3.077 | 3.307 | 3.318 |
+| text | 9 | 694,823 | 695,024 | 695,024 | 2.824 | 3.147 | 3.359 |
+| binary | 1 | 6,453,276 | 6,451,638 | 4,623,756 | 18.137 | 28.015 | 5.582 |
+| binary | 6 | 4,615,940 | 4,623,756 | 4,623,756 | 4.677 | 5.965 | 5.624 |
+| binary | 9 | 4,612,054 | 4,620,542 | 4,623,756 | 4.749 | 5.540 | 5.617 |
+
+level 6 / 9 の size 差は text が各 -0.029%、binary が -0.169% / -0.184% で、1.5% 以内。
+text の level 6 速度は xz の 93.1%（目標 40% 以上）、level 1 / 6 は 7.093 倍（目標 2 倍以上）。
+全目標を満たした。idle Mac mini での再計測を最終比較とする。
+
+release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests と追加 2 tests、release benchmark を検証済み。
+通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
+検証時の log は `.build/verification/lzma-encoder-run/`、oracle の書庫と log は `.build/verification/lzma-encoder-oracles/` に保存する。
