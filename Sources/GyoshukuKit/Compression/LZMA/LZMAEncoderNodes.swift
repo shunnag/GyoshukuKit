@@ -56,6 +56,8 @@ struct LZMAOptimal {
 
     init(price: Int = 1 << 30, state: Int = 0, reps: LZMARepetitions = LZMARepetitions(),
          previous: Int = 0, length: Int = 1, code: Int = -1, extra: Int = 0, tail: Int = 0) {
+        // 経路価格は非負で未到達値1<<30未満。未到達値も含め Int32 内に収まる。
+        assert(price >= 0 && price <= 1 << 30)
         self.price = Int32(truncatingIfNeeded: price)
         stateAndTail = UInt16(truncatingIfNeeded: (tail << 4) | state)
         self.previous = UInt16(truncatingIfNeeded: previous); self.length = UInt16(truncatingIfNeeded: length)

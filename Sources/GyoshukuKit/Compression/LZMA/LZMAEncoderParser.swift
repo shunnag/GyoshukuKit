@@ -77,6 +77,7 @@ extension LZMAEncodingEngine {
         let tail = repLength(data + start, distance: r.a, limit: bound &- start,
                              history: min(cursor &+ cur &+ start, dictionary))
         if tail < 2 { return }
+        assert(tail <= properties.niceLen)
         let litPos = pos &+ UInt64(length)
         let litState = Self.literalState(s)
         let p = basePrice &+ price(probs[s &* 16 &+ posState(litPos)], 0)
@@ -158,6 +159,7 @@ extension LZMAEncodingEngine {
                     let tail = repLength(data + 1, distance: r.a, limit: min(properties.niceLen, full &- 1),
                                          history: min(cursor &+ cur &+ 1, dictionary))
                     if tail >= 2 {
+                        assert(tail <= properties.niceLen)
                         let s2 = Self.literalState(s), ps2 = posState(pos &+ 1)
                         // length=0 と extra=1 は literal : rep0 を表す。
                         relax(from: cur, length: 0, code: -1,
@@ -173,11 +175,13 @@ extension LZMAEncodingEngine {
                     let moved = r.moved(i), s2 = Self.repState(s)
                     var len = n
                     while len >= 2 {
+                        assert(len <= properties.niceLen)
                         relax(from: cur, length: len, code: i, price: pure &+ repLengthRow[len &- 2], state: s2, reps: moved)
                         len &-= 1
                     }
                     if i == 0 { startLength = n &+ 1 }
                     if cur > 0 {
+                        assert(n <= properties.niceLen)
                         compound(from: cur, length: n, code: i, basePrice: pure &+ repLengthRow[n &- 2],
                                  state: s2, reps: moved, available: full, data: data, position: pos)
                     }
@@ -195,6 +199,7 @@ extension LZMAEncodingEngine {
                             : slotPrices[192 &+ slot] &+ alignPrices[distance & 15]
                         var len = start
                         while len < 5 && len <= maxLen {
+                            assert(len <= properties.niceLen)
                             let ls = len &- 2
                             let dp = distance < 128 ? distancePrices[ls &* 128 &+ distance]
                                 : slotPrices[ls &* 64 &+ slot] &+ alignPrices[distance & 15]
@@ -203,11 +208,13 @@ extension LZMAEncodingEngine {
                             len &+= 1
                         }
                         while len <= maxLen {
+                            assert(len <= properties.niceLen)
                             relax(from: cur, length: len, code: match.distance &+ 3,
                                   price: normalPrice &+ lengthRow[len &- 2] &+ longDistancePrice, state: s2, reps: moved)
                             len &+= 1
                         }
                         if cur > 0 {
+                            assert(maxLen <= properties.niceLen)
                             let dp = maxLen >= 5 ? longDistancePrice : distancePrice(distance, length: maxLen)
                             compound(from: cur, length: maxLen, code: match.distance &+ 3,
                                      basePrice: normalPrice &+ lengthRow[maxLen &- 2] &+ dp,

@@ -23,8 +23,8 @@ struct LZMAMatch {
     var length = start
     if checkFirstByte && length < limit && a[length] != b[length] { return length }
     while length &+ 8 <= limit {
-        let difference = UnsafeRawPointer(a + length).loadUnaligned(as: UInt64.self)
-            ^ UnsafeRawPointer(b + length).loadUnaligned(as: UInt64.self)
+        let difference = UInt64(littleEndian: UnsafeRawPointer(a + length).loadUnaligned(as: UInt64.self))
+            ^ UInt64(littleEndian: UnsafeRawPointer(b + length).loadUnaligned(as: UInt64.self))
         if difference != 0 { return length &+ difference.trailingZeroBitCount / 8 }
         length &+= 8
     }
@@ -97,7 +97,7 @@ struct LZMAMatchFinder {
         // hash / son の書込みにまたがる不変値を register に保持する。
         let dictionarySize = self.dictionarySize, cyclicSize = self.cyclicSize
         let limit = min(available, niceLen)
-        let word = UnsafeRawPointer(cur).loadUnaligned(as: UInt32.self)
+        let word = UInt32(littleEndian: UnsafeRawPointer(cur).loadUnaligned(as: UInt32.self))
         let crc0 = crc[Int(word & 255)]
         let temp = crc0 ^ ((word >> 8) & 255)
         let h2 = Int(temp & 1023)

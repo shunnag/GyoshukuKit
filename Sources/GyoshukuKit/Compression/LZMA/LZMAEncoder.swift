@@ -142,6 +142,7 @@ struct LZMAEncodingEngine {
             probCount = Self.literalOffset + (768 << (p.lc + p.lp))
             probs = try allocate(UInt16.self, probCount)
             bitPrices = try allocate(UInt8.self, 4096)
+            // 各行は272 symbol分。価格を埋めるのは長さ2...niceLen（symbol 0...niceLen-2）だけ。
             lengthPrices = try allocate(Int.self, 16 * 272)
             repLengthPrices = try allocate(Int.self, 16 * 272)
             distancePrices = try allocate(Int.self, 4 * 128)

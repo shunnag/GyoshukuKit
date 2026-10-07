@@ -1228,7 +1228,7 @@ release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests
 通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
 検証時の log は `.build/verification/lzma-encoder-run/`、oracle の書庫と log は `.build/verification/lzma-encoder-oracles/` に保存する。
 
-2026-10-07 の単一thread速度改善（Apple M4 Max / 128 GB、Swift 6.4、xz 5.8.4、release）。
+2026-10-07 の単一thread速度改善（Apple M4 Max / 128 GB、Swift 6.4、xz 5.8.4、release XCTest / `-enable-testing`）。
 上と同じ4,194,304 byteのtext、20,688,592 byteのbinaryを使った。`f273d34` の pristine copy と最終版を
 基準版 → 最終版の順で5組実行し、各版の5回から最速を選んだ。xz / Apple は両版の計10回から最速を選ぶ。
 表の速度は MB/s、byte数は raw LZMA2。Swift byteは基準版 / 最終版で共通で、5組とも全10条件が完全一致した。
@@ -1247,7 +1247,8 @@ release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests
 | binary | 6 | 5.128 | 6.189 | 5.853 | 5.653 | 4,615,940 | 4,623,756 | 4,623,756 |
 | binary | 9 | 4.903 | 6.146 | 5.854 | 5.705 | 4,612,054 | 4,620,542 | 4,623,756 |
 
-level 6 は text / binary が xz の 109.5% / 105.7%、levels 1〜3 は両corpusでxz以上。
+level 6 の text は xz の109.5%。binary は `xz -6 -T1` とほぼ同等で、負荷により約99〜106%となる。
+levels 1〜3 は両corpusでxz以上。
 level 9 は基準版の 1.226倍 / 1.254倍で、単一threadの速度目標を全て満たした。
 圧縮sizeの増加は0%。計測の元データと比較scriptは `.build/verification/speed-lzma/paired-shipping-*` に保存する。
 
