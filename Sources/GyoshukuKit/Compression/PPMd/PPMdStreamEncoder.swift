@@ -7,8 +7,8 @@ class PPMdStreamEncoder {
     private enum State { case ready, writing, finished, failed }
     private var state = State.ready
     private var header: Data
-    private let coder: PPMdRangeEncoder
-    let model: PPMdEncodingModel
+    private var coder: PPMdRangeEncoder
+    private(set) var model: PPMdEncodingModel
 
     init(order: Int, memorySize: Int, variantI: Bool,
          restoration: PPMdRestorationMethod = .restart, header: Data = Data()) throws {
@@ -26,21 +26,29 @@ class PPMdStreamEncoder {
         try Task.checkCancellation()
         if !header.isEmpty { try emit(header); header.removeAll(keepingCapacity: false) }
         try input.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-            for i in 0..<bytes.count {
-                if i & 4095 == 0 { try Task.checkCancellation() }
-                try model.encode(Int(bytes[i]), using: coder, emit: emit)
-            }
+            try Self.encode(bytes, model: &model, coder: &coder, emit: emit)
         }
         try Task.checkCancellation()
         if finish {
             // ZIP は root からの escape を EOF として書き、4 byte flush する。
             // 7z は folder の展開サイズで終端を知るため、5 byte flush だけを書く。
-            if coder.variantI { try model.encode(-1, using: coder, emit: emit) }
+            if coder.variantI { try model.encode(-1, using: &coder, emit: emit) }
             try coder.finish(emit: emit)
         } else { try coder.drain(emit: emit) }
         state = finish ? .finished : .ready
         completed = true
     }
+
+    // class の排他アクセスは block ごとに一度だけ開始し、記号ごとは値型の状態を更新する。
+    private static func encode(_ bytes: UnsafeRawBufferPointer, model: inout PPMdEncodingModel,
+                               coder: inout PPMdRangeEncoder, emit: (Data) throws -> Void) throws {
+        guard let base = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+        for i in 0..<bytes.count {
+            if i & 4095 == 0 { try Task.checkCancellation() }
+            try model.encode(Int(base[i]), using: &coder, emit: emit)
+        }
+    }
+
 }
 
 final class PPMd7StreamEncoder: PPMdStreamEncoder {

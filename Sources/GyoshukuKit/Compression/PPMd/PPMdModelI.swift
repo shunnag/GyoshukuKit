@@ -3,7 +3,7 @@
 import Foundation
 
 extension PPMdEncodingModel {
-    private func refreshI(_ c: Int, oldUnits: Int, scale originalScale: Int) {
+    private mutating func refreshI(_ c: Int, oldUnits: Int, scale originalScale: Int) {
         let n = number(c)
         let start = arena.shrink(stats(c), oldUnits: oldUnits, newUnits: (n + 1) >> 1)
         arena.setRef(c + 4, start)
@@ -20,13 +20,13 @@ extension PPMdEncodingModel {
         arena.setByte(c + 1, (arena.byte(c + 1) & (16 + 4 * scale)) + ((flags >> 5) & 8))
     }
 
-    private func singleI(_ c: Int, from state: Int) {
+    private mutating func singleI(_ c: Int, from state: Int) {
         let sym = symbol(state), f = (frequency(state) + 11) >> 3
         arena.setByte(c + 1, (arena.byte(c + 1) & 16) + high3(sym))
         arena.copy(c + 2, state, 6); setFrequency(c + 2, f)
     }
 
-    private func cutOffI(_ c: Int, order: Int) -> Int {
+    private mutating func cutOffI(_ c: Int, order: Int) -> Int {
         var ns = number(c) - 1
         if ns == 0 {
             let s = c + 2
@@ -79,7 +79,7 @@ extension PPMdEncodingModel {
         return c
     }
 
-    private func restoreI(_ errorContext: Int) {
+    private mutating func restoreI(_ errorContext: Int) {
         arena.text = arena.alignment
         var c = maxContext
         // 失敗までに追加済みの末尾 state を戻し、escape 頻度を調整する。
@@ -116,7 +116,7 @@ extension PPMdEncodingModel {
         minContext = maxContext
     }
 
-    private func createSuccessorsI(skip: Bool, suffixState: Int, context: Int) -> Int {
+    private mutating func createSuccessorsI(skip: Bool, suffixState: Int, context: Int) -> Int {
         var c = context, s1 = suffixState, branch = successor(foundState), count = 0
         if !skip { successorStack[count] = foundState; count += 1 }
         while suffix(c) != 0 {
@@ -161,7 +161,7 @@ extension PPMdEncodingModel {
         return c
     }
 
-    private func reduceOrderI(suffixState: Int, context: Int) -> Int {
+    private mutating func reduceOrderI(suffixState: Int, context: Int) -> Int {
         var c = context, s1 = suffixState, s = 0
         let originalContext = c, branch = arena.text
         setSuccessor(foundState, branch)
@@ -198,7 +198,7 @@ extension PPMdEncodingModel {
         return next
     }
 
-    func updateModelI() {
+    mutating func updateModelI() {
         var minSuccessor = successor(foundState)
         let fFrequency = frequency(foundState), fSymbol = symbol(foundState)
         var s = 0

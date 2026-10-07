@@ -3,7 +3,7 @@
 import Foundation
 
 extension PPMdEncodingModel {
-    func createSuccessorsH() -> Int {
+    mutating func createSuccessorsH() -> Int {
         var c = minContext, branch = successor(foundState), count = 0
         if orderFall != 0 { successorStack[count] = foundState; count += 1 }
         while suffix(c) != 0 {
@@ -38,7 +38,7 @@ extension PPMdEncodingModel {
         return c
     }
 
-    func updateModelH() {
+    mutating func updateModelH() {
         if frequency(foundState) < 31 && suffix(minContext) != 0 {
             let c = suffix(minContext)
             if number(c) == 1 {
@@ -80,7 +80,8 @@ extension PPMdEncodingModel {
         var c = maxContext
         minContext = minSuccessor; maxContext = minSuccessor
         if c == mc { return }
-        let ns = number(mc), s0 = sum(mc) - ns - (frequency(foundState) - 1)
+        let fSymbol = symbol(foundState), fFrequency = frequency(foundState)
+        let ns = number(mc), s0 = sum(mc) - ns - (fFrequency - 1)
         repeat {
             let ns1 = number(c)
             var total: Int
@@ -107,9 +108,9 @@ extension PPMdEncodingModel {
                 total = adjusted + initialEscape + bit(ns > 3)
             }
             let s = stats(c) + ns1 * 6
-            var cf = 2 * (total + 6) * frequency(foundState)
+            var cf = 2 * (total + 6) * fFrequency
             let sf = s0 + total
-            arena.setByte(s, symbol(foundState)); setNumber(c, ns1 + 1); setSuccessor(s, maxSuccessor)
+            arena.setByte(s, fSymbol); setNumber(c, ns1 + 1); setSuccessor(s, maxSuccessor)
             if cf < 6 * sf {
                 cf = 1 + bit(cf > sf) + bit(cf >= 4 * sf)
                 total += 3

@@ -4,16 +4,16 @@ import Foundation
 
 struct PPMdSEE {
     var sum: UInt16 = 0
-    var shift: Int = 7
-    var count: Int = 64
+    var shift: UInt8 = 7
+    var count: UInt8 = 64
 
-    mutating func escape() -> Int {
+    @inline(__always) mutating func escape() -> Int {
         let result = Int(sum) >> shift
         sum &-= UInt16(result)
         return max(result, 1)
     }
 
-    mutating func update() {
+    @inline(__always) mutating func update() {
         if shift < 7 {
             count -= 1
             if count == 0 {
@@ -26,10 +26,10 @@ struct PPMdSEE {
 }
 
 /// H / I で共有する記号選択と頻度更新。successor の作成と復元は各 variant の extension に置く。
-final class PPMdEncodingModel {
+struct PPMdEncodingModel: ~Copyable {
     static let initialBinaryEscapes = [0x3CDD, 0x1F3F, 0x59BF, 0x48F3, 0x64A1, 0x5ABC, 0x6632, 0x6051]
     static let exponentialEscape = [25, 14, 9, 7, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 2]
-    let arena: PPMdArena
+    var arena: PPMdArena
     let variantI: Bool
     let maximumOrder: Int
     let restoration: PPMdRestorationMethod
@@ -37,8 +37,8 @@ final class PPMdEncodingModel {
     let see: UnsafeMutablePointer<PPMdSEE>
     let mask: UnsafeMutablePointer<UInt8>
     let successorStack: UnsafeMutablePointer<Int>
-    var nsToBinary = [Int](repeating: 6, count: 256)
-    var nsToIndex = [Int](repeating: 0, count: 260)
+    let nsToBinary: UnsafeMutablePointer<UInt8>
+    let nsToIndex: UnsafeMutablePointer<UInt8>
     var minContext = 0
     var maxContext = 0
     var foundState = 0
@@ -64,13 +64,17 @@ final class PPMdEncodingModel {
         mask = .allocate(capacity: 256)
         mask.initialize(repeating: 1, count: 256)
         successorStack = .allocate(capacity: 33)
+        nsToBinary = .allocate(capacity: 256)
+        nsToIndex = .allocate(capacity: 260)
+        nsToBinary.initialize(repeating: 6, count: 256)
+        nsToIndex.initialize(repeating: 0, count: 260)
         nsToBinary[0] = 0; nsToBinary[1] = 2
         for i in 2..<11 { nsToBinary[i] = 4 }
         let first = variantI ? 5 : 3
-        for i in 0..<first { nsToIndex[i] = i }
+        for i in 0..<first { nsToIndex[i] = UInt8(i) }
         var m = first, k = 1
         for i in first..<260 {
-            nsToIndex[i] = m
+            nsToIndex[i] = UInt8(m)
             k -= 1
             if k == 0 { m += 1; k = m - (variantI ? 4 : 2) }
         }
@@ -82,33 +86,35 @@ final class PPMdEncodingModel {
         see.deinitialize(count: 24 * 32 + 1); see.deallocate()
         mask.deinitialize(count: 256); mask.deallocate()
         successorStack.deallocate()
+        nsToBinary.deallocate(); nsToIndex.deallocate()
     }
 
+    // offset は最大 1 GiB の heap 内。field offset の wrapping 加算はこの範囲で溢れない。
     // context の state 数は計算時には両 variant とも実数に揃える。
     @inline(__always) func number(_ c: Int) -> Int { variantI ? arena.byte(c) + 1 : arena.word(c) }
     @inline(__always) func setNumber(_ c: Int, _ n: Int) {
         if variantI { arena.setByte(c, n - 1) } else { arena.setWord(c, n) }
     }
-    @inline(__always) func sum(_ c: Int) -> Int { arena.word(c + 2) }
-    @inline(__always) func setSum(_ c: Int, _ value: Int) { arena.setWord(c + 2, value) }
-    @inline(__always) func stats(_ c: Int) -> Int { arena.ref(c + 4) }
-    @inline(__always) func suffix(_ c: Int) -> Int { arena.ref(c + 8) }
+    @inline(__always) func sum(_ c: Int) -> Int { arena.word(c &+ 2) }
+    @inline(__always) func setSum(_ c: Int, _ value: Int) { arena.setWord(c &+ 2, value) }
+    @inline(__always) func stats(_ c: Int) -> Int { arena.ref(c &+ 4) }
+    @inline(__always) func suffix(_ c: Int) -> Int { arena.ref(c &+ 8) }
     @inline(__always) func symbol(_ s: Int) -> Int { arena.byte(s) }
-    @inline(__always) func frequency(_ s: Int) -> Int { arena.byte(s + 1) }
-    @inline(__always) func successor(_ s: Int) -> Int { arena.ref(s + 2) }
-    @inline(__always) func setFrequency(_ s: Int, _ value: Int) { arena.setByte(s + 1, value) }
-    @inline(__always) func setSuccessor(_ s: Int, _ value: Int) { arena.setRef(s + 2, value) }
+    @inline(__always) func frequency(_ s: Int) -> Int { arena.byte(s &+ 1) }
+    @inline(__always) func successor(_ s: Int) -> Int { arena.ref(s &+ 2) }
+    @inline(__always) func setFrequency(_ s: Int, _ value: Int) { arena.setByte(s &+ 1, value) }
+    @inline(__always) func setSuccessor(_ s: Int, _ value: Int) { arena.setRef(s &+ 2, value) }
     @inline(__always) func high3(_ symbol: Int) -> Int { symbol >= 0x40 ? 8 : 0 }
     @inline(__always) func high4(_ symbol: Int) -> Int { symbol >= 0x40 ? 16 : 0 }
     @inline(__always) func bit(_ condition: Bool) -> Int { condition ? 1 : 0 }
     @inline(__always) func find(_ c: Int, _ symbol: Int) -> Int {
-        if number(c) == 1 { return c + 2 }
+        if number(c) == 1 { return c &+ 2 }
         var s = stats(c)
-        while self.symbol(s) != symbol { s += 6 }
+        while self.symbol(s) != symbol { s &+= 6 }
         return s
     }
 
-    func restart(initial: Bool = false) {
+    mutating func restart(initial: Bool = false) {
         if !initial { restartCount += 1 }
         arena.reset()
         orderFall = maximumOrder
@@ -130,12 +136,12 @@ final class PPMdEncodingModel {
         if variantI {
             var i = 0
             for m in 0..<25 {
-                while nsToIndex[i] == m { i += 1 }
+                while Int(nsToIndex[i]) == m { i += 1 }
                 initializeBinary(row: m, divisor: i + 1)
             }
             i = 0
             for m in 0..<24 {
-                while nsToIndex[i + 3] == m + 3 { i += 1 }
+                while Int(nsToIndex[i + 3]) == m + 3 { i += 1 }
                 for k in 0..<32 {
                     see[m * 32 + k] = PPMdSEE(sum: UInt16((2 * i + 5) << 3), shift: 3, count: 7)
                 }
@@ -156,11 +162,11 @@ final class PPMdEncodingModel {
         }
     }
 
-    private func binaryIndex() -> Int {
+    @inline(__always) private mutating func binaryIndex() -> Int {
         let state = minContext + 2
-        let row = variantI ? nsToIndex[frequency(state) - 1] : frequency(state) - 1
+        let row = variantI ? Int(nsToIndex[frequency(state) - 1]) : frequency(state) - 1
         let suffixCount = number(suffix(minContext)) - 1
-        var column = previousSuccess + Int((runLength >> 26) & 0x20) + nsToBinary[suffixCount]
+        var column = previousSuccess + Int((runLength >> 26) & 0x20) + Int(nsToBinary[suffixCount])
         if variantI { column += arena.byte(minContext + 1) }
         else {
             highBitsFlag = high3(symbol(foundState))
@@ -169,18 +175,18 @@ final class PPMdEncodingModel {
         return row * 64 + column
     }
 
-    private func escapeFrequency(masked: Int) -> (index: Int, frequency: Int) {
+    @inline(__always) private mutating func escapeFrequency(masked: Int) -> (index: Int, frequency: Int) {
         let n = number(minContext)
         if n == 256 { return (768, 1) }
         let index: Int
         if variantI {
-            index = (nsToIndex[n + 1] - 3) * 32
+            index = (Int(nsToIndex[n + 1]) - 3) * 32
                 + bit(sum(minContext) > 11 * n)
                 + 2 * bit(2 * (n - 1) < number(suffix(minContext)) + masked - 2)
                 + arena.byte(minContext + 1)
         } else {
             let nonMasked = n - masked
-            index = nsToIndex[nonMasked - 1] * 16 + highBitsFlag
+            index = Int(nsToIndex[nonMasked - 1]) * 16 + highBitsFlag
                 + bit(nonMasked < number(suffix(minContext)) - n)
                 + 2 * bit(sum(minContext) < 11 * n) + 4 * bit(masked > nonMasked)
         }
@@ -188,27 +194,38 @@ final class PPMdEncodingModel {
     }
 
     /// -1 は ZIP の EOF escape。7z の stream は展開サイズが既知なので EOF を符号化しない。
-    func encode(_ value: Int, using coder: PPMdRangeEncoder, emit: (Data) throws -> Void) throws {
+    @inline(__always) mutating func encode(_ value: Int, using coder: inout PPMdRangeEncoder, emit: (Data) throws -> Void) throws {
         let n = number(minContext)
         if n != 1 {
             let total = variantI ? min(sum(minContext), Int(coder.range)) : sum(minContext)
-            let start = stats(minContext)
-            var accumulated = 0
-            for i in 0..<n {
-                let s = start + 6 * i, f = frequency(s)
-                if symbol(s) == value {
+            let start = stats(minContext), end = start + 6 * n
+            var s = start
+            let firstState = arena.word(s)
+            var accumulated = firstState >> 8
+            // SDK の first-state fast path は探索 loop の外で処理する。
+            if firstState & 255 == value {
+                try coder.encode(start: 0, size: accumulated, total: total, emit: emit)
+                foundState = s
+                update1(first: true)
+                return
+            }
+            previousSuccess = 0
+            s &+= 6
+            repeat {
+                let state = arena.word(s), f = state >> 8
+                if state & 255 == value {
                     try coder.encode(start: accumulated, size: f, total: total, emit: emit)
                     foundState = s
-                    update1(first: i == 0)
+                    update1(first: false)
                     return
                 }
                 accumulated += f
-            }
-            previousSuccess = 0
+                s &+= 6
+            } while s != end
             try coder.encode(start: accumulated, size: total - accumulated, total: total, normalize: false, emit: emit)
             if !variantI { highBitsFlag = high3(symbol(foundState)) }
-            mask.update(repeating: 1, count: 256)
-            for i in 0..<n { mask[symbol(start + 6 * i)] = 0 }
+            mask.update(repeating: 255, count: 256)
+            clearMask(start: start, count: n)
         } else {
             let index = binaryIndex(), state = minContext + 2
             let probability = Int(binary[index])
@@ -227,7 +244,7 @@ final class PPMdEncodingModel {
             binary[index] = UInt16(reduced)
             initialEscape = Self.exponentialEscape[reduced >> 10]
             try coder.binary(probability: probability, success: false, emit: emit)
-            mask.update(repeating: 1, count: 256)
+            mask.update(repeating: 255, count: 256)
             mask[symbol(state)] = 0
             previousSuccess = 0
         }
@@ -240,45 +257,60 @@ final class PPMdEncodingModel {
                 minContext = suffix(minContext)
             } while number(minContext) == masked
             let escape = escapeFrequency(masked: masked)
-            let start = stats(minContext), n = number(minContext)
-            var total = escape.frequency, low = 0, selected = 0
-            for i in 0..<n {
-                let s = start + 6 * i
-                if symbol(s) == value { selected = s; low = total - escape.frequency }
-                if mask[symbol(s)] != 0 { total += frequency(s) }
-            }
-            if selected != 0 {
-                see[escape.index].update()
-                if variantI { total = min(total, Int(coder.range)) }
-                try coder.encode(start: low, size: frequency(selected), total: total, emit: emit)
-                foundState = selected
-                update2()
-                return
-            }
-            var unmasked = 0
-            for i in 0..<n {
-                let s = start + 6 * i
-                if mask[symbol(s)] != 0 { unmasked += frequency(s) }
-                mask[symbol(s)] = 0
-            }
+            let start = stats(minContext), end = start + 6 * number(minContext)
+            var s = start, accumulated = 0
+            // suffix で一致するまで累積し、その残りは SDK 同様に 2 state ずつ合計する。
+            repeat {
+                let state = arena.word(s), sym = state & 255, f = state >> 8
+                if sym == value {
+                    let low = accumulated, selectedState = s
+                    var total = accumulated + escape.frequency
+                    if ((end - s) / 6) & 1 != 0 { total += f; s += 6 }
+                    while s != end {
+                        total += frequency(s) & Int(mask[symbol(s)])
+                        total += frequency(s &+ 6) & Int(mask[symbol(s &+ 6)])
+                        s &+= 12
+                    }
+                    see[escape.index].update()
+                    if variantI { total = min(total, Int(coder.range)) }
+                    try coder.encode(start: low, size: f, total: total, emit: emit)
+                    foundState = selectedState
+                    update2()
+                    return
+                }
+                accumulated += f & Int(mask[sym])
+                s &+= 6
+            } while s != end
+            var total = accumulated + escape.frequency
             see[escape.index].sum &+= UInt16(total)
             if variantI { total = min(total, Int(coder.range)) }
-            try coder.encode(start: unmasked, size: total - unmasked, total: total, normalize: false, emit: emit)
+            try coder.encode(start: accumulated, size: total - accumulated, total: total, normalize: false, emit: emit)
+            clearMask(start: start, count: number(minContext))
         }
     }
 
-    private func nextContext() {
+    @inline(__always) private func clearMask(start: Int, count: Int) {
+        let end = start + count * 6
+        var s = start
+        if count & 1 != 0 { mask[symbol(s)] = 0; s += 6 }
+        while s != end {
+            mask[symbol(s)] = 0; mask[symbol(s &+ 6)] = 0
+            s &+= 12
+        }
+    }
+
+    @inline(__always) private mutating func nextContext() {
         let c = successor(foundState)
         if orderFall == 0 && (variantI ? c >= arena.unitsStart : c > arena.text) {
             minContext = c; maxContext = c
         } else { updateModel() }
     }
 
-    private func updateModel() {
+    private mutating func updateModel() {
         if variantI { updateModelI() } else { updateModelH() }
     }
 
-    private func update1(first: Bool) {
+    @inline(__always) private mutating func update1(first: Bool) {
         let s = foundState, f = frequency(s)
         let total = sum(minContext)
         if first {
@@ -296,7 +328,7 @@ final class PPMdEncodingModel {
         nextContext()
     }
 
-    private func update2() {
+    @inline(__always) private mutating func update2() {
         let f = frequency(foundState) + 4
         runLength = initialRunLength
         setSum(minContext, sum(minContext) + 4); setFrequency(foundState, f)
@@ -304,11 +336,15 @@ final class PPMdEncodingModel {
         updateModel()
     }
 
-    private func rescale() {
+    private mutating func rescale() {
         let base = stats(minContext), n = number(minContext)
         var s = foundState
         // 選択した state を先頭へ移し、半減した頻度で安定な降順に並べる。
-        while s != base { arena.swapStates(s, s - 6); s -= 6 }
+        if s != base {
+            let sym = symbol(s), f = frequency(s), next = successor(s)
+            repeat { arena.copy(s, s - 6, 6); s -= 6 } while s != base
+            arena.setByte(s, sym); setFrequency(s, f); setSuccessor(s, next)
+        }
         let adder = bit(orderFall != 0)
         var total = frequency(s), escape = sum(minContext) - total
         total = (total + 4 + adder) >> 1
@@ -317,9 +353,13 @@ final class PPMdEncodingModel {
             s = base + 6 * i
             let old = frequency(s), f = (old + adder) >> 1
             escape -= old; total += f; setFrequency(s, f)
-            var sorted = s
-            while sorted != base && f > frequency(sorted - 6) {
-                arena.swapStates(sorted, sorted - 6); sorted -= 6
+            if f > frequency(s - 6) {
+                let sym = symbol(s), next = successor(s)
+                var sorted = s
+                repeat {
+                    arena.copy(sorted, sorted - 6, 6); sorted -= 6
+                } while sorted != base && f > frequency(sorted - 6)
+                arena.setByte(sorted, sym); setFrequency(sorted, f); setSuccessor(sorted, next)
             }
         }
         if frequency(s) == 0 {

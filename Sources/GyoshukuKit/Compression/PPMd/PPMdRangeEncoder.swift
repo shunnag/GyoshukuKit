@@ -3,7 +3,7 @@
 import Foundation
 
 /// 7z の carry 付き coder と ZIP の Subbotin coder。出力は固定 64 KiB で都度排出する。
-final class PPMdRangeEncoder {
+struct PPMdRangeEncoder: ~Copyable {
     let variantI: Bool
     var range: UInt32 = .max
     private var low: UInt64 = 0
@@ -15,13 +15,13 @@ final class PPMdRangeEncoder {
     init(variantI: Bool) { self.variantI = variantI }
     deinit { output.deallocate() }
 
-    private func put(_ byte: UInt8, emit: (Data) throws -> Void) throws {
+    @inline(__always) private mutating func put(_ byte: UInt8, emit: (Data) throws -> Void) throws {
         output[count] = byte
         count += 1
         if count == 65_536 { try drain(emit: emit) }
     }
 
-    func drain(emit: (Data) throws -> Void) throws {
+    mutating func drain(emit: (Data) throws -> Void) throws {
         if count != 0 {
             let bytes = Data(bytes: output, count: count)
             count = 0
@@ -29,7 +29,7 @@ final class PPMdRangeEncoder {
         }
     }
 
-    private func shiftLow(emit: (Data) throws -> Void) throws {
+    @inline(never) private mutating func shiftLow(emit: (Data) throws -> Void) throws {
         let lower = UInt32(truncatingIfNeeded: low)
         let carry = UInt8(truncatingIfNeeded: low >> 32)
         if lower < 0xFF00_0000 || carry != 0 {
@@ -45,7 +45,7 @@ final class PPMdRangeEncoder {
         low = UInt64(lower << 8)
     }
 
-    func normalize(emit: (Data) throws -> Void) throws {
+    @inline(__always) mutating func normalize(emit: (Data) throws -> Void) throws {
         if variantI {
             var lower = UInt32(truncatingIfNeeded: low)
             while true {
@@ -59,29 +59,40 @@ final class PPMdRangeEncoder {
             }
             low = UInt64(lower)
         } else {
-            while range < 1 << 24 {
+            // SDK の RC_NORM と同じ最大 2 回。16 bit total で割った区間は 2^8 以上。
+            if range < 1 << 24 {
                 range <<= 8
                 try shiftLow(emit: emit)
+                if range < 1 << 24 {
+                    range <<= 8
+                    try shiftLow(emit: emit)
+                }
             }
         }
     }
 
-    func encode(start: Int, size: Int, total: Int, normalize: Bool = true,
+    @inline(__always) mutating func encode(start: Int, size: Int, total: Int, normalize: Bool = true,
                 emit: (Data) throws -> Void) throws {
-        let scale = variantI ? min(UInt32(total), range) : UInt32(total)
+        // total / start / size は model の 16 bit 頻度。probability は 14 bit scale。
+        let scale = variantI ? min(UInt32(truncatingIfNeeded: total), range) : UInt32(truncatingIfNeeded: total)
         range /= scale
-        let increment = UInt32(start) &* range
+        let increment = UInt32(truncatingIfNeeded: start) &* range
         if variantI { low = UInt64(UInt32(truncatingIfNeeded: low) &+ increment) }
         else { low += UInt64(increment) }
-        range &*= UInt32(size)
+        range &*= UInt32(truncatingIfNeeded: size)
         if normalize { try self.normalize(emit: emit) }
     }
 
-    func binary(probability: Int, success: Bool, emit: (Data) throws -> Void) throws {
-        let bound = (range >> 14) * UInt32(probability)
+    @inline(__always) mutating func binary(probability: Int, success: Bool, emit: (Data) throws -> Void) throws {
+        let bound = (range >> 14) * UInt32(truncatingIfNeeded: probability)
         if success {
             range = bound
-            try normalize(emit: emit)
+            if variantI { try normalize(emit: emit) }
+            else if range < 1 << 24 {
+                // binary success は SDK の RC_NORM_1。1 回の shift で正規化できる。
+                range <<= 8
+                try shiftLow(emit: emit)
+            }
         } else {
             if variantI {
                 low = UInt64(UInt32(truncatingIfNeeded: low) &+ bound)
@@ -94,7 +105,7 @@ final class PPMdRangeEncoder {
         }
     }
 
-    func finish(emit: (Data) throws -> Void) throws {
+    mutating func finish(emit: (Data) throws -> Void) throws {
         if variantI {
             for _ in 0..<4 {
                 try put(UInt8(UInt32(truncatingIfNeeded: low) >> 24), emit: emit)

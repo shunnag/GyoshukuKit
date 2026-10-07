@@ -4,7 +4,7 @@ import Foundation
 
 /// 一つの heap に 6 byte STATE と 12 byte CONTEXT を置く。永続参照は UInt32 offset。
 /// Int は計算時だけ使用する。0 は null、text successor は unitsStart より下の領域。
-final class PPMdArena {
+struct PPMdArena: ~Copyable {
     let base: UnsafeMutableRawPointer
     let size: Int
     let alignment: Int
@@ -14,10 +14,11 @@ final class PPMdArena {
     var lowUnit = 0
     var highUnit = 0
     var glueCount = 0
-    var freeList = [Int](repeating: 0, count: 38)
-    var stamps = [Int](repeating: 0, count: 38)
-    var indexToUnits = [Int]()
-    var unitsToIndex = [Int]()
+    // SDK と同じ固定表。記号更新時の Array の bounds check / COW を避ける。
+    let freeList: UnsafeMutablePointer<Int>
+    let stamps: UnsafeMutablePointer<Int>
+    let indexToUnits: UnsafeMutablePointer<Int>
+    let unitsToIndex: UnsafeMutablePointer<Int>
 
     init(size: Int, variantI: Bool) throws {
         self.size = size
@@ -25,15 +26,23 @@ final class PPMdArena {
         alignment = (4 - size) & 3
         guard let allocation = malloc(size + alignment) else { throw WriterError.compression(-1) }
         base = allocation
+        freeList = .allocate(capacity: 38); freeList.initialize(repeating: 0, count: 38)
+        stamps = .allocate(capacity: 38); stamps.initialize(repeating: 0, count: 38)
+        indexToUnits = .allocate(capacity: 38); unitsToIndex = .allocate(capacity: 128)
+        var units = 0
         for i in 0..<38 {
             let step = i >= 12 ? 4 : (i >> 2) + 1
-            unitsToIndex.append(contentsOf: repeatElement(i, count: step))
-            indexToUnits.append(unitsToIndex.count)
+            for _ in 0..<step { unitsToIndex[units] = i; units += 1 }
+            indexToUnits[i] = units
         }
         reset()
     }
 
-    deinit { free(base) }
+    deinit {
+        free(base)
+        freeList.deallocate(); stamps.deallocate()
+        indexToUnits.deallocate(); unitsToIndex.deallocate()
+    }
 
     @inline(__always) func byte(_ offset: Int) -> Int {
         Int(base.load(fromByteOffset: offset, as: UInt8.self))
@@ -51,23 +60,22 @@ final class PPMdArena {
         base.storeBytes(of: UInt16(truncatingIfNeeded: value), toByteOffset: offset, as: UInt16.self)
     }
     @inline(__always) func setRef(_ offset: Int, _ value: Int) {
-        // successor は 2 byte 境界にも現れるので、unaligned store を使える raw buffer 経由。
-        var value = UInt32(value)
-        withUnsafeBytes(of: &value) { base.advanced(by: offset).copyMemory(from: $0.baseAddress!, byteCount: 4) }
+        // raw store は alignment を要求しない。STATE の successor は 2 byte 境界にも置く。
+        base.storeBytes(of: UInt32(truncatingIfNeeded: value), toByteOffset: offset, as: UInt32.self)
     }
     @inline(__always) func copy(_ destination: Int, _ source: Int, _ count: Int) {
         base.advanced(by: destination).copyMemory(from: base.advanced(by: source), byteCount: count)
     }
     @inline(__always) func swapStates(_ first: Int, _ second: Int) {
-        let symbol = byte(first), frequency = byte(first + 1), successor = ref(first + 2)
+        let symbol = byte(first), frequency = byte(first &+ 1), successor = ref(first &+ 2)
         copy(first, second, 6)
-        setByte(second, symbol); setByte(second + 1, frequency); setRef(second + 2, successor)
+        setByte(second, symbol); setByte(second &+ 1, frequency); setRef(second &+ 2, successor)
     }
     @inline(__always) func unitIndex(_ units: Int) -> Int { unitsToIndex[units - 1] }
 
-    func reset() {
-        freeList = [Int](repeating: 0, count: 38)
-        stamps = [Int](repeating: 0, count: 38)
+    mutating func reset() {
+        freeList.update(repeating: 0, count: 38)
+        stamps.update(repeating: 0, count: 38)
         text = alignment
         highUnit = text + size
         lowUnit = highUnit - size / 8 / 12 * 7 * 12
@@ -75,7 +83,7 @@ final class PPMdArena {
         glueCount = 0
     }
 
-    func insert(_ node: Int, _ index: Int) {
+    @inline(__always) mutating func insert(_ node: Int, _ index: Int) {
         if variantI {
             setRef(node, 0xFFFF_FFFF)
             setRef(node + 4, freeList[index])
@@ -87,14 +95,14 @@ final class PPMdArena {
         freeList[index] = node
     }
 
-    func remove(_ index: Int) -> Int {
+    @inline(__always) mutating func remove(_ index: Int) -> Int {
         let node = freeList[index]
         freeList[index] = ref(node + (variantI ? 4 : 0))
         if variantI { stamps[index] -= 1 }
         return node
     }
 
-    func split(_ node: Int, oldIndex: Int, newIndex: Int) {
+    @inline(__always) mutating func split(_ node: Int, oldIndex: Int, newIndex: Int) {
         let units = indexToUnits[oldIndex] - indexToUnits[newIndex]
         let tail = node + 12 * indexToUnits[newIndex]
         var i = unitIndex(units)
@@ -106,7 +114,7 @@ final class PPMdArena {
         insert(tail, i)
     }
 
-    func allocate(_ index: Int) -> Int {
+    @inline(__always) mutating func allocate(_ index: Int) -> Int {
         if freeList[index] != 0 { return remove(index) }
         let bytes = 12 * indexToUnits[index]
         if highUnit - lowUnit >= bytes {
@@ -117,13 +125,13 @@ final class PPMdArena {
         return allocateRare(index)
     }
 
-    func allocateContext() -> Int {
+    @inline(__always) mutating func allocateContext() -> Int {
         if highUnit != lowUnit { highUnit -= 12; return highUnit }
         if freeList[0] != 0 { return remove(0) }
         return allocateRare(0)
     }
 
-    func allocateRare(_ index: Int) -> Int {
+    @inline(never) mutating func allocateRare(_ index: Int) -> Int {
         if glueCount == 0 {
             glue()
             if freeList[index] != 0 { return remove(index) }
@@ -142,7 +150,7 @@ final class PPMdArena {
         return node
     }
 
-    func shrink(_ node: Int, oldUnits: Int, newUnits: Int) -> Int {
+    mutating func shrink(_ node: Int, oldUnits: Int, newUnits: Int) -> Int {
         let old = unitIndex(oldUnits), new = unitIndex(newUnits)
         if old == new { return node }
         if freeList[new] != 0 {
@@ -155,16 +163,16 @@ final class PPMdArena {
         return node
     }
 
-    func specialFree(_ node: Int) {
+    mutating func specialFree(_ node: Int) {
         if node != unitsStart { insert(node, 0) }
         else { unitsStart += 12 }
     }
 
-    private func glue() {
+    private mutating func glue() {
         if variantI { glueI() } else { glueH() }
     }
 
-    private func fill(_ head: Int, nextOffset: Int, unitsOffset: Int) {
+    private mutating func fill(_ head: Int, nextOffset: Int, unitsOffset: Int) {
         var n = head
         while n != 0 {
             var node = n, units = variantI ? ref(n + unitsOffset) : word(n + unitsOffset)
@@ -181,7 +189,7 @@ final class PPMdArena {
         }
     }
 
-    private func glueH() {
+    private mutating func glueH() {
         glueCount = 255
         if lowUnit != highUnit { setWord(lowUnit, 1) }
         var head = 0
@@ -217,9 +225,9 @@ final class PPMdArena {
         fill(head, nextOffset: 4, unitsOffset: 2)
     }
 
-    private func glueI() {
+    private mutating func glueI() {
         glueCount = 1 << 13
-        stamps = [Int](repeating: 0, count: 38)
+        stamps.update(repeating: 0, count: 38)
         if lowUnit != highUnit { setRef(lowUnit, 0) }
         var head = 0, previous = 0
         for i in 0..<38 {
@@ -243,7 +251,7 @@ final class PPMdArena {
         fill(head, nextOffset: 4, unitsOffset: 8)
     }
 
-    func expandTextArea() {
+    mutating func expandTextArea() {
         var counts = [Int](repeating: 0, count: 38)
         if lowUnit != highUnit { setRef(lowUnit, 0) }
         while ref(unitsStart) == 0xFFFF_FFFF {

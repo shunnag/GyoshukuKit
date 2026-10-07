@@ -1363,7 +1363,7 @@ ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独9形式の空・1 byte
 読取進捗・種別拒否・既存出力とrename競合・取消しcleanupを検査する。
 空.Zと制限されたstdout再openは上記LZW節の実ツール方針を共有する。
 
-### PPMd var.H / var.I encoder（2026-10-06）
+### PPMd var.H / var.I encoder（2026-10-07）
 
 `Compression/PPMd/` の internal `PPMd7StreamEncoder` は 7z method `03 04 01` の var.H、
 `PPMd8StreamEncoder` は ZIP method 98 の var.I revision 1 を純 Swift で書く。
@@ -1388,6 +1388,14 @@ free block の結合も Swift が行う。heap のサイズは指定の memorySi
 これに固定の確率表・mask・order 最大 32 の successor stack と 64 KiB 出力 buffer が加わる。
 emit 用 Data のコピーも最大 64 KiB で、追加保持量は概ね 192 KiB 以下。呼出元が保持する入力・出力は含めない。
 7z の carry 保留は byte 列ではなく UInt64 件数として保持し、排出時にも固定 buffer を使う。
+
+2026-10-07 の高速化では model / arena / range coder を所有権付きの noncopyable struct にし、
+入力 block の `withUnsafeBytes` 内で一度だけ `inout` を借りる。記号ごとの class 排他アクセスと
+参照更新を減らし、固定の allocator / NS 表を pointer、SEE を SDK と同じ 4 byte にした。
+SDK の first-state fast path、suffix の一回探索と 2 state ずつの mask 合計、rescale の安定な state 移動、
+H の最大 2 回の正規化（binary success は 1 回）を反映した。heap offset は最大 1 GiB 内、頻度は
+16 bit 内という既存の制約で変換・加算を整理した。model の計算式・復元方法・framing は変えない。
+追加保持量の 192 KiB 上限、per-worker reservation、4096 byte ごとのキャンセル確認、64 KiB の排出は維持する。
 
 7z の order は 2...32、memorySize は 1 MiB...1 GiB（byte 単位）。5 byte coder properties は
 order byte と memorySize の LE32。raw stream に properties や EOF marker は入れず、7z range coder を
@@ -1423,9 +1431,65 @@ H の restart、I の restart / cut-off の実行回数が非ゼロであるこ�
 byte ごと、不揃い chunk、非ゼロ startIndex の Data slice、終了後と emit 失敗後の拒否を検査する。
 固定 seed の英文風 corpus では order 6 / 16 MiB の両 variant が `xz -6` より小さいことを要求する。
 1 MiB の corpus の実測は H が 41,930 byte、I が 41,967 byte、xz -6 が 72,628 byte。
-release の 6 tests は 55.7 秒で成功し、上記の大入力と両復元方法を全て照合した。
-debug の大入力 2 tests も成功した（約 26 分）。大きな corpus の照合には release を推奨する。
+最終版の release は encoder 6 件 53.068 秒、writer options 1 件 0.001 秒、7z writer 5 件 26.254 秒、
+ZIP writer 5 件 18.100 秒で成功した（全体 17 件成功 + benchmark の門 1 件 skip、97.424 秒）。
+凍結 fixture の `LZMAWriterDefaultOutputTests` / `LHADefaultOutputTests` /
+`SevenZipHeaderSerializerTests` / `ZipModernMethodEditingTests` も 6 件成功、1.394 秒。
+旧 encoder は f273d34 の PPMd source を `.build/ppmd-pristine/` に保存し、同じ試験 helper / build flags で比較した。
+一時 harness で試験 corpus の 84 出力（order 上下限、1 / 16 MiB、両 restoration を含む）と
+benchmark の 12 出力を全 byte 比較し、96 組全て一致した。旧 encoder に依存する試験は製品 tree に追加しない。
 oracle 書庫と log は `.build/verification/ppmd-{small,large,restoration,compression}-{debug,release}/` に残す。
+
+`GYOSHUKU_PPMD_BENCHMARK=1` は release 限定の `PPMdEncoderBenchmarkTests` を開く。
+固定 seed の英文風 text 8,388,608 byte と `/usr/lib/dyld` 4,129,088 byte を使う。
+2026-10-07、Apple M4 Max / Swift 6.4、実際に導入されていた 7zz は **26.04**。
+旧→新の順に best-of-5 を二組走らせ、以下は各 10 回の最良値（MB/s は 1,000,000 byte/s）。
+Swift は model allocation / payload の生成 / finish、7zz は起動 / file I/O / archive の作成を含む wall time。
+入力準備、CRC / container の組立、復号 oracle は計測外。別 workstream と debug oracle が同じ Mac で動くため、
+値には揺れがあり、SDK 内部 loop だけの速度比較ではない。
+
+参照は H が `7zz a -t7z -m0=PPMd:o=<order>:mem=<MiB>m -mmt=1`、
+I が `7zz a -tzip -mm=PPMd:o=<order>:mem=<MiB>m:a=0 -mx=<level> -mmt=1`。
+H の order は 3 / 6 / 16、I は 3 / 8 / 16、heap は両方 1 / 16 / 192 MiB、I は restart を指定する。
+`a=0` が無い高 level の ZIP は cut-off になる。7zz は入力サイズで heap を減らすため、
+**level 9 の参照実値は text 128 MiB / binary 64 MiB**（Swift は 192 MiB）。
+7z の `l -slt` / ZIP の parameter word で order / heap / restoration を確認し、TSV に実値も出す。
+表の byte は payload サイズ（ZIP は 2 byte parameter word 込み）。level 9 の binary サイズ差は heap 条件が異なる。
+
+| corpus | var. | level | 旧 MB/s | 新 MB/s | 7zz MB/s | 旧=新 byte | 7zz byte |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | H | 1 | 19.11 | 121.17 | 116.43 | 703,855 | 703,855 |
+| text | H | 6 | 17.09 | 162.88 | 152.58 | 328,737 | 328,737 |
+| text | H | 9 | 18.75 | 109.23 | 104.68 | 293,408 | 293,408 |
+| text | I | 1 | 17.62 | 117.46 | 101.85 | 704,541 | 704,541 |
+| text | I | 6 | 19.06 | 163.32 | 119.69 | 297,284 | 297,284 |
+| text | I | 9 | 17.58 | 114.77 | 95.69 | 294,144 | 294,144 |
+| binary | H | 1 | 6.94 | 20.16 | 21.97 | 1,286,117 | 1,286,117 |
+| binary | H | 6 | 5.68 | 15.16 | 17.45 | 1,110,799 | 1,110,799 |
+| binary | H | 9 | 5.67 | 14.32 | 14.52 | 903,351 | 1,057,380 |
+| binary | I | 1 | 6.75 | 20.94 | 21.70 | 1,282,687 | 1,282,687 |
+| binary | I | 6 | 5.49 | 15.80 | 16.05 | 1,134,452 | 1,134,452 |
+| binary | I | 9 | 5.63 | 13.69 | 14.33 | 900,741 | 1,053,497 |
+
+level 6 の旧比は H が text 9.53 倍 / binary 2.67 倍、I が text 8.57 倍 / binary 2.88 倍。
+2 倍の目標は両 corpus / variant で達成し、この wall-time 計測での binary の新 / 7zz 比は H 86.9% / I 98.4%。
+圧縮サイズは全 level / corpus で旧版と同じ。参照と同じ heap の level 1 / 6 は 7zz のサイズにも一致した。
+`sample` は sandbox で process を調べられなかったため、一時 build の 1024 回ごとの stage 計測を使った。
+binary の model update は H 2,051,159 回 / I 2,387,554 回（入力 4,129,088 byte）、
+suffix escape は H 827,690 回 / I 895,793 回。計測 overhead 込みの推定で model update が encode 時間の約 54% を占める。
+残る H binary の参照との差は、suffix の探索と successor / allocator の更新が中心と見ている。
+text の model update は H 5,279 回 / I 7,812 回に留まり、頻出する binary / first-state 経路の改善が効く。
+
+debug の encoder 単体（一時 `-Onone` harness、8 MiB random、order 6 / 16 MiB、1 回）は
+H 239.118 → 43.602 秒、I 250.084 → 57.227 秒。出力サイズはそれぞれ 8,580,567 / 8,591,123 byte で一致した。
+debug の `PPMdEncoderTests` は旧版 6 件成功 1941.041 秒 → 最終版 6 件成功 1586.002 秒（18.3% 短縮）。
+`testLargeTextAndRandom` は 1243.960 → 983.561 秒、20 MiB の restoration 試験は 681.143 → 590.132 秒。
+最終 debug の選択全体は encoder / writer options が 7 件成功、benchmark が 1 件 skip、1586.005 秒。
+同時実行の oracle で数字は揺れる。KaitoKit の復号照合と試験用 CRC / container の準備も含むため、
+encoder 単体の改善幅ほど試験全体は短くならない。最終 debug の 36 書庫も旧版と全 byte 一致した。
+前後の oracle 出力を分けるため、最終 debug は同一 source の `.build/ppmd-current/` で実行し、
+その書庫は `.build/ppmd-current/.build/verification/`、log は `debug-final.log` に残した。
+速度・profile・試験の log と `results.tsv` は `.build/ppmd-speed/` に保存した。
 
 ```sh
 swift build
@@ -1438,6 +1502,10 @@ CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sa
 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release --filter PPMd
 # Swift 6.4 の swiftbuild が dSYM 作成を禁止される環境では debug 情報を省略できる。
 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release -debug-info-format none --filter PPMd
+# single-thread 参照比較（各 5 回、TSV）
+GYOSHUKU_PPMD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none \
+  --filter PPMdEncoderBenchmarkTests
 ```
 
 ### 自前 Zstandard frame encoder（2026-10-06）
