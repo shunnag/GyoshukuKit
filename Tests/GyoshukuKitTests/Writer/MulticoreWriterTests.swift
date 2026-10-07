@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import KaitoKit
 import XCTest
 @testable import GyoshukuKit
@@ -116,7 +117,7 @@ final class MulticoreWriterTests: XCTestCase {
             XCTAssertNoThrow(try limited.validate(for: .zip))
             XCTAssertEqual(EntryCompressionConfiguration(options: limited).threads, 1)
             XCTAssertEqual(limited.maximumPendingInputBytes(for: .zip), 0)
-            limited.memoryLimit = 2 * (state + UInt64(EntryCompressionConfiguration.inputLimit + 4 * IOChunk.size))
+            limited.memoryLimit = 2 * (state + UInt64(EntryCompressionConfiguration.inputLimit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size))
             XCTAssertEqual(EntryCompressionConfiguration(options: limited).threads, 2)
         }
     }
@@ -152,6 +153,69 @@ final class MulticoreWriterTests: XCTestCase {
                 if let baseline { XCTAssertTrue(bytes == baseline, "\(method)") } else { baseline = bytes }
                 XCTAssertEqual(try LHABytes(bytes).members[3].method, "-lh0-")
                 try LHATestSupport.verify(url, expected: items)
+            }
+        }
+    }
+
+    func testLHAMixedTinyMembersKeepMemorySpoolsAndEncoderFailure() throws {
+        let root = try TestSupport.directory("multicore-lha-tiny")
+        let created = Mutex(0)
+        try ScratchFile.$testingCreated.withValue({ _ in created.withLock { $0 += 1 } }) {
+            let writer = try ArchiveWriter.create(url: root.appendingPathComponent("tiny.lzh"), format: .lha,
+                options: .init(compressionThreads: 4))
+            try writer.add(data: Data(repeating: 65, count: 2 << 20), as: "medium", modificationDate: TestSupport.date)
+            for index in 0..<100 {
+                try writer.add(data: Data([65]), as: "tiny-\(index)", modificationDate: TestSupport.date)
+                if index % 5 == 0 { try writer.addDirectory("folder-\(index)") }
+            }
+            try writer.finish()
+        }
+        // 中memberの完成recordと片連結用だけ。小member・directoryはfileを作らない。
+        XCTAssertEqual(created.withLock { $0 }, 2)
+        let reader = try ArchiveReader.open(url: root.appendingPathComponent("tiny.lzh"))
+        XCTAssertEqual(reader.entries.count, 121)
+        let calls = Mutex(0)
+        let failed = root.appendingPathComponent("failure.lzh")
+        let writer = try ArchiveWriter.create(url: failed, format: .lha, options: .init(compressionThreads: 4),
+            lzmaChunkSize: LZMA2ChunkPipeline<Void>.chunkSize, lh5Encoder: { _ in
+                calls.withLock { $0 += 1 }
+                throw WriterError.compression(-77)
+            })
+        try writer.add(data: Data(repeating: 65, count: 2 << 20), as: "medium", modificationDate: TestSupport.date)
+        try writer.add(data: Data([66]), as: "tiny", modificationDate: TestSupport.date)
+        XCTAssertThrowsError(try writer.finishAdditions(progress: nil)) {
+            XCTAssertEqual($0 as? WriterError, .compression(-77))
+        }
+        XCTAssertEqual(calls.withLock { $0 }, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failed.path))
+    }
+
+    func testMediumEntryWindowBoundsAfterEveryAddition() throws {
+        try checkMediumBounds(threads: 2, sizes: [1_048_577, 1_200_001, 1_300_003])
+    }
+
+    func testNearLimitEntryWindowBoundsAfterEveryAddition() throws {
+        try OptInGate.flag("GYOSHUKU_MULTICORE_BENCHMARK")
+        // t+1 個で満杯の窓を跨ぎ、16 MiB 直前の入力も検査する。
+        try checkMediumBounds(threads: 12, sizes: (0..<13).map { $0 % 2 == 0 ? 16_777_215 : 16_776_959 })
+    }
+
+    private func checkMediumBounds(threads: Int, sizes: [Int]) throws {
+        let root = try TestSupport.directory("multicore-medium-bounds")
+        let options = WriterOptions(compressionMethod: .zstd, sevenZipMethod: .bzip2, compressionThreads: threads)
+        for format: GyoshukuKit.ArchiveFormat in [.zip, .sevenZip, .lha] {
+            let url = root.appendingPathComponent(UUID().uuidString)
+            let writer = try ArchiveWriter.create(url: url, format: format, options: options)
+            for (index, size) in sizes.enumerated() {
+                try writer.add(data: Data(repeating: UInt8(index + 65), count: size), as: "file-\(index)", modificationDate: TestSupport.date)
+                XCTAssertLessThanOrEqual(writer.pendingInputBytes, options.maximumPendingInputBytes(for: format), "\(format), item \(index)")
+            }
+            try writer.finishAdditions(progress: nil)
+            XCTAssertEqual(writer.pendingInputBytes, 0)
+            try writer.finish()
+            let reader = try ArchiveReader.open(url: url)
+            for (index, entry) in reader.entries.enumerated() {
+                XCTAssertEqual(try reader.read(entry), Data(repeating: UInt8(index + 65), count: sizes[index]))
             }
         }
     }

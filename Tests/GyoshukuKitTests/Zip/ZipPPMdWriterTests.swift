@@ -99,7 +99,7 @@ final class ZipPPMdWriterTests: XCTestCase {
         for threads in [1, 4] {
             let work = try TestSupport.work(in: root), url = work.appendingPathComponent("archive.zip")
             let options = WriterOptions(compressionMethod: .ppmd, ppmdOrder: 6, ppmdMemoryMiB: 1, compressionThreads: threads)
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), UInt64(threads > 1 ? threads * EntryCompressionConfiguration.inputLimit : 0))
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), threads == 1 ? 0 : 64 << 20)
             try PPMdWriterTestSupport.write(url, format: .zip, options: options, items: [item])
             let bytes = try Data(contentsOf: url)
             if let baseline { XCTAssertEqual(bytes, baseline) } else { baseline = bytes }

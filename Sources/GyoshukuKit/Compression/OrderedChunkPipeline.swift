@@ -55,6 +55,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
 
     private let threads: Int
     private let lightWeightLimit: UInt64
+    private let inlineSingleThread: Bool
     private let encoder: Encoder
     private let queue: DispatchQueue
     private let state = State()
@@ -63,18 +64,20 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private(set) var pendingInputBytes: UInt64 = 0
     private var nextID: UInt64 = 0
     private var finished = false
+    var pendingCount: Int { items.count }
 
-    init(threads: Int, lightWeightLimit: UInt64 = 0, encoder: @escaping Encoder) {
+    init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, encoder: @escaping Encoder) {
         precondition((1...64).contains(threads))
         self.threads = threads
         self.lightWeightLimit = lightWeightLimit
+        self.inlineSingleThread = inlineSingleThread
         self.encoder = encoder
         queue = DispatchQueue(label: "GyoshukuKit.Compression", qos: Self.currentQoS, attributes: .concurrent)
     }
 
     deinit { abandon() }
 
-    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0,
+    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0, inline: Bool = false,
                 didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
@@ -89,8 +92,13 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
             if let input {
                 let state = state, encoder = encoder
                 state.workers.enter()
-                queue.async(qos: Self.currentQoS, flags: .enforceQoS) {
+                if (threads == 1 && inlineSingleThread) || inline {
+                    // 内側が逐次なら worker 自身で処理し、GCD の待機 thread を増やさない。
                     state.encode(input, id: id, encoder: encoder)
+                } else {
+                    queue.async(qos: Self.currentQoS, flags: .enforceQoS) {
+                        state.encode(input, id: id, encoder: encoder)
+                    }
                 }
             } else {
                 state.complete(.success(nil), id: id)

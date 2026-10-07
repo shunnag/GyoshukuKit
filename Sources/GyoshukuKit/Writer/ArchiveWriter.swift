@@ -709,7 +709,7 @@ extension ArchiveWriter {
                                   emit: (ZipWriter.Tag, Prefetched?) throws -> Void,
                                   receive: (BatchEntry, Prefetched?) throws -> Void) throws {
         if let zipWriter {
-            try zipWriter.submit(job, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
+            try zipWriter.submit(job, method: entry.zip!.method, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
         } else if sevenZipWriter != nil {
             // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
             try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })

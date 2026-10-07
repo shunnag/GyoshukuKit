@@ -80,30 +80,36 @@ tar.xz は 4 MiB 以下の member を最大 4 MiB の block に詰め、4 MiB �
 mode 間の受入計測）。
 
 
-writer全経路の比較は`multicore.py`と`MulticoreBenchmarkTests`を使います。通常のswift testではskipされます。
-`compressionThreads`は1/12、コーパスは256 MiB（96個の2 MiBと1個の64 MiB）、レベルはlibrary既定です。
-7z solidは16 MiBのblock、filterの計測はDelta距離4。BCJ/ARM64/autoも同じfolder経路を使い、互換性は対象testで照合します。
-CPU秒は`getrusage(RUSAGE_SELF)`のuser+system、wallはcreate/compressからfinishまで。SHA-256とサイズの確認は計測外。
-各経路についてbase/newを連続して5回ずつ測り、最短wallのsampleに対応するCPU秒を報告します。
+round 1のwriter全経路比較は`MulticoreBenchmarkTests`のrelease XCTest bundleを使いました。
+当時の計測手順・参照CLI・全53経路の結果は
+[2026-10-07 writer multicore](../Documentation/verification/2026-10-07-writer-multicore.md)のround 1節に保存しています。
+現在の`multicore.py measure`は下の独立executableを使います。`references`は同じ256 MiB本文での従来のCLI比較です。
+通常のswift testではbenchmark probeはskipされます。
+
+## writer multicore round 2
+
+`multicore.py` の既定は単一10 MiB（7z solidは既定blockSize）、5,000個の1〜4 KiB、従来256 MiB、およびLHA用の10 MiBと128小ファイルの混在。
+`GyoshukuMulticore` は公開APIだけを使う独立executableで、timing buildに`-enable-testing`を付けない。
+両版を次の同じflagsでbuildする。基準sourceは`git archive f273d34`で作ったものを使い、
+新しいBenchmarks/Package.swiftとSources/GyoshukuMulticore/main.swiftだけを同じ場所へコピーする。
+他のworktreeには書かない。native buildのexecutableはscratch-path/out/Products/Releaseに出る。
 
 ```sh
 mkdir -p .build-base/source
 git archive f273d34 | tar -x -C .build-base/source
 ln -s /Users/nagash/Github/KaitoKit .build-base/KaitoKit
-cp Tests/GyoshukuKitTests/Probes/MulticoreBenchmarkTests.swift .build-base/source/Tests/GyoshukuKitTests/Probes/
-CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --package-path .build-base/source --scratch-path .build-base/build --build-system native --disable-sandbox -c release -Xswiftc -enable-testing --filter MulticoreBenchmarkTests
-CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --build-system native --disable-sandbox -c release -Xswiftc -enable-testing --filter MulticoreBenchmarkTests
+cp Benchmarks/Package.swift .build-base/source/Benchmarks/Package.swift
+mkdir -p .build-base/source/Benchmarks/Sources/GyoshukuMulticore
+cp Benchmarks/Sources/GyoshukuMulticore/main.swift .build-base/source/Benchmarks/Sources/GyoshukuMulticore/main.swift
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path Benchmarks --scratch-path .build/multicore-release --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path .build-base/source/Benchmarks --scratch-path .build-base/multicore-release --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
 python3 Benchmarks/multicore.py corpus
-python3 Benchmarks/multicore.py measure
-python3 Benchmarks/multicore.py references --results .build/multicore/references.jsonl
-GYOSHUKU_MULTICORE_BENCHMARK=1 GYOSHUKU_MULTICORE_CORPUS="$PWD/.build/multicore/corpus" xcrun xctest -XCTest GyoshukuKitTests.ZipConcatenatedZstdProbeTests/testLargeMemberFrameResetSize .build/arm64-apple-macosx/release/GyoshukuKitPackageTests.xctest > .build/multicore/zstd-frame-ratio.log 2>&1
-python3 Benchmarks/multicore-report.py
+python3 Benchmarks/multicore.py measure --results .build/multicore/round2.jsonl
+python3 Benchmarks/multicore.py report --results .build/multicore/round2.jsonl
 ```
 
-`--cases zip-bzip2,7z-ppmd-solid-filter`で部分選択、`--repeats N`で5回以上にできます。
-JSONLを残せば`measure`は中断後の続きから実行します。corpusのソース本文もf273d34から読み、source編集による入力の変化を避けます。
-sourceの時刻は各sampleの前に固定します。tarの圧縮codecのCLI参照は同じ連結本文（tar headerを含まない）を使うため、
-containerを含むlibrary出力とbyte比較しません。ZIP Zstdのencoderは7zzにないので単独Zstd CLIの参照を使います。
-`multicore-report.py`はこの検証の対象testログ（`.build/multicore/release-acceptance.log`、`release-final.log`、
-`release-lha-final.log`、`debug-final.log`、`zstd-frame-ratio.log`）も参照します。frame probeのstdoutも最後の名前で保存してください。
-測定結果と予約の詳細は[2026-10-07 writer multicore](../Documentation/verification/2026-10-07-writer-multicore.md)を参照してください。
+threads=1/12、それぞれbase/newを交互に各5回。pairの先行版も反転し、各群の最短wallを使う。
+SHA-256は両版・両threadsで一致を要求し、load average（1/5/15分）は各sampleに記録する。
+`report`は必要sample数、hash、new/base <= 1.05を検査し、一つでも不一致なら非ゼロ終了する。
+`--workloads single,small`や`--cases zip-zstd`で範囲を指定する。corpusは既存manifestがあれば再生成しない。
+`references`は従来どおり256 MiBのCLI計測用。最終結果は同日のverification記録のround 2節を参照。

@@ -243,16 +243,20 @@ public struct WriterOptions: Sendable {
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
     /// ZIP BZip2・LZMA・Zstandard・PPMd と非solid 7z LZMA・BZip2・PPMdは t > 1 なら t × 16 MiB、逐次は0。
-    /// tは項目窓のメモリ予算で解決した数。7z Copyは0。圧縮出力はdisk spoolで保持する。
+    /// tは項目窓のメモリ予算で解決した数。7z Copyは0。圧縮出力は1 MiBまでメモリ、超過時はdisk spoolで保持する。
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
     /// ZIP XZは項目窓の上界と、既存block窓の (t + 1) × 片の大きい方。大項目の終了時にはblockを全て出力する。
     /// tar.zst はメモリ予算で解決した t × max(4 MiB, level の window)。組立中の frame も枠に含む。
     /// LHAは項目窓の t × 16 MiBと、既存の t 個の1 MiB入力＋履歴の大きい方。逐次とforced storeは0。
     /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
-    /// 7z solidはdisk上の t 個のblock上限。filter付き非solidは t × 16 MiB。圧縮メモリとは独立する。
+    /// 7z solidはdisk上の t 個のblock上限（blockSize > 256 MiBは同期の一つ）。filter付き非solidは t × 16 MiB。圧縮メモリとは独立する。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
-        let lzma = try? LZMAWriterConfiguration(options: self)
+        maximumPendingInputBytes(for: format, physicalMemory: ProcessInfo.processInfo.physicalMemory)
+    }
+
+    func maximumPendingInputBytes(for format: ArchiveFormat, physicalMemory: UInt64) -> UInt64 {
+        let lzma = try? LZMAWriterConfiguration(options: self, physicalMemory: physicalMemory)
         let lzmaThreads = UInt64(max(1, min(64, lzma?.threads ?? 1)))
         let piece = UInt64(lzma?.pieceSize ?? ParallelXZCompressor.defaultBlockSize)
         let threads = UInt64(max(1, min(64, resolvedCompressionThreads)))
@@ -261,10 +265,10 @@ public struct WriterOptions: Sendable {
             switch compressionMethod {
             case .stored: return 0
             case .bzip2, .lzma, .zstd, .ppmd:
-                return EntryCompressionConfiguration(options: self).maximumPendingInputBytes
+                return EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
-            case .xz: return max((lzmaThreads + 1) * piece, EntryCompressionConfiguration(options: self).maximumPendingInputBytes)
+            case .xz: return max((lzmaThreads + 1) * piece, EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes)
             }
         case .tar: return 0
         case .tarLZMA, .tarBrotli, .tarCompress: return 0
@@ -285,7 +289,8 @@ public struct WriterOptions: Sendable {
         case .sevenZip:
             // solid/filterの未圧縮入力はdisk上のspool。組立中もfolder窓の一枠に数える。
             if sevenZipSolid != .off || sevenZipFilter != .none {
-                let count = UInt64(EntryCompressionConfiguration(options: self, method: sevenZipMethod).threads)
+                let sequential = resolvedSevenZipBlockSize > 256 << 20 || (sevenZipMethod == .copy && sevenZipFilter == .none)
+                let count = sequential ? 1 : UInt64(EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory, innerParallelism: true).threads)
                 let limit = sevenZipSolid == .off ? UInt64(EntryCompressionConfiguration.inputLimit) : resolvedSevenZipBlockSize
                 let (bound, overflow) = limit.multipliedReportingOverflow(by: count)
                 return overflow ? UInt64.max : bound
@@ -294,13 +299,13 @@ public struct WriterOptions: Sendable {
             case .lzma2: return lzmaThreads * piece
             case .deflate: return threads * UInt64(DeflateBlock.size)
             case .lzma, .bzip2, .ppmd:
-                return EntryCompressionConfiguration(options: self, method: sevenZipMethod).maximumPendingInputBytes
+                return EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).maximumPendingInputBytes
             case .copy: return 0
             }
         case .lha:
             guard threads > 1, lhaMethod != .stored else { return 0 }
             let pieces = threads * UInt64(LHAWriter.compressionChunkSize + lhaMethod.windowSize)
-            return max(pieces, EntryCompressionConfiguration(lhaThreads: resolvedCompressionThreads).maximumPendingInputBytes)
+            return max(pieces, EntryCompressionConfiguration(lhaThreads: resolvedCompressionThreads, physicalMemory: physicalMemory).maximumPendingInputBytes)
         }
     }
 

@@ -20,6 +20,7 @@ final class LHAWriter {
     private let pipeline: OrderedChunkPipeline<Data, Data?, Pending>?
     private let entryPipeline: OrderedChunkPipeline<LHAEntryCompressionJob, LHAEncodedMember, LHARecords.Entry>?
     private let entryCancellation = CompressionCancellation()
+    private var waitingMember: (entry: LHARecords.Entry, name: String, mode: UInt16, date: Date, input: Data)?
 
     struct MemberRecord {
         let headerOffset: UInt64
@@ -34,6 +35,7 @@ final class LHAWriter {
 
     init(output: FileHandle, url: URL, threads: Int = 1,
          method: LHACompressionMethod = .lh5, level: Int = 6, recordsMembers: Bool = false,
+         allowsEntryParallelism: Bool = true,
          encoder: (@Sendable (Data) throws -> Data)? = nil) {
         precondition((1...64).contains(threads))
         let configuration = LH5Encoder.Configuration(method: method, level: level)
@@ -50,16 +52,17 @@ final class LHAWriter {
         } : nil
         let entryThreads = EntryCompressionConfiguration(lhaThreads: threads).threads
         let cancellation = entryCancellation
-        entryPipeline = entryThreads > 1 && method != .stored ? OrderedChunkPipeline(threads: entryThreads) {
+        entryPipeline = allowsEntryParallelism && entryThreads > 1 && method != .stored ? OrderedChunkPipeline(threads: entryThreads) {
             try LHAEntryCompressor.encode($0, method: method, level: level, cancellation: cancellation)
         } : nil
     }
 
     deinit { abort() }
 
-    var pendingInputBytes: UInt64 { (pipeline?.pendingInputBytes ?? 0) + (entryPipeline?.pendingInputBytes ?? 0) }
+    var pendingInputBytes: UInt64 { (pipeline?.pendingInputBytes ?? 0) + (entryPipeline?.pendingInputBytes ?? 0) + UInt64(waitingMember?.input.count ?? 0) }
 
     func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
+        try flushWaitingMember(didEmit: didEmit)
         try entryPipeline?.drain(didEmit: didEmit, emit: emitMember)
         try pipeline?.drain(didEmit: didEmit, emit: emit)
     }
@@ -72,32 +75,38 @@ final class LHAWriter {
             try addStored(entry: entry, name: name, size: size, read: read)
             return
         }
-        if size > Self.compressionChunkSize {
+        if let entryPipeline, size <= EntryCompressionConfiguration.inputLimit,
+           size > Self.compressionChunkSize || waitingMember != nil || entryPipeline.pendingCount > 0 {
             try pipeline?.drain(emit: emit)
-            if let entryPipeline, size <= EntryCompressionConfiguration.inputLimit {
-                try entryPipeline.waitForCapacity(emit: emitMember)
-                var input = Data()
-                input.reserveCapacity(Int(size))
-                while input.count < Int(size) {
-                    try Task.checkCancellation()
-                    let count = min(IOChunk.size, Int(size) - input.count)
-                    let bytes = try read(count)
-                    guard !bytes.isEmpty, bytes.count <= count else { throw WriterError.sourceChanged(name) }
-                    input.append(bytes)
-                }
-                guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
-                let spool = try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "lha-entry")
-                try entryPipeline.submit(.init(name: name, mode: mode, date: date, data: input, output: spool,
-                                               directory: url.deletingLastPathComponent()),
-                    tag: entry, weight: size, emit: emitMember)
-                return
+            if let waitingMember {
+                self.waitingMember = nil
+                try submitMember(waitingMember.entry, name: waitingMember.name, mode: waitingMember.mode, date: waitingMember.date, input: waitingMember.input)
             }
+            try entryPipeline.waitForCapacity(emit: emitMember)
+            var input = Data()
+            input.reserveCapacity(Int(size))
+            while input.count < Int(size) {
+                try Task.checkCancellation()
+                let count = min(IOChunk.size, Int(size) - input.count)
+                let bytes = try read(count)
+                guard !bytes.isEmpty, bytes.count <= count else { throw WriterError.sourceChanged(name) }
+                input.append(bytes)
+            }
+            guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
+            // 次の member が分かるまで一つだけ保留し、単独なら従来の片並列を使う。
+            if size > Self.compressionChunkSize, entryPipeline.pendingCount == 0 {
+                waitingMember = (entry, name, mode, date, input)
+            } else { try submitMember(entry, name: name, mode: mode, date: date, input: input) }
+            return
+        }
+        if size > Self.compressionChunkSize {
+            try flushWaitingMember()
             try entryPipeline?.drain(emit: emitMember)
+            try pipeline?.drain(emit: emit)
             if threads == 1 { try addStreamed(entry: entry, name: name, size: size, read: read) }
             else { try addStreamedParallel(entry: entry, name: name, size: size, read: read) }
             return
         }
-        try entryPipeline?.drain(emit: emitMember)
         try pipeline?.waitForCapacity(emit: emit)
         // member 単位で保持し、圧縮で増える場合は原本を -lh0- として保存する。
         // ヘッダーには確定サイズと CRC が必要なので、失敗し得る読み取りも先に済ませる。
@@ -128,6 +137,27 @@ final class LHAWriter {
         try Task.checkCancellation()
     }
 
+    private func submitMember(_ entry: LHARecords.Entry, name: String, mode: UInt16, date: Date, input: Data) throws {
+        let spool = try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "lha-entry", diskBacked: input.count > Self.compressionChunkSize)
+        try entryPipeline!.submit(.init(name: name, mode: mode, date: date, data: input, output: spool,
+                                       directory: url.deletingLastPathComponent(),
+                                       threads: max(1, threads / (entryPipeline!.pendingCount + 1)), encoder: encoder),
+            tag: entry, weight: UInt64(input.count), emit: emitMember)
+    }
+
+    private func flushWaitingMember(didEmit: ((UInt64) throws -> Void)? = nil) throws {
+        guard let member = waitingMember else { return }
+        waitingMember = nil
+        var offset = 0
+        let read: (Int) -> Data = { count in
+            let end = min(member.input.count, offset + count)
+            defer { offset = end }
+            return member.input[offset..<end]
+        }
+        try addStreamedParallel(entry: member.entry, name: member.name, size: UInt64(member.input.count), read: read)
+        try didEmit?(UInt64(member.input.count))
+    }
+
     private func emit(_ pending: Pending, _ result: Data??) throws {
         let compressed = result ?? nil
         let method = pending.directory ? Method.lhd : compressed == nil ? Method.lh0 : configuration.method.headerMethod
@@ -137,19 +167,20 @@ final class LHAWriter {
     private func emitMember(_ entry: LHARecords.Entry, _ result: LHAEncodedMember?) throws {
         guard let result else { throw WriterError.invalidState }
         try Task.checkCancellation()
-        let scratch = result.output.scratch
-        defer { scratch.close() }
+        defer { result.output.close() }
         let offset = recordsMembers ? try output.offset() : 0
-        try scratch.handle.seek(toOffset: 0)
-        var remaining = result.length
-        while remaining > 0 {
-            try Task.checkCancellation()
-            let count = Int(min(UInt64(IOChunk.size), remaining))
-            let bytes = try FileRead.readChunk(scratch.handle.fileDescriptor, upTo: count)
-            guard !bytes.isEmpty else { throw WriterError.invalidState }
-            try write(bytes)
-            remaining -= UInt64(bytes.count)
-        }
+        if let scratch = result.output.scratch {
+            try scratch.handle.seek(toOffset: 0)
+            var remaining = result.length
+            while remaining > 0 {
+                try Task.checkCancellation()
+                let count = Int(min(UInt64(IOChunk.size), remaining))
+                let bytes = try FileRead.readChunk(scratch.handle.fileDescriptor, upTo: count)
+                guard !bytes.isEmpty else { throw WriterError.invalidState }
+                try write(bytes)
+                remaining -= UInt64(bytes.count)
+            }
+        } else { try result.output.forEachChunk(write) }
         record(entry, offset: offset, headerLength: result.headerLength, dataLength: result.dataLength, method: result.method)
     }
 
@@ -304,6 +335,7 @@ final class LHAWriter {
             let remainder = bits.remainder
             return PieceOutput(bytes: bits.takeCompleteBytes(), remainder: remainder)
         }
+        defer { pieces.abandonAndWait() }
         var bits = LH5Encoder.Bits()
         var history = Data()
         var compressing = true
@@ -338,6 +370,7 @@ final class LHAWriter {
 
     func endMembers() throws -> UInt64 {
         guard !finished, !aborted else { throw WriterError.invalidState }
+        try flushWaitingMember()
         try entryPipeline?.drain(emit: emitMember)
         try pipeline?.drain(emit: emit)
         let end = try output.offset()
@@ -347,6 +380,7 @@ final class LHAWriter {
 
     func finish() throws {
         guard !finished, !aborted else { throw WriterError.invalidState }
+        try flushWaitingMember()
         try entryPipeline?.drain(emit: emitMember)
         try pipeline?.drain(emit: emit)
         try write(Data([0]))
@@ -360,6 +394,7 @@ final class LHAWriter {
         guard !finished, !aborted else { return }
         aborted = true
         entryCancellation.cancel()
+        waitingMember = nil
         entryPipeline?.abandonAndWait()
         pipeline?.abandon()
         // LHA は完了済み member だけでも読める。終端を省くのではなく旧 inode 全体を無効にする。

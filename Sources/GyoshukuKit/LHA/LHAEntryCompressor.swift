@@ -7,6 +7,8 @@ struct LHAEntryCompressionJob: Sendable {
     let data: Data
     let output: OrderedEntrySpool
     let directory: URL
+    let threads: Int
+    let encoder: @Sendable (Data) throws -> Data
     // GCDはTaskLocalを継承しない。既存spoolの故障注入・descriptor観測を保つ。
     let scratchReserve = ScratchFile.testingFreeSpaceReserve
     let scratchCreated = ScratchFile.testingCreated
@@ -34,17 +36,31 @@ enum LHAEntryCompressor {
     private static func encodeOwned(_ job: LHAEntryCompressionJob, method: LHACompressionMethod, level: Int,
                                     cancellation: CompressionCancellation) throws -> LHAEncodedMember {
         try cancellation.check()
-        let scratch = job.output.scratch
+        if job.data.count <= LHAWriter.compressionChunkSize {
+            let entry = try LHARecords.Entry(name: job.name, mode: job.mode, size: UInt64(job.data.count), date: job.date)
+            let crc = LHACRC16.update(0, job.data)
+            let compressed = job.mode.isDirectoryMode ? Data() : try job.encoder(job.data)
+            let shrinks = compressed.count < job.data.count
+            let payload = shrinks ? compressed : job.data
+            let headerMethod = job.mode.isDirectoryMode ? LHARecords.Method.lhd : shrinks ? method.headerMethod : LHARecords.Method.lh0
+            let header = try entry.header(method: headerMethod, packedSize: UInt32(payload.count), crc: crc)
+            try cancellation.check()
+            try job.output.append(header)
+            try job.output.append(payload)
+            return LHAEncodedMember(output: job.output, length: job.output.length, headerLength: header.count,
+                                    dataLength: UInt64(payload.count), method: headerMethod)
+        }
+        let scratch = job.output.scratch!
         // outputはunlink済み。作業名は補助spoolのdirectoryとabortのinode照合にだけ使う。
         let workURL = job.directory.appendingPathComponent(".gyoshuku-lha-record-\(UUID().uuidString).spool")
-        let writer = LHAWriter(output: scratch.handle, url: workURL, threads: 1,
-                               method: method, level: level, recordsMembers: true)
+        let writer = LHAWriter(output: scratch.handle, url: workURL, threads: job.threads,
+                               method: method, level: level, recordsMembers: true, allowsEntryParallelism: false, encoder: job.encoder)
         var offset = 0
         try writer.add(name: job.name, mode: job.mode, size: UInt64(job.data.count), date: job.date) { count in
             try cancellation.check()
             let end = min(job.data.count, offset + count)
             defer { offset = end }
-            return job.data.subdata(in: offset..<end)
+            return job.data[offset..<end]
         }
         let length = try writer.endMembers()
         try cancellation.check()

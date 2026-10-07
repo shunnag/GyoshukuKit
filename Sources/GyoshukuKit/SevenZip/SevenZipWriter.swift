@@ -85,14 +85,14 @@ final class SevenZipWriter {
             && options.sevenZipMethod != .copy ? OrderedChunkPipeline(threads: threads) { job in
                 var offset = 0
                 let encoder = try SevenZipFolderEncoder.encode(size: UInt64(job.data.count), options: resolvedWorkerOptions,
-                    chunkSize: chunkSize, aes: job.aes, read: { count in
+                    chunkSize: chunkSize, inlineSingleThread: true, aes: job.aes, read: { count in
                         try cancellation.check()
                         let end = min(offset + count, job.data.count)
                         defer { offset = end }
                         return job.data.subdata(in: offset..<end)
                     }, write: { bytes in
                         try cancellation.check()
-                        try job.spool.scratch.append(bytes)
+                        try job.spool.append(bytes)
                     })
                 return EncodedEntry(spool: job.spool, properties: encoder.properties, lzmaProperties: encoder.lzmaProperties,
                                     ppmdProperties: encoder.ppmdProperties, aesProperties: job.aes?.properties,
@@ -253,8 +253,8 @@ final class SevenZipWriter {
         var record = source
         let start = position
         if let result {
-            defer { result.spool.scratch.close() }
-            try result.spool.scratch.forEachChunk(write)
+            defer { result.spool.close() }
+            try result.spool.forEachChunk(write)
             record.properties = result.properties
             record.lzmaProperties = result.lzmaProperties
             record.ppmdProperties = result.ppmdProperties

@@ -810,10 +810,16 @@ Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指�
 空 file / directory は EmptyStream のままで、件数とサイズには数えない。拡張子による並べ替えは行わない。
 folder の全サイズ確定後に `SevenZipFolderEncoder` を使うので raw LZMA の expectedSize も既知となる。
 圧縮前と圧縮後のfolderをunlink済みspoolで保持し、投入順に出力する。
-未出力folderと組立中folderを合わせt枠以下、各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
+未出力folderと組立中folderを合わせt枠以下（t <= 16）。並列投入する各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
+blockSizeが256 MiBを超える場合とfilterなしCopyはfolder間の並列化を使わず、従来の同期経路へ戻す。
+従って並列入力spoolの一時disk上界はt × blockSize <= 4 GiB（非solid/filterはt × 16 MiB <= 256 MiB）。
+圧縮出力は各folderの最初の1 MiBをメモリに保持し、超過時だけspoolへ移す。
+通常の作業disk合計はこの入力上界と、未出力folderの圧縮長の合計（AESのpaddingを含む）。
+fileを分割しないため、組立中の単一fileが入力上限Lを超える場合だけ、入力disk上界にmax(0, fileSize - L)を加える。
+圧縮長に入力長の定数倍という仮定は置かない。同期経路の上限超過単一fileは入力spool一つと有界codec状態を使う。
+最終folderのflush時に他のfolderが無ければ同期経路で全threadsを使う。
+workerの内部並列数はmax(1, 要求threads / 投入後の未出力folder数)。各枠のcodec状態は要求threads分を予約する。
 上限を超える単一fileは前のfolderを出力し、既存の有界stream経路を使う。
-workerの内部block pipelineは1 threadにし、入れ子の並列数と予約を増やさない。大項目の同期経路は従来の内部並列数。
-作業diskは入力と可変長圧縮出力のspoolを使い、圧縮出力に入力長の定数倍という仮定を置かない。
 `pendingInputBytes` / `maximumPendingInputBytes`はdisk spoolの未圧縮byteも数える。
 `finishAdditions`は残るblockを閉じ、順に出力した入力byteを呼出側の進捗へ通知する。finishだけの場合と出力byteは同じ。
 
@@ -1662,13 +1668,23 @@ LHAは1 MiB超〜16 MiBのmemberに同じ項目窓を使い、既存writerで完
 読み取りの容量待ちは入力確保より前。ZIP/LHAのCRC計算はworker、7zの元入力CRCは呼出側。
 ZIP/7zのheader確定、ZIP暗号化、7z IVの生成とpackの順序は呼出側で保つ。
 LHAはworkerでheaderを含むrecordを完成させ、呼出側で投入順に出力する。
-圧縮結果は可変長のdisk spoolへ出し、順序待ちの出力をメモリに積まない。ZIP一括追加も同じ項目窓を使い、
+ZIP/7zの圧縮結果は最初の1 MiBをメモリに保持し、超えたときだけunlink済みdisk spoolへ移す。
+空項目・directory・stored項目には圧縮spoolを作らない。ZIP Zstdの64 KiB未満は呼出側で符号化し、投入順に出力する。
+LHAのseekを使う中memberの完成recordはdiskへ保持し、小memberはheaderとpayloadをメモリspoolへ置く。中memberを窓の始点で一つ保留し、次のmemberが来れば投入する。
+単独のままfinish/endMembers/finishAdditionsに至るか16 MiB超のmemberが来れば、既存のaddStreamedParallelを全threadsで使う。
+項目窓が非空なら小memberも同じ窓へ投入し、小・中の切替でdrainしない。
+LHA workerの内部並列数もmax(1, 要求threads / 投入後の未出力member数)。内部writerには項目窓を作らず再帰を防ぐ。ZIP一括追加も同じ項目窓を使い、
 source descriptorの最大4本、失敗の項目帰属、caller threadでの進捗・didFinish順を保持する。
+Stored batchの先読み上限は従来の1 MiBへ戻し、大きいStored項目はstreamで出力する。
 16 MiBを超えるZIP/非solid項目は従来のstream経路。ZIP XZと7z LZMA2/Deflateの内部blockは並列化を保つ。
+worker内部のOrderedChunkPipelineが1 threadならworker自身で符号化し、待機するGCD threadを増やさない。
+外側の1 thread窓は従来の非同期を保ち、入力読取と圧縮を重ねる。
 solid/filter folderの窓は上のsolid節のとおり。取消しは共有latchでworkerのread/writeにも伝え、
 abortは着手済みworkerを待ってspool descriptorを解放する。
+LHAの片窓と7z folder内の窓も成功・失敗・取消しのすべてで終了を待ち、補助spoolを閉じる。
 
-一workerの予約は`S + 16 MiB + 4 × IOChunk.size`（IOChunk=256 KiB）。Sは以下。
+一workerの予約は`S + 16 MiB + 1 MiB + 4 × IOChunk.size`（IOChunk=256 KiB）。
+LHA項目窓と7z solid/filter窓はSを要求threads分予約する。Sは以下。
 
 | codec | S |
 |---|---|
@@ -1683,10 +1699,17 @@ abortは着手済みworkerを待ってspool descriptorを解放する。
 LZMA/XZ/Zstandardの新規項目/folder窓は`min(memoryLimit（nilは物理メモリ50%）, 物理メモリ50%)`を予算にする。
 Appleも窓の見積りに含めるが、既存のblock経路の内部並列数・予約は変更しない。
 BZip2/PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
-tは要求threadsと64と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
+tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
 従来受理できた単一codecのmemoryLimitを拒否しない。モデル・辞書・片境界を縮めない。
 入力上界は上の`maximumPendingInputBytes`表。spoolのfile cacheとallocator管理領域はcodecの予約に含めない。
-256 MiB混合corpus（96×2 MiB＋64 MiB）、既定level、threads=12でf273d34と交互に各5回測定した。
+round 2の最終release executable（enable-testing無し）で、単一10 MiB・5,000小file・LHA混在・同じ256 MiB corpusの47条件を
+threads=1/12、f273d34と交互に各5回測定した。940 sampleの出力size・SHA-256が一致し、94比較すべてnew/base <= 1.05。
+最大は単一ZIP Zstd/t=12の+4.35%。256 MiB/t=12の改善はZIP BZip2/LZMA/XZ/Zstd/PPMdが
+2.87/3.23/5.65/3.97/3.05倍、7z LZMA2 solidが5.04倍、LHA LH5/6/7が3.96/4.83/5.41倍。
+5,000小fileのZIP BZip2は6.80倍、7z LZMAは5.79倍。全sampleの1分loadは1.51〜8.48。
+以下はround 1時点の記録。
+
+round 1（f9d5178）の256 MiB混合corpus（96×2 MiB＋64 MiB）、既定level、threads=12でf273d34と交互に各5回測定した。
 最短wallのthroughputはZIP XZが12.31→62.42 MB/s（5.07倍、CPU/wall=7.46）、
 ZIP BZip2は9.95→25.08、LZMAは9.00→25.64、Zstdは168.55→526.55、PPMdは6.03→17.66 MB/s。
 7z LZMA2 solid16 MiBは14.95→76.66 MB/s（5.13倍、8.13core）、非solid Delta4は12.63→65.07 MB/s（5.15倍、7.08core）。

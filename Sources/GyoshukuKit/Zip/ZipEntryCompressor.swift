@@ -3,8 +3,11 @@ import Foundation
 /// 項目の codec state を一つの呼出側または worker に閉じ込める。framing と読取境界は共通。
 final class ZipEntryCompressor {
     private let options: WriterOptions
+    private let inlineSingleThread: Bool
     private var deflateCompressor: DeflateCompressor?
-    init(options: WriterOptions) { self.options = options }
+    init(options: WriterOptions, inlineSingleThread: Bool = false) {
+        self.options = options; self.inlineSingleThread = inlineSingleThread
+    }
 
     func compress(name: String, size: UInt64, method: CompressionMethod,
                                read: (Int) throws -> Data, emit: (Data) throws -> Void) throws -> UInt32 {
@@ -26,7 +29,7 @@ final class ZipEntryCompressor {
             try emit(header)
         }
         let xz = method == .xz ? try ParallelXZCompressor(threads: configuration!.threads,
-            chunkSize: configuration!.pieceSize, allowsLightChunks: configuration!.properties == nil,
+            chunkSize: configuration!.pieceSize, allowsLightChunks: configuration!.properties == nil, inlineSingleThread: inlineSingleThread,
             encoder: configuration!.encoder) : nil
         let compressor: DeflateCompressor?
         if method == .deflate {

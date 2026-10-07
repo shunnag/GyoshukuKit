@@ -26,6 +26,7 @@ final class SevenZipBlockWriter {
         let aes: SevenZipAESEncryptor?
         let filter: SevenZipWriteFilter
         let files: Int
+        let threads: Int
     }
     private struct EncodedBlock: Sendable {
         let output: OrderedEntrySpool
@@ -39,22 +40,23 @@ final class SevenZipBlockWriter {
     init(options: WriterOptions, directory: URL, chunkSize: Int?) {
         self.options = options; self.directory = directory; self.chunkSize = chunkSize
         encryptors = .init(password: options.password)
-        let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod).threads
+        let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod, innerParallelism: true).threads
         let cancellation = self.cancellation
-        var workerOptions = options
-        workerOptions.compressionThreads = 1
-        let resolvedWorkerOptions = workerOptions
-        pipeline = threads > 1 ? OrderedChunkPipeline(threads: threads) { job in
+
+        pipeline = threads > 1 && options.resolvedSevenZipBlockSize <= 256 << 20
+            && !(options.sevenZipMethod == .copy && options.sevenZipFilter == .none) ? OrderedChunkPipeline(threads: threads) { job in
             defer { job.input.close() }
             try job.input.handle.seek(toOffset: 0)
             let size = job.input.length
-            let encoder = try SevenZipFolderEncoder.encode(size: size, options: resolvedWorkerOptions, chunkSize: chunkSize,
+            var workerOptions = options
+            workerOptions.compressionThreads = job.threads
+            let encoder = try SevenZipFolderEncoder.encode(size: size, options: workerOptions, chunkSize: chunkSize, inlineSingleThread: true,
                 aes: job.aes, filter: job.filter, read: { count in
                     try cancellation.check()
                     return try FileRead.readChunk(job.input.handle.fileDescriptor, upTo: count)
                 }, write: { bytes in
                     try cancellation.check()
-                    try job.output.scratch.append(bytes)
+                    try job.output.append(bytes)
                 })
             return EncodedBlock(output: job.output, folder: encoder.folder(size: size, substreamCount: job.files))
         } : nil
@@ -120,12 +122,12 @@ final class SevenZipBlockWriter {
     }
 
     func flush(position: () -> UInt64, write: (Data) throws -> Void, didEmit: ((UInt64) throws -> Void)? = nil) throws {
-        try submitBlock(position: position, write: write, didEmit: didEmit)
+        try submitBlock(position: position, write: write, didEmit: didEmit, final: true)
         try pipeline?.drain(didEmit: didEmit) { tag, result in try self.emit(tag, result, position: position, write: write) }
     }
 
     private func submitBlock(position: () -> UInt64, write: (Data) throws -> Void,
-                             didEmit: ((UInt64) throws -> Void)? = nil) throws {
+                             didEmit: ((UInt64) throws -> Void)? = nil, final: Bool = false) throws {
         guard let scratch else { return }
         try Task.checkCancellation()
         let size = scratch.length
@@ -137,9 +139,10 @@ final class SevenZipBlockWriter {
         }
         let parallelLimit = options.sevenZipSolid == .off ? UInt64(EntryCompressionConfiguration.inputLimit)
             : options.resolvedSevenZipBlockSize
-        if let pipeline, size <= parallelLimit {
+        if let pipeline, size <= parallelLimit, !(final && pipeline.pendingCount == 0) {
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder")
-            let job = Job(input: scratch, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count)
+            let job = Job(input: scratch, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,
+                threads: max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1)))
             try pipeline.submit(job, tag: BlockTag(files: indices, streams: streams), weight: size,
                 didEmit: didEmit) { tag, result in try self.emit(tag, result, position: position, write: write) }
             self.scratch = nil
@@ -167,7 +170,7 @@ final class SevenZipBlockWriter {
                       write: (Data) throws -> Void) throws {
         try Task.checkCancellation()
         guard let result else { throw WriterError.invalidState }
-        let scratch = result.output.scratch
+        let scratch = result.output
         defer { scratch.close() }
         let start = position()
         try scratch.forEachChunk(write)

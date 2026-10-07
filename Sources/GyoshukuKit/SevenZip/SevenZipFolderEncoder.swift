@@ -117,7 +117,7 @@ final class SevenZipFolderEncoder {
                      crc32: crc, packIndices: 0..<1, substreamIndices: 0..<substreamCount)
     }
 
-    static func encode(size: UInt64, options: WriterOptions, chunkSize: Int? = nil,
+    static func encode(size: UInt64, options: WriterOptions, chunkSize: Int? = nil, inlineSingleThread: Bool = false,
                        aes: SevenZipAESEncryptor?, filter: SevenZipWriteFilter = .none, read: (Int) throws -> Data,
                        write: (Data) throws -> Void) throws -> SevenZipFolderEncoder {
         let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
@@ -125,9 +125,9 @@ final class SevenZipFolderEncoder {
             lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
                 ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
             ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil, size: size, filter: filter)
-        let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize)
+        let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize, inlineSingleThread: inlineSingleThread)
         let filtered = filter == .none ? nil : SevenZipFilteredInput(filter: filter, size: size)
-        defer { pipeline.abandon() }
+        defer { pipeline.abandonAndWait() }
         func emit(_: Void, _ result: SevenZipChunkOutput?) throws {
             if let result { try encoder.consume(result, write: write) }
         }

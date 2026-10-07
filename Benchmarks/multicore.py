@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""固定256 MiB corpus と release XCTest の交互比較。C/C++ のソースは使わない。"""
+"""単一・小ファイル・256 MiB corpus の release executable 交互比較。C/C++ のソースは使わない。"""
 import argparse
 import hashlib
 import json
@@ -56,36 +56,105 @@ def corpus(directory):
     }, indent=2) + "\n")
 
 
+ROUND2 = {
+    "single": ["lha-lh5", "lha-lh7", "7z-deflate-solid", "7z-lzma2-solid", "zip-xz", "zip-zstd"],
+    "small": ["zip-zstd", "zip-bzip2", "zip-deflate", "7z-lzma", "7z-lzma2"],
+    "lha-mixed": ["lha-lh5", "lha-lh7"],
+    "corpus": ["zip-" + m for m in ["stored", "deflate", "bzip2", "lzma", "xz", "zstd", "ppmd"]]
+        + ["7z-" + m + suffix for m in ["lzma2", "lzma", "deflate", "bzip2", "ppmd", "copy"]
+           for suffix in ["", "-filter", "-solid", "-solid-filter"]]
+        + ["lha-lh5", "lha-lh6", "lha-lh7"],
+}
+
+
+def regression_corpora(directory):
+    source = (directory / "mixed.bin").read_bytes()
+    single = directory / "single"
+    single.mkdir(exist_ok=True)
+    (single / "single.dat").write_bytes(source[:10 * (1 << 20)])
+    small = directory / "small"
+    small.mkdir(exist_ok=True)
+    rng = random.Random(20261007)
+    for index in range(5000):
+        size = rng.randint(1024, 4096)
+        start = rng.randrange(len(source) // 2 - size)
+        (small / f"small-{index:05d}.dat").write_bytes(source[start:start + size])
+    mixed = directory / "lha-mixed"
+    mixed.mkdir(exist_ok=True)
+    shutil.copyfile(single / "single.dat", mixed / "000-medium.dat")
+    for index, path in enumerate(sorted(small.iterdir())[:128]):
+        shutil.copyfile(path, mixed / f"tiny-{index:04d}.dat")
+    for members in [single, small, mixed]:
+        for path in members.iterdir():
+            os.chmod(path, 0o644)
+            os.utime(path, (1700000000, 1700000000))
+
+
 def measure(args):
     results = args.results.resolve()
     results.parent.mkdir(parents=True, exist_ok=True)
-    selected = args.cases.split(",") if args.cases else CASES
     bundles = {"base": args.base.resolve(), "new": args.new.resolve()}
-    # 中断後も成功した sample を再実行せず続けられる。
     completed = {}
+    hashes = {}
     if results.exists():
         for line in results.read_text().splitlines():
             row = json.loads(line)
-            key = (row["path"], row["threads"], row["label"])
+            key = (row["workload"], row["path"], row["threads"], row["label"])
             completed[key] = completed.get(key, 0) + 1
-    for case in selected:
-        for repeat in range(args.repeats):
+            hashes.setdefault((row["workload"], row["path"]), set()).add(row["sha256"])
+    for workload in args.workloads.split(","):
+        selected = args.cases.split(",") if args.cases else ROUND2[workload]
+        members = args.corpus / ("mixed" if workload == "corpus" else workload)
+        for case in selected:
+            for repeat in range(args.repeats):
+                # 各 pair 内の先行版も交互にする。
+                for threads in [1, 12]:
+                    for label in (["base", "new"] if repeat % 2 == 0 else ["new", "base"]):
+                        if completed.get((workload, case, threads, label), 0) > repeat:
+                            continue
+                        log = results.parent / f"{workload}-{case}-{threads}-{label}-{repeat}.log"
+                        print(f"{workload} {case} threads={threads} {label} sample={repeat + 1}/{args.repeats}", flush=True)
+                        for source in members.iterdir():
+                            os.utime(source, (1700000000, 1700000000))
+                        with log.open("w") as out:
+                            subprocess.run([str(bundles[label]), str(args.corpus.resolve()), str(results),
+                                            case, str(threads), label, workload],
+                                           cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, check=True)
+                        row = json.loads(results.read_text().splitlines()[-1])
+                        key = (workload, case)
+                        hashes.setdefault(key, set()).add(row["sha256"])
+                        if len(hashes[key]) != 1:
+                            raise RuntimeError(f"Output identity failed: {key}")
+
+
+def report(args):
+    rows = [json.loads(line) for line in args.results.read_text().splitlines()]
+    print("| workload / method | t=1 base → new 秒 | t=12 base → new 秒 | new/base 最大 | load(1分) base/new: t=1; t=12 |")
+    print("|---|---:|---:|---:|---|")
+    failures = []
+    for workload in args.workloads.split(","):
+        for case in (args.cases.split(",") if args.cases else ROUND2[workload]):
+            samples = {}
             for threads in [1, 12]:
                 for label in ["base", "new"]:
-                    if completed.get((case, threads, label), 0) > repeat:
-                        continue
-                    env = dict(os.environ, GYOSHUKU_MULTICORE_BENCHMARK="1",
-                               GYOSHUKU_MULTICORE_CORPUS=str(args.corpus.resolve()),
-                               GYOSHUKU_MULTICORE_RESULTS=str(results), GYOSHUKU_MULTICORE_CASES=case,
-                               GYOSHUKU_MULTICORE_THREADS=str(threads), GYOSHUKU_MULTICORE_LABEL=label)
-                    log = results.parent / f"{case}-{threads}-{label}-{repeat}.log"
-                    print(f"{case} threads={threads} {label} sample={repeat + 1}/{args.repeats}", flush=True)
-                    for source in (args.corpus / "mixed").iterdir():
-                        os.utime(source, (1700000000, 1700000000))
-                    with log.open("w") as out:
-                        subprocess.run(["/usr/bin/xcrun", "xctest", "-XCTest",
-                                        "GyoshukuKitTests.MulticoreBenchmarkTests/testWriterMatrix", str(bundles[label])],
-                                       env=env, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, check=True)
+                    group = [r for r in rows if (r["workload"], r["path"], r["threads"], r["label"]) == (workload, case, threads, label)]
+                    if len(group) != args.repeats:
+                        raise RuntimeError(f"Expected {args.repeats} samples: {workload}/{case}/{threads}/{label}: {len(group)}")
+                    samples[threads, label] = min(group, key=lambda r: r["wall_s"])
+            hashes = {r["sha256"] for r in rows if r["workload"] == workload and r["path"] == case}
+            if len(hashes) != 1:
+                raise RuntimeError(f"Output identity failed: {workload}/{case}")
+            ratios = [samples[t, "new"]["wall_s"] / samples[t, "base"]["wall_s"] for t in [1, 12]]
+            timing = [f'{samples[t, "base"]["wall_s"]:.4f} → {samples[t, "new"]["wall_s"]:.4f}' for t in [1, 12]]
+            loads = "; ".join(f'{samples[t, "base"]["load"][0]:.2f}/{samples[t, "new"]["load"][0]:.2f}' for t in [1, 12])
+            print(f"| {workload} / {case} | {timing[0]} | {timing[1]} | {max(ratios):.3f} | {loads} |")
+            for t, ratio in zip([1, 12], ratios):
+                if ratio > 1.05:
+                    failures.append(f"{workload}/{case}/t={t}: {ratio:.3f}")
+    print(f"\nSHA-256: all base/new/t=1/t=12 identical. No-regression (new/base <= 1.05): {len(failures) == 0}.")
+    if failures:
+        print("\n" + "\n".join(failures))
+        raise SystemExit(1)
 
 
 def references(args):
@@ -172,20 +241,25 @@ def references(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["corpus", "measure", "references"])
+    parser.add_argument("operation", choices=["corpus", "measure", "report", "references"])
     parser.add_argument("--corpus", type=Path, default=ROOT / ".build/multicore/corpus")
-    parser.add_argument("--base", type=Path, default=ROOT / ".build-base/build/arm64-apple-macosx/release/GyoshukuKitPackageTests.xctest")
-    parser.add_argument("--new", type=Path, default=ROOT / ".build/arm64-apple-macosx/release/GyoshukuKitPackageTests.xctest")
-    parser.add_argument("--results", type=Path, default=ROOT / ".build/multicore/results.jsonl")
+    parser.add_argument("--base", type=Path, default=ROOT / ".build-base/multicore-release/out/Products/Release/gyoshuku-multicore")
+    parser.add_argument("--new", type=Path, default=ROOT / ".build/multicore-release/out/Products/Release/gyoshuku-multicore")
+    parser.add_argument("--results", type=Path, default=ROOT / ".build/multicore/round2.jsonl")
     parser.add_argument("--cases")
+    parser.add_argument("--workloads", default="single,small,lha-mixed,corpus")
     parser.add_argument("--repeats", type=int, default=5)
     args = parser.parse_args()
     if args.repeats < 5:
         parser.error("best-of-5 以上で測定する")
     if args.operation == "corpus":
-        corpus(args.corpus)
+        if not (args.corpus / "manifest.json").exists():
+            corpus(args.corpus)
+        regression_corpora(args.corpus)
     elif args.operation == "measure":
         measure(args)
+    elif args.operation == "report":
+        report(args)
     else:
         references(args)
 

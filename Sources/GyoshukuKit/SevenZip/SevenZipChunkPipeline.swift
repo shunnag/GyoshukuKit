@@ -19,7 +19,7 @@ final class SevenZipChunkPipeline<Tag> {
     let chunkSize: Int
     var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
-    init(options: WriterOptions, chunkSize: Int? = nil,
+    init(options: WriterOptions, chunkSize: Int? = nil, inlineSingleThread: Bool = false,
          encoder: LZMA2ChunkPipeline<Void>.Encoder? = nil) throws {
         let configuration = try LZMAWriterConfiguration(options: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
             ? options : WriterOptions(compressionThreads: options.compressionThreads), raw: options.sevenZipMethod == .lzma)
@@ -32,7 +32,7 @@ final class SevenZipChunkPipeline<Tag> {
         case .deflate: self.chunkSize = min(pieceSize, DeflateBlock.size)
         case .lzma, .bzip2, .ppmd, .copy: self.chunkSize = min(pieceSize, IOChunk.size)
         }
-        pipeline = OrderedChunkPipeline(threads: method == .lzma2 ? configuration.threads : options.resolvedCompressionThreads) { input in
+        pipeline = OrderedChunkPipeline(threads: method == .lzma2 ? configuration.threads : options.resolvedCompressionThreads, inlineSingleThread: inlineSingleThread) { input in
             switch input {
             case .lzma2(let bytes): return .lzma2(try encode(bytes))
             case .deflate(let block): return .packed(try DeflateBlock.encode(block, level: options.deflateLevel))
@@ -61,4 +61,5 @@ final class SevenZipChunkPipeline<Tag> {
     }
     func finish(emit: (Tag, SevenZipChunkOutput?) throws -> Void) throws { try pipeline.finish(emit: emit) }
     func abandon() { pipeline.abandon() }
+    func abandonAndWait() { pipeline.abandonAndWait() }
 }
