@@ -5,6 +5,8 @@ import Foundation
 /// 試験と benchmark が共有する corpus。機械の辞書や locale に依存しない。
 enum LZMAEncoderCorpus {
     static func text(size: Int) -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("corpus.text", phaseStart, input: size) }
         let words = "archive buffer branch byte cache change check chunk code compression context data decoder dictionary distance document encoder error file filter format header history index input integer length library literal match memory method model normal offset option output parser payload pointer position price probability property range reader record reset result size source state stream symbol table target test thread tree value window word writer".split(separator: " ")
         var random = TestCorpus.XorShift64(state: 0x1234_5678_9ABC_DEF1)
         var result = Data(); result.reserveCapacity(size)
@@ -22,6 +24,8 @@ enum LZMAEncoderCorpus {
         return result
     }
     static func mixed(size: Int) -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("corpus.mixed", phaseStart, input: size) }
         // 1 MiB 辞書の境界を越える距離、raw → compressed の state reset を含む。
         let random = TestCorpus.random(768 << 10)
         let words = text(size: 512 << 10)

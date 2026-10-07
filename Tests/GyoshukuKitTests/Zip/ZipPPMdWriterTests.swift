@@ -92,9 +92,18 @@ final class ZipPPMdWriterTests: XCTestCase {
         }
     }
 
-    func testTwentyMiBTextWithRestartsAndThreadIndependentStream() throws {
+    func testTwentyMiBTextWithRestartsAndThreadIndependentStream() throws { try verifyRestarts(large: false) }
+
+    func testTwentyMiBTextWithRestartsAndThreadIndependentStreamFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyRestarts(large: true)
+    }
+
+    private func verifyRestarts(large: Bool) throws {
         let root = try TestSupport.directory("zip-ppmd-restarts")
-        let item = ExpectedEntry(name: "large.txt", data: TestCorpus.pseudoSource(mebibytes: 20))
+        let item = ExpectedEntry(name: "large.txt", data: large ? EncoderTestCorpus.sourceTwentyMiB : EncoderTestCorpus.restoration)
+        // 複数の IO read / write の後でも一つの model と stream を保つ。
+        XCTAssertGreaterThan(item.data.count, IOChunk.size)
         var baseline: Data?
         for threads in [1, 4] {
             let work = try TestSupport.work(in: root), url = work.appendingPathComponent("archive.zip")
@@ -102,8 +111,13 @@ final class ZipPPMdWriterTests: XCTestCase {
             XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), 0)
             try PPMdWriterTestSupport.write(url, format: .zip, options: options, items: [item])
             let bytes = try Data(contentsOf: url)
-            if let baseline { XCTAssertEqual(bytes, baseline) } else { baseline = bytes }
-            _ = try PPMdWriterTestSupport.verify(url, items: [item])
+            if let baseline {
+                // 全 bytes が同じなら、先に行った t / l / x・KaitoKit の検証も同じ結果になる。
+                XCTAssertEqual(bytes, baseline)
+            } else {
+                baseline = bytes
+                _ = try PPMdWriterTestSupport.verify(url, items: [item])
+            }
         }
         if testRun?.failureCount == 0 { try FileManager.default.removeItem(at: root) }
     }

@@ -11,7 +11,7 @@ final class ZstdEncoderTests: XCTestCase {
         let directory = try TestSupport.directory("zstd-small")
         for level in levels {
             for (name, input) in [("empty", Data()), ("one", Data([0xA7])), ("zeros-64k", Data(repeating: 0, count: 64 << 10))] {
-                let output = try ZstdFrameEncoder.encode(input, level: level)
+                let output = try EncoderTestTiming.measure("encode.ZstdFrameEncoder.encode", input: input.count) { try ZstdFrameEncoder.encode(input, level: level) }
                 try verify(output, input: input, label: "\(name)-\(level)", directory: directory)
                 if name == "zeros-64k" {
                     let headerSize = frameHeaderSize(output)
@@ -21,9 +21,19 @@ final class ZstdEncoderTests: XCTestCase {
             }
         }
     }
-    func testTextAndRandomWithOddPiecesAtAllRequestedLevels() throws {
+    func testTextAndRandomWithOddPiecesAtAllRequestedLevels() throws { try verifyOddPieces(large: false) }
+
+    func testTextAndRandomWithOddPiecesAtAllRequestedLevelsFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyOddPieces(large: true)
+    }
+
+    private static let smallText = LZMAEncoderCorpus.text(size: (128 << 10) + 17)
+    private static let smallRandom = TestCorpus.random((256 << 10) + 17)
+
+    private func verifyOddPieces(large: Bool) throws {
         let directory = try TestSupport.directory("zstd-large")
-        for (name, input) in [("text-1m", LZMAEncoderCorpus.text(size: 1 << 20)), ("random-8m", TestCorpus.random(8 << 20))] {
+        for (name, input) in [("text", large ? LZMAEncoderCorpus.text(size: 1 << 20) : Self.smallText), ("random", large ? TestCorpus.random(8 << 20) : Self.smallRandom)] {
             for level in levels {
                 let encoder = try ZstdFrameEncoder(level: level, contentSize: UInt64(input.count))
                 let output = try StreamEncoderTestSupport.encode(input) { data, finish, emit in
@@ -32,29 +42,59 @@ final class ZstdEncoderTests: XCTestCase {
                 }
                 try verify(output, input: input, label: "\(name)-\(level)", directory: directory)
                 let types = blockTypes(output)
-                if name == "random-8m" { XCTAssertTrue(types.allSatisfy { $0 == 0 }, "random must fall back to raw") }
+                if name == "random" { XCTAssertTrue(types.allSatisfy { $0 == 0 }, "random must fall back to raw") }
                 else { XCTAssertTrue(types.contains(2)); XCTAssertLessThan(output.count, input.count / 2) }
             }
         }
     }
-    func testTwentyMiBMixedCrossesWindowAndRawRLECompressedTransitions() throws {
+    func testTwentyMiBMixedCrossesWindowAndRawRLECompressedTransitions() throws { try verifyTransitions(large: false) }
+
+    func testTwentyMiBMixedCrossesWindowAndRawRLECompressedTransitionsFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyTransitions(large: true)
+    }
+
+    private static let windowRandom = TestCorpus.random(128 << 10)
+    private static let windowText = LZMAEncoderCorpus.text(size: (128 << 10) + 17)
+    private static let largeMixed = LZMAEncoderCorpus.mixed(size: 20 << 20)
+
+    private func verifyTransitions(large: Bool) throws {
         let directory = try TestSupport.directory("zstd-mixed")
-        let input = LZMAEncoderCorpus.mixed(size: 20 << 20)
         for level in levels {
+            let window = try ZstdEncoderProperties.preset(level).windowSize
+            // raw 一 block + RLE で二つの window を越え、buffer の compact 後にも compressed / tail を読む。
+            let input = large ? Self.largeMixed : Self.windowRandom + Data(repeating: 0, count: 2 * window - Self.windowRandom.count) + Self.windowText
+            XCTAssertGreaterThan(input.count, 2 * window + ZstdFrameEncoder.blockSize)
             // No size supplied: an explicit window descriptor and unknown content size.
             let encoder = try ZstdFrameEncoder(level: level)
             let output = try StreamEncoderTestSupport.encode(input) { try encoder.write($0, finish: $1, emit: $2) }
             try verify(output, input: input, label: "mixed-\(level)", directory: directory)
             let types = blockTypes(output)
             XCTAssertTrue(types.contains(0)); XCTAssertTrue(types.contains(2))
+            if !large { XCTAssertTrue(types.contains(1)) }
         }
     }
-    func testOptimalTreeBlockTailWithLongText() throws {
+    func testOptimalTreeBlockTailWithLongText() throws { try verifyTreeTail(large: false) }
+
+    func testOptimalTreeBlockTailWithLongTextFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyTreeTail(large: true)
+    }
+
+    private static let treeText = LZMAEncoderCorpus.text(size: (256 << 10) + 17)
+    private static let largeTreeText = LZMAEncoderCorpus.text(size: 4 << 20)
+
+    private func verifyTreeTail(large: Bool) throws {
         let directory = try TestSupport.directory("zstd-tree-tail")
-        let input = LZMAEncoderCorpus.text(size: 4 << 20)
+        // tree parser の各 128 KiB block の末尾と、17 byte の frame tail を通す。
+        let input = large ? Self.largeTreeText : Self.treeText
         for level in [13,19] {
-            try verify(ZstdFrameEncoder.encode(input, level: level), input: input,
-                       label: "text-4m-\(level)", directory: directory)
+            let output = try EncoderTestTiming.measure("encode.ZstdFrameEncoder.encode", input: input.count) {
+                try ZstdFrameEncoder.encode(input, level: level)
+            }
+            XCTAssertGreaterThanOrEqual(blockTypes(output).count, 3)
+            XCTAssertTrue(blockTypes(output).contains(2))
+            try verify(output, input: input, label: "text-\(level)", directory: directory)
         }
     }
     func testConcatenatedIndependentFramesAndInputPartitionDeterminism() throws {
@@ -64,7 +104,7 @@ final class ZstdEncoderTests: XCTestCase {
         for (i, part) in parts.enumerated() {
             input.append(part)
             let level = levels[i % levels.count]
-            let frame = try ZstdFrameEncoder.encode(part, level: level)
+            let frame = try EncoderTestTiming.measure("encode.ZstdFrameEncoder.encode", input: part.count) { try ZstdFrameEncoder.encode(part, level: level) }
             let streaming = try ZstdFrameEncoder(level: level, contentSize: UInt64(part.count))
             let partitioned = try StreamEncoderTestSupport.encode(part) { try streaming.write($0, finish: $1, emit: $2) }
             XCTAssertEqual(frame, partitioned)
@@ -76,7 +116,7 @@ final class ZstdEncoderTests: XCTestCase {
         let directory = try TestSupport.directory("zstd-headers")
         for size in [0,1,255,256,65_791,65_792,131_071,131_072,131_073,1 << 20,(1 << 20) + 1] {
             let input = Data(repeating: 0xA3, count: size)
-            let frame = try ZstdFrameEncoder.encode(input, level: 1)
+            let frame = try EncoderTestTiming.measure("encode.ZstdFrameEncoder.encode", input: input.count) { try ZstdFrameEncoder.encode(input, level: 1) }
             XCTAssertEqual(frame.prefix(4), Data([0x28,0xB5,0x2F,0xFD]))
             XCTAssertEqual(frame[4] & 4, 4)
             XCTAssertEqual(frame[4] & 3, 0)

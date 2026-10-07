@@ -14,13 +14,21 @@ enum PPMdTestArchives {
         #endif
     }
 
+    // 製品の CRC 実装を使わず、IEEE の多項式から独立に表を作る。
+    private static let crcTable: [UInt32] = (0..<256).map { byte in
+        var value = UInt32(byte)
+        for _ in 0..<8 { value = (value >> 1) ^ ((0 &- (value & 1)) & 0xEDB8_8320) }
+        return value
+    }
+
     static func crc(_ bytes: Data) -> UInt32 {
-        var value = UInt32.max
-        for byte in bytes {
-            value ^= UInt32(byte)
-            for _ in 0..<8 { value = (value >> 1) ^ ((0 &- (value & 1)) & 0xEDB8_8320) }
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("framing.crc", phaseStart, input: bytes.count) }
+        return bytes.withUnsafeBytes { buffer in
+            var value = UInt32.max
+            for byte in buffer { value = (value >> 8) ^ crcTable[Int((value ^ UInt32(byte)) & 255)] }
+            return ~value
         }
-        return ~value
     }
 
     static func little(_ value: UInt64, bytes: Int) -> Data {

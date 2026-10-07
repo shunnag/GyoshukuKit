@@ -32,6 +32,13 @@ enum PPMdWriterTestSupport {
     }
 
     static func write(_ url: URL, format: ArchiveFormat, options: WriterOptions, items: [ExpectedEntry]) throws {
+        let phaseStart = EncoderTestTiming.start()
+        defer {
+            if EncoderTestTiming.enabled {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                EncoderTestTiming.end("encode.ppmd-writer+io", phaseStart, input: items.reduce(0) { $0 + $1.data.count }, output: size)
+            }
+        }
         let writer = try ArchiveWriter.create(url: url, format: format, options: options)
         for item in items {
             if item.kind == .directory { try writer.addDirectory(item.name, modificationDate: TestSupport.date, ownerIDs: nil) }

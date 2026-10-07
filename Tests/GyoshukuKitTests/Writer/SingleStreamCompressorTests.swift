@@ -4,9 +4,19 @@ import XCTest
 @testable import GyoshukuKit
 
 final class SingleStreamCompressorTests: XCTestCase {
-    func testEveryFormatOnEmptyOneByteTextAndRandomFiles() throws {
-        let samples = [("empty", Data()), ("one", Data([0xA7])), ("text", TestCorpus.pseudoSource(mebibytes: 1)),
-                       ("random", TestCorpus.random(9 << 20))]
+    func testEveryFormatOnEmptyOneByteTextAndRandomFiles() throws { try verifyEveryFormat(large: false) }
+
+    func testEveryFormatOnEmptyOneByteTextAndRandomFilesFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyEveryFormat(large: true)
+    }
+
+    private static let smallRandom = TestCorpus.random(2 * IOChunk.size + 17)
+
+    private func verifyEveryFormat(large: Bool) throws {
+        let samples = [("empty", Data()), ("one", Data([0xA7])),
+                       ("text", large ? EncoderTestCorpus.sourceMiB : EncoderTestCorpus.shortSource),
+                       ("random", large ? EncoderTestCorpus.randomNineMiB : Self.smallRandom)]
         for format in SingleStreamFormat.allCases {
             let directory = try TestSupport.directory("single-stream-\(format)")
             for (name, bytes) in samples {
@@ -19,8 +29,10 @@ final class SingleStreamCompressorTests: XCTestCase {
                     XCTAssertEqual(progress.totalUnitCount, Int64(bytes.count))
                     XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
                 }) {
+                    try EncoderTestTiming.measure("encode.single-stream.\(format)+io", input: bytes.count) {
                     try SingleStreamCompressor.compress(file: source, to: output, format: format,
                                                         options: WriterOptions(compressionThreads: 2), progress: progress)
+                    }
                 }
                 XCTAssertEqual(progress.totalUnitCount, Int64(bytes.count))
                 XCTAssertEqual(progress.completedUnitCount, Int64(bytes.count))

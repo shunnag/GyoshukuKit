@@ -16,8 +16,16 @@ enum StreamEncoderTestSupport {
 
     /// 非ゼロ startIndex の Data slice、4 MiB をまたぐ入力、空 write、別呼出しの finish を使う。
     static func encode(_ input: Data, write: (Data, Bool, (Data) throws -> Void) throws -> Void) throws -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("encode.stream+append", phaseStart, input: input.count) }
         var encoded = Data()
-        let emit: (Data) -> Void = { encoded.append($0) }
+        var appendTime: UInt64 = 0
+        let emit: (Data) -> Void = { data in
+            let start = EncoderTestTiming.start()
+            encoded.append(data)
+            if EncoderTestTiming.enabled { appendTime += DispatchTime.now().uptimeNanoseconds - start }
+        }
+        defer { EncoderTestTiming.duration("test.output-append", appendTime, input: input.count, output: encoded.count) }
         try write(Data(), false, emit)
         let sizes = [1, 7, 65_537, IOChunk.size - 1, IOChunk.size + 3, 5 * 1024 * 1024 + 11]
         var offset = input.startIndex, index = 0
@@ -33,6 +41,8 @@ enum StreamEncoderTestSupport {
     }
 
     static func assertKaito(_ url: URL, equals input: Data, file: StaticString = #filePath, line: UInt = #line) throws {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("decode.kaito+compare", phaseStart, input: input.count) }
         let reader = try ArchiveReader.open(url: url)
         XCTAssertEqual(reader.entries.count, 1, file: file, line: line)
         let entry = try XCTUnwrap(reader.entries.first, file: file, line: line)

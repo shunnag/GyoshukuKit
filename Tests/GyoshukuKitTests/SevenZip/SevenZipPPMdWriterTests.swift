@@ -50,13 +50,30 @@ final class SevenZipPPMdWriterTests: XCTestCase {
         XCTAssertEqual(model.folders[0].coders.last?.methodID, [3, 4, 1])
     }
 
-    func testSolidFiltersAndEncryption() throws {
+    func testSolidFiltersAndEncryption() throws { try verifySolidFilters(large: false) }
+
+    func testSolidFiltersAndEncryptionFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifySolidFilters(large: true)
+    }
+
+    private func verifySolidFilters(large: Bool) throws {
         let root = try TestSupport.directory("7z-ppmd-solid-filters")
         for (filter, label, arm64, id) in [(SevenZipFilterMode.none, "", false, [UInt8]()),
             (.bcjX86, "BCJ", false, [3, 3, 1, 3]), (.arm64, "ARM64", true, [10]),
             (.delta(distance: 4), "Delta:4", false, [3])] {
-            let items: [ExpectedEntry] = [.init(name: "one", data: SevenZipSolidFilterSupport.macho(arm64: arm64)),
-                .init(name: "empty"), .init(name: "two", data: SevenZipSolidFilterSupport.macho(arm64: arm64, size: 262_149))]
+            let items: [ExpectedEntry] = [.init(name: "one", data: SevenZipSolidFilterSupport.macho(arm64: arm64, size: large ? 32_769 : 4097, alternatingBranches: !large)),
+                .init(name: "empty"), .init(name: "two", data: SevenZipSolidFilterSupport.macho(arm64: arm64, size: large ? 262_149 : 8197, alternatingBranches: !large))]
+            if !large && (label == "BCJ" || label == "ARM64") {
+                let data = items[0].data
+                let positions = stride(from: 32, through: data.count - 8, by: 8)
+                let signs = Set(positions.map { data[$0 + (arm64 ? 3 : 4)] & (arm64 ? 2 : 0x80) })
+                XCTAssertEqual(signs, arm64 ? Set([UInt8(0), 2]) : Set([UInt8(0), 0x80]))
+                if arm64 {
+                    // ADRP の 21-bit immediate の符号も両方を含む。
+                    XCTAssertEqual(Set(positions.map { data[$0 + 6] & 0x80 }), Set([UInt8(0), 0x80]))
+                }
+            }
             for solid in [false, true] {
                 for encrypted in [false, true] {
                     let work = try TestSupport.work(in: root), url = work.appendingPathComponent("archive.7z")
@@ -109,18 +126,32 @@ final class SevenZipPPMdWriterTests: XCTestCase {
         }
     }
 
-    func testTwentyMiBTextWithSmallMemoryKeepsOneStream() throws {
+    func testTwentyMiBTextWithSmallMemoryKeepsOneStream() throws { try verifyRestarts(large: false) }
+
+    func testTwentyMiBTextWithSmallMemoryKeepsOneStreamFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyRestarts(large: true)
+    }
+
+    private func verifyRestarts(large: Bool) throws {
         let root = try TestSupport.directory("7z-ppmd-restarts")
-        let items = [ExpectedEntry(name: "large.txt", data: TestCorpus.pseudoSource(mebibytes: 20)),
+        let items = [ExpectedEntry(name: "large.txt", data: large ? EncoderTestCorpus.sourceTwentyMiB : EncoderTestCorpus.restoration),
             .init(name: "tail", data: Data([3, 4, 5]))]
+        // 複数の IO read / write の後でも一つの model と stream を保つ。
+        XCTAssertGreaterThan(items[0].data.count, IOChunk.size)
         var baseline: Data?
         for threads in [1, 4] {
             let work = try TestSupport.work(in: root), url = work.appendingPathComponent("archive.7z")
             let options = WriterOptions(sevenZipMethod: .ppmd, sevenZipSolid: .on(), ppmdOrder: 6, ppmdMemoryMiB: 1, compressionThreads: threads)
             try PPMdWriterTestSupport.write(url, format: .sevenZip, options: options, items: items)
             let bytes = try Data(contentsOf: url)
-            if let baseline { XCTAssertEqual(bytes, baseline) } else { baseline = bytes }
-            _ = try SevenZipSolidFilterSupport.verify(url, items: items, options: options, blocks: 1, solid: true, filter: "PPMD:o6:mem20")
+            if let baseline {
+                // 全 bytes が同じなら、先に行った t / l / x・KaitoKit の検証も同じ結果になる。
+                XCTAssertEqual(bytes, baseline)
+            } else {
+                baseline = bytes
+                _ = try SevenZipSolidFilterSupport.verify(url, items: items, options: options, blocks: 1, solid: true, filter: "PPMD:o6:mem20")
+            }
         }
         if testRun?.failureCount == 0 { try FileManager.default.removeItem(at: root) }
     }

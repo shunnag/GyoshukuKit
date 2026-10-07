@@ -6,21 +6,27 @@ import Foundation
 enum TestCorpus {
     /// xorshift64* の上位 8 bit を `alphabetMask` で絞った byte 列。常に同じ seed から始める。
     static func random(_ count: Int, alphabetMask: UInt8 = 255) -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("corpus.random", phaseStart, input: count) }
         var state: UInt64 = 0xD137_923A_6E25_9B41
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(count)
-        for _ in 0..<count {
-            state ^= state >> 12
-            state ^= state << 25
-            state ^= state >> 27
-            bytes.append(UInt8(truncatingIfNeeded: (state &* 0x2545_F491_4F6C_DD1D) >> 56) & alphabetMask)
+        // seed と各 byte は従来どおり。Array の append と最後のコピーを省く。
+        var bytes = Data(count: count)
+        bytes.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            for offset in 0..<count {
+                state ^= state >> 12
+                state ^= state << 25
+                state ^= state >> 27
+                buffer[offset] = UInt8(truncatingIfNeeded: (state &* 0x2545_F491_4F6C_DD1D) >> 56) & alphabetMask
+            }
         }
-        return Data(bytes)
+        return bytes
     }
 
     /// 固定 seed の擬似ソースコード。512 KiB ごとの独立した内容を一度繰り返し、
     /// 256 KiB reset では失われる距離の一致を含める。16 MiB 境界は module の間に置く。
     static func pseudoSource(mebibytes: Int) -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("corpus.source", phaseStart, input: mebibytes << 20) }
         var state: UInt64 = 0x4D59_5DF4_D0F3_3173
         func next() -> UInt64 {
             state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407

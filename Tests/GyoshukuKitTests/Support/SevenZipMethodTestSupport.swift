@@ -55,7 +55,8 @@ enum SevenZipMethodTestSupport {
     /// 必須の実ツールで t / l / x を実行し、KaitoKit と展開先の双方を元の byte と照合する。
     @discardableResult
     static func verify(_ url: URL, items: [ExpectedEntry], password: String?,
-                       method: Method? = nil, ordered: Bool = true, metadata: Bool = true) throws -> SevenZipEditModel {
+                       method: Method? = nil, ordered: Bool = true, metadata: Bool = true,
+                       observeListing: ((String) -> Void)? = nil) throws -> SevenZipEditModel {
         let reader = try SevenZipEditSupport.reader(url, password: password)
         func key(_ name: String) -> String { name.hasSuffix("/") ? String(name.dropLast()) : name }
         let expectedByName = Dictionary(uniqueKeysWithValues: items.map { (key($0.name), $0) })
@@ -66,7 +67,7 @@ enum SevenZipMethodTestSupport {
             return item
         }
         XCTAssertEqual(Set(reader.entries.map { key($0.name) }), Set(items.map { key($0.name) }))
-        try TestSupport.assertKaitoKitRoundTrip(url, expected: expected, password: password, comparesMetadata: metadata)
+        try TestSupport.assertKaitoKitRoundTrip(url, expected: expected, password: password, comparesMetadata: metadata, reader: reader)
         let model = try XCTUnwrap(SevenZipEditModel.read(reader))
         if let method {
             for folder in model.folders { try assertMethod(folder, method: method, encrypted: password != nil) }
@@ -75,6 +76,7 @@ enum SevenZipMethodTestSupport {
         let arguments = password.map { ["-p" + $0] } ?? []
         try TestSupport.run(ReferenceTool.sevenZip, ["t", "-y"] + arguments + [url.path], in: work, log: "7zz-t")
         let listing = try TestSupport.run(ReferenceTool.sevenZip, ["l", "-slt"] + arguments + [url.path], in: work, log: "7zz-l")
+        observeListing?(listing)
         let listed = SevenZipTestSupport.listingEntries(listing)
         XCTAssertEqual(listed.count, items.count)
         if let method {
