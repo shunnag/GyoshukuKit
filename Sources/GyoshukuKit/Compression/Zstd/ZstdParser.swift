@@ -5,23 +5,53 @@ final class ZstdParser {
     let finder: ZstdMatchFinder
     private let p: ZstdEncoderProperties
     private let scratch: UnsafeMutablePointer<ZstdMatch>
+    private let nodes: UnsafeMutablePointer<Node>
+    private let literalCosts: UnsafeMutablePointer<Int>
+    private let matchCosts: UnsafeMutablePointer<Int>
     private var llPrices = [Int](repeating: 0, count: 36)
     private var mlPrices = [Int](repeating: 0, count: 53)
     private var ofPrices = [Int](repeating: 0, count: 29)
     init(properties: ZstdEncoderProperties) {
+        let capacity = properties.strategy == .optimal ? ZstdFrameEncoder.blockSize + 1 : 0
+        nodes = .allocate(capacity: capacity)
+        nodes.initialize(repeating: Node(), count: capacity)
+        literalCosts = .allocate(capacity: capacity); literalCosts.initialize(repeating: 0, count: capacity)
+        matchCosts = .allocate(capacity: capacity); matchCosts.initialize(repeating: 0, count: capacity)
         p = properties; finder = ZstdMatchFinder(properties: p)
-        scratch = .allocate(capacity: p.depth + 2)
+        scratch = .allocate(capacity: p.depth + 4)
         func prices(_ distribution: [Int], size: Int) -> [Int] {
             distribution.map { Int(log2(Double(size) / Double(max(1, abs($0)))) * 256) }
         }
-        llPrices = prices(ZstdFSEEncoder.literals.probabilities, size: 64)
-        mlPrices = prices(ZstdFSEEncoder.matches.probabilities, size: 64)
-        ofPrices = prices(ZstdFSEEncoder.offsets.probabilities, size: 32)
+        if p.strategy == .optimal {
+            llPrices = prices(ZstdFSEEncoder.literals.probabilities, size: 64)
+            mlPrices = prices(ZstdFSEEncoder.matches.probabilities, size: 64)
+            ofPrices = prices(ZstdFSEEncoder.offsets.probabilities, size: 32)
+            refreshCosts()
+        }
     }
-    deinit { scratch.deallocate() }
+    deinit {
+        scratch.deallocate()
+        let capacity = p.strategy == .optimal ? ZstdFrameEncoder.blockSize + 1 : 0
+        nodes.deinitialize(count: capacity); nodes.deallocate()
+        literalCosts.deinitialize(count: capacity); literalCosts.deallocate()
+        matchCosts.deinitialize(count: capacity); matchCosts.deallocate()
+    }
+    private func refreshCosts() {
+        guard p.strategy == .optimal else { return }
+        for code in ZstdSequences.literalBases.indices {
+            let start = ZstdSequences.literalBases[code]
+            let end = code + 1 < ZstdSequences.literalBases.count ? ZstdSequences.literalBases[code + 1] : ZstdFrameEncoder.blockSize + 1
+            (literalCosts + start).update(repeating: llPrices[code] + ZstdSequences.literalBits[code] * 256, count: end - start)
+        }
+        for code in ZstdSequences.matchBases.indices {
+            let start = ZstdSequences.matchBases[code]
+            let end = code + 1 < ZstdSequences.matchBases.count ? ZstdSequences.matchBases[code + 1] : ZstdFrameEncoder.blockSize + 1
+            (matchCosts + start).update(repeating: mlPrices[code] + ZstdSequences.matchBits[code] * 256, count: end - start)
+        }
+    }
     /// Statistics from a successfully emitted compressed block price the next block.
     func updatePrices(_ sequences: [ZstdSequence], repeats: ZstdRepeatOffsets) {
-        guard sequences.count >= 16 else { return }
+        guard p.strategy == .optimal && sequences.count >= 16 else { return }
         var ll = [Int](repeating: 1, count: 36), ml = [Int](repeating: 1, count: 53), of = [Int](repeating: 1, count: 29)
         var reps = repeats
         for s in sequences {
@@ -34,9 +64,11 @@ final class ZstdParser {
             return counts.map { max(64, Int(log2(total / Double($0)) * 256)) }
         }
         llPrices = prices(ll); mlPrices = prices(ml); ofPrices = prices(of)
+        refreshCosts()
     }
     func parse(_ bytes: UnsafePointer<UInt8>, count: Int, position: Int, repeats: ZstdRepeatOffsets) -> [ZstdSequence] {
         if p.strategy == .optimal { return optimal(bytes, count: count, position: position, repeats: repeats) }
+        if p.strategy == .fast || p.strategy == .doubleHash { return fast(bytes, count: count, position: position, repeats: repeats) }
         return greedy(bytes, count: count, position: position, repeats: repeats)
     }
     @inline(__always) private func best(_ bytes: UnsafePointer<UInt8>, index: Int, count: Int,
@@ -58,27 +90,78 @@ final class ZstdParser {
     }
     @inline(__always) private func repeatMatch(_ cur: UnsafePointer<UInt8>, distance: Int, maximumDistance: Int,
                                                available: Int, best: inout ZstdMatch) {
-        guard distance > 0, distance <= maximumDistance, cur[0] == cur[-distance] else { return }
-        let length = ZstdMatchFinder.length(cur, distance: distance, limit: available)
+        guard distance > 0, distance <= maximumDistance, available >= 4 else { return }
+        let a = UnsafeRawPointer(cur).loadUnaligned(as: UInt32.self)
+        let b = UnsafeRawPointer(cur - distance).loadUnaligned(as: UInt32.self)
+        guard (a ^ b) & 0xFFFFFF == 0 else { return }
+        let length = ZstdMatchFinder.length(cur, distance: distance, limit: available, start: 3)
         if length >= 3 && length > best.length { best = ZstdMatch(length: length, distance: distance) }
     }
-    private func greedy(_ bytes: UnsafePointer<UInt8>, count: Int, position: Int, repeats: ZstdRepeatOffsets) -> [ZstdSequence] {
+    private func fast(_ bytes: UnsafePointer<UInt8>, count: Int, position: Int, repeats: ZstdRepeatOffsets) -> [ZstdSequence] {
         var reps = repeats, sequences: [ZstdSequence] = []
         sequences.reserveCapacity(count / 16)
         var index = 0, anchor = 0, misses = 0
+        let doubleHash = p.strategy == .doubleHash, hashLog = p.hashLog, window = p.windowSize
+        while index + 4 <= count {
+            let cur = bytes + index, available = count - index
+            var match = ZstdMatch(length: 0, distance: 0)
+            let maximumDistance = min(window, position + index)
+            repeatMatch(cur, distance: reps.a, maximumDistance: maximumDistance, available: available, best: &match)
+            repeatMatch(cur, distance: reps.b, maximumDistance: maximumDistance, available: available, best: &match)
+            repeatMatch(cur, distance: reps.c, maximumDistance: maximumDistance, available: available, best: &match)
+            let candidate = finder.fastMatch(cur, position: position + index, available: available,
+                                             hashLog: hashLog, window: window, niceLength: p.niceLength)
+            if candidate.length > match.length + (match.length >= 3 ? 1 : 0) { match = candidate }
+            guard match.length >= 3 else {
+                misses += 1
+                // Fast presets progressively sample incompressible runs; keep all positions at higher levels.
+                index += min(16, 1 + (misses >> 7))
+                continue
+            }
+            misses = 0
+            let inserted = index
+            var start = index
+            // Backward extension recovers bytes skipped by the fast incompressibility sampler.
+            while start > anchor && match.distance <= position + start - 1
+                    && bytes[start - 1] == bytes[start - 1 - match.distance] {
+                start -= 1; match.length += 1
+            }
+            let sequence = ZstdSequence(literals: start - anchor, length: match.length, distance: match.distance)
+            sequences.append(sequence); _ = reps.value(distance: match.distance, literals: sequence.literals)
+            let end = start + match.length
+            var insert = max(inserted + 1, start + 1)
+            let step = !doubleHash ? (match.length > 64 ? 8 : 4) : (match.length > 64 ? 2 : 1)
+            while insert < end - 1 {
+                finder.insertFast(bytes + insert, position: position + insert, available: count - insert, hashLog: hashLog); insert += step
+            }
+            // Always preserve a recent root at the end of long matches.
+            if end > inserted + 1 && end < count { finder.insertFast(bytes + end - 1, position: position + end - 1, available: count - end + 1, hashLog: hashLog) }
+            index = end; anchor = end
+        }
+        return sequences
+    }
+
+    private func greedy(_ bytes: UnsafePointer<UInt8>, count: Int, position: Int, repeats: ZstdRepeatOffsets) -> [ZstdSequence] {
+        var reps = repeats, sequences: [ZstdSequence] = []
+        sequences.reserveCapacity(count / 16)
+        var index = 0, anchor = 0
         let lazy = p.strategy == .lazy ? 1 : p.strategy == .lazy2 ? 2 : 0
         while index + 4 <= count {
             var match = best(bytes, index: index, count: count, position: position, repeats: reps, literals: index - anchor)
             guard match.length >= 3 else {
-                misses += 1
-                // Fast presets progressively sample incompressible runs; keep all positions at higher levels.
-                index += p.strategy == .fast ? min(16, 1 + (misses >> 7)) : 1
+                index += 1
                 continue
             }
-            misses = 0
             var inserted = index, start = index
             if lazy > 0 && match.length < p.niceLength {
                 for ahead in 1...lazy where index + ahead + 4 <= count {
+                    // 先読み1で長い改善一致を得たら、先読み2は辞書挿入だけにする。
+                    // 挿入位置を保ち、一致内のサンプリングの位相を変えない。
+                    if ahead == 2 && start > index && match.length >= p.niceLength / 8 {
+                        finder.insert(bytes + index + ahead, position: position + index + ahead, available: count - index - ahead)
+                        inserted = index + ahead
+                        break
+                    }
                     let next = best(bytes, index: index + ahead, count: count, position: position, repeats: reps,
                                     literals: index + ahead - anchor)
                     inserted = index + ahead
@@ -96,7 +179,8 @@ final class ZstdParser {
             sequences.append(sequence); _ = reps.value(distance: match.distance, literals: sequence.literals)
             let end = start + match.length
             var insert = max(inserted + 1, start + 1)
-            let step = p.strategy == .fast ? (match.length > 64 ? 8 : 2) : 1
+            // 深い探索では短い一致の辞書も密に保つ。
+            let step = p.depth >= 96 ? 1 : 2
             while insert < end - 1 {
                 finder.insert(bytes + insert, position: position + insert, available: count - insert); insert += step
             }
@@ -116,16 +200,7 @@ final class ZstdParser {
         var reps = ZstdRepeatOffsets()
     }
     @inline(__always) private func literalPrice(_ n: Int) -> Int {
-        let code = ZstdSequences.literalCode(n)
-        return llPrices[code] + ZstdSequences.literalBits[code] * 256
-    }
-    @inline(__always) private func matchPrice(_ length: Int, distance: Int, literals: Int,
-                                            repeats: ZstdRepeatOffsets) -> (Int, ZstdRepeatOffsets) {
-        let ml = ZstdSequences.matchCode(length)
-        var reps = repeats
-        let value = reps.value(distance: distance, literals: literals)
-        let of = Int.bitWidth - 1 - value.leadingZeroBitCount
-        return (mlPrices[ml] + ZstdSequences.matchBits[ml] * 256 + ofPrices[of] + of * 256, reps)
+        literalCosts[n]
     }
     /// One best path per byte with repeat history, adaptive entropy prices, and candidate endpoints.
     /// This is an approximate shortest-path parser: histories are merged, rather than an exponential search.
@@ -133,9 +208,7 @@ final class ZstdParser {
         var frequencies = [Int](repeating: 1, count: 256)
         for i in 0..<count { frequencies[Int(bytes[i])] += 1 }
         let literalPrices = frequencies.map { min(2048, max(256, Int(log2(Double(count + 256) / Double($0)) * 256))) }
-        let nodes = UnsafeMutablePointer<Node>.allocate(capacity: count + 1)
-        nodes.initialize(repeating: Node(), count: count + 1)
-        defer { nodes.deinitialize(count: count + 1); nodes.deallocate() }
+        nodes.update(repeating: Node(), count: count + 1)
         nodes[0] = Node(price: literalPrice(0), previous: 0, length: 0, distance: 0, literals: 0, reps: repeats)
         var i = 0
         while i < count {
@@ -149,8 +222,10 @@ final class ZstdParser {
             let n = finder.matches(bytes + i, position: position + i, available: count - i, into: scratch)
             var long = ZstdMatch(length: 0, distance: 0)
             // Repeats can have a much lower offset cost even if absent from the hash/tree candidates.
-            for distance in [node.reps.a, node.reps.b, node.reps.c, node.reps.a - 1]
-                where distance > 0 && distance <= min(p.windowSize, position + i) {
+            for repeatIndex in 0..<4 {
+                let distance = repeatIndex == 0 ? node.reps.a : repeatIndex == 1 ? node.reps.b
+                    : repeatIndex == 2 ? node.reps.c : node.reps.a - 1
+                if distance <= 0 || distance > min(p.windowSize, position + i) { continue }
                 let length = ZstdMatchFinder.length(bytes + i, distance: distance, limit: count - i)
                 if length >= 3 {
                     relax(nodes, from: i, match: ZstdMatch(length: length, distance: distance), node: node)
@@ -187,18 +262,25 @@ final class ZstdParser {
         // Exact endpoints up to 32 bytes, then code boundaries and the full match.
         // Shortening matches lets a following match start earlier without quadratic long-run work.
         let full = match.length
-        var lengths = Array(3...min(full, 32))
-        if full > 32 {
-            for base in ZstdSequences.matchBases.dropFirst(32) where base < full { lengths.append(base - 1) }
-            lengths.append(full)
-        }
-        for length in lengths {
-            let (cost, reps) = matchPrice(length, distance: match.distance, literals: node.literals, repeats: node.reps)
-            let price = node.price + cost + literalPrice(0)
+        var reps = node.reps
+        let value = reps.value(distance: match.distance, literals: node.literals)
+        let of = Int.bitWidth - 1 - value.leadingZeroBitCount
+        let basePrice = node.price + ofPrices[of] + of * 256 + literalPrice(0)
+        @inline(__always) func endpoint(_ length: Int) {
+            let price = basePrice + matchCosts[length]
             let end = index + length
             if price < nodes[end].price {
                 nodes[end] = Node(price: price, previous: index, length: length, distance: match.distance, literals: 0, reps: reps)
             }
+        }
+        for length in 3...min(full, 32) { endpoint(length) }
+        if full > 32 {
+            for code in 32..<ZstdSequences.matchBases.count {
+                let base = ZstdSequences.matchBases[code]
+                if base >= full { break }
+                endpoint(base - 1)
+            }
+            endpoint(full)
         }
     }
 }

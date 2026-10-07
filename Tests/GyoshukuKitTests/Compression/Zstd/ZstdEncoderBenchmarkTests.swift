@@ -14,22 +14,23 @@ final class ZstdEncoderBenchmarkTests: XCTestCase {
         let directory = try TestSupport.directory("zstd-encoder-benchmark")
         let tool = "/opt/homebrew/bin/zstd"
         let text = LZMAEncoderCorpus.text(size: 4 << 20)
-        let binary = try binaryCorpus()
+        let binary = try Self.binaryCorpus()
         TestSupport.report("ZSTD-BENCH\tcorpus\tlevel\tencoder\tbytes\tMB/s\tseconds")
         for (name, input) in [("text",text), ("binary",binary)] {
             let plain = directory.appendingPathComponent(name + ".bin")
             try input.write(to: plain)
             TestSupport.report("ZSTD-BENCH-CORPUS\t\(name)\t\(input.count)")
-            for level in [1,3,9,19] {
+            let levels = ProcessInfo.processInfo.environment["GYOSHUKU_ZSTD_ALL_LEVELS"] == "1" ? Array(1...19) : [1,3,9,19]
+            for level in levels {
                 var fastest = Double.infinity, encoded = Data()
-                // Repeat until >= 0.3 seconds, taking the best end-to-end encoder time.
+                // Repeat until >= 0.3 seconds, at least five runs, taking the best end-to-end encoder time.
                 var measured = 0.0, runs = 0
                 repeat {
                     let start = ProcessInfo.processInfo.systemUptime
                     encoded = try ZstdFrameEncoder.encode(input, level: level)
                     let seconds = ProcessInfo.processInfo.systemUptime - start
                     measured += seconds; runs += 1; fastest = min(fastest, seconds)
-                } while measured < 0.3 && runs < 20
+                } while runs < 5 || (measured < 0.3 && runs < 20)
                 let swiftSpeed = Double(input.count) / 1_000_000 / fastest
                 report(name, level, "swift", encoded.count, fastest, input.count)
                 let url = directory.appendingPathComponent("\(name)-\(level).zst")
@@ -49,7 +50,7 @@ final class ZstdEncoderBenchmarkTests: XCTestCase {
                 let speedRatio = swiftSpeed / referenceSpeed
                 TestSupport.report(String(format: "ZSTD-BENCH-TARGET\t%@\t%d\tsize-gap=%.3f%%\tspeed/zstd=%.3f", name, level, gap, speedRatio))
                 let sizeMiss = level == 3 ? gap > 10 : level == 19 ? gap > 8 : false
-                let speedMiss = level == 1 ? speedRatio < 0.30 : level == 3 ? speedRatio < 0.25 : false
+                let speedMiss = level == 1 ? speedRatio < 0.50 : level == 3 ? speedRatio < 0.50 : false
                 if sizeMiss || speedMiss {
                     TestSupport.report("ZSTD-BENCH-MISS\t\(name)\t\(level)\tsize=\(sizeMiss)\tspeed=\(speedMiss)")
                 }
@@ -75,7 +76,7 @@ final class ZstdEncoderBenchmarkTests: XCTestCase {
         }
         return speed
     }
-    private func binaryCorpus() throws -> Data {
+    static func binaryCorpus() throws -> Data {
         let manager = FileManager.default
         var paths = ["/usr/lib/dyld"]
         let root = "/System/Library/Frameworks"

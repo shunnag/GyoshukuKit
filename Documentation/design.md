@@ -1460,8 +1460,14 @@ repeat offset の初期値 1 / 4 / 8、LL=0 の規則、rep1-1、compressed bloc
 raw / RLE block は repeat offset を変更しない。treeless Huffman、sequence Repeat_Mode、dictionary、ultra は生成しない。
 
 以下は GyoshukuKit 独自の level 表で、参照実装の preset を転記していない。
-fast は 4 byte hash と不一致区間の適応サンプリング、double hash は 4 / 8 byte hash の greedy 解析。
-lazy / lazy2 は hash chain と 1 / 2 byte 先読み。optimal は 3 / 4 byte hash と binary tree を使い、
+fast / double hash は unaligned 8 byte load の主 hash と4 byteの補助 hash を一回ずつ調べる greedy 解析。
+不一致区間は適応サンプリングし、一致内の辞書更新は低 level ほど間引く。
+lazy / lazy2 は8 byte / 4 byteの循環 row table と1 / 2 byte先読みを使う。
+row は16 / 32 / 64 / 128候補、tag は `SIMD16<UInt8>` / `SIMD32<UInt8>` で比較し、新しい候補から調べる。
+4 byte row は8 byte以上の候補がない場合に短い一致を補う。深さ96以上では一致内も全位置を挿入する。
+lazy2 は1 byte先で nice / 8以上の改善一致を得た場合、2 byte先を辞書挿入だけにして探索を省く。
+一致内のサンプリング位置は従来の先読み2と同じに保つ。
+optimal は 3 / 4 byte hash と binary tree を使い、
 byte ごとの最小推定費用・literal run・repeat 履歴を保持する近似最短路解析。
 各位置で一つの履歴に併合し、短い match の全長、長さ code 境界と最長 match を比較する。
 nice 長以上の一致は終端へ進むため、完全な最適解析ではない。前 block の sequence 頻度で費用を更新する。
@@ -1469,18 +1475,18 @@ block 末尾の短い key は木の子を引き継がず、未知の後続 byte 
 
 | level | strategy | window | hash log | depth | nice length | 概算 memory 上限 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | fast | 1 MiB | 17 | 1 | 32 | 7.50 MiB |
-| 2 | fast | 1 MiB | 18 | 1 | 48 | 8.00 MiB |
+| 1 | fast | 1 MiB | 17 | 1 | 32 | 7.75 MiB |
+| 2 | fast | 1 MiB | 18 | 1 | 48 | 8.25 MiB |
 | 3 | double hash | 2 MiB | 18 | 2 | 64 | 10.25 MiB |
 | 4 | double hash | 2 MiB | 19 | 2 | 80 | 11.25 MiB |
 | 5 | double hash | 2 MiB | 19 | 2 | 96 | 11.25 MiB |
-| 6 | lazy | 2 MiB | 19 | 16 | 64 | 13.25 MiB |
-| 7 | lazy | 2 MiB | 19 | 24 | 80 | 13.25 MiB |
-| 8 | lazy | 4 MiB | 19 | 32 | 96 | 19.25 MiB |
-| 9 | lazy2 | 4 MiB | 20 | 48 | 128 | 21.25 MiB |
-| 10 | lazy2 | 4 MiB | 20 | 64 | 160 | 21.25 MiB |
-| 11 | lazy2 | 4 MiB | 20 | 96 | 192 | 21.25 MiB |
-| 12 | lazy2 | 4 MiB | 20 | 128 | 256 | 21.25 MiB |
+| 6 | lazy | 2 MiB | 19 | 16 | 64 | 19.25 MiB |
+| 7 | lazy | 2 MiB | 19 | 24 | 80 | 19.25 MiB |
+| 8 | lazy | 4 MiB | 19 | 32 | 96 | 31.25 MiB |
+| 9 | lazy2 | 4 MiB | 20 | 48 | 128 | 33.25 MiB |
+| 10 | lazy2 | 4 MiB | 20 | 64 | 160 | 33.25 MiB |
+| 11 | lazy2 | 4 MiB | 20 | 96 | 192 | 33.25 MiB |
+| 12 | lazy2 | 4 MiB | 20 | 128 | 256 | 33.25 MiB |
 | 13 | optimal | 8 MiB | 20 | 64 | 128 | 100.25 MiB |
 | 14 | optimal | 8 MiB | 20 | 96 | 160 | 100.25 MiB |
 | 15 | optimal | 8 MiB | 20 | 128 | 192 | 100.25 MiB |
@@ -1491,6 +1497,9 @@ block 末尾の短い key は木の子を引き継がず、未知の後続 byte 
 
 memory は `estimatedMemoryBytes` の保守的な見積り。二つ分の window、UInt32 hash head、chain または tree のリンク、
 block / entropy / parser scratch の予算を含み、呼出元が保持する入力・出力と allocator の管理領域は含めない。
+level 6...12の上表は、従来からコードが予約していた値に訂正した（以前の表は UInt32 link の byte 数を過少記載）。
+row table の実確保は従来の chain 予算以下。optimal の永続 node と長さ別価格表は既存16 MiB scratch 内に収める。
+level 1 / 2 の4 byte補助 head は256 KiB増え、worker予約も同量増える。window と pending input の上界は変わらない。
 連続 buffer は window ごとに compact し、入力全体を保存しない。未処理入力は 128 KiB 以下。
 長い stream の table position は 2 GiB ごとに番号を縮め、live window を保つ。
 比較・table 反転・符号化の hot loop は検証済み範囲の unsafe buffer を使い、unaligned load は初期化済み入力だけを読む。
@@ -1513,7 +1522,8 @@ benchmark は `GYOSHUKU_ZSTD_BENCHMARK=1` の release 限定。
 text は `LZMAEncoderCorpus.text` の固定 seed の英文風単語列 4,194,304 byte。
 binary は `/usr/lib/dyld` 4,129,088 byte と実在する
 `/System/Library/Frameworks/CreateML.framework/Versions/A/CreateML` 16,559,504 byte の連結、計 20,688,592 byte。
-Swift は instance 確保・checksum を含む `encode` の最良時間（累積 0.3 秒以上、最大 20 回）を使う。
+Swift は instance 確保・checksum を含む `encode` の最良時間（最低5回、累積0.3秒以上、最大20回）を使う。
+`GYOSHUKU_ZSTD_ALL_LEVELS=1` は全19 levelを測る。
 サイズは `zstd -<level> -T1 -c` の出力、参照速度は同じ corpus の `zstd -b<level> -e<level> -i1 -T1` の内部計測。
 後者は process 起動と file I/O の時間を除く。MB/s は 1,000,000 byte/秒。
 目標未達は `ZSTD-BENCH-MISS` に記録し、計測試験の失敗条件にせず、実測値と profile をここに報告する。
@@ -1526,50 +1536,71 @@ GYOSHUKU_ZSTD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cach
 git diff --stat
 ```
 
-実測（2026-10-06、Apple M4 Max / 128 GB、macOS 27.2、Apple Swift 6.4、Zstandard CLI 1.5.7）。
-以下の bytes は checksum を含む完全な frame。
+実測（2026-10-07、Apple M4 Max / 128 GB、macOS 27.2、Apple Swift 6.4、Zstandard CLI 1.5.7）。
+基準は `f273d34` の変更前 source。最初に既存 `ZstdEncoderBenchmarkTests` を `.build-base` の release で計測し、
+最低5回のベンチマーク、変更版の targeted test と連続比較も行った。並行 workstream の負荷で CLI の値も変動するため、
+下表は追加の同一 process 計測を使う。基準版は型名だけを `BaselineZstd...` に変更して同じ program に組み込み、
+両 source を `swiftc -O -whole-module-optimization` で build。入力を一度読み、条件ごとに両 encoder を交互に5回実行した最良値。
+CLI は同じ corpus の `-b<level> -e<level> -i1 -T1` を5回実行した最良値。bytes は checksum 込みの完全な frame。
+追加 program の16 frameも `zstd -t` に成功し、製品版の benchmark は zstd と KaitoKit の全 byte 照合に成功した。
 
-| corpus | level | Swift bytes | zstd bytes | サイズ差 | Swift MB/s | zstd MB/s | 速度比 |
+| corpus | level | 基準 MB/s | 変更 MB/s | CLI MB/s | 基準 bytes | 変更 bytes | CLI bytes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| text | 1 | 1,008,821 | 1,022,409 | -1.329% | 157.424 | 584.800 | 26.9% |
-| text | 3 | 933,816 | 970,449 | -3.775% | 169.235 | 547.300 | 30.9% |
-| text | 9 | 916,309 | 944,619 | -2.997% | 18.412 | 86.400 | 21.3% |
-| text | 19 | 704,190 | 692,480 | +1.691% | 2.374 | 4.780 | 49.7% |
-| binary | 1 | 7,997,811 | 9,037,641 | -11.506% | 100.884 | 764.900 | 13.2% |
-| binary | 3 | 7,371,581 | 7,570,180 | -2.623% | 99.619 | 469.100 | 21.2% |
-| binary | 9 | 6,920,557 | 6,898,131 | +0.325% | 13.755 | 118.900 | 11.6% |
-| binary | 19 | 5,339,170 | 5,204,544 | +2.587% | 3.450 | 7.630 | 45.2% |
+| text | 1 | 151.059 | 283.704 | 561.100 | 1,008,821 | 974,556 | 1,022,409 |
+| text | 3 | 163.713 | 223.468 | 520.000 | 933,816 | 933,781 | 970,449 |
+| text | 9 | 15.881 | 37.587 | 83.200 | 916,309 | 786,451 | 944,619 |
+| text | 19 | 2.072 | 3.685 | 4.020 | 704,190 | 704,190 | 692,480 |
+| binary | 1 | 95.909 | 152.702 | 734.500 | 7,997,811 | 7,880,014 | 9,037,641 |
+| binary | 3 | 97.473 | 143.753 | 458.300 | 7,371,581 | 7,369,211 | 7,570,180 |
+| binary | 9 | 13.523 | 31.918 | 111.800 | 6,920,557 | 6,935,984 | 6,898,131 |
+| binary | 19 | 3.258 | 5.794 | 6.310 | 5,339,170 | 5,339,170 | 5,204,544 |
 
-level 3 のサイズ +10% 以内、level 19 のサイズ +8% 以内は両 corpus で達成。
-level 3 の速度 25% 以上は text で達成、binary は 21.2%（目標から -3.8 percentage points、目標速度 117.275 MB/s）。
-level 1 の速度 30% 以上は未達。text は 26.9%（-3.1 points、目標 175.440 MB/s）、
-binary は 13.2%（-16.8 points、目標 229.470 MB/s）。format の機能を減らして目標へ合わせない。
+text: level 9は基準の2.367倍、level 19は1.778倍。各2倍 / 1.3倍の目標を達成。
 
-最適化では候補 table の試し符号化を、正規化頻度から求める遷移区間の平均 bit 幅へ置き換えた。
-選択済み table だけを構築し、unsafe buffer による遷移反転、所有権を持つ noncopyable bit buffer、
-三つの FSE 遷移と三つの extra-bit field の一括出力、Huffman の 4 symbol 一括出力も行った。
-最初の測定の text level 1 / 3 は 86.989 / 105.139 MB/s、binary は 82.210 / 81.619 MB/s だった。
+binary: level 9は基準の2.360倍、level 19は1.778倍。各2倍 / 1.3倍の目標を達成。
 
-別 pass の stage profile は次の秒数。初期確保、block の組立と emit、window compact、次 block の価格更新はこの表の外。
-計測 pass が違うため、合計は上の最良時間と一致しない。
+level 1 / 3の CLI 速度比は次の通り。両 corpus で50%という目標は未達で、70%の stretch も未達。
+level 1: text 50.6%、binary 20.8%。
+level 3: text 43.0%、binary 31.4%。
 
-| corpus | level | input copy + XXH64 | match + parse | literals | sequences（codes / tables / bits） |
+全19 level・両 corpusの38条件で、変更後のサイズ増加は最大 +0.222916%（binary level 9）。
+level 3の CLI サイズ +10%以内、level 19の +8%以内も達成。level 13...19の frame サイズは基準と同じ。
+全サイズは `.build/zstd-size-comparison.tsv`、速度は `.build/zstd-accepted-paired.tsv` に保存。
+
+最適化は fast の8 / 4 byte hash 専用経路、repeat の3 byte一括判定、row の SIMD tag 比較と lazy2 の探索省略、
+optimal の node / 長さ価格表の再利用と候補ごとの配列生成廃止。sequence code は確保済み buffer に書き、
+FSE遷移とextra bitをまとめて64 bit accumulatorへ追加する。Huffmanの4 streamを交互に進め、
+literal集約は確保済み Dataへの一括copyに変えた。window・checksum・frame/blockの仕様は維持する。
+
+公開 writer の並列測定は level 3、4 MiB text + 上記Mach-Oを繰り返した268,435,456 byte。
+`.zst` は `SingleStreamCompressor.compress`、`tar.zst` は一つのfileを `ArchiveWriter` に追加してfinish。
+file I/O・checksum・frame組立・公開処理を含む5回の最良値を、基準版→変更版の順に連続測定した。
+出力は各実装・各形式内で1 / 4 / 8 / 12 thread間のbyte一致、全出力のzstd検査に成功。
+
+| format | threads | 基準 MB/s | 変更 MB/s | 基準 bytes | 変更 bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| text | 1 | 0.000255 | 0.012444 | 0.000334 | 0.012128（0.003202 / 0.002528 / 0.006357） |
-| text | 3 | 0.000235 | 0.015031 | 0.000232 | 0.008973（0.002248 / 0.001705 / 0.004979） |
-| binary | 1 | 0.001196 | 0.108048 | 0.032601 | 0.059329（0.016656 / 0.012562 / 0.029778） |
-| binary | 3 | 0.001755 | 0.126427 | 0.032695 | 0.052448（0.014747 / 0.011228 / 0.026101） |
+| .zst | 1 | 99.453 | 143.923 | 91,115,521 | 91,127,531 |
+| .zst | 4 | 368.017 | 547.302 | 91,115,521 | 91,127,531 |
+| .zst | 8 | 460.064 | 832.759 | 91,115,521 | 91,127,531 |
+| .zst | 12 | 652.075 | 942.108 | 91,115,521 | 91,127,531 |
+| tar.zst | 1 | 99.347 | 142.500 | 91,115,621 | 91,127,631 |
+| tar.zst | 4 | 331.825 | 537.067 | 91,115,621 | 91,127,631 |
+| tar.zst | 8 | 500.033 | 819.919 | 91,115,621 | 91,127,631 |
+| tar.zst | 12 | 610.604 | 913.015 | 91,115,621 | 91,127,631 |
 
-未達の binary では match + parse が最大で、次いで sequence と Huffman literals。
-text level 1 は match + parse と sequence がほぼ半分ずつ。checksum はいずれも主要因ではない。
-level 19 は text 1.891985 秒、binary 5.610804 秒の match + parse がほぼ全時間を占める。
-生の TSV と oracle log は `.build/zstd-final-release.log` と `.build/verification/zstd-encoder-benchmark/` に保存した。
+変更版の12 threadは1 thread比で `.zst` 6.546倍、`tar.zst` 6.407倍。線形ではないが並列数で伸びる。
+XXH64とencoder内の入力copyは元からworkerで実行される。producerには片の組立copyがあるが、
+今回明らかなserial checksumは見つからず、`ParallelZstdCompressor` / 共通pipelineは変更していない。
+並列測定 logは `.build/zstd-parallel-final-{base,new}.log`。tarのsource timestampは各runで生成されるfileのmtimeを使う。
 
-検証は release build 成功、通常の `swift test --filter Zstd` は 13 件成功・benchmark 1 件 skip（約 120 秒）。
-release の env-gated benchmark とその時点の全 Zstd tests も成功（12 件、約 63 秒）。
-追加の 43,690 sequence までの 1 / 2 / 3 byte count header、圧縮 section が展開長を超える test frame、
-8 byte content size header と取消し後の terminal state は通常テストで成功した。
-`git diff --check` は成功。変更は Zstd の新規 source 9 file、test 3 file と本節の追記だけで、commit は作らない。
+最終版の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+`CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdEncoderBenchmarkTests` / `ZstdParallelBenchmarkTests` の
+26件成功・失敗0・117.727秒。debugの高速testは13件成功・失敗0・13.947秒。
+その後の並列benchmarkは基準1件50.144秒、変更1件33.007秒で成功。
+全実行履歴と正確なtest名は `.build/zstd-validation-report.md` に保存。全test suiteは走らせていない。
+fixtureは再生成・変更せず、public APIと取消し・進捗・error処理の経路を変えていない。
+測定はこのMacの二つのcorpusのみで、別入力の速度・比率、Intel Macは未測定。並行負荷による揺れは残る。
+`git diff --check` は成功。変更は未commitのまま残す。
 
 ### Zstandard の writer 接続（2026-10-06）
 

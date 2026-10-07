@@ -72,7 +72,7 @@ final class ZstdFrameEncoder {
     /// A complete frame for a chunk. Independent instances are safe to run concurrently.
     static func encode(_ chunk: Data, level: Int = 3) throws -> Data {
         let encoder = try Self(level: level, contentSize: UInt64(chunk.count))
-        var output = Data()
+        var output = Data(); output.reserveCapacity(chunk.count)
         try encoder.write(chunk, finish: true) { output.append($0) }
         return output
     }
@@ -115,13 +115,23 @@ final class ZstdFrameEncoder {
             let sequences = parser.parse(UnsafePointer(bytes), count: n, position: position, repeats: repeats)
             if collectProfile { profile.matchAndParse += ProcessInfo.processInfo.systemUptime - start }
             start = collectProfile ? ProcessInfo.processInfo.systemUptime : 0
-            var literals = Data(); literals.reserveCapacity(n)
-            var cursor = 0
-            for s in sequences {
-                if s.literals > 0 { literals.append(bytes + cursor, count: s.literals) }
-                cursor += s.literals + s.length
+            var literals = Data(count: n), literalCount = 0
+            literals.withUnsafeMutableBytes { target in
+                let destination = target.baseAddress!
+                var cursor = 0
+                for s in sequences {
+                    if s.literals > 0 {
+                        destination.advanced(by: literalCount).copyMemory(from: bytes + cursor, byteCount: s.literals)
+                        literalCount += s.literals
+                    }
+                    cursor += s.literals + s.length
+                }
+                if cursor < n {
+                    destination.advanced(by: literalCount).copyMemory(from: bytes + cursor, byteCount: n - cursor)
+                    literalCount += n - cursor
+                }
             }
-            if cursor < n { literals.append(bytes + cursor, count: n - cursor) }
+            literals.count = literalCount
             var proposedRepeats = repeats
             var compressed = ZstdHuffmanEncoder.literals(literals)
             if collectProfile { profile.literals += ProcessInfo.processInfo.systemUptime - start }

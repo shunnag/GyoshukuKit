@@ -9,8 +9,12 @@ enum ZstdHuffmanEncoder {
     static func literals(_ bytes: Data) -> Data {
         let n = bytes.count
         var counts = [Int](repeating: 0, count: 256)
-        bytes.withUnsafeBytes { raw in
-            for byte in raw { counts[Int(byte)] += 1 }
+        counts.withUnsafeMutableBufferPointer { frequencies in
+            bytes.withUnsafeBytes { raw in
+                guard n > 0 else { return }
+                let f = frequencies.baseAddress!, p = raw.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                for i in 0..<n { f[Int(p[i])] += 1 }
+            }
         }
         if let symbol = counts.firstIndex(of: n), n > 0 { return rawHeader(n, type: 1) + Data([UInt8(symbol)]) }
         var raw = rawHeader(n, type: 0); raw.append(bytes)
@@ -28,7 +32,7 @@ enum ZstdHuffmanEncoder {
             payload.append(stream(bytes, range: 0..<n, codes: codes))
         } else {
             let segment = (n + 3) / 4
-            let streams = (0..<4).map { stream(bytes, range: ($0 * segment)..<min(n, ($0 + 1) * segment), codes: codes) }
+            let streams = fourStreams(bytes, segment: segment, codes: codes)
             for s in streams.prefix(3) { zstdAppendLE(UInt64(s.count), bytes: 2, to: &payload) }
             for s in streams { payload.append(s) }
         }
@@ -120,8 +124,43 @@ enum ZstdHuffmanEncoder {
         precondition(payload.count < 128)
         return Data([UInt8(payload.count)]) + payload
     }
+    /// 独立した四つの依存鎖を同じループで進める。
+    private static func fourStreams(_ bytes: Data, segment: Int, codes: [Code]) -> [Data] {
+        var a = ZstdBitWriter(capacity: segment * 2 + 8), b = ZstdBitWriter(capacity: segment * 2 + 8)
+        var c = ZstdBitWriter(capacity: segment * 2 + 8), d = ZstdBitWriter(capacity: segment * 2 + 8)
+        bytes.withUnsafeBytes { raw in
+            codes.withUnsafeBufferPointer { codes in
+                let p = raw.baseAddress!.assumingMemoryBound(to: UInt8.self), table = codes.baseAddress!
+                var i = segment, j = bytes.count - 3 * segment
+                while j >= 4 {
+                    let ag = group(p, end: i, table: table)
+                    a.appendUnchecked(ag.0, bits: ag.1)
+                    let bg = group(p, end: segment + i, table: table)
+                    b.appendUnchecked(bg.0, bits: bg.1)
+                    let cg = group(p, end: 2 * segment + i, table: table)
+                    c.appendUnchecked(cg.0, bits: cg.1)
+                    let dg = group(p, end: 3 * segment + j, table: table)
+                    d.appendUnchecked(dg.0, bits: dg.1)
+                    i -= 4; j -= 4
+                }
+                while i > 0 {
+                    i -= 1
+                    let x = table[Int(p[i])], y = table[Int(p[segment + i])], z = table[Int(p[2 * segment + i])]
+                    a.appendUnchecked(x.value, bits: x.bits); b.appendUnchecked(y.value, bits: y.bits); c.appendUnchecked(z.value, bits: z.bits)
+                }
+                while j > 0 { j -= 1; let x = table[Int(p[3 * segment + j])]; d.appendUnchecked(x.value, bits: x.bits) }
+            }
+        }
+        return [a.finish(), b.finish(), c.finish(), d.finish()]
+    }
+    @inline(__always) private static func group(_ p: UnsafePointer<UInt8>, end: Int, table: UnsafePointer<Code>) -> (Int, Int) {
+        let a = table[Int(p[end - 1])], b = table[Int(p[end - 2])]
+        let c = table[Int(p[end - 3])], d = table[Int(p[end - 4])]
+        return (a.value | (b.value << a.bits) | (c.value << (a.bits + b.bits)) | (d.value << (a.bits + b.bits + c.bits)),
+                a.bits + b.bits + c.bits + d.bits)
+    }
     private static func stream(_ bytes: Data, range: Range<Int>, codes: [Code]) -> Data {
-        var bits = ZstdBitWriter(capacity: range.count)
+        var bits = ZstdBitWriter(capacity: range.count * 2 + 8)
         bytes.withUnsafeBytes { raw in
             codes.withUnsafeBufferPointer { table in
                 var i = range.upperBound
@@ -131,12 +170,12 @@ enum ZstdHuffmanEncoder {
                         let code = table[Int(raw[i - back])]
                         value |= code.value << width; width += code.bits
                     }
-                    bits.append(value, bits: width); i -= 4
+                    bits.appendUnchecked(value, bits: width); i -= 4
                 }
                 while i > range.lowerBound {
                     i -= 1
                     let code = table[Int(raw[i])]
-                    bits.append(code.value, bits: code.bits)
+                    bits.appendUnchecked(code.value, bits: code.bits)
                 }
             }
         }

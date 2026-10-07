@@ -27,7 +27,8 @@ struct ZstdEncoderProperties: Sendable {
     /// Includes two sliding windows, match tables and conservative block/entropy/parser scratch.
     /// Caller-owned input/output and allocator bookkeeping are excluded.
     var estimatedMemoryBytes: Int {
-        let heads = (1 << hashLog) * 4 + (strategy == .fast ? 0 : (1 << 16) * 4)
+        let heads = (1 << hashLog) * 4 + (1 << 16) * 4
+        // row table は従来の chain 予算以内に収める。
         let links = strategy == .optimal ? windowSize * 8
             : (strategy == .lazy || strategy == .lazy2 ? windowSize * 4 : 0)
         return 2 * windowSize + heads + links + (strategy == .optimal ? 16 << 20 : 5 << 20)

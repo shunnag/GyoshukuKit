@@ -32,7 +32,8 @@ struct ZstdFSEEncoder: Sendable {
         var next = probabilities.map { max(1, $0) }
         var first = [Int](repeating: -1, count: probabilities.count)
         var inverse = [UInt32](repeating: 0, count: size * probabilities.count)
-        inverse.withUnsafeMutableBufferPointer { target in
+        inverse.withUnsafeMutableBufferPointer { buffer in
+            let target = buffer.baseAddress!
             for state in 0..<size {
                 let symbol = symbols[state], n = next[symbol]
                 next[symbol] += 1
@@ -136,7 +137,8 @@ struct ZstdSequenceEntropy {
     static func choose(_ symbols: [Int], predefined: ZstdFSEEncoder, maximumLog: Int) -> Self {
         var best = Self(mode: 0, description: Data(), table: predefined, rleSymbol: nil)
         var counts = [Int](repeating: 0, count: 53)
-        counts.withUnsafeMutableBufferPointer { frequencies in
+        counts.withUnsafeMutableBufferPointer { buffer in
+            let frequencies = buffer.baseAddress!
             for symbol in symbols { frequencies[symbol] += 1 }
         }
         var cost = ZstdFSEEncoder.estimatedCost(counts, last: symbols.last!, probabilities: predefined.probabilities, log: predefined.log)

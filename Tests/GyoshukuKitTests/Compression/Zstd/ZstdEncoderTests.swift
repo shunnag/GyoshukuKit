@@ -133,7 +133,7 @@ final class ZstdEncoderTests: XCTestCase {
     }
     func testHuffmanOneAndFourStreamsWithDirectAndFSEWeights() throws {
         let directory = try TestSupport.directory("zstd-huffman")
-        for size in [997,16_383,16_384,131_072] {
+        for size in [997,1024,1025,1026,1027,16_383,16_384,131_072] {
             for highBytes in [false,true] {
                 var random = TestCorpus.XorShift64(state: 0x8743_2211)
                 let bytes = Data((0..<size).map { _ in
@@ -191,6 +191,57 @@ final class ZstdEncoderTests: XCTestCase {
             else { XCTAssertEqual(section[0], 255) }
             try verify(manualFrame(ZstdHuffmanEncoder.literals(Data([0x9B])) + section, input: input),
                        input: input, label: "count-\(n)", directory: directory)
+        }
+    }
+    func testBitAccumulatorBoundariesAndReservedOutput() {
+        for marker in [false, true] {
+            var regular = ZstdBitWriter(), reserved = ZstdBitWriter(capacity: 80_008)
+            var expected: [UInt8] = [], bitCount = 0
+            var random = TestCorpus.XorShift64(state: 0x9876_5432_1020_3040)
+            func appendReference(_ value: UInt64, width: Int) {
+                for bit in 0..<width {
+                    if bitCount & 7 == 0 { expected.append(0) }
+                    expected[bitCount >> 3] |= UInt8((value >> bit) & 1) << (bitCount & 7)
+                    bitCount += 1
+                }
+            }
+            let widths = [0,1,7,8,9,16,23,27,44,55,56]
+            for i in 0..<10_000 {
+                let width = widths[i % widths.count]
+                let value = random.next() & ((1 << width) - 1)
+                regular.append(Int(value), bits: width)
+                reserved.appendUnchecked(Int(value), bits: width)
+                appendReference(value, width: width)
+            }
+            if marker { appendReference(1, width: 1) }
+            XCTAssertEqual(regular.finish(marker: marker), Data(expected))
+            XCTAssertEqual(reserved.finish(marker: marker), Data(expected))
+        }
+    }
+    func testMatchRowsAndTreePreserveCandidatesAfterRebase() throws {
+        let input = LZMAEncoderCorpus.text(size: 8 << 10)
+        for level in [1,3,6,9,11,12,19] {
+            let properties = try ZstdEncoderProperties.preset(level)
+            let ordinary = ZstdMatchFinder(properties: properties), rebased = ZstdMatchFinder(properties: properties)
+            let a = UnsafeMutablePointer<ZstdMatch>.allocate(capacity: properties.depth + 4)
+            let b = UnsafeMutablePointer<ZstdMatch>.allocate(capacity: properties.depth + 4)
+            defer { a.deallocate(); b.deallocate() }
+            input.withUnsafeBytes { raw in
+                let bytes = raw.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                for i in 0..<4096 {
+                    ordinary.insert(bytes + i, position: i, available: input.count - i)
+                    rebased.insert(bytes + i, position: (1 << 30) + i, available: input.count - i)
+                }
+                rebased.rebase(by: 1 << 30)
+                for i in 4096..<4128 {
+                    let na = ordinary.matches(bytes + i, position: i, available: input.count - i, into: a)
+                    let nb = rebased.matches(bytes + i, position: i, available: input.count - i, into: b)
+                    XCTAssertEqual(na, nb, "level \(level), position \(i)")
+                    for m in 0..<min(na, nb) {
+                        XCTAssertEqual(a[m].length, b[m].length); XCTAssertEqual(a[m].distance, b[m].distance)
+                    }
+                }
+            }
         }
     }
     private func verify(_ output: Data, input: Data, label: String, directory: URL) throws {
