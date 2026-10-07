@@ -278,8 +278,8 @@ final class LZMAEncoderTests: XCTestCase {
             let parts = try chunks(sample.two)
             XCTAssertTrue(parts.contains { $0.control < 0x80 })
             XCTAssertTrue(parts.contains { $0.control >= 0x80 })
-            // raw の後の compressed は model reset を宣言する。
-            XCTAssertTrue(zip(parts, parts.dropFirst()).contains { $0.0.control < 0x80 && $0.1.control >= 0xA0 })
+            // copy chunk の直後に LZMA chunk があることを wire で確認する。
+            XCTAssertTrue(zip(parts, parts.dropFirst()).contains { $0.0.control < 0x80 && $0.1.control >= 0x80 })
         }
     }
 

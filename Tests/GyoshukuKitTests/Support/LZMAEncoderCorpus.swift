@@ -26,7 +26,7 @@ enum LZMAEncoderCorpus {
     static func mixed(size: Int) -> Data {
         let phaseStart = EncoderTestTiming.start()
         defer { EncoderTestTiming.end("corpus.mixed", phaseStart, input: size) }
-        // 1 MiB 辞書の境界を越える距離、raw → compressed の state reset を含む。
+        // 1 MiB 辞書の境界を越える距離、raw → compressed の遷移を含む。
         let random = TestCorpus.random(768 << 10)
         let words = text(size: 512 << 10)
         var result = Data(); result.reserveCapacity(size)

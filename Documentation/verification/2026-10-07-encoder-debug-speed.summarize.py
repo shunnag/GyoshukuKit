@@ -47,7 +47,7 @@ def parse(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--root', type=Path, default=Path('.build/speed'))
+    ap.add_argument('--root', type=Path, default=Path('.build/verification/encoder-debug-speed'))
     args = ap.parse_args()
     results = {}
     for group in ['paired', 'remaining', 'full-release', 'reference-release']:

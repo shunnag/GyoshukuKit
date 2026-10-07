@@ -32,7 +32,7 @@ enum SevenZipSolidFilterSupport {
     @discardableResult
     static func verify(_ url: URL, items: [ExpectedEntry], options: WriterOptions,
                        blocks: Int, solid: Bool, filter: String? = nil) throws -> SevenZipEditModel {
-        // 同じ書庫の t / l / x と reader を共有し、layout の assertion は残す。
+        // 同じ書庫の t / l / x と listing を共有し、layout の assertion は残す。
         var listing = ""
         let model = try SevenZipMethodTestSupport.verify(url, items: items, password: options.password,
             observeListing: { listing = $0 })

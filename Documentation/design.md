@@ -1178,7 +1178,10 @@ Apple の nil レベル経路は従来の byte と16 MiB境界を維持し、こ
 
 試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
 独立 oracle を使う。writer は tar.xz の xz / tar 展開、7z と ZIP の `7zz t / l -slt / x`、
-暗号化、updater の追加・solid 再圧縮、128 MiB入力の level-9 並列数制限も照合する。
+暗号化、updater の追加・solid 再圧縮、既定4 MiB + 512 byte入力の level-9 並列数制限も照合する。
+元の128 MiB入力は `TarXZLZMALevelTests` の `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+encoder は既定の random / text 各65,537 byte、mixed 2.625 MiB + 17 byteをlevel 0 / 1 / 3 / 5 / 6 / 9で照合する。
+元の1 / 4 / 20 MiB入力と2 MiB + 777 byteの全分割幅は `LZMAEncoderTests` の `…FullSize` に残す。
 7z の listing は LZMA2:18/20/23/26 と LZMA:18/20/23/26、ZIP 14 は LZMA:eos。
 外部ツール不在は Tests/README.md の規則どおり失敗する。
 benchmark は通常の試験で skip し、固定 seed の 4 MiB 辞書単語 text と `/usr/lib/dyld` から始める
@@ -1269,7 +1272,8 @@ KaitoKit の `LZWDecoder` が幅変更 / CLEAR 時に旧 group の残りを破�
 悪化したら CLEAR を出し辞書と最高比を reset する。評価時点の違いで `compress(1)` との byte 一致は要求しない。
 保持量は最大 `2^maxbits - 257` 辞書 entry（16 bit で 65,279）、256 KiB + 最大 15 byte の出力、
 16 byte の group、現在の prefix とカウンター。入力長に比例する保存領域はない。
-maxbits 12 / 16 で五つの入力と text → random → text の 7 MiB を試験し、CLEAR が発生することも検査する。
+maxbits 12 / 16の既定は小入力とtext 128 KiB → random 256 KiB → text 128 KiBを扱い、CLEAR count > 0も検査する。
+元の7 MiB混合入力・9 MiB random・12 MiB textは `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
 KaitoKit と `/usr/bin/uncompress -c`、OS の `/usr/bin/gzip -dc`、`/opt/homebrew/bin/7zz x -so` で byte を照合し、
 `/usr/bin/compress -c -b <maxbits>` のサイズから 25% を越えて離れないことを確認する。
 空の `.Z` は EOF code がなく header のみで、BSD gzip / uncompress は拒否するため、
@@ -1359,8 +1363,10 @@ LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、Brotli�
 試験は `CompressedTarNewFormatTests` / `ArchiveRewriterNewTarFormatTests` / `SingleStreamCompressorTests`。
 新tarはfile・空file・directory・symlink・日本語名・20 MiB混合入力を各独立decoderからbsdtarへpipeして
 一覧・抽出・全byteを照合し、KaitoKitでも照合する。lzip level 0 / 6 / 9と複数memberはtrailerから数え `lzip -t` も使う。
-ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独9形式の空・1 byte・1 MiB text・9 MiB乱数の全byte復号、
+ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独9形式の既定の空・1 byte・128 KiB text・1 MiB + 17 byte乱数の全byte復号、
 読取進捗・種別拒否・既存出力とrename競合・取消しcleanupを検査する。
+乱数はbzip2 level 9の二つのblockを越える。元の1 MiB text・9 MiB乱数は `…FullSize` に残し、
+`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
 空.Zと制限されたstdout再openは上記LZW節の実ツール方針を共有する。
 
 ### PPMd var.H / var.I encoder（2026-10-06）
@@ -1418,13 +1424,17 @@ encoder 単独試験は製品の serializer に頼らず、PPMd coder 一つの 
 KaitoKit の PPMd decoder は internal なので、公開 `ArchiveReader` の stream で全 byte を照合する。
 独立 oracle は必須の `7zz t`、`7zz x -so`、`7zz l -slt`。
 7zz 26.03 の表示は 7z が `PPMD:o6:mem24`（16 MiB は log2=24）、ZIP が `PPMd`。
-空、1 byte、64 KiB zeros、1 MiB text、8 MiB random、20 MiB text を扱い、1 MiB heap の text では
-H の restart、I の restart / cut-off の実行回数が非ゼロであることも検査する。
+既定は空、1 byte、64 KiB zeros、128 KiB text、256 KiB randomを扱う。
+1 MiB heap の256 KiB + 17 byte textと256 KiBの全256値乱数（各byteを二度置く）で、H / I restartとI cut-offのcount > 0、
+復旧後の7z / ZIP oracleとKaitoKit全byte復号を検査する。元の1 MiB text・8 MiB random・20 MiB textは
+`…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
 byte ごと、不揃い chunk、非ゼロ startIndex の Data slice、終了後と emit 失敗後の拒否を検査する。
 固定 seed の英文風 corpus では order 6 / 16 MiB の両 variant が `xz -6` より小さいことを要求する。
 1 MiB の corpus の実測は H が 41,930 byte、I が 41,967 byte、xz -6 が 72,628 byte。
-release の 6 tests は 55.7 秒で成功し、上記の大入力と両復元方法を全て照合した。
-debug の大入力 2 tests も成功した（約 26 分）。大きな corpus の照合には release を推奨する。
+導入時のrelease 6 testsは55.7秒で成功し、元の大入力と両復元方法を全て照合した。
+導入時のdebug大入力2 testsも成功した（約26分）。大きなcorpusの照合にはreleaseを推奨する。
+round 1のDEBUG実測は対象classのbest-of-5合計5,421.581 s → 974.804 s（82.0%短縮、5.56倍）。
+5並列のXCTest時間で、全suiteの壁時計ではない。既定coverageとround 2の再計測は [検証記録](verification/2026-10-07-encoder-debug-speed.md) に置く。
 oracle 書庫と log は `.build/verification/ppmd-{small,large,restoration,compression}-{debug,release}/` に残す。
 
 ```sh
@@ -1503,10 +1513,13 @@ KaitoKit の MIT decoder の frame / Huffman / FSE / sequence の復号規則を
 match finder も独自に実装し、LZMA SDK 由来の既存 finder の code を取り込まない。製品に外部 codec library を加えない。
 
 試験は `Tests/GyoshukuKitTests/Compression/Zstd/`。必須の `/opt/homebrew/bin/zstd` で `-t` と `-dc`、
-公開 KaitoKit reader で全 byte を照合する。level 1 / 3 / 9 / 19 の空・1 byte・64 KiB zeros・1 MiB text・
-8 MiB random・20 MiB text/binary、不揃い chunk、非ゼロ Data startIndex、未知 content size、連結 frame を検査する。
+公開 KaitoKit readerで全byteを照合する。level 1 / 3 / 9 / 19の既定は空・1 byte・64 KiB zeros・
+128 KiB + 17 byte text・256 KiB + 17 byte randomと、不揃いchunk、非ゼロData startIndex、未知content size、連結frame。
+混合入力は各levelの2 × window + blockSizeを越え、window + 4096 byte先の乱数とcompact後のwindow内text再出現、
+raw / RLE / compressedを検査する。元の1 / 8 MiBと20 MiB text/binaryは `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
 全 19 level の短い周期列、Huffman の 1 / 4 streams と両 tree 表現、sequence 長さ code の境界と repeat 規則も扱う。
-4 MiB の text は木の block 末尾の回帰試験。XXH64 は既知 vector、stripe をまたぐ chunk、seed と非破壊 digest を検査する。
+木のblock末尾は既定256 KiB + 17 byte text、元の4 MiBは `…FullSize` に残す。
+XXH64は既知vector、stripeをまたぐchunk、seedと非破壊digestを検査する。
 外部ツールが無い場合は Tests/README.md の方針どおり失敗する。
 
 benchmark は `GYOSHUKU_ZSTD_BENCHMARK=1` の release 限定。
@@ -1620,7 +1633,8 @@ tar.zst の削除・改名・追加・形式変換は `ArchiveRewriter` が全�
 実ツールは Zstandard CLI 1.5.7と7-Zip 26.03。`7zz i` と method 93の実書庫で対応を確認した。
 `CompressedTarZstdTests` は level 1 / 3 / 19の `zstd -t`、`zstd -dc | bsdtar -xf -` と
 KaitoKitの全 byte 往復、20 MiB入力の4 thread・frame境界・逐次とのbyte一致、rewriter編集を扱う。
-`SingleStreamCompressorTests` の9形式に .zstを含め、空・1 byte・1 MiB text・9 MiB乱数を両 readerで復元する。
+`SingleStreamCompressorTests` の9形式に .zstを含め、既定は空・1 byte・128 KiB text・1 MiB + 17 byte乱数を両readerで復元する。
+元の1 MiB text・9 MiB乱数は `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
 `ZipZstdWriterTests` は上記3 levelの非暗号・AES・ZipCryptoを `7zz t / l -slt / x` とKaitoKitで照合し、
 非暗号 entry の raw dataを `zstd -dc` でも独立に照合する。9 MiB超のentryが単一frameであること、
 ZIP64予約・updater追加・rewriterの削除・改名・追加も検査する。

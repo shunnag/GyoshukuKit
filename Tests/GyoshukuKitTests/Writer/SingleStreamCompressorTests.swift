@@ -11,7 +11,8 @@ final class SingleStreamCompressorTests: XCTestCase {
         try verifyEveryFormat(large: true)
     }
 
-    private static let smallRandom = TestCorpus.random(2 * IOChunk.size + 17)
+    // bzip2 level 9 の 900,000 byte 境界も越え、二つの block を入力順に復号する。
+    private static let smallRandom = TestCorpus.random((1 << 20) + 17)
 
     private func verifyEveryFormat(large: Bool) throws {
         let samples = [("empty", Data()), ("one", Data([0xA7])),

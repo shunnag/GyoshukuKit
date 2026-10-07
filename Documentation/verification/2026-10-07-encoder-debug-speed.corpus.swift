@@ -1,4 +1,4 @@
-// swiftc -Onone [-D OPTIMIZE] Tests/Tools/CorpusOptimizationProbe.swift -o <probe>
+// swiftc -Onone [-D OPTIMIZE] Documentation/verification/2026-10-07-encoder-debug-speed.corpus.swift -o <probe>
 // 同じ入力と checksum で @_optimize(speed) の実効性を独立に測る。
 import Foundation
 

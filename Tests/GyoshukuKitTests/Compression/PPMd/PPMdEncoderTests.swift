@@ -73,11 +73,21 @@ final class PPMdEncoderTests: XCTestCase {
         try verifyRestoration(large: true)
     }
 
+    // 全256値を保って隣接byteを相関させ、I の cut-off 分岐も通す。
+    private static let restorationRandom = Data(EncoderTestCorpus.random256KiB.prefix(128 << 10).flatMap { [$0, $0] })
+
     private func verifyRestoration(large: Bool) throws {
         let directory = try PPMdTestArchives.directory("ppmd-restoration")
-        // 1 MiB heap の枯渇は 256 KiB + 17 byte でも起きる。下の count assertion を省かない。
-        let input = large ? EncoderTestCorpus.sourceTwentyMiB : EncoderTestCorpus.restoration
-        let label = large ? "text-20m" : "text-restoration"
+        // text と全256値の乱数で、1 MiB heap の枯渇と復旧後の全 byte を照合する。
+        let samples = large ? [("text-20m", EncoderTestCorpus.sourceTwentyMiB)]
+            : [("text-restoration", EncoderTestCorpus.restoration), ("random-restoration", Self.restorationRandom)]
+        if !large { XCTAssertEqual(Set(Self.restorationRandom).count, 256) }
+        for (label, input) in samples {
+            try verifyRestoration(input, label: label, directory: directory)
+        }
+    }
+
+    private func verifyRestoration(_ input: Data, label: String, directory: URL) throws {
         let h = try PPMd7StreamEncoder(properties: .init(order: 6, memorySize: 1 << 20))
         let encoded = try StreamEncoderTestSupport.encode(input, write: h.write)
         XCTAssertGreaterThan(h.model.restartCount, 0)

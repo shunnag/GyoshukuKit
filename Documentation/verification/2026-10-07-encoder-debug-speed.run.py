@@ -16,10 +16,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--new", required=True, type=Path)
-    parser.add_argument("--output", type=Path, default=Path(".build/speed/paired"))
+    parser.add_argument("--output", type=Path, default=Path(".build/verification/encoder-debug-speed/paired"))
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--classes", help="class 名の comma 区切り。省略時は対象の 8 class")
+    parser.add_argument("--timing", action="store_true", help="工程timerとCopy対照probeを有効にする")
+    parser.add_argument("--large", action="store_true", help="FullSizeも実行する")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     classes = args.classes.split(",") if args.classes else CLASSES
@@ -29,9 +31,14 @@ def main():
         results = []
         for variant, bundle in [("baseline", args.baseline), ("new", args.new)]:
             label = f"{variant}-{round_number}"
-            env = dict(os.environ, GYOSHUKU_ENCODER_TIMING="1", GYOSHUKU_ENCODER_BENCHMARK_RUN=label)
-            # opt-in の規模試験は default suite の計測に混ぜない。
+            env = dict(os.environ, GYOSHUKU_ENCODER_BENCHMARK_RUN=label)
+            # 既定の計測では規模試験と工程timerの両方を外す。
             env.pop("GYOSHUKU_LARGE_ENCODER_TESTS", None)
+            env.pop("GYOSHUKU_ENCODER_TIMING", None)
+            if args.large:
+                env["GYOSHUKU_LARGE_ENCODER_TESTS"] = "1"
+            if args.timing:
+                env["GYOSHUKU_ENCODER_TIMING"] = "1"
             start = time.monotonic()
             with (args.output / (label + ".log")).open("w") as log:
                 result = subprocess.run(["xcrun", "xctest", "-XCTest", selected, str(bundle)],

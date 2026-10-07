@@ -6,7 +6,7 @@ import XCTest
 /// 圧縮後の byte 数とは異なるので、encoder の差引き時間は近似として扱う。
 final class EncoderWriterOverheadProbeTests: XCTestCase {
     func testCopyControlsOnOriginalWriterCorpora() throws {
-        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try OptInGate.flag("GYOSHUKU_ENCODER_TIMING")
         let root = try TestSupport.directory("encoder-writer-overhead")
         let text = EncoderTestCorpus.sourceTwentyMiB
         for format in [ArchiveFormat.zip, .sevenZip] {

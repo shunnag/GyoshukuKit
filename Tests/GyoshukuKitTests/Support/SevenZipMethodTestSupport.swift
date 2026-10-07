@@ -67,7 +67,7 @@ enum SevenZipMethodTestSupport {
             return item
         }
         XCTAssertEqual(Set(reader.entries.map { key($0.name) }), Set(items.map { key($0.name) }))
-        try TestSupport.assertKaitoKitRoundTrip(url, expected: expected, password: password, comparesMetadata: metadata, reader: reader)
+        try TestSupport.assertKaitoKitRoundTrip(url, expected: expected, password: password, comparesMetadata: metadata)
         let model = try XCTUnwrap(SevenZipEditModel.read(reader))
         if let method {
             for folder in model.folders { try assertMethod(folder, method: method, encrypted: password != nil) }

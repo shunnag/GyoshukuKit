@@ -62,8 +62,18 @@ final class ZstdEncoderTests: XCTestCase {
         let directory = try TestSupport.directory("zstd-mixed")
         for level in levels {
             let window = try ZstdEncoderProperties.preset(level).windowSize
-            // raw 一 block + RLE で二つの window を越え、buffer の compact 後にも compressed / tail を読む。
-            let input = large ? Self.largeMixed : Self.windowRandom + Data(repeating: 0, count: 2 * window - Self.windowRandom.count) + Self.windowText
+            let input: Data
+            if large { input = Self.largeMixed }
+            else {
+                // 乱数の再出現は window + 4096 byte 先。text は compact 後も window 内で再出現する。
+                var mixed = Self.windowRandom
+                mixed.append(Data(repeating: 0, count: window - Self.windowRandom.count + 4096))
+                mixed.append(Self.windowRandom)
+                mixed.append(Self.windowText)
+                mixed.append(Data(repeating: 0, count: window - Self.windowRandom.count - Self.windowText.count + 4096))
+                mixed.append(Self.windowText)
+                input = mixed
+            }
             XCTAssertGreaterThan(input.count, 2 * window + ZstdFrameEncoder.blockSize)
             // No size supplied: an explicit window descriptor and unknown content size.
             let encoder = try ZstdFrameEncoder(level: level)
