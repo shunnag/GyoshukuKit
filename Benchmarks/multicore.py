@@ -77,13 +77,24 @@ ROUND3 = {
 }
 
 
+
+# r3bは変更したLHAとZIPに絞り、過去のprofileは保存する。
+ROUND3B = {
+    "corpus": ["lha-lh7", "zip-zstd", "zip-bzip2"],
+    "lha-mixed": ["lha-lh5", "lha-lh7"],
+    "single": ["lha-lh5", "lha-lh7", "zip-zstd"],
+    "tree": ["zip-zstd", "zip-bzip2", "zip-deflate", "zip-stored"],
+    "small": ["zip-zstd", "zip-bzip2", "zip-deflate"],
+}
+
+
 def workload_cases(args, workload):
-    catalog = ROUND3 if args.profile == "round3" else {**ROUND2, "tree": ROUND3["tree"], "single16r": ROUND3["single16r"]}
+    catalog = {"round3": ROUND3, "round3b": ROUND3B}.get(args.profile, {**ROUND2, "tree": ROUND3["tree"], "single16r": ROUND3["single16r"]})
     return args.cases.split(",") if args.cases else catalog[workload]
 
 
 def workload_threads(args, workload):
-    return [int(t) for t in args.threads.split(",")] if args.threads else ([12] if args.profile == "round3" and workload == "corpus" else [1, 12])
+    return [int(t) for t in args.threads.split(",")] if args.threads else ([12] if args.profile in ["round3", "round3b"] and workload == "corpus" else [1, 12])
 
 
 def regression_corpora(directory):
@@ -143,7 +154,7 @@ def measure(args):
             row = json.loads(line)
             key = (row["workload"], row["path"], row["threads"], row["label"])
             completed[key] = completed.get(key, 0) + 1
-            hashes.setdefault((row["workload"], row["path"]), set()).add(row["sha256"])
+            hashes.setdefault((row["workload"], row["path"]), set()).add((row["sha256"], row["output_bytes"]))
     for workload in args.workloads.split(","):
         selected = workload_cases(args, workload)
         members = args.corpus / ("mixed" if workload == "corpus" else workload)
@@ -157,19 +168,36 @@ def measure(args):
                     for label in order:
                         if completed.get((workload, case, threads, label), 0) > repeat:
                             continue
-                        log = results.parent / f"{workload}-{case}-{threads}-{label}-{repeat}{'.r3' if args.profile == 'round3' else ''}.log"
+                        suffix = {"round3": ".r3", "round3b": ".r3b"}.get(args.profile, "")
+                        log = results.parent / f"{workload}-{case}-{threads}-{label}-{repeat}{suffix}.log"
                         print(f"{workload} {case} threads={threads} {label} sample={repeat + 1}/{args.repeats}", flush=True)
-                        for source in list(members.rglob("*")) + [members]:
-                            os.utime(source, (1700000000, 1700000000))
-                        with log.open("w") as out:
-                            subprocess.run([str(bundles[label]), str(args.corpus.resolve()), str(results),
-                                            case, str(threads), label, workload],
-                                           cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, check=True)
-                        row = json.loads(results.read_text().splitlines()[-1])
                         key = (workload, case)
-                        hashes.setdefault(key, set()).add(row["sha256"])
-                        if len(hashes[key]) != 1:
-                            raise RuntimeError(f"Output identity failed: {key}")
+                        for attempt in range(2):
+                            # 列挙によるatime更新も戻す。harnessも計時直前に再設定する。
+                            for source in list(members.rglob("*")) + [members]:
+                                os.utime(source, (1700000000, 1700000000))
+                            sample = log.with_suffix(".sample.jsonl")
+                            sample.unlink(missing_ok=True)
+                            attempt_log = log if attempt == 0 else log.with_suffix(".retry.log")
+                            with attempt_log.open("w") as out:
+                                subprocess.run([str(bundles[label]), str(args.corpus.resolve()), str(sample),
+                                                case, str(threads), label, workload],
+                                               cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, check=True)
+                            row = json.loads(sample.read_text())
+                            sample.unlink()
+                            identity = (row["sha256"], row["output_bytes"])
+                            if not hashes.get(key) or identity in hashes[key]:
+                                hashes.setdefault(key, set()).add(identity)
+                                with results.open("a") as out:
+                                    out.write(json.dumps(row, sort_keys=True) + "\n")
+                                break
+                            # 不一致sampleはbest値から除外し、再試行の根拠だけ別に保存する。
+                            with results.with_suffix(".retry.jsonl").open("a") as out:
+                                out.write(json.dumps({**row, "attempt": attempt, "log": str(attempt_log)}, sort_keys=True) + "\n")
+                            if attempt:
+                                raise RuntimeError(f"Output identity failed after retry: {key}; see {attempt_log}")
+                            print(f"Output identity mismatch: {key}; retry once", flush=True)
+
 
 
 def report(args):
@@ -201,7 +229,7 @@ def report(args):
             for t, ratio in zip(threads, ratios):
                 if ratio > 1.05:
                     failures.append(f"{workload}/{case}/t={t} new/base: {ratio:.3f}")
-            if workload in ["tree", "small"]:
+            if workload in ["tree", "small"] or (args.profile == "round3b" and workload == "corpus" and case == "lha-lh7"):
                 for t, ratio in zip(threads, r1):
                     if ratio > 1.05:
                         failures.append(f"{workload}/{case}/t={t} new/round1: {ratio:.3f}")
@@ -296,10 +324,10 @@ def references(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["corpus", "measure", "report", "references"])
-    parser.add_argument("--corpus", type=Path, default=ROOT / ".build/multicore/corpus")
+    parser.add_argument("--corpus", type=Path, default=ROOT / ".build/multicore/corpus.noindex")
     parser.add_argument("--base", type=Path, default=ROOT / ".build-base/multicore-release/out/Products/Release/gyoshuku-multicore")
     parser.add_argument("--round1", type=Path)
-    parser.add_argument("--profile", choices=["round2", "round3"], default="round2")
+    parser.add_argument("--profile", choices=["round2", "round3", "round3b"], default="round2")
     parser.add_argument("--threads")
     parser.add_argument("--new", type=Path, default=ROOT / ".build/multicore-release/out/Products/Release/gyoshuku-multicore")
     parser.add_argument("--results", type=Path)
@@ -308,9 +336,9 @@ def main():
     parser.add_argument("--repeats", type=int, default=5)
     args = parser.parse_args()
     if args.results is None:
-        args.results = ROOT / (".build/multicore/round3.r3.jsonl" if args.profile == "round3" else ".build/multicore/round2.jsonl")
+        args.results = ROOT / {"round2": ".build/multicore/round2.jsonl", "round3": ".build/multicore/round3.r3.jsonl", "round3b": ".build/multicore/round3b.r3b.jsonl"}[args.profile]
     if args.workloads is None:
-        args.workloads = "tree,single,single16r,small,lha-mixed,corpus" if args.profile == "round3" else "single,small,lha-mixed,corpus"
+        args.workloads = {"round2": "single,small,lha-mixed,corpus", "round3": "tree,single,single16r,small,lha-mixed,corpus", "round3b": "corpus,lha-mixed,single,tree,small"}[args.profile]
     if args.repeats < 5:
         parser.error("best-of-5 以上で測定する")
     if args.operation == "corpus":

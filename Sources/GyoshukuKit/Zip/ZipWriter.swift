@@ -173,7 +173,7 @@ final class ZipWriter {
              read: (Int) throws -> Data) throws {
         try Task.checkCancellation()
         let method = compression(name: name, mode: mode, size: size)
-        if let entryPipeline, !encryptsWithZipCrypto,
+        if let entryPipeline, !(encryptsWithZipCrypto && mode.isRegularFileMode && (method == .stored || size == 0)),
            size <= (method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit) {
             try submitWaitingEntry()
             try entryPipeline.waitForCapacity(emit: emitEntry)
@@ -189,7 +189,7 @@ final class ZipWriter {
             }
             guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
             // 単独なら finish で直接書き、後続が来たときだけ worker へ渡す。
-            if method != .stored, size >= 64 << 10, entryPipeline.pendingCount == 0 {
+            if method != .stored, size >= 64 << 10, entry.encryption != .zipCrypto, entryPipeline.pendingCount == 0 {
                 waitingEntry = (entry, name, input)
             } else {
                 let spool = method == .stored || size == 0 ? nil

@@ -30,6 +30,26 @@ final class OrderedChunkPipelineWindowTests: XCTestCase {
         XCTAssertEqual(pipeline.pendingInputBytes, 0)
     }
 
+    func testDirectEmitFailureAbandonsWindowAndCannotEmitTwice() throws {
+        for failAfterEmit in [false, true] {
+            let pipeline = OrderedChunkPipeline<Int, Int, Int>(threads: 2) { $0 }
+            for index in 0..<2 { try pipeline.submit(index, tag: index, weight: 7) { _, _ in XCTFail("early emit") } }
+            var emitted = 0
+            XCTAssertThrowsError(try pipeline.emitNext({ _, _ in
+                emitted += 1
+                if !failAfterEmit { throw WriterError.compression(-77) }
+            }, didEmit: { _ in throw WriterError.compression(-77) })) {
+                XCTAssertEqual($0 as? WriterError, .compression(-77))
+            }
+            XCTAssertEqual(pipeline.pendingCount, 0)
+            XCTAssertEqual(pipeline.pendingInputBytes, 0)
+            XCTAssertThrowsError(try pipeline.emitNext { _, _ in emitted += 1 })
+            XCTAssertThrowsError(try pipeline.drain { _, _ in emitted += 1 })
+            XCTAssertEqual(emitted, 1)
+            pipeline.abandonAndWait()
+        }
+    }
+
     func testAlternatingWeightsUseHeavyWindowAndPreserveOrder() async throws {
         for limit: UInt64 in [0, 64] {
             let activity = Mutex(Activity())

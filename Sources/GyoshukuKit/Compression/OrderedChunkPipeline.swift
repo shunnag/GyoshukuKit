@@ -153,13 +153,19 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
 
     // 内部 codec の予約待ちでも先頭だけを出力し、残りの窓を保つ。
     func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)? = nil) throws {
-        let item = items[0]
-        let result = try state.take(item.id)
-        try emit(item.tag, result)
-        items.removeFirst()
-        if item.isHeavy { heavyCount -= 1 }
-        pendingInputBytes -= item.weight
-        try didEmit?(item.weight)
+        guard !finished, !items.isEmpty else { throw WriterError.invalidState }
+        do {
+            let item = items[0]
+            let result = try state.take(item.id)
+            try emit(item.tag, result)
+            items.removeFirst()
+            if item.isHeavy { heavyCount -= 1 }
+            pendingInputBytes -= item.weight
+            try didEmit?(item.weight)
+        } catch {
+            abandon()
+            throw error
+        }
     }
 
     private static var currentQoS: DispatchQoS {

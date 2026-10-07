@@ -19,7 +19,7 @@ final class SevenZipBlockWriter {
     private var blocks: [Block] = []
     private let pipeline: OrderedChunkPipeline<Job, EncodedBlock, BlockTag>?
     private let cancellation = CompressionCancellation()
-    private var assignedThreads = 0
+    private(set) var assignedThreads = 0
     // scratch と AES は worker に所有権を渡し、完了後は出力 spool だけを呼出側へ渡す。
     private struct Job: @unchecked Sendable {
         let input: ScratchFile
@@ -39,7 +39,8 @@ final class SevenZipBlockWriter {
         let threads: Int
     }
 
-    init(options: WriterOptions, directory: URL, chunkSize: Int?) {
+    // 試験では実際に動く内側codecの開始・終了を観測する。
+    init(options: WriterOptions, directory: URL, chunkSize: Int?, workerActivity: (@Sendable (Bool) -> Void)? = nil) {
         self.options = options; self.directory = directory; self.chunkSize = chunkSize
         encryptors = .init(password: options.password)
         let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod, innerParallelism: true).threads
@@ -53,7 +54,7 @@ final class SevenZipBlockWriter {
             var workerOptions = options
             workerOptions.compressionThreads = job.threads
             let encoder = try SevenZipFolderEncoder.encode(size: size, options: workerOptions, chunkSize: chunkSize, inlineSingleThread: true,
-                aes: job.aes, filter: job.filter, read: { count in
+                aes: job.aes, filter: job.filter, workerActivity: workerActivity, read: { count in
                     try cancellation.check()
                     return try FileRead.readChunk(job.input.handle.fileDescriptor, upTo: count)
                 }, write: { bytes in
@@ -188,7 +189,8 @@ final class SevenZipBlockWriter {
 
     private func emit(_ tag: BlockTag, _ result: EncodedBlock?, position: () -> UInt64,
                       write: (Data) throws -> Void) throws {
-        defer { assignedThreads -= tag.threads }
+        // 出力が失敗しても同じ予約を返さない。外部writeを呼ぶ前に返却する。
+        assignedThreads -= tag.threads
         try Task.checkCancellation()
         guard let result else { throw WriterError.invalidState }
         let scratch = result.output

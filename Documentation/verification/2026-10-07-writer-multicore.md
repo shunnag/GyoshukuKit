@@ -20,6 +20,7 @@ LHA/7z folderの内部threadsは実際の片数、未割当threads、`max(1, t /
 LHAは1 MiB片、7z LZMA2/Deflateは既存の片幅、他の7z codecは単一streamの1枠。
 予算が一杯なら先頭だけをemitする。codec状態の予約は従来の保守的な上界を保つ。
 今回のsingle/lha-mixed/corpusを含む全54比較でbase比1.05以下のため、この上限を採用した。
+このr3時点の採用判断はLHAについてr3bで撤回した（末尾のr3b節参照）。
 ZIP/LHA/7zのabortは片workerもjoinする。取消しとspool解放、workerの注入失敗を確認した。
 既存LHA取消し試験は、cancel後もworkerをsemaphoreで止めたままtask.valueを待っていたため、join追加後の再確認を1回中断した。
 試験をcancel→worker解放→task.valueの順へ直し、戻った時点の両worker完了も検査した。修正後18件は成功。
@@ -692,3 +693,124 @@ PPMd/Zstd/LZMAのSources配下は無変更。public API追加なし。コミッ�
 
 [全sample JSONL](2026-10-07-writer-multicore.samples.jsonl)、[参照JSONL](2026-10-07-writer-multicore.references.jsonl)、[集計TSV](2026-10-07-writer-multicore.tsv)、[test名・構成・結果](2026-10-07-writer-multicore.tests.jsonl)。
 `Benchmarks/multicore.py measure` / `references`と`Benchmarks/multicore-report.py`で再実行・集計できる。
+
+## round 3b: LHAの合計上限撤回とZipCrypto項目窓の復帰
+
+2026-10-08、HEAD `3349862`（round 3）への未commit修正。base `f273d34`、round 1 `f9d5178`。
+r1/r2/r3の本文・raw数値は保持し、今回のrawを`.r3b.*`へ追加した。
+
+### 修正と判断
+
+LHAは`min(実際の1 MiB片数, max(1, t / (pendingCount + 1)))`へ戻し、合計予約による先頭出力待ちと
+`assignedThreads`を削除した。round 3の「base比1.05以下のため、この上限を採用した」という判断は、
+round 1への32.3%回帰を許していたためLHAには採用しない。今回のcorpus LH7/t=12は
+0.7011 → 0.7013秒、new/round1=1.0003、new/base=0.1883。
+
+LHAでは内部threadの合計がtを超える。先頭の出力までの割当上界はt×H(枠数)、t=12では約3tで、
+再投入を含む保守的な上界は枠数×t（窓は最大16枠）。各枠のcodec状態は従来からt分を予約しており、
+入力・spoolの有界性は保つ。abort/abandonAndWaitのjoinも残した。
+7zは費用が測定されなかった合計t上限を維持する。予約は出力開始時にcallerが返し、
+`emitNext`のemit/didEmit例外は窓をabandonするため、再試行で同じ予約を二度返さない。
+LZMA2/Deflate、t=4、8 × 256 KiB block、chunkSize=128 KiBの試験は実際の内側codecの稼働数を数え、
+peak <= 4と並列動作を検査した。abortは稼働開始を待ってから行い、join後の稼働数・割当・pending=0を検査する。
+
+ZipCryptoの圧縮項目はspool付きの項目窓へ戻した。Stored・空の通常fileだけを逐次経路に残す。
+directory・symlinkは暗号化しないためinlineの窓を使える。一括追加のZipCrypto通常fileは既存の
+項目別fallbackを通ってこの窓を使い、inline dataへの暗号化漏れを避ける。
+既存のfallback前後のdrainは維持するため、batchのZipCrypto通常file間の並列化は今回の対象外。
+ZipWriter.submitのbatch窓自体にはr3の全ZipCrypto除外guardはなかった。
+ZipCryptoは単独項目の保留を使わず、CRC確定後にcallerがheader・payloadを暗号化する。
+新規試験は圧縮2項目・小Stored・空file・directory・symlinkを混在させ、固定乱数headerで
+ZIP全体（local/CD fieldsを含む）のt=1/12 byte一致、復号本文、圧縮項目が窓に残ることを確認した。
+既存のDeflate block経路は変更していない。
+
+ZIPの単独圧縮項目をfinishで同期符号化する最適化は項目別APIだけ。
+一括追加APIでは一worker＋spoolを使う。reviewerのMac miniではnew/base=1.038で1.05以内だが、この差は残る。
+
+### 計測条件とraw
+
+Mac・OS・Swift・KaitoKitはr3と同じ。三版のSourcesはbase/round1のgit archiveと一致を確認した。
+同一harness・同一release flags、27 Release構成はtestabilityなし。計測用buildに`-enable-testing`を付けていない。
+[binary・flags・harness digest](2026-10-07-writer-multicore.r3b.builds.json)、
+[corpus digest](2026-10-07-writer-multicore.r3b.corpus.json)。
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path Benchmarks --scratch-path .build/r3b-builds/new/build --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+# base/round1: --package-path .build/r3b-builds/<label>/source/Benchmarks --scratch-path .build/r3b-builds/<label>/build、他flagsは同じ
+python3 Benchmarks/multicore.py corpus --profile round3b
+python3 Benchmarks/multicore.py measure --profile round3b --workloads corpus,lha-mixed,single,tree,small --base .build/r3b-builds/base/build/out/Products/Release/gyoshuku-multicore --round1 .build/r3b-builds/round1/build/out/Products/Release/gyoshuku-multicore --new .build/r3b-builds/new/build/out/Products/Release/gyoshuku-multicore --repeats 5 --results .build/multicore/round3b.r3b.jsonl
+python3 Benchmarks/multicore.py report --profile round3b --round1 .build/r3b-builds/round1/build/out/Products/Release/gyoshuku-multicore --results .build/multicore/round3b.r3b.jsonl
+```
+
+期間は2026-10-08 04:16:05 JST〜2026-10-08 04:24:07 JST。r3の入力・codec level・固定時刻・permissions・heuristic=falseを保ち、
+LHA/ZIPの15 workload/method（27 thread条件）、三版各5回の405 sampleに限定した。
+corpusはLH7/Zstd/BZip2のt=12のみ、他はt=1/12。三版の順は回転・反転し、best-of-5で比較する。
+計測をこちらのbuild/testと重ねていない。全sampleの1分loadは4.00〜9.50。
+
+既定corpusを`.build/multicore/corpus.noindex`へ作り、PythonとSwift harnessの両方で
+各sampleのUT atime/mtimeを固定する。Swift側は列挙・resourceValuesの後、計時直前に再設定する。
+Spotlightなどのatime更新による差を抑え、ハッシュ不一致は一度だけ再試行する。
+不一致sampleはbest値から除外し別raw/logへ記録、再度不一致なら失敗とする。
+一度の不一致を注入したharness試験で、除外1件・受理10件・再試行後の一致を確認した。
+今回の実計測で不一致による再試行は0件。
+
+[全405 sample](2026-10-07-writer-multicore.r3b.samples.jsonl)、
+[best値TSV](2026-10-07-writer-multicore.r3b.tsv)。
+
+| workload / method | t=1 base / round1 / new 秒 | t=12 base / round1 / new 秒 | new/base 最大 | new/round1 最大 | load(1分) base / round1 / new: t=1; t=12 |
+|---|---:|---:|---:|---:|---|
+| corpus / lha-lh7 | — | 3.7249 / 0.7011 / 0.7013 | 0.188 | 1.000 | —; 5.00/5.00/4.76 |
+| corpus / zip-zstd | — | 1.4979 / 0.4055 / 0.3761 | 0.251 | 0.928 | —; 4.88/4.73/4.88 |
+| corpus / zip-bzip2 | — | 20.4754 / 7.1562 / 7.1407 | 0.349 | 0.998 | —; 4.51/5.70/6.52 |
+| lha-mixed / lha-lh5 | 0.1658 / 0.1536 / 0.1584 | 0.0522 / 0.1578 / 0.0503 | 0.965 | 1.032 | 5.94/6.02/5.94; 5.94/5.94/5.94 |
+| lha-mixed / lha-lh7 | 0.2779 / 0.2760 / 0.2721 | 0.0658 / 0.2644 / 0.0675 | 1.025 | 0.986 | 6.10/6.01/6.01; 6.01/6.01/6.01 |
+| single / lha-lh5 | 0.1194 / 0.1185 / 0.1175 | 0.0363 / 0.1222 / 0.0373 | 1.028 | 0.991 | 6.01/6.01/6.01; 6.01/6.01/6.01 |
+| single / lha-lh7 | 0.2550 / 0.2518 / 0.2558 | 0.0598 / 0.2550 / 0.0604 | 1.011 | 1.016 | 5.85/5.85/5.85; 5.85/5.85/5.78 |
+| single / zip-zstd | 0.0443 / 0.0450 / 0.0449 | 0.0451 / 0.0462 / 0.0451 | 1.013 | 0.999 | 5.78/5.78/5.78; 5.78/5.78/5.78 |
+| tree / zip-zstd | 0.7890 / 0.7893 / 0.7881 | 0.7904 / 0.1750 / 0.1331 | 0.999 | 0.999 | 5.64/5.64/5.64; 5.64/5.08/5.64 |
+| tree / zip-bzip2 | 3.6131 / 3.6360 / 3.6237 | 3.6398 / 0.5773 / 0.5567 | 1.003 | 0.997 | 5.34/4.90/5.15; 4.67/4.67/4.67 |
+| tree / zip-deflate | 1.4163 / 1.4248 / 1.4262 | 0.4011 / 0.4013 / 0.4020 | 1.007 | 1.002 | 5.07/4.90/5.34; 4.90/4.90/4.90 |
+| tree / zip-stored | 0.0525 / 0.0516 / 0.0521 | 0.0520 / 0.0530 / 0.0522 | 1.004 | 1.010 | 5.95/5.95/5.95; 5.95/5.95/5.95 |
+| small / zip-zstd | 0.3757 / 0.4451 / 0.3907 | 0.3847 / 0.7062 / 0.3818 | 1.040 | 0.878 | 7.43/7.64/6.91; 7.64/7.64/7.00 |
+| small / zip-bzip2 | 1.5985 / 1.5985 / 1.5965 | 1.6031 / 0.7110 / 0.2335 | 0.999 | 0.999 | 6.95/7.68/6.60; 6.60/5.90/5.90 |
+| small / zip-deflate | 0.2627 / 0.2641 / 0.2703 | 0.1891 / 0.1901 / 0.1936 | 1.029 | 1.023 | 7.89/7.09/7.09; 7.09/7.45/7.89 |
+
+全405 sampleの出力size・SHA-256はbase/round1/new、全threadで一致。
+27比較すべてnew/base <= 1.05（最大1.0400）、tree/smallとcorpus LH7の15比較すべて
+new/round1 <= 1.05（最大1.0232）。
+
+### ZipCryptoの並列速度
+
+同じcorpusの2 MiB member 12個、ZIP BZip2＋ZipCrypto、同一new executable、t=1/12を交互に各5回。
+復号・本文digest計算は計時外。乱数headerのため実測アーカイブの生SHA-256は一致条件にせず、
+復号した全12本文のdigestと出力長が全10 sampleで一致した。
+固定headerを使う新規XCTestではCD fieldsを含むアーカイブ全体のbyte一致を検査済み。
+[全10 sample](2026-10-07-writer-multicore.r3b.zipcrypto.jsonl)。
+
+| 構成 | t=1 秒 / load(1分) | t=12 秒 / load(1分) | t=1 / t=12 |
+|---|---:|---:|---:|
+| ZIP BZip2 ZipCrypto、12 × 2 MiB | 1.9522 / 8.78 | 0.2163 / 9.46 | 9.03倍 |
+
+
+### 対象試験
+
+要求された`-Xswiftc -debug-info-format -Xswiftc none`はこのXcodeのdriverがunknown argumentとして拒否した。
+同じ設定をSwiftPMの`-debug-info-format none`で指定し、release buildに`--build-tests -Xswiftc -enable-testing`、
+実行に`swift test -c release --skip-build --filter ...`を使った。module cacheは指定のworktree内、`--disable-sandbox`も使用。
+MulticoreWriterTests、LHAWriterParallelTests、OrderedEntrySpoolTests、OrderedChunkPipelineWindowTests、
+ZIP暗号化、7z writer/method/solid/filter/byte identity/PPMd、LHA/LZMA frozen fixture、
+batch/progress/codec writerの対象124件。既存の`GYOSHUKU_MULTICORE_BENCHMARK`必須のnear-limit試験1件だけskip。
+debugは小予算の2枠とr3のinline/batch/単独項目、新しいZipCrypto・emit失敗・7z会計の8件。
+7z abort試験を稼働開始待ちへ強めた後、release/debugで当該2件を再確認した。
+fixtureは再生成しない。全コマンド・load・case別の結果は[試験raw](2026-10-07-writer-multicore.r3b.tests.jsonl)。
+
+| 試験 | 構成 | pass / fail / skip | XCTest 秒 | process wall 秒 | 開始 / 終了 load(1分) |
+|---|---|---:|---:|---:|---:|
+| r3b-release-targeted | release、enable-testing | 123 / 0 / 1 | 175.551 | 194.931 | 2.75 / 3.40 |
+| r3b-debug-small | debug | 8 / 0 / 0 | 1.671 | 3.095 | 5.21 / 5.27 |
+| r3b-release-inner-worker-final | release、enable-testing | 2 / 0 / 0 | 0.270 | 1.765 | 3.90 / 3.90 |
+| r3b-debug-inner-worker-final | debug | 2 / 0 / 0 | 0.267 | 1.695 | 3.79 / 4.45 |
+
+
+残るトレードオフはLHAの有界な内部thread oversubscriptionと、batch単独ZIPのworker＋spool。
+7zの合計上限、callerだけの予約管理、例外時の窓破棄、取消し時のworker joinは維持した。

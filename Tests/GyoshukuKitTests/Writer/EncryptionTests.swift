@@ -15,6 +15,51 @@ final class EncryptionTests: XCTestCase {
         try checkZip(encryption: .zipCrypto, label: "zipcrypto")
     }
 
+    func testZipCryptoCompressedWindowAndInlineFallbackAreThreadIndependent() throws {
+        let root = try TestSupport.directory("zipcrypto-entry-window")
+        let input = Data(String(repeating: "ZipCrypto ordered compression window\n", count: 8000).utf8)
+        let items: [(String, UInt16, Data)] = [
+            ("first.txt", 0o100644, input), ("dir/", FileMode.defaultDirectory, Data()),
+            ("link", FileMode.defaultSymlink, Data("first.txt".utf8)),
+            ("second.txt", 0o100644, input), ("stored.png", 0o100644, Data([1, 2, 3])),
+            ("empty", 0o100644, Data())
+        ]
+        var baseline: Data?
+        for threads in [1, 12] {
+            let url = root.appendingPathComponent("t\(threads).zip")
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            try EncryptionPrimitives.$testingRandomBytes.withValue({ Data(repeating: 0x37, count: $0) }) {
+                let writer = ZipWriter(output: try FileHandle(forWritingTo: url), url: url,
+                    options: WriterOptions(compressionMethod: .bzip2, password: password, zipEncryption: .zipCrypto,
+                                           compressionThreads: threads),
+                    deflateBlockSize: DeflateBlock.size, deflateEncoder: DeflateBlock.encode,
+                    salt: { Data(repeating: 0, count: 16) })
+                for (index, item) in items.enumerated() {
+                    var offset = 0
+                    try writer.add(name: item.0, mode: item.1, size: UInt64(item.2.count), date: TestSupport.date,
+                                   atime: nil, owners: nil) { count in
+                        let end = min(item.2.count, offset + count)
+                        defer { offset = end }
+                        return item.2.subdata(in: offset..<end)
+                    }
+                    if threads > 1, index < 4 {
+                        // directory・symlinkでも圧縮項目の窓を閉じない。
+                        XCTAssertGreaterThanOrEqual(writer.pendingInputBytes, UInt64(input.count))
+                    }
+                }
+                try writer.finish(existingCount: 0, comment: Data(), progress: nil, copyCentral: { _ in })
+            }
+            let bytes = try Data(contentsOf: url)
+            if let baseline { XCTAssertEqual(bytes, baseline) } else { baseline = bytes }
+            let reader = try ArchiveReader.open(url: url, options: ReaderOptions(password: password))
+            XCTAssertEqual(reader.entries.map(\.name), items.map { $0.0 })
+            for (entry, item) in zip(reader.entries, items) where !item.1.isDirectoryMode {
+                XCTAssertEqual(try reader.read(entry), item.2)
+            }
+            XCTAssertTrue(try EncryptionTestSupport.spoolFiles(in: root).isEmpty)
+        }
+    }
+
     private func checkZip(encryption: ZipEncryption, label: String) throws {
         let directory = try TestSupport.directory("encryption-\(label)")
         let url = directory.appendingPathComponent("archive.zip")

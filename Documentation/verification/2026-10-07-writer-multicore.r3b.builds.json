@@ -1,0 +1,61 @@
+{
+  "builds": [
+    {
+      "label": "base",
+      "commit": "f273d34",
+      "binary": ".build/r3b-builds/base/build/out/Products/Release/gyoshuku-multicore",
+      "sha256": "0c78f60b507150dc86c6ae9a5f35fbff8172824be7a248ab35b1dd526fad883e",
+      "harness_sha256": "8c0e30cfef00706a0a22bddd8b1501cb866955380bb6818703155dd4beb0efe7",
+      "flags": [
+        "--disable-sandbox",
+        "-debug-info-format",
+        "none",
+        "-c",
+        "release",
+        "--product",
+        "gyoshuku-multicore"
+      ],
+      "release_testability": false,
+      "release_configurations": 27
+    },
+    {
+      "label": "round1",
+      "commit": "f9d5178",
+      "binary": ".build/r3b-builds/round1/build/out/Products/Release/gyoshuku-multicore",
+      "sha256": "f9921b128c81174bdf0fa425723187766e2b3eaf226cb90c1f3429e98faa7655",
+      "harness_sha256": "8c0e30cfef00706a0a22bddd8b1501cb866955380bb6818703155dd4beb0efe7",
+      "flags": [
+        "--disable-sandbox",
+        "-debug-info-format",
+        "none",
+        "-c",
+        "release",
+        "--product",
+        "gyoshuku-multicore"
+      ],
+      "release_testability": false,
+      "release_configurations": 27
+    },
+    {
+      "label": "new",
+      "commit": "3349862 + uncommitted r3b",
+      "binary": ".build/r3b-builds/new/build/out/Products/Release/gyoshuku-multicore",
+      "sha256": "90895a1a00af82f85b589c833d075967889e6d3d4ae3a356ce0c547b8407dc5e",
+      "harness_sha256": "8c0e30cfef00706a0a22bddd8b1501cb866955380bb6818703155dd4beb0efe7",
+      "flags": [
+        "--disable-sandbox",
+        "-debug-info-format",
+        "none",
+        "-c",
+        "release",
+        "--product",
+        "gyoshuku-multicore"
+      ],
+      "release_testability": false,
+      "release_configurations": 27
+    }
+  ],
+  "kaitoKit_shared_path": "/Users/nagash/Github/KaitoKit",
+  "module_cache": "$PWD/.build/clang-module-cache",
+  "source_digest": "2e032a61fabb01f2a3f5c148ddc048c64e49246ba0a3b2e53d6151d7e4af7b8f"
+}

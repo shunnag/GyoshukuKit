@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import Darwin
 import GyoshukuKit
+import KaitoKit
 
 /// 同じ入力・固定時刻で writer の wall / process CPU を測る。通常試験では実行しない。
 func benchmark() throws {
@@ -22,9 +23,17 @@ func benchmark() throws {
         }
         for name in cases {
             var options = WriterOptions(useCompressionHeuristic: false, compressionThreads: threads)
+            if workload == "zipcrypto" { options.password = "benchmark-secret"; options.zipEncryption = .zipCrypto }
             // 生の LZMA1 は既定6、LZMA2/XZ は凍結された Apple nil-level 経路。
             let output = root.appendingPathComponent("result-\(label).archive")
             try? FileManager.default.removeItem(at: output)
+            // 列挙とresourceValuesの後、計時直前にUT atime/mtimeを固定する。
+            for file in inputs + [root.appendingPathComponent(members)] {
+                var stamps = [timeval(tv_sec: 1_700_000_000, tv_usec: 0), timeval(tv_sec: 1_700_000_000, tv_usec: 0)]
+                guard file.withUnsafeFileSystemRepresentation({ utimes($0, &stamps) }) == 0 else {
+                    throw WriterError.io(operation: "utimes", code: errno)
+                }
+            }
             var before = rusage(), after = rusage()
             getrusage(RUSAGE_SELF, &before)
             var load = [Double](repeating: 0, count: 3)
@@ -46,7 +55,7 @@ func benchmark() throws {
                     }
                     try SingleStreamCompressor.compress(file: root.appendingPathComponent("mixed.bin"), to: output, format: format, options: options)
                 } else {
-                    let format: ArchiveFormat
+                    let format: GyoshukuKit.ArchiveFormat
                     if name.hasPrefix("zip-") {
                         format = .zip
                         options.compressionMethod = switch String(name.dropFirst(4)) {
@@ -107,10 +116,21 @@ func benchmark() throws {
             let cpu = seconds(after.ru_utime) + seconds(after.ru_stime) - seconds(before.ru_utime) - seconds(before.ru_stime)
             let data = try Data(contentsOf: output, options: .mappedIfSafe)
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            let row: [String: Any] = ["label": label, "path": name, "threads": threads, "wall_s": wall,
+            var row: [String: Any] = ["label": label, "path": name, "threads": threads, "wall_s": wall,
                                       "cpu_s": cpu, "output_bytes": data.count, "sha256": hash,
                                       "input_bytes": inputBytes,
                                       "workload": workload, "load": load, "level": workload == "single" ? "defaults; solid=default" : "defaults; solid=16MiB; filter=delta4"]
+            if workload == "zipcrypto" {
+                // headerは乱数なので、計時外に復号した全本文のdigestを照合する。
+                let reader = try ArchiveReader.open(url: output, options: ReaderOptions(password: options.password))
+                var content = SHA256()
+                for entry in reader.entries {
+                    content.update(data: Data(entry.name.utf8))
+                    content.update(data: Data([0]))
+                    content.update(data: try reader.read(entry))
+                }
+                row["content_sha256"] = content.finalize().map { String(format: "%02x", $0) }.joined()
+            }
             var json = try JSONSerialization.data(withJSONObject: row, options: .sortedKeys)
             json.append(10)
             if !FileManager.default.fileExists(atPath: destination.path) { FileManager.default.createFile(atPath: destination.path, contents: nil) }
