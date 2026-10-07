@@ -260,7 +260,9 @@ final class LHACompressionMethodTests: XCTestCase {
         for method in methods {
             for threads in [1, 4, 64] {
                 let options = WriterOptions(lhaMethod: method, compressionThreads: threads)
-                let expected = threads == 1 || method == .stored ? 0 : UInt64(threads * ((1 << 20) + method.windowSize))
+                let pieces = UInt64(threads * ((1 << 20) + method.windowSize))
+                let entries = EntryCompressionConfiguration(lhaThreads: threads).maximumPendingInputBytes
+                let expected = threads == 1 || method == .stored ? 0 : max(pieces, entries)
                 XCTAssertEqual(options.maximumPendingInputBytes(for: .lha), expected)
             }
         }

@@ -743,7 +743,11 @@ extension ArchiveWriter {
                 guard state == .writing, !additionsClosed else { throw WriterError.invalidState }
                 let data = result?.data ?? entry.inline
                 if let zip = entry.zip, let zipWriter {
-                    try zipWriter.emitComplete(zip, data: data, crc: result?.crc ?? updateCRC(0, data), attribution: entry.attribution)
+                    if let spool = result?.spool {
+                        try zipWriter.emitComplete(zip, spool: spool, crc: result!.crc, attribution: entry.attribution)
+                    } else {
+                        try zipWriter.emitComplete(zip, data: data, crc: result?.crc ?? updateCRC(0, data), attribution: entry.attribution)
+                    }
                     appendedPaths.append((entry.name, entry.mode.isDirectoryMode))
                 } else if let sevenZipWriter {
                     try sevenZipWriter.add(name: entry.name, mode: entry.mode, date: entry.date,

@@ -171,7 +171,7 @@ final class ZipAdditionalCompressionWriterTests: XCTestCase {
                 for encryption in [ZipEncryption.aes256, .zipCrypto] {
                     let options = WriterOptions(compressionMethod: method, password: "password", zipEncryption: encryption, compressionThreads: threads)
                     XCTAssertNoThrow(try options.validate(for: .zip))
-                    XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), method == .bzip2 ? 0 : UInt64(threads + 1) * 16 * 1024 * 1024)
+                    XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), method == .bzip2 ? EntryCompressionConfiguration(options: options).maximumPendingInputBytes : UInt64(threads + 1) * 16 * 1024 * 1024)
                 }
             }
             for level in [0, 10] { XCTAssertThrowsError(try WriterOptions(compressionMethod: method, bzip2Level: level).validate(for: .zip)) }

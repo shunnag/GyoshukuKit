@@ -116,7 +116,9 @@ final class SevenZipCompressionMethodTests: XCTestCase {
             for threads in [1, 4, 64] {
                 let options = SevenZipMethodTestSupport.options(method, mode: 0, threads: threads)
                 let chunk: UInt64 = method.value == .lzma2 ? 16 * 1024 * 1024 : method.value == .deflate ? 1024 * 1024 : 0
-                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip), UInt64(threads) * chunk)
+                let expected = chunk > 0 || method.value == .copy ? UInt64(threads) * chunk
+                    : EntryCompressionConfiguration(options: options, method: method.value).maximumPendingInputBytes
+                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip), expected)
                 XCTAssertNoThrow(try options.validate(for: .sevenZip))
             }
             for (deflate, bzip2, field) in [(-1, 9, "deflateLevel"), (10, 9, "deflateLevel"), (6, 0, "bzip2Level"), (6, 10, "bzip2Level")] {

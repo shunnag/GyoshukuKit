@@ -135,7 +135,8 @@ public struct WriterOptions: Sendable {
     public var lzmaExtreme: Bool
     /// 自前 LZMA / Zstandard の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
     /// 物理メモリの50%との小さい方で並列数を抑える。一つも入らなければ invalidOption("memoryLimit")。
-    /// 辞書を上限に合わせて縮小しない。レベル未指定の Apple 経路と他の codec には適用しない。
+    /// 辞書を上限に合わせて縮小しない。Appleの既存block経路と他のcodecには適用しない。
+    /// 新規のLZMA/XZ項目・folder窓はAppleの見積りも含めこの予算で解決し、2枠未満なら従来経路へ戻す。
     /// Zstandard は encoder の見積りと入出力 buffer を数え、ZIP の逐次 frame も予算を検証する。
     public var memoryLimit: UInt64?
     /// ZIP で既知の圧縮済み拡張子は stored にする。false なら指定方式を使う。
@@ -152,11 +153,14 @@ public struct WriterOptions: Sendable {
     public var zipEncryption: ZipEncryption
     /// 7z の header（ファイル名を含む）も暗号化する。パスワードが必要。
     public var encryptsSevenZipHeaders: Bool
-    /// ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.gz / tar.bz2 / tar.lz / tar.lz4 / 7z LZMA2・Deflate / tar.xz / LHA の圧縮並列数（1...64）。
+    /// ZIP / 圧縮tar / 7z / LHA の圧縮並列数（1...64）。
     /// tar.zst / 単独 Zstandard は max(4 MiB, level の window) の独立 frame を同じ並列数で処理する。
     /// 単独 gzip / bzip2 / XZ / lzip / LZ4 も同じ設定。LZMA_Alone / Brotli / compress は逐次。
-    /// ZIP Zstandard / ZIP・7z LZMA・bzip2・PPMd と 7z Copy は項目ごとに同期処理する。
-    /// PPMd は入力を片に分けず、モデルの指定メモリと固定 I/O buffer を使う。
+    /// ZIP BZip2・LZMA・XZ・Zstandard・PPMd と非solid 7z LZMA・BZip2・PPMd は16 MiB以下の項目を並列化する。
+    /// 大項目と7z Copyは既存のstream経路。ZIP XZと7z LZMA2・Deflateは大項目内のblockも並列化する。
+    /// 7z solid/filterはfolderごとのdisk spoolを並列圧縮する。非solidは16 MiB、solidはblock上限まで。
+    /// LHAは1 MiB超〜16 MiBのmemberも項目間で並列化し、内部の1 MiB境界と履歴を保つ。
+    /// PPMdは各entry/folderに独立した指定サイズのモデルを使う。モデルを片に分けない。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
     /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
     /// （Apple 経路の tar.xz は2以上のとき64 KiB以下を数えず、合計2 × この数 + 1まで）。
@@ -238,14 +242,15 @@ public struct WriterOptions: Sendable {
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
-    /// ZIP Zstandard / ZIP・7z LZMA・bzip2・PPMd と 7z Copy は同期処理なので 0。bzip2 の codec state は最大約7.6 MBと I/O buffer。
+    /// ZIP BZip2・LZMA・Zstandard・PPMd と非solid 7z LZMA・BZip2・PPMdは t > 1 なら t × 16 MiB、逐次は0。
+    /// tは項目窓のメモリ予算で解決した数。7z Copyは0。圧縮出力はdisk spoolで保持する。
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
-    /// ZIP XZ は通常枠 t 個と組立中1個の片を上界とし、項目の終了時には全て出力する。
+    /// ZIP XZは項目窓の上界と、既存block窓の (t + 1) × 片の大きい方。大項目の終了時にはblockを全て出力する。
     /// tar.zst はメモリ予算で解決した t × max(4 MiB, level の window)。組立中の frame も枠に含む。
-    /// LHA は t 個の1 MiB入力と方式ごとの履歴を含む。逐次と forced store は0。
+    /// LHAは項目窓の t × 16 MiBと、既存の t 個の1 MiB入力＋履歴の大きい方。逐次とforced storeは0。
     /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
-    /// 7z solid は disk 上で待つ一つの block の上限。圧縮メモリの大きさとは独立する。
+    /// 7z solidはdisk上の t 個のblock上限。filter付き非solidは t × 16 MiB。圧縮メモリとは独立する。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
         let lzma = try? LZMAWriterConfiguration(options: self)
         let lzmaThreads = UInt64(max(1, min(64, lzma?.threads ?? 1)))
@@ -254,10 +259,12 @@ public struct WriterOptions: Sendable {
         switch format {
         case .zip:
             switch compressionMethod {
-            case .stored, .bzip2, .lzma, .zstd, .ppmd: return 0
+            case .stored: return 0
+            case .bzip2, .lzma, .zstd, .ppmd:
+                return EntryCompressionConfiguration(options: self).maximumPendingInputBytes
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
-            case .xz: return (lzmaThreads + 1) * piece
+            case .xz: return max((lzmaThreads + 1) * piece, EntryCompressionConfiguration(options: self).maximumPendingInputBytes)
             }
         case .tar: return 0
         case .tarLZMA, .tarBrotli, .tarCompress: return 0
@@ -276,22 +283,30 @@ public struct WriterOptions: Sendable {
             let light = lzmaLevel == nil && lzmaThreads > 1 ? (lzmaThreads + 1) * UInt64(ParallelXZCompressor.lightChunkLimit) : 0
             return lzmaThreads * piece + light + UInt64(ParallelXZCompressor.memberPackingSize)
         case .sevenZip:
-            // solid の未圧縮入力は disk 上の spool。最大一つの block を finishAdditions で出力する。
-            if case .on = sevenZipSolid { return resolvedSevenZipBlockSize }
+            // solid/filterの未圧縮入力はdisk上のspool。組立中もfolder窓の一枠に数える。
+            if sevenZipSolid != .off || sevenZipFilter != .none {
+                let count = UInt64(EntryCompressionConfiguration(options: self, method: sevenZipMethod).threads)
+                let limit = sevenZipSolid == .off ? UInt64(EntryCompressionConfiguration.inputLimit) : resolvedSevenZipBlockSize
+                let (bound, overflow) = limit.multipliedReportingOverflow(by: count)
+                return overflow ? UInt64.max : bound
+            }
             switch sevenZipMethod {
             case .lzma2: return lzmaThreads * piece
             case .deflate: return threads * UInt64(DeflateBlock.size)
-            case .lzma, .bzip2, .ppmd, .copy: return 0
+            case .lzma, .bzip2, .ppmd:
+                return EntryCompressionConfiguration(options: self, method: sevenZipMethod).maximumPendingInputBytes
+            case .copy: return 0
             }
         case .lha:
-            return threads == 1 || lhaMethod == .stored ? 0
-                : threads * UInt64(LHAWriter.compressionChunkSize + lhaMethod.windowSize)
+            guard threads > 1, lhaMethod != .stored else { return 0 }
+            let pieces = threads * UInt64(LHAWriter.compressionChunkSize + lhaMethod.windowSize)
+            return max(pieces, EntryCompressionConfiguration(lhaThreads: resolvedCompressionThreads).maximumPendingInputBytes)
         }
     }
 
     // writer / updater / rewriter は出力や作業ファイルを作る前に同じ規則で検証する。
     func validate(for format: ArchiveFormat) throws {
-        // ZIP bzip2 は同期、XZ は有界の block 並列なので、AES / ZipCrypto と全ての並列数を併用できる。
+        // 項目・block並列のどちらもAES / ZipCryptoと併用できる。
         guard (0...9).contains(deflateLevel) else { throw WriterError.invalidOption("deflateLevel") }
         guard (1...9).contains(bzip2Level) else { throw WriterError.invalidOption("bzip2Level") }
         guard (1...19).contains(zstdLevel) else { throw WriterError.invalidOption("zstdLevel") }

@@ -34,7 +34,7 @@ final class ZipZstdWriterTests: XCTestCase {
                 let writer = try ArchiveWriter.create(url: url, options: options)
                 for item in items { try writer.add(data: item.data, as: item.name, modificationDate: TestSupport.date) }
                 try writer.finish()
-                XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), 0)
+                XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), EntryCompressionConfiguration(options: options).maximumPendingInputBytes)
                 try verify(url, items: items, password: options.password)
                 let bytes = ZipBytes(data: try Data(contentsOf: url))
                 for (index, record) in try ZipAdditionalCompressionSupport.centralRecords(url).enumerated() {

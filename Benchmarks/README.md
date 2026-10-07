@@ -78,3 +78,32 @@ tar.xz は 4 MiB 以下の member を最大 4 MiB の block に詰め、4 MiB �
 親 commit と交互に作った受入比較）、
 [batch 追加](../Documentation/verification/2026-09-27-p7g-batch.md)（2026-09-27、三階層の固定 small corpus での
 mode 間の受入計測）。
+
+
+writer全経路の比較は`multicore.py`と`MulticoreBenchmarkTests`を使います。通常のswift testではskipされます。
+`compressionThreads`は1/12、コーパスは256 MiB（96個の2 MiBと1個の64 MiB）、レベルはlibrary既定です。
+7z solidは16 MiBのblock、filterの計測はDelta距離4。BCJ/ARM64/autoも同じfolder経路を使い、互換性は対象testで照合します。
+CPU秒は`getrusage(RUSAGE_SELF)`のuser+system、wallはcreate/compressからfinishまで。SHA-256とサイズの確認は計測外。
+各経路についてbase/newを連続して5回ずつ測り、最短wallのsampleに対応するCPU秒を報告します。
+
+```sh
+mkdir -p .build-base/source
+git archive f273d34 | tar -x -C .build-base/source
+ln -s /Users/nagash/Github/KaitoKit .build-base/KaitoKit
+cp Tests/GyoshukuKitTests/Probes/MulticoreBenchmarkTests.swift .build-base/source/Tests/GyoshukuKitTests/Probes/
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --package-path .build-base/source --scratch-path .build-base/build --build-system native --disable-sandbox -c release -Xswiftc -enable-testing --filter MulticoreBenchmarkTests
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --build-system native --disable-sandbox -c release -Xswiftc -enable-testing --filter MulticoreBenchmarkTests
+python3 Benchmarks/multicore.py corpus
+python3 Benchmarks/multicore.py measure
+python3 Benchmarks/multicore.py references --results .build/multicore/references.jsonl
+GYOSHUKU_MULTICORE_BENCHMARK=1 GYOSHUKU_MULTICORE_CORPUS="$PWD/.build/multicore/corpus" xcrun xctest -XCTest GyoshukuKitTests.ZipConcatenatedZstdProbeTests/testLargeMemberFrameResetSize .build/arm64-apple-macosx/release/GyoshukuKitPackageTests.xctest > .build/multicore/zstd-frame-ratio.log 2>&1
+python3 Benchmarks/multicore-report.py
+```
+
+`--cases zip-bzip2,7z-ppmd-solid-filter`で部分選択、`--repeats N`で5回以上にできます。
+JSONLを残せば`measure`は中断後の続きから実行します。corpusのソース本文もf273d34から読み、source編集による入力の変化を避けます。
+sourceの時刻は各sampleの前に固定します。tarの圧縮codecのCLI参照は同じ連結本文（tar headerを含まない）を使うため、
+containerを含むlibrary出力とbyte比較しません。ZIP Zstdのencoderは7zzにないので単独Zstd CLIの参照を使います。
+`multicore-report.py`はこの検証の対象testログ（`.build/multicore/release-acceptance.log`、`release-final.log`、
+`release-lha-final.log`、`debug-final.log`、`zstd-frame-ratio.log`）も参照します。frame probeのstdoutも最後の名前で保存してください。
+測定結果と予約の詳細は[2026-10-07 writer multicore](../Documentation/verification/2026-10-07-writer-multicore.md)を参照してください。

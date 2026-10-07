@@ -19,8 +19,10 @@ final class LZMAWriterConfigurationTests: XCTestCase {
         let configuration = try LZMAWriterConfiguration(options: options, physicalMemory: 4 << 30)
         XCTAssertEqual(configuration.memoryBudget, 2 << 30)
         XCTAssertEqual(configuration.threads, 1)
-        XCTAssertEqual(WriterOptions(compressionMethod: .lzma).maximumPendingInputBytes(for: .zip), 0)
-        XCTAssertEqual(WriterOptions(sevenZipMethod: .lzma).maximumPendingInputBytes(for: .sevenZip), 0)
+        let zipRaw = WriterOptions(compressionMethod: .lzma)
+        XCTAssertEqual(zipRaw.maximumPendingInputBytes(for: .zip), EntryCompressionConfiguration(options: zipRaw).maximumPendingInputBytes)
+        let sevenRaw = WriterOptions(sevenZipMethod: .lzma)
+        XCTAssertEqual(sevenRaw.maximumPendingInputBytes(for: .sevenZip), EntryCompressionConfiguration(options: sevenRaw, method: .lzma).maximumPendingInputBytes)
         XCTAssertNil(WriterOptions().lzmaLevel)
         XCTAssertFalse(WriterOptions().lzmaExtreme)
         for threads in [Int.min, 0, 65, Int.max] {
