@@ -54,6 +54,7 @@
 | 鍵 | 開く試験 | 内容・条件 |
 |---|---|---|
 | `GYOSHUKU_LZMA_BENCHMARK=1` | ✱ `LZMAEncoderBenchmarkTests` | 自前 LZMA2 / xz / Apple の level 1・6・9、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須。design.md の自前 LZMA encoder 節 |
+| `GYOSHUKU_PPMD_BENCHMARK=1` | ✱ `PPMdEncoderBenchmarkTests` | var.H / var.I と 7zz single-thread、level 1・6・9、8 MiB 英文風 text と実在 Mach-O（最大 16 MiB）。order / restart を指定し 7zz の実 heap も記録する best-of-5 の TSV。`-c release` 必須。design.md の PPMd 節 |
 | `GYOSHUKU_LARGE_ZIP_TESTS=1` | `ZipReencryptionBoundaryTests` の `testLarge…` 3 件 | 300 MiB の payload と、ZIP32 の上限（4 GiB）をまたぐ再暗号化。10 GiB 以上の空き |
 | `GYOSHUKU_LARGE_TAR_TESTS=1` | `CompressedTarWriterTests.testEntryLargerThanFourGiB…` | 4 GiB を越える entry。6 GiB 以上の空き |
 | `GYOSHUKU_LARGE_TESTS=1` | `CompressedTarLargeOffsetTests` | 4 GiB を越える CRC の結合と image の offset |

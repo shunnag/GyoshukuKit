@@ -107,24 +107,7 @@ final class PPMdEncoderTests: XCTestCase {
     func testEnglishLikeTextIsSmallerThanXZSix() throws {
         let directory = try PPMdTestArchives.directory("ppmd-compression")
         // 語順を固定 seed で変えた英文風の prose。長い同一 block の繰返しは作らない。
-        let subjects = ["The reader", "A writer", "Our neighbor", "The teacher", "A traveller", "The scientist",
-                        "A young student", "The gardener", "An artist", "The librarian", "A careful observer"]
-        let verbs = ["noticed", "described", "remembered", "considered", "examined", "discovered", "discussed",
-                     "explained", "admired", "understood", "questioned", "studied"]
-        let adjectives = ["quiet", "small", "distant", "familiar", "beautiful", "strange", "ancient", "ordinary",
-                          "bright", "unusual", "delicate", "remarkable", "interesting", "unexpected"]
-        let nouns = ["garden", "river", "story", "painting", "village", "house", "forest", "library", "mountain",
-                     "letter", "window", "journey", "bridge", "question", "book", "conversation", "city"]
-        let endings = ["in the early morning", "during the long winter", "before the rain began", "after the meeting",
-                       "near the old station", "on a warm summer evening", "while the others waited", "at the end of the day"]
-        var random = TestCorpus.XorShift64(state: 0x349A_7392_2190_7DB1)
-        func choose(_ words: [String]) -> String { words[Int(random.next() % UInt64(words.count))] }
-        var input = Data()
-        while input.count < 1 << 20 {
-            let sentence = "\(choose(subjects)) \(choose(verbs)) the \(choose(adjectives)) \(choose(nouns)) \(choose(endings)). "
-            let bytes = Data(sentence.utf8)
-            input.append(bytes.prefix((1 << 20) - input.count))
-        }
+        let input = TestCorpus.englishLike(size: 1 << 20)
         let plain = directory.appendingPathComponent("english.txt")
         try input.write(to: plain)
         let reference = try ReferenceTool.run(ReferenceTool.xz, ["-6", "-c", plain.path], in: directory,
