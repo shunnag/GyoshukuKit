@@ -63,8 +63,10 @@ final class ZstdMatchFinder {
         let raw = UnsafeRawPointer(cur)
         let v = UInt32(littleEndian: raw.loadUnaligned(as: UInt32.self))
         if p.strategy == .doubleHash || p.strategy == .fast {
+            let word = available >= 8 ? raw.loadUnaligned(as: UInt64.self) : 0
+            let key = p.strategy == .fast ? word << 24 : word
             let long = available >= 8
-                ? Int((raw.loadUnaligned(as: UInt64.self) &* 0xCF1BBCDCB7A56463) >> (64 - p.hashLog))
+                ? Int((key &* 0xCF1BBCDCB7A56463) >> (64 - p.hashLog))
                 : Int((v &* 0x9E3779B1) >> (32 - p.hashLog))
             return (long, Int((v &* 0x9E3779B1) >> 16))
         }
@@ -152,6 +154,11 @@ final class ZstdMatchFinder {
         }
         return match
     }
+    // fast の走査中は二つの辞書表を一度だけ借りる。
+    func withFastTables<R>(_ body: (UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt32>) -> R) -> R {
+        body(heads, shortHeads)
+    }
+    func withFastHeads<R>(_ body: (UnsafeMutablePointer<UInt32>) -> R) -> R { body(heads) }
     /// greedy 専用。探索深さ1/2の候補を直接返し、strategy 分岐と scratch 書込を省く。
     @inline(__always) func fastMatch(_ cur: UnsafePointer<UInt8>, position: Int, available: Int,
                                     hashLog: Int, window: Int, niceLength: Int) -> ZstdMatch {

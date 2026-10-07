@@ -31,12 +31,13 @@ struct ZstdBitWriter: ~Copyable {
         }
         let flushed = count & ~7
         written += flushed >> 3
-        accumulator >>= flushed; count &= 7
+        // count / flushed は0...63なので、幅の再判定を省く。
+        accumulator &>>= flushed; count &= 7
     }
     @inline(__always) mutating func append(_ value: Int, bits: Int) {
         assert(bits >= 0 && bits <= 56)
         if count + bits > 63 { flush() }
-        accumulator |= UInt64(value) << count
+        accumulator |= UInt64(value) &<< count
         count += bits
     }
 
@@ -44,7 +45,7 @@ struct ZstdBitWriter: ~Copyable {
     @inline(__always) mutating func appendUnchecked(_ value: Int, bits: Int) {
         assert(bits >= 0 && bits <= 56)
         if count + bits > 63 { flushUnchecked() }
-        accumulator |= UInt64(value) << count
+        accumulator |= UInt64(value) &<< count
         count += bits
     }
     mutating func finish(marker: Bool = true) -> Data {

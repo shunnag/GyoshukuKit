@@ -112,6 +112,47 @@ final class ZstdEncoderTests: XCTestCase {
             try verify(ZstdFrameEncoder.encode(input, level: level), input: input, label: "periodic-\(level)", directory: directory)
         }
     }
+    func testFastPairTailsAndSkippedRuns() throws {
+        let directory = try TestSupport.directory("zstd-fast-tails")
+        let period = [UInt8](17...23)
+        var prefix = TestCorpus.random(ZstdFrameEncoder.blockSize - 2048)
+        prefix.append(contentsOf: (0..<2048).map { period[$0 % period.count] })
+        for level in [1,2,3] {
+            for tail in 0..<16 {
+                var input = prefix
+                input.append(contentsOf: (0..<tail).map { period[(2048 + $0) % period.count] })
+                let frame = try ZstdFrameEncoder.encode(input, level: level)
+                let encoder = try ZstdFrameEncoder(level: level, contentSize: UInt64(input.count))
+                let partitioned = try StreamEncoderTestSupport.encode(input) { try encoder.write($0, finish: $1, emit: $2) }
+                XCTAssertEqual(frame, partitioned)
+                try verify(frame, input: input, label: "tail-\(tail)-\(level)", directory: directory)
+            }
+        }
+    }
+    func testUniformLiteralHistogramUsesRaw() throws {
+        let directory = try TestSupport.directory("zstd-uniform-literals")
+        for extra in [0,128,256] {
+            var input = Data((0..<256).map { UInt8($0) })
+            input.append(contentsOf: (0..<extra).map { UInt8($0) })
+            let literals = ZstdHuffmanEncoder.literals(input)
+            XCTAssertEqual(literals[0] & 3, 0)
+            try verify(manualFrame(literals + Data([0]), input: input), input: input,
+                       label: "uniform-\(extra)", directory: directory)
+        }
+    }
+    func testSequenceReservationWithWideOffsetAndExtraBits() {
+        let sequence = ZstdSequence(literals: 65_536, length: 65_536, distance: 1 << 30)
+        var repeats = ZstdRepeatOffsets()
+        let encoded = ZstdSequences.encode([sequence], repeats: &repeats)
+        // 61 bit の extra を通常 writer で分割し、予約済み経路と独立に照合する。
+        let extra = (sequence.length - 32_771) << 16 | (3 << 31)
+        var reference = ZstdBitWriter()
+        reference.append(extra & 0xFFFFFFFF, bits: 32)
+        reference.append(extra >> 32, bits: 29)
+        reference.append(ZstdFSEEncoder.matches.start(51), bits: 6)
+        reference.append(ZstdFSEEncoder.literals.start(35), bits: 6)
+        XCTAssertEqual(encoded, Data([1,0x10,30]) + reference.finish())
+    }
     func testCancellationMakesEncoderTerminal() async throws {
         let (gate, continuation) = AsyncStream<Void>.makeStream()
         let task = Task {

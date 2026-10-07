@@ -9,7 +9,9 @@ final class ZstdFrameEncoder {
     let properties: ZstdEncoderProperties
     private let contentSize: UInt64?
     private let parser: ZstdParser
+    private let sequenceWorkspace: ZstdSequences.Workspace
     private let storage: UnsafeMutablePointer<UInt8>
+    private let literalStorage: UnsafeMutablePointer<UInt8>
     private let capacity: Int
     private var blockStart = 0
     private var pendingCount = 0
@@ -29,10 +31,12 @@ final class ZstdFrameEncoder {
         self.contentSize = contentSize
         self.collectProfile = collectProfile
         parser = ZstdParser(properties: properties)
+        sequenceWorkspace = ZstdSequences.Workspace(capacity: Self.blockSize / 3)
         capacity = 2 * properties.windowSize + Self.blockSize
         storage = .allocate(capacity: capacity)
+        literalStorage = .allocate(capacity: Self.blockSize)
     }
-    deinit { storage.deallocate() }
+    deinit { storage.deallocate(); literalStorage.deallocate() }
 
     /// emit is called as each block becomes available. The caller owns emitted Data.
     /// Completion, cancellation or any error (including emit) makes this instance terminal.
@@ -115,13 +119,17 @@ final class ZstdFrameEncoder {
             let sequences = parser.parse(UnsafePointer(bytes), count: n, position: position, repeats: repeats)
             if collectProfile { profile.matchAndParse += ProcessInfo.processInfo.systemUptime - start }
             start = collectProfile ? ProcessInfo.processInfo.systemUptime : 0
-            var literals = Data(count: n), literalCount = 0
-            literals.withUnsafeMutableBytes { target in
-                let destination = target.baseAddress!
+            var literalCount = 0
+            let destination = UnsafeMutableRawPointer(literalStorage)
+            sequences.withUnsafeBufferPointer { sequences in
                 var cursor = 0
                 for s in sequences {
                     if s.literals > 0 {
-                        destination.advanced(by: literalCount).copyMemory(from: bytes + cursor, byteCount: s.literals)
+                        // 一致は3 byte以上。短い literal の広い copy も入力・予約内に収まる。
+                        let target = destination.advanced(by: literalCount)
+                        if s.literals <= 4 { target.copyMemory(from: bytes + cursor, byteCount: 4) }
+                        else if s.literals <= 8 { target.copyMemory(from: bytes + cursor, byteCount: 8) }
+                        else { target.copyMemory(from: bytes + cursor, byteCount: s.literals) }
                         literalCount += s.literals
                     }
                     cursor += s.literals + s.length
@@ -131,15 +139,17 @@ final class ZstdFrameEncoder {
                     literalCount += n - cursor
                 }
             }
-            literals.count = literalCount
             var proposedRepeats = repeats
-            var compressed = ZstdHuffmanEncoder.literals(literals)
+            let literalTiming: ((Double, Double, Double) -> Void)? = collectProfile ? { [self] histogram, tables, bits in
+                profile.literalHistogram += histogram; profile.literalTables += tables; profile.literalBits += bits
+            } : nil
+            var compressed = ZstdHuffmanEncoder.literals(UnsafeRawBufferPointer(start: literalStorage, count: literalCount), profile: literalTiming)
             if collectProfile { profile.literals += ProcessInfo.processInfo.systemUptime - start }
             start = collectProfile ? ProcessInfo.processInfo.systemUptime : 0
             let timing: ((Double, Double, Double) -> Void)? = collectProfile ? { [self] codes, tables, bits in
                 profile.sequenceCodes += codes; profile.sequenceTables += tables; profile.sequenceBits += bits
             } : nil
-            compressed.append(ZstdSequences.encode(sequences, repeats: &proposedRepeats, profile: timing))
+            compressed.append(ZstdSequences.encode(sequences, repeats: &proposedRepeats, workspace: sequenceWorkspace, profile: timing))
             if collectProfile { profile.sequences += ProcessInfo.processInfo.systemUptime - start }
             if compressed.count < n && compressed.count <= Self.blockSize {
                 type = 2; payload = compressed
@@ -165,12 +175,15 @@ struct ZstdEncoderProfile {
     var inputAndChecksum = 0.0
     var matchAndParse = 0.0
     var literals = 0.0
+    var literalHistogram = 0.0
+    var literalTables = 0.0
+    var literalBits = 0.0
     var sequences = 0.0
     var sequenceCodes = 0.0
     var sequenceTables = 0.0
     var sequenceBits = 0.0
     func report(corpus: String, level: Int) -> String {
-        String(format: "ZSTD-PROFILE\t%@\t%d\tinput+xxh64=%.6f\tmatch+parse=%.6f\tliterals=%.6f\tsequences=%.6f\tcodes=%.6f\ttables=%.6f\tbits=%.6f",
-               corpus, level, inputAndChecksum, matchAndParse, literals, sequences, sequenceCodes, sequenceTables, sequenceBits)
+        String(format: "ZSTD-PROFILE\t%@\t%d\tinput+xxh64=%.6f\tmatch+parse=%.6f\tliterals=%.6f\tsequences=%.6f\tcodes=%.6f\ttables=%.6f\tbits=%.6f\tliteral-histogram=%.6f\tliteral-tables=%.6f\tliteral-bits=%.6f",
+               corpus, level, inputAndChecksum, matchAndParse, literals, sequences, sequenceCodes, sequenceTables, sequenceBits, literalHistogram, literalTables, literalBits)
     }
 }
