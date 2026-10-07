@@ -23,7 +23,7 @@ struct LZMARangeEncoder {
         // 通常は 128 KiB 内で drain する。強く偏った確率による膨張と長い carry 保留にも対応する。
         if count == capacity && !grow() { return }
         output[count] = byte
-        count += 1
+        count &+= 1
     }
     @inline(never) private mutating func grow() -> Bool {
         if error != nil { return false }
@@ -45,30 +45,31 @@ struct LZMARangeEncoder {
             repeat {
                 put(byte &+ carry)
                 byte = 0xFF
-                cacheSize -= 1
+                cacheSize &-= 1
             } while cacheSize != 0
             cache = UInt8(lower >> 24)
         }
-        cacheSize += 1
+        cacheSize &+= 1
         low = UInt64(lower << 8)
     }
     @inline(__always) mutating func bit(_ probability: UnsafeMutablePointer<UInt16>, _ bit: Int) {
         let p = UInt32(probability.pointee)
-        let bound = (range >> 11) * p
+        // probability は 1...2047、low は carry を含めても33 bit内。
+        let bound = (range >> 11) &* p
         if bit == 0 {
             range = bound
-            probability.pointee = UInt16(p + ((2048 - p) >> 5))
+            probability.pointee = UInt16(truncatingIfNeeded: p &+ ((2048 &- p) >> 5))
         } else {
-            low += UInt64(bound)
-            range -= bound
-            probability.pointee = UInt16(p - (p >> 5))
+            low &+= UInt64(bound)
+            range &-= bound
+            probability.pointee = UInt16(truncatingIfNeeded: p &- (p >> 5))
         }
         if range < 1 << 24 { range <<= 8; shiftLow() }
     }
     @inline(__always) mutating func direct(_ symbol: UInt32, bits: Int) {
         for i in stride(from: bits - 1, through: 0, by: -1) {
             range >>= 1
-            if symbol >> i & 1 != 0 { low += UInt64(range) }
+            if symbol >> i & 1 != 0 { low &+= UInt64(range) }
             if range < 1 << 24 { range <<= 8; shiftLow() }
         }
     }
@@ -77,7 +78,7 @@ struct LZMARangeEncoder {
         for i in stride(from: bits - 1, through: 0, by: -1) {
             let b = symbol >> i & 1
             bit(probs + m, b)
-            m = m * 2 + b
+            m = m &* 2 &+ b
         }
     }
     @inline(__always) mutating func reverseTree(_ probs: UnsafeMutablePointer<UInt16>, bits: Int, symbol: Int) {
@@ -86,7 +87,7 @@ struct LZMARangeEncoder {
         for _ in 0..<bits {
             let b = value & 1
             bit(probs + m, b)
-            m = m * 2 + b
+            m = m &* 2 &+ b
             value >>= 1
         }
     }

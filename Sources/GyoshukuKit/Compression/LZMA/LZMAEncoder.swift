@@ -72,34 +72,6 @@ final class LZMAEncoder {
     }
 }
 
-struct LZMARepetitions {
-    var a = 1, b = 1, c = 1, d = 1
-    @inline(__always) subscript(_ i: Int) -> Int {
-        switch i { case 0: a; case 1: b; case 2: c; default: d }
-    }
-    @inline(__always) func moved(_ i: Int) -> Self {
-        switch i {
-        case 0: self
-        case 1: Self(a: b, b: a, c: c, d: d)
-        case 2: Self(a: c, b: a, c: b, d: d)
-        default: Self(a: d, b: a, c: b, d: c)
-        }
-    }
-    @inline(__always) func inserting(_ distance: Int) -> Self { Self(a: distance, b: a, c: b, d: c) }
-}
-struct LZMAAction { var length = 1; var code = -1 }
-struct LZMAOptimal {
-    var price = 1 << 30
-    var state = 0
-    var reps = LZMARepetitions()
-    var previous = 0
-    var length = 1
-    var code = -1
-    /// 0: 一つの symbol、1: literal + rep0、2 以上: match/rep + literal + rep0。
-    var extra = 0
-    var tail = 0
-}
-
 /// 所有する pointer は release まで有効。hot loop から class/closure 呼出しを取り除く。
 struct LZMAEncodingEngine {
     static let lookahead = 4096 + 273
@@ -108,11 +80,15 @@ struct LZMAEncodingEngine {
     static let repLenOffset = 1332
     let properties: LZMAEncoderProperties
     let dictionary: Int
+    let posMask: UInt8
+    let literalPosMask: UInt8
+    let literalContextWidth: UInt16
+    let literalShift: UInt8
     let capacity: Int
     let window: UnsafeMutablePointer<UInt8>
     let probs: UnsafeMutablePointer<UInt16>
     let probCount: Int
-    let bitPrices: UnsafeMutablePointer<Int>
+    let bitPrices: UnsafeMutablePointer<UInt8>
     let lengthPrices: UnsafeMutablePointer<Int>
     let repLengthPrices: UnsafeMutablePointer<Int>
     let distancePrices: UnsafeMutablePointer<Int>
@@ -125,7 +101,11 @@ struct LZMAEncodingEngine {
     var rc: LZMARangeEncoder
     var cursor = 0, end = 0, finderCursor = 0
     var position: UInt64 = 0
-    var state = 0
+    private var storedState: UInt8 = 0
+    var state: Int {
+        @inline(__always) get { Int(storedState) }
+        @inline(__always) set { storedState = UInt8(truncatingIfNeeded: newValue) }
+    }
     var reps = LZMARepetitions()
     var matchCount = 0
     var pendingMatches = false
@@ -139,11 +119,13 @@ struct LZMAEncodingEngine {
             + LZMAMatchFinder.memorySize(dictionary: dictionary, tree: properties.matchFinder == .bt4)
             + (literalOffset + (768 << (properties.lc + properties.lp))) * 2
             + 131072 + 4096 * (MemoryLayout<LZMAOptimal>.stride + MemoryLayout<LZMAAction>.stride)
-            + (16 * 272 * 2 + 4 * 128 + 4 * 64 + 16 + 128) * MemoryLayout<Int>.stride
+            + (16 * 272 * 2 + 4 * 128 + 4 * 64 + 16) * MemoryLayout<Int>.stride + 4096
             + 274 * MemoryLayout<LZMAMatch>.stride
     }
     init(properties p: LZMAEncoderProperties, sizeHint: UInt64?, memoryLimit: Int, chunked: Bool = false) throws {
         properties = p
+        posMask = UInt8((1 << p.pb) - 1); literalPosMask = UInt8((1 << p.lp) - 1)
+        literalContextWidth = UInt16(1 << p.lc); literalShift = UInt8(8 - p.lc)
         dictionary = min(p.dictSize, Int(min(UInt64(p.dictSize), max(4096, sizeHint ?? UInt64(p.dictSize)))))
         capacity = dictionary + (chunked ? 2 << 20 : 65536) + Self.lookahead + 65536
         let required = Self.memorySize(properties: p, dictionary: dictionary, chunked: chunked)
@@ -159,7 +141,8 @@ struct LZMAEncodingEngine {
             window = try allocate(UInt8.self, capacity)
             probCount = Self.literalOffset + (768 << (p.lc + p.lp))
             probs = try allocate(UInt16.self, probCount)
-            bitPrices = try allocate(Int.self, 128)
+            bitPrices = try allocate(UInt8.self, 4096)
+            // 各行は272 symbol分。価格を埋めるのは長さ2...niceLen（symbol 0...niceLen-2）だけ。
             lengthPrices = try allocate(Int.self, 16 * 272)
             repLengthPrices = try allocate(Int.self, 16 * 272)
             distancePrices = try allocate(Int.self, 4 * 128)
@@ -174,7 +157,7 @@ struct LZMAEncodingEngine {
             finder = try LZMAMatchFinder(properties: p, dictionary: dictionary)
         } catch { for pointer in allocated { free(pointer) }; throw error }
         for i in 0..<4096 { opt[i] = LZMAOptimal() }
-        // SDK の 1/16 bit 固定小数点 price table。
+        // SDK の 1/16 bit 固定小数点価格。0 / 1 を別行に展開し、lookup の shift / xor を除く。
         for i in 0..<128 {
             var w = UInt32(i * 16 + 8)
             var bits = 0
@@ -182,7 +165,12 @@ struct LZMAEncodingEngine {
                 w = w &* w; bits <<= 1
                 while w >= 1 << 16 { w >>= 1; bits += 1 }
             }
-            bitPrices[i] = 11 * 16 - 15 - bits
+            let value = UInt8(11 * 16 - 15 - bits)
+            for offset in 0..<16 {
+                let probability = i * 16 + offset
+                bitPrices[probability] = value
+                bitPrices[2048 + (probability ^ 2047)] = value
+            }
         }
         resetModel()
     }
@@ -204,40 +192,39 @@ struct LZMAEncodingEngine {
             end -= drop; cursor -= drop; finderCursor -= drop
         }
     }
-    @inline(__always) func posState(_ pos: UInt64) -> Int { Int(pos & UInt64((1 << properties.pb) - 1)) }
+    @inline(__always) func posState(_ pos: UInt64) -> Int { Int(pos & UInt64(posMask)) }
     @inline(__always) static func literalState(_ s: Int) -> Int { s < 4 ? 0 : s < 10 ? s - 3 : s - 6 }
     @inline(__always) static func matchState(_ s: Int) -> Int { s < 7 ? 7 : 10 }
     @inline(__always) static func repState(_ s: Int) -> Int { s < 7 ? 8 : 11 }
     @inline(__always) static func shortState(_ s: Int) -> Int { s < 7 ? 9 : 11 }
     @inline(__always) func literalProbs(_ pos: UInt64, previous: UInt8) -> UnsafeMutablePointer<UInt16> {
-        let context = ((Int(pos & UInt64((1 << properties.lp) - 1)) << properties.lc)
-                       + (Int(previous) >> (8 - properties.lc)))
+        let context = Int(pos & UInt64(literalPosMask)) * Int(literalContextWidth)
+            + (Int(previous) >> Int(literalShift))
         return probs + Self.literalOffset + context * 768
     }
     @inline(__always) func repLength(_ data: UnsafePointer<UInt8>, distance: Int, limit: Int, history: Int) -> Int {
         if distance > history { return 0 }
-        var n = 0
-        while n < limit && data[n] == data[n - distance] { n += 1 }
-        return n
+        return lzmaMatchLength(data, data.advanced(by: 0 &- distance), limit: limit)
     }
     @inline(__always) mutating func readMatches(limit: Int) {
         matchCount = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches)
-        finderCursor += 1
+        finderCursor &+= 1
     }
     @inline(__always) mutating func skip(to target: Int, limit: Int) {
         while finderCursor < target {
             _ = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches, record: false)
-            finderCursor += 1
+            finderCursor &+= 1
         }
     }
     mutating func process(limit: Int, reserve: Int, packedLimit: Int = .max) {
+        guard cursor < limit && (actionIndex < actionCount || pendingMatches || limit - cursor > reserve) else { return }
         while cursor < limit && (actionIndex < actionCount || pendingMatches || limit - cursor > reserve) {
             if actionIndex == actionCount {
                 if rc.estimatedSize >= packedLimit && !pendingMatches { break }
                 if properties.mode == .fast { parseFast(limit: limit) } else { parseNormal(limit: limit) }
             }
             let action = actions[actionIndex]
-            actionIndex += 1
+            actionIndex &+= 1
             encode(action)
             if properties.mode == .normal && actionIndex == actionCount {
                 let lengths = matchCounter >= 64, repetitions = repCounter >= 64
@@ -280,20 +267,23 @@ struct LZMAEncodingEngine {
         }
     }
     @inline(__always) mutating func encode(_ action: LZMAAction) {
-        let pos = posState(position)
-        let code = action.code, length = action.length
+        // model の pointer 書込みにまたがる symbol の入力と state は不変。
+        let s = state, r = reps, current = cursor, absolute = position
+        let data = UnsafePointer(window + current)
+        let pos = posState(absolute)
+        let code = Int(action.code), length = Int(action.length)
         if code == -1 {
-            rc.bit(probs + state * 16 + pos, 0)
-            let previous: UInt8 = position == 0 ? 0 : window[cursor - 1]
-            let p = literalProbs(position, previous: previous)
-            var symbol = Int(window[cursor]) | 256
-            if state < 7 {
+            rc.bit(probs + s * 16 + pos, 0)
+            let previous: UInt8 = absolute == 0 ? 0 : data[-1]
+            let p = literalProbs(absolute, previous: previous)
+            var symbol = Int(data[0]) | 256
+            if s < 7 {
                 repeat {
                     rc.bit(p + (symbol >> 8), (symbol >> 7) & 1)
                     symbol <<= 1
                 } while symbol < 65536
             } else {
-                var match = Int(window[cursor - reps.a])
+                var match = Int(data[-r.a])
                 var offset = 256
                 repeat {
                     match <<= 1
@@ -302,32 +292,32 @@ struct LZMAEncodingEngine {
                     offset &= ~(match ^ symbol)
                 } while symbol < 65536
             }
-            state = Self.literalState(state)
+            state = Self.literalState(s)
         } else {
-            rc.bit(probs + state * 16 + pos, 1)
+            rc.bit(probs + s * 16 + pos, 1)
             if code < 4 {
-                rc.bit(probs + 192 + state, 1)
+                rc.bit(probs + 192 + s, 1)
                 if code == 0 {
-                    rc.bit(probs + 204 + state, 0)
-                    rc.bit(probs + 240 + state * 16 + pos, length == 1 ? 0 : 1)
+                    rc.bit(probs + 204 + s, 0)
+                    rc.bit(probs + 240 + s * 16 + pos, length == 1 ? 0 : 1)
                 } else {
-                    rc.bit(probs + 204 + state, 1)
-                    if code == 1 { rc.bit(probs + 216 + state, 0) }
-                    else { rc.bit(probs + 216 + state, 1); rc.bit(probs + 228 + state, code - 2) }
-                    reps = reps.moved(code)
+                    rc.bit(probs + 204 + s, 1)
+                    if code == 1 { rc.bit(probs + 216 + s, 0) }
+                    else { rc.bit(probs + 216 + s, 1); rc.bit(probs + 228 + s, code - 2) }
+                    reps = r.moved(code)
                 }
-                if length == 1 { state = Self.shortState(state) }
-                else { encodeLength(length, pos: pos, offset: Self.repLenOffset); state = Self.repState(state); repCounter += 1 }
+                if length == 1 { state = Self.shortState(s) }
+                else { encodeLength(length, pos: pos, offset: Self.repLenOffset); state = Self.repState(s); repCounter &+= 1 }
             } else {
-                rc.bit(probs + 192 + state, 0)
+                rc.bit(probs + 192 + s, 0)
                 encodeLength(length, pos: pos, offset: Self.lenOffset)
                 let distance = code - 4
                 encodeDistance(distance, length: length)
-                reps = reps.inserting(distance + 1)
-                state = Self.matchState(state); matchCounter += 1
+                reps = r.inserting(distance + 1)
+                state = Self.matchState(s); matchCounter &+= 1
             }
         }
-        cursor += length; position += UInt64(length)
+        cursor = current &+ length; position = absolute &+ UInt64(length)
     }
     mutating func writeEndMarker() {
         let pos = posState(position)

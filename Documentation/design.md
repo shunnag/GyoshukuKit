@@ -1112,6 +1112,15 @@ fast parser は GetOptimumFast の rep 優先と次位置の一致による遅�
 window、hash、tree / chain、確率、価格、parser node は unsafe buffer で確保し、入力全体を別途保持しない。
 window は辞書と先読み、入力 staging 分で、空きが足りなくなったときにだけ履歴を移す。
 位置参照は UInt32 で正規化して 4 GiB を越える stream でも wrap しない。
+一致長の延長と rep の比較は limit 内の未整列 UInt64 比較を使う。HC4 の skip は hash と chain の
+リンクだけを更新し、候補を走査しない。長さ価格は niceLen 以下の葉を親の価格から展開し、
+posState 共通の high tree を再利用する。node / action / match は32 / 8 / 8 byteに収め、
+以前の88 / 16 / 16 byteから探索 buffer を縮めた。rep 距離は UInt32、state と tail は一つの UInt16 に保持する。
+normal parser は posState の価格行と長さ5以上の距離価格を再利用し、複合遷移は長さの loop の後で一度だけ調べる。
+BT4 の2 / 3 byte hash は SDK と同じ選択で延長を一度にまとめ、HC4 は二候補から best を先に得て chain を除外する。
+通常の advance は inline 化し、大きな表の正規化だけを別関数に分ける。bit 価格は0 / 1 の各2048確率を UInt8 の4 KiB表に展開し、
+lookup の shift / xor を省いた。symbol の入力位置・state・rep は pointer の書込みにまたがる local 値で保持する。
+`memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減り、MiB切上げの予算表と入力上界は変わらない。
 
 LZMA2 は最大 2 MiB の入力、64 KiB 以下の圧縮 byte に区切る。range coder を chunk ごとに flush し、
 辞書と確率 state は継続する。先頭 compressed chunk は辞書 / state / property を reset する。
@@ -1141,7 +1150,7 @@ preset の数値は [xz の lzma_encoder_presets.c](https://github.com/tukaani-p
 | 9 | 64 | BT4 / normal | 64 | 48 | 64.254 | 512 | 640.254 |
 
 表は入力サイズ未知のときの確保量。これに probability / price / optimum / range buffer と raw LZMA1 の staging が
-約 0.7 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
+約 0.5 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
 match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが、確保前に総量と `memoryLimit` を照合する。
 既定の上限は 768 MiB で、上限超過や allocation 失敗は error にする。黙って小さい辞書へ変更しない。
 range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
@@ -1196,7 +1205,7 @@ GYOSHUKU_LZMA_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cach
 Xcode build system の dSYM 生成が制限される環境では `--build-system native` を指定する。
 benchmark の速度閾値は通常の test failure にせず、size gap、対 xz 速度、level 1 / 6 比を実測して報告する。
 
-2026-10-06 の最終版の開発機計測（arm64、Swift 6.4、xz / liblzma 5.8.4、release、単一 thread）での実測。
+2026-10-06 の開発機計測（arm64、Swift 6.4、xz / liblzma 5.8.4、release XCTest / `-enable-testing`、単一 thread）での実測。
 text は 4,194,304 byte、binary は dyld 4,129,088 byte と CreateML 16,559,504 byte の連結（合計 20,688,592 byte）。
 比較の size は全て raw LZMA2 で、container overhead を含まない。速度には encoder の確保と終了処理を含み、
 xz は process 起動と file I/O も含む。入力生成と Swift 出力の検証は計測区間外で行う。
@@ -1213,11 +1222,59 @@ Apple の値は現行 `LZMA2Compressor.encode` 呼出し全体なので framing 
 
 level 6 / 9 の size 差は text が各 -0.029%、binary が -0.169% / -0.184% で、1.5% 以内。
 text の level 6 速度は xz の 93.1%（目標 40% 以上）、level 1 / 6 は 7.093 倍（目標 2 倍以上）。
-全目標を満たした。idle Mac mini での再計測を最終比較とする。
+この時点の目標を満たした。2026-10-07 の速度改善は同じ corpus を使い、以下の別計測で比較する。
 
 release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests と追加 2 tests、release benchmark を検証済み。
 通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
 検証時の log は `.build/verification/lzma-encoder-run/`、oracle の書庫と log は `.build/verification/lzma-encoder-oracles/` に保存する。
+
+2026-10-07 の単一thread速度改善を非XCTestハーネスで再計測した（Apple M4 Max / 128 GB、Swift 6.4、xz / liblzma 5.8.4）。
+基準版 `f273d34` と HEAD `926d828` の source をそれぞれ取り出し、同じ
+`swiftc -O -wmo -swift-version 6 -module-cache-path "$PWD/.build/clang-module-cache"` でコンパイルした。
+`-enable-testing` は使わない。上と同じtext / binaryの保存済みcorpusを使い、level 1 / 3 / 6 / 9を
+同じloop内で基準版・HEAD・xzの順序を6通りに入れ替えて7巡し、各条件の最速（best-of-7）を選んだ。
+各sampleは別processで実行し、追加のwarmupはしない。Swiftはraw LZMA2の確保・符号化・解放を計時し、入力読込と出力保存は除く。
+xzは `xz -k -T1 -<level> --format=xz <input>` のwall timeで、process起動・file I/O・XZ framingとchecksumを含む。
+表の速度は MB/s（1,000,000 byte/s）、Swift byteはraw、xz byteはXZ container全体なのでsizeの直接比較には使わない。
+負荷平均（1 / 5 / 15分）は開始3.99 / 3.79 / 4.50、終了4.59 / 4.29 / 4.54、sample前の範囲は
+3.55〜5.64 / 3.78〜4.46 / 4.48〜4.63だった。共有機の負荷による揺れを含む。
+
+| corpus | level | 基準 MB/s | HEAD MB/s | xz MB/s | Swift raw byte（両版） | xz container byte |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 23.216 | 56.104 | 45.394 | 1,024,529 | 1,024,580 |
+| text | 3 | 4.850 | 19.900 | 19.956 | 939,624 | 939,672 |
+| text | 6 | 3.304 | 4.116 | 3.898 | 694,823 | 695,084 |
+| text | 9 | 3.416 | 4.146 | 4.045 | 694,823 | 695,084 |
+| binary | 1 | 19.863 | 37.680 | 33.689 | 6,453,276 | 6,451,700 |
+| binary | 3 | 6.585 | 19.817 | 18.685 | 5,995,056 | 5,993,544 |
+| binary | 6 | 5.413 | 6.548 | 6.647 | 4,615,940 | 4,623,816 |
+| binary | 9 | 5.384 | 6.403 | 6.256 | 4,612,054 | 4,620,604 |
+
+level 9の基準版比はtext 1.214倍 / binary 1.189倍。1.2倍以上の速度改善はtextで達成し、binaryは未達だった。
+対xzの速度超過はlevel 1の両corpus（1.236倍 / 1.118倍）で達成し、level 3はbinaryの今回の最速値で1.061倍（小差で負荷依存）だった。
+level 3のtextはxzの99.7%でほぼ同等・負荷依存。level 2は今回未計測で、levels 1〜3全体の達成とはしない。
+level 6の対xzはtext 105.6% / binary 98.5%、level 9は102.5% / 102.3%。約5%の小差はほぼ同等・負荷依存と扱う。
+測定した8条件のSwift出力は両版・全7回でbyte一致し、基準版からのsize増加0%を達成した。
+計測後に両版のrawとxzの計24出力を独立xzで復号し、corpusの全byteに一致した。
+ハーネスと比較scriptは `.build/verification/speed-lzma-r3/benchmark-harness.swift` / `measure.py`、
+ビルドcommand・source / corpusのSHA-256・負荷は `manifest.json`、全168 sampleは `samples.jsonl`、最速値は `summary.json` に保存する。
+round 1のrelease XCTest / `-enable-testing`計測は `.build/verification/speed-lzma/paired-shipping-*` に残し、速度比較はこの再計測を用いる。
+
+2026-10-07 の LZMA1 並列 finder 試作は public-domain の `C/LzFindMt.c` の block 受渡しを参考に、
+`Thread` と semaphore、4096位置の二つの block で実装した。65536 byte の追加入力と window 移動にまたがる
+pause / resume、終端273 byte、memory budget、cancel / abandon を検証し、thread数1 / 2 / 4の出力が一致した。
+しかし実際の raw LZMA1 streaming の level 6、best-of-5 では text が3.424 → 4.494 MB/s（1.312倍）、
+binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満たさなかった。
+固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
+指示された条件に従い並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
+raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
+
+2026-10-07（round 3、HEAD `926d828`）の release targeted suite は52 tests / 0 failures、115.680秒。debug の短い通常試験は
+14 tests / 0 failures、2.836秒。両方 `--disable-sandbox --build-system native -debug-info-format none` を指定した。
+価格表、bit価格の量子化、未整列の一致長、position正規化、独立xz / 7zz oracle、
+writer / updater、並列LZMA2、nilレベルの凍結出力を検証した。全suiteは実行していない。
+今回のcommand・filter・結果は `.build/verification/speed-lzma-r3/test-summary.json`、logは同directoryの `targeted-release.log` / `targeted-debug.log` に保存する。
+過去の開発・試作試験の一覧は `.build/verification/speed-lzma/test-run-ledger.txt` に保存する。
 
 ### LZ4 frame encoder（2026-10-06）
 
