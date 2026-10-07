@@ -56,9 +56,11 @@ final class ParallelCompressionLifecycleTests: XCTestCase {
                 }
                 defer { release.signal() }
                 try await LZMA2ChunkPipelineTests.wait(started)
+                let start = ContinuousClock.now
                 task.cancel()
                 do { try await task.value; XCTFail("cancelled writer succeeded") }
                 catch { XCTAssertTrue(error is CancellationError, "\(error)") }
+                XCTAssertLessThan(start.duration(to: .now), .milliseconds(250), "\(format), duringAdd=\(duringAdd)")
                 // worker を止めたまま呼出側が戻ることを検証する。
                 XCTAssertEqual(completed.wait(timeout: .now()), .timedOut)
                 if format != .zip {

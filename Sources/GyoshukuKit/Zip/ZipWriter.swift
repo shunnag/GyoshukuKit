@@ -159,7 +159,9 @@ final class ZipWriter {
     func abort() {
         entryCancellation.cancel()
         entryPipeline?.abandonAndWait()
-        pipeline.abandonAndWait()
+        // 通常追加の block は Data だけを所有する。取消しは codec の完了を待たない。
+        // 一括追加の source descriptor は別の abandonAndWait() で回収する。
+        pipeline.abandon()
         waitingEntry = nil
         emittingEntry = nil
         emittingAES = nil

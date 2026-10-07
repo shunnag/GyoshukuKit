@@ -237,7 +237,9 @@ final class SevenZipWriter {
         aborted = true
         entryCancellation.cancel()
         entryPipeline?.abandonAndWait()
-        pipeline.abandonAndWait()
+        // chunk worker は入力 Data と結果だけを所有し、出力 file は呼出側だけが触る。
+        // 取消し時は結果を捨て、実行中の codec の完了を待たずに出力を無効化する。
+        pipeline.abandon()
         blocks?.abandon()
         // 出力先が置換されていても別の inode を削除しない。旧 inode の別名は truncate で無効になる。
         ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)
