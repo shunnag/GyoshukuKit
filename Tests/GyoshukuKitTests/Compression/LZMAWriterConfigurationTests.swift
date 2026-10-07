@@ -4,18 +4,20 @@ import XCTest
 
 final class LZMAWriterConfigurationTests: XCTestCase {
     func testPieceSizesMemoryBudgetAndPendingInputBounds() throws {
+        // 固定予算の値は別表に保持し、実装の解決結果から期待値を作らない。
+        // 3 GiB / 物理8 GiB。探索buffer縮小後はlevel 2 / 4 / 5 / 6が一枠増える。
+        let resolvedThreads = [64, 64, 63, 48, 39, 25, 25, 14, 5, 2]
+        let zipMiB = [1040, 1040, 1024, 784, 640, 416, 416, 240, 576, 576]
+        let sevenMiB = [1024, 1024, 1008, 768, 624, 400, 400, 224, 480, 384]
         for level in 0...9 {
             let options = WriterOptions(compressionMethod: .xz, lzmaLevel: level, memoryLimit: 3 << 30, compressionThreads: 64)
             let configuration = try LZMAWriterConfiguration(options: options, physicalMemory: 8 << 30)
             let piece = level == 9 ? 192 << 20 : level == 8 ? 96 << 20 : 16 << 20
             XCTAssertEqual(configuration.pieceSize, piece)
-            XCTAssertEqual(configuration.threads, min(64, Int((3 << 30) / configuration.memoryPerThread)))
+            XCTAssertEqual(configuration.threads, resolvedThreads[level], "level \(level)")
             XCTAssertLessThanOrEqual(UInt64(configuration.threads) * configuration.memoryPerThread, configuration.memoryBudget)
-            // 固定予算の値は別表に保持し、実装の解決結果から期待値を作らない。
-            let zipMiB = [1040, 1040, 1008, 784, 624, 400, 400, 240, 576, 576]
-            let sevenMiB = [1024, 1024, 992, 768, 608, 384, 384, 224, 480, 384]
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 8 << 30), UInt64(zipMiB[level]) << 20)
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), UInt64(sevenMiB[level]) << 20)
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 8 << 30), UInt64(zipMiB[level]) << 20, "level \(level)")
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), UInt64(sevenMiB[level]) << 20, "level \(level)")
         }
         let options = WriterOptions(lzmaLevel: 9, memoryLimit: .max, compressionThreads: 64)
         let configuration = try LZMAWriterConfiguration(options: options, physicalMemory: 4 << 30)

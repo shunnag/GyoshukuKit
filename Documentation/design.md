@@ -1137,7 +1137,9 @@ normal parser は posState の価格行と長さ5以上の距離価格を再利�
 BT4 の2 / 3 byte hash は SDK と同じ選択で延長を一度にまとめ、HC4 は二候補から best を先に得て chain を除外する。
 通常の advance は inline 化し、大きな表の正規化だけを別関数に分ける。bit 価格は0 / 1 の各2048確率を UInt8 の4 KiB表に展開し、
 lookup の shift / xor を省いた。symbol の入力位置・state・rep は pointer の書込みにまたがる local 値で保持する。
-`memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減り、MiB切上げの予算表と入力上界は変わらない。
+`memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減った。
+LZMA2のMiB切上げの予算表は変わらないが、raw level 0の同期予算は20から19 MiBになり、
+byte単位で解決する並列数と入力上界は予算境界で増える（下の統合時照合表を参照）。
 
 LZMA2 は最大 2 MiB の入力、64 KiB 以下の圧縮 byte に区切る。range coder を chunk ごとに flush し、
 辞書と確率 state は継続する。先頭 compressed chunk は辞書 / state / property を reset する。
@@ -1187,7 +1189,7 @@ extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、そ�
 
 | `lzmaLevel` | 辞書 MiB | LZMA2 encoder MiB | 片 MiB | LZMA2 1 thread の予算 MiB | raw LZMA1 の同期予算 MiB |
 |---|---:|---:|---:|---:|---:|
-| 0 | 0.25 | 5 | 16 | 37 | 20 |
+| 0 | 0.25 | 5 | 16 | 37 | 19 |
 | 1 | 1 | 10 | 16 | 42 | 25 |
 | 2 | 2 | 17 | 16 | 49 | 32 |
 | 3 | 4 | 31 | 16 | 63 | 46 |
@@ -1202,6 +1204,57 @@ extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、そ�
 短い入力では encoder の実確保が減りますが、検証・並列数解決は表の完全な辞書で行います。
 Appleのnilレベルの既存block経路は従来のbyteと16 MiB境界を維持し、この予算で内部並列数を変えません。
 新規のwriter項目/folder窓は、下の見積りと予算で別に並列数を解決します。
+
+2026-10-08の`speed/integrate`統合時に、base `f273d34`とHEAD `4d327a5`の式と64-bitの
+`MemoryLayout.stride`を照合した。通常preset、入力サイズ未知、LZMA2（`chunked: true`）、
+`memoryLimit = 3 GiB`、物理メモリ8 GiB、要求64 threadの結果は次のとおり。
+Eは`LZMAEncodingEngine.memorySize`、Mは`memoryPerThread = E + 2 × 片`（いずれもbyte）。
+tは`min(64, floor(3 GiB / M))`。右二列はHEADのZIP XZ / 非solid・filterなし7z LZMA2の入力上界。
+
+| level | E: base → HEAD byte | M: base → HEAD byte | t: base → HEAD | ZIP MiB | 7z MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 4,923,681 → 4,662,417 | 38,478,113 → 38,216,849 | 64 → 64 | 1040 | 1024 |
+| 1 | 10,428,705 → 10,167,441 | 43,983,137 → 43,721,873 | 64 → 64 | 1040 | 1024 |
+| 2 | 17,768,737 → 17,507,473 | 51,323,169 → 51,061,905 | 62 → 63 | 1024 | 1008 |
+| 3 | 32,448,801 → 32,187,537 | 66,003,233 → 65,741,969 | 48 → 48 | 784 | 768 |
+| 4 | 49,226,021 → 48,964,757 | 82,780,453 → 82,519,189 | 38 → 39 | 640 | 624 |
+| 5 | 95,363,365 → 95,102,101 | 128,917,797 → 128,656,533 | 24 → 25 | 416 | 400 |
+| 6 | 95,363,365 → 95,102,101 | 128,917,797 → 128,656,533 | 24 → 25 | 416 | 400 |
+| 7 | 187,638,053 → 187,376,789 | 221,192,485 → 220,931,221 | 14 → 14 | 240 | 224 |
+| 8 | 372,187,429 → 371,926,165 | 573,514,021 → 573,252,757 | 5 → 5 | 576 | 480 |
+| 9 | 674,177,317 → 673,916,053 | 1,076,830,501 → 1,076,569,237 | 2 → 2 | 576 | 384 |
+
+減少の内訳はoptimum / actionが`4096 × ((88 + 16) - (32 + 8)) = 262,144 byte`、
+matchが`274 × (16 - 8) = 2,192 byte`、bit価格表の増加が`4096 - 128 × 8 = 3,072 byte`。
+合計は`262,144 + 2,192 - 3,072 = 261,264 byte`。
+`LZMAMatchFinder.memorySize`のhash / son / CRCの式はbaseと同じで、match候補の縮小はengine側に計上する。
+辞書、片サイズ、probability、その他の価格表、range出力の初期容量も変わらない。
+
+HEADの`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
+Dは実効辞書、Hは`mask(for: D)`、lc / lpはproperties。各項は確保byte数と一致し、過少計上はない。
+
+| buffer | `memorySize`の項と確保byte数 |
+| --- | ---: |
+| window | `D + (chunked ? 2 MiB : 64 KiB) + 4369 + 64 KiB` |
+| finder.hash | `(H + 1 + 1024 + 65536) × 4` |
+| finder.son | `(D + 1) × (BT4 ? 8 : 4)` |
+| finder.crc | `256 × 4 = 1024` |
+| probs | `(1846 + (768 << (lc + lp))) × 2` |
+| bitPrices | `4096 × 1` |
+| lengthPrices / repLengthPrices | `2 × 16 × 272 × 8` |
+| distancePrices / slotPrices / alignPrices | `(4 × 128 + 4 × 64 + 16) × 8` |
+| matches | `274 × 8` |
+| opt / actions | `4096 × (32 + 8)` |
+| rc.outputの初期容量 | `131072` |
+
+range出力の伸長は`memoryLimit - required + 131072`以下（最大16 MiB）に制限する。
+writerのraw予約は初期容量との差`16 MiB - 131072`を追加し、LZMA2は64 KiBのpack limitで区切る。
+小さい`expectedSize`による実効辞書の縮小も、完全な辞書で算出したwriter予約の範囲内。
+ここで数えるのはcodec bufferのbyte数であり、allocatorの管理領域やプロセス全体のRSSではない。
+`EntryCompressionConfiguration`はMに入力16 MiB・spool 1 MiB・I/O 1 MiBを追加し、最大16項目に制限する。
+この条件ではZIP XZのblock上界`(t + 1) × 片`が項目窓の上界以上になる。
+`Tests/`のraw / lzip / level-9の並列数、`MulticoreWriterTests`の項目窓の期待値、
+`WriterOptions`の式とその他の固定上界も照合し、更新が必要なのは上の固定表とraw level 0の切上げ値だった。
 
 試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
 独立 oracle を使う。writer は tar.xz の xz / tar 展開、7z と ZIP の `7zz t / l -slt / x`、
