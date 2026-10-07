@@ -42,6 +42,8 @@ struct ZstdBitWriter: ~Copyable {
     }
 
     /// 呼出元が最大 bit 数+8 byte を予約した hot loop 専用。各回で完了 byte を吐く。
+    /// 新しい writer、または appendUnchecked だけを呼んだ writer に使う。
+    /// append はこの後に呼べるが、先に呼んではいけない。
     @inline(__always) mutating func appendUnchecked(_ value: Int, bits: Int) {
         assert(bits >= 0 && bits <= 56)
         assert(count <= 7 && value >= 0)

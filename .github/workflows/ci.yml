@@ -17,7 +17,8 @@ jobs:
       matrix:
         os: [macos-26, xcode-27]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    # debug suite と release の大入力試験に余裕を持たせる。
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
@@ -44,3 +45,14 @@ jobs:
         run: swift build --build-tests
       - name: Test
         run: swift test --skip-build
+      - name: Build release tests
+        run: swift build -c release --build-tests -Xswiftc -enable-testing
+      - name: Large encoder tests (release)
+        # FullSize 14 件は debug suite では opt-in。Mac mini M4 では
+        # release build が約 2.5 分、14 件の実行が 127 秒だった。
+        env:
+          GYOSHUKU_LARGE_ENCODER_TESTS: '1'
+        run: |
+          set -o pipefail
+          swift test -c release --skip-build -Xswiftc -enable-testing --filter FullSize 2>&1 | tee "$RUNNER_TEMP/large.log"
+          grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/large.log" || exit 1

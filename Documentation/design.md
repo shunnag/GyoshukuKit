@@ -1092,7 +1092,7 @@ bsdtar の展開、7zz t を検査する。該当 entry の削除後は 7zz x �
 Archive Utility による LZMA2 header。試験と計測、sandbox で実行できなかった項目は
 [検証記録](verification/2026-09-26-p5g-sevenzip-updater.md) に記載する。
 
-### 自前 LZMA encoder（2026-10-06）
+### 自前 LZMA encoder（2026-10-07）
 
 `Compression/LZMA/` は internal の raw LZMA1 encoder と、その上の LZMA2 chunker。
 `LZMAEncoderProperties`、`LZMAEncoder`、`LZMA2Encoder` は ZIP method 14 / 7z LZMA と
@@ -1229,20 +1229,22 @@ text の level 6 速度は xz の 93.1%（目標 40% 以上）、level 1 / 6 は
 
 release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests と追加 2 tests、release benchmark を検証済み。
 通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
-検証時の log は `.build/verification/lzma-encoder-run/`、oracle の書庫と log は `.build/verification/lzma-encoder-oracles/` に保存する。
+再検証は上の `LZMAEncoder` filter を使い、元の大入力には `GYOSHUKU_LARGE_ENCODER_TESTS=1` を指定する。
+oracle の書庫と log は試験が生成する（保存先は Tests/README.md を参照）。
 
 2026-10-07 の単一thread速度改善を非XCTestハーネスで再計測した（Apple M4 Max / 128 GB、Swift 6.4、xz / liblzma 5.8.4）。
-基準版 `f273d34` と HEAD `926d828` の source をそれぞれ取り出し、同じ
+基準版 `f273d34` と改善版 `926d828` の source をそれぞれ取り出し、同じ
 `swiftc -O -wmo -swift-version 6 -module-cache-path "$PWD/.build/clang-module-cache"` でコンパイルした。
 `-enable-testing` は使わない。上と同じtext / binaryの保存済みcorpusを使い、level 1 / 3 / 6 / 9を
-同じloop内で基準版・HEAD・xzの順序を6通りに入れ替えて7巡し、各条件の最速（best-of-7）を選んだ。
+同じloop内で基準版・改善版・xzの順序を6通りに入れ替えて7巡し、各条件の最速（best-of-7）を選んだ。
 各sampleは別processで実行し、追加のwarmupはしない。Swiftはraw LZMA2の確保・符号化・解放を計時し、入力読込と出力保存は除く。
 xzは `xz -k -T1 -<level> --format=xz <input>` のwall timeで、process起動・file I/O・XZ framingとchecksumを含む。
+Swift は process 内の計時、xz は process 全体の wall timeなので、ほぼ同等の行ではこの差がSwiftに数%有利に働く。
 表の速度は MB/s（1,000,000 byte/s）、Swift byteはraw、xz byteはXZ container全体なのでsizeの直接比較には使わない。
 負荷平均（1 / 5 / 15分）は開始3.99 / 3.79 / 4.50、終了4.59 / 4.29 / 4.54、sample前の範囲は
 3.55〜5.64 / 3.78〜4.46 / 4.48〜4.63だった。共有機の負荷による揺れを含む。
 
-| corpus | level | 基準 MB/s | HEAD MB/s | xz MB/s | Swift raw byte（両版） | xz container byte |
+| corpus | level | 基準 MB/s | 改善 MB/s | xz MB/s | Swift raw byte（両版） | xz container byte |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | text | 1 | 23.216 | 56.104 | 45.394 | 1,024,529 | 1,024,580 |
 | text | 3 | 4.850 | 19.900 | 19.956 | 939,624 | 939,672 |
@@ -1253,15 +1255,18 @@ xzは `xz -k -T1 -<level> --format=xz <input>` のwall timeで、process起動�
 | binary | 6 | 5.413 | 6.548 | 6.647 | 4,615,940 | 4,623,816 |
 | binary | 9 | 5.384 | 6.403 | 6.256 | 4,612,054 | 4,620,604 |
 
-level 9の基準版比はtext 1.214倍 / binary 1.189倍。1.2倍以上の速度改善はtextで達成し、binaryは未達だった。
+level 9の基準版比は最速値でtext 1.214倍 / binary 1.189倍、中央値ではtext 1.171倍 / binary 1.211倍。
+両corpusとも約1.2倍で、1.2倍以上という達成判定は負荷と採用する統計量に依存する。
 対xzの速度超過はlevel 1の両corpus（1.236倍 / 1.118倍）で達成し、level 3はbinaryの今回の最速値で1.061倍（小差で負荷依存）だった。
 level 3のtextはxzの99.7%でほぼ同等・負荷依存。level 2は今回未計測で、levels 1〜3全体の達成とはしない。
 level 6の対xzはtext 105.6% / binary 98.5%、level 9は102.5% / 102.3%。約5%の小差はほぼ同等・負荷依存と扱う。
 測定した8条件のSwift出力は両版・全7回でbyte一致し、基準版からのsize増加0%を達成した。
 計測後に両版のrawとxzの計24出力を独立xzで復号し、corpusの全byteに一致した。
-ハーネスと比較scriptは `.build/verification/speed-lzma-r3/benchmark-harness.swift` / `measure.py`、
-ビルドcommand・source / corpusのSHA-256・負荷は `manifest.json`、全168 sampleは `samples.jsonl`、最速値は `summary.json` に保存する。
-round 1のrelease XCTest / `-enable-testing`計測は `.build/verification/speed-lzma/paired-shipping-*` に残し、速度比較はこの再計測を用いる。
+現行版の計測・oracle 照合は上の `GYOSHUKU_LZMA_BENCHMARK=1` で再実行できる。
+表と同じ非XCTest比較を再生成するには、両commitの `Compression/LZMA/` のSwift sourceを別々に上記commandでビルドし、
+`LZMAEncoderCorpus.text` と同じtext・記載したMach-O連結を保存して、`LZMA2Encoder.encode` の計時とxzを上記の順序で7巡する。
+全sample・source / corpusのSHA-256・負荷を記録し、最速値と中央値を分けて集計する。
+速度比較はこの同一 `-O -wmo` 条件を使い、round 1のrelease XCTest / `-enable-testing`計測とは混ぜない。
 
 2026-10-07 の LZMA1 並列 finder 試作は public-domain の `C/LzFindMt.c` の block 受渡しを参考に、
 `Thread` と semaphore、4096位置の二つの block で実装した。65536 byte の追加入力と window 移動にまたがる
@@ -1269,15 +1274,15 @@ pause / resume、終端273 byte、memory budget、cancel / abandon を検証し�
 しかし実際の raw LZMA1 streaming の level 6、best-of-5 では text が3.424 → 4.494 MB/s（1.312倍）、
 binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満たさなかった。
 固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
-指示された条件に従い並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
+採用条件を満たさず並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
 raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
 
-2026-10-07（round 3、HEAD `926d828`）の release targeted suite は52 tests / 0 failures、115.680秒。debug の短い通常試験は
+2026-10-07（round 3、改善版 `926d828`）の release targeted suite は52 tests / 0 failures、115.680秒。debug の短い通常試験は
 14 tests / 0 failures、2.836秒。両方 `--disable-sandbox --build-system native -debug-info-format none` を指定した。
 価格表、bit価格の量子化、未整列の一致長、position正規化、独立xz / 7zz oracle、
 writer / updater、並列LZMA2、nilレベルの凍結出力を検証した。全suiteは実行していない。
-今回のcommand・filter・結果は `.build/verification/speed-lzma-r3/test-summary.json`、logは同directoryの `targeted-release.log` / `targeted-debug.log` に保存する。
-過去の開発・試作試験の一覧は `.build/verification/speed-lzma/test-run-ledger.txt` に保存する。
+現行版の再検証は `LZMA|TarXZ|TarLZMA|Lzip|SevenZip.*LZMA|Zip.*LZMA|XZPackingLayout` をfilterにし、
+大入力を含める場合は `GYOSHUKU_LARGE_ENCODER_TESTS=1` とreleaseを指定する。過去版の件数・秒数は当時の試験構成による。
 
 ### LZ4 frame encoder（2026-10-06）
 
@@ -1527,8 +1532,9 @@ round 3 の再計測は2026-10-07、Apple M4 Max / Swift 6.4、導入済みの 7
 `7zz t` / `7zz x -so` / properties の確認は loop 後に一度だけ行う。MB/s は 1,000,000 byte/s。
 測定中にこの作業の build / test は重ねていないが、Mac の他の負荷はある。
 load average（1 / 5 / 15 分）は開始 3.99 / 3.79 / 4.50 → 終了 4.94 / 4.15 / 4.57。
-12条件の計測・照合は82.146秒、記録は `.build/ppmd-r3/benchmark.json` と `build.json`。
+12条件の計測・照合は82.146秒。build・全試行・参照propertiesの記録は、下の `Benchmarks/PPMd/run.py --runs 11` で再生成できる。
 Swift は model allocation / payload 生成 / finish、7zz は起動 / file I/O / archive 作成を含む wall time。
+Swift は process 内、7zz は process 全体の計時なので、ほぼ同等の行では起動・file I/Oの差がSwiftに数%有利に働く。
 入力準備、CRC / container の組立、復号 oracle は計測外。SDK の内部 loop だけの速度比較ではない。
 round 1 の XCTest `-enable-testing` baseline は旧版を不均等に遅くしたため、その速度表と倍率を撤回した。
 `GYOSHUKU_PPMD_BENCHMARK=1` の XCTest は参照との照合用として残すが、旧版との倍率には使わない。
@@ -1559,7 +1565,7 @@ H の order は 3 / 6 / 16、I は 3 / 8 / 16、heap は両方 1 / 16 / 192 MiB�
 level 6 の旧比は H が text 2.044 倍 / binary 2.038 倍、
 I が text 2.169 倍 / binary 2.113 倍。
 H level 6 の新 / 7zz 比は text **120.7%** / binary **101.1%**（丸める前の速度から算出）。
-binary は reviewer の交互計測の約100～102%とも整合し、7zz とほぼ同等で負荷に依存する。
+binary は 7zz とほぼ同等で負荷に依存する。
 I level 6 の binary 比は98.6%。他の環境での速度の下限を保証する値ではない。
 表の出力は全て旧版と同一。参照と同じ heap の level 1 / 6 は 7zz のサイズにも一致した。
 
@@ -1571,20 +1577,23 @@ suffix escape 全体は約77% / 約59% で、探索・mask 合計・range coder�
 CreateSuccessors は update の内数、update の一部は suffix の内数なので、これらの割合は加算しない。
 text の model update は H 5,279 回 / I 7,812 回（約0.2% / 約0.4%）に留まり、binary / first-state の経路が中心。
 
-round 1 の debug 記録は **前後の実行が重なり、他の oracle も同時実行された参考値**。
+導入時のrelease 6件は55.7秒で成功し、元の大入力と両復元方法を全て照合した。
+導入時のdebug大入力2件も成功した（約26分）。大きなcorpusの照合にはreleaseを推奨する。
+encoder 高速化の round 1 の debug 記録は **前後の実行が重なり、他の oracle も同時実行された参考値**。
 逐次実行の速度比較として扱わない。encoder 単体（`-Onone` harness、8 MiB random、order 6 / 16 MiB、1 回）は
 H 239.118 → 43.602 秒、I 250.084 → 57.227 秒、出力はそれぞれ 8,580,567 / 8,591,123 byte で一致した。
 `PPMdEncoderTests` は旧版 6 件成功 1941.041 秒 → round 1 の 6 件成功 1586.002 秒。
 `testLargeTextAndRandom` は 1243.960 → 983.561 秒、20 MiB restoration 試験は 681.143 → 590.132 秒だった。
 KaitoKit の復号・CRC / container の準備を含み、同時負荷も異なるため改善率は算出しない。
 この debug の 36 書庫も旧版と全 byte 一致した。前後の生成書庫は別 directory に保存して照合した。
-round 2 の debug は旧版との速度比較を行わず、properties / 小入力・order 上下限 / 分割 write・失敗後の拒否 /
+encoder 高速化の round 2 の debug は旧版との速度比較を行わず、properties / 小入力・order 上下限 / 分割 write・失敗後の拒否 /
 writer options の4件を逐次実行し、7.227秒で全件成功した（`-Onone`、`-enable-testing`、debug情報なし）。
-導入時のrelease 6 testsは55.7秒で成功し、元の大入力と両復元方法を全て照合した。
-導入時のdebug大入力2 testsも成功した（約26分）。大きなcorpusの照合にはreleaseを推奨する。
-round 1のDEBUG実測は対象classのbest-of-5合計5,421.581 s → 974.804 s（82.0%短縮、5.56倍）。
-5並列のXCTest時間で、全suiteの壁時計ではない。既定coverageとround 2の再計測は [検証記録](verification/2026-10-07-encoder-debug-speed.md) に置く。
-oracle 書庫と log は `.build/verification/ppmd-{small,large,restoration,compression}-{debug,release}/` に残す。
+
+別の試験側の高速化は、encoder sourceを基準版のまま保ち、既定入力の縮小とoracle処理の共有を行った。
+そのround 1のDEBUG実測は、PPMd以外も含む対象classのbest-of-5合計5,421.581 s → 974.804 s（82.0%短縮、5.56倍）。
+5並列のXCTest class時間の合計で、全suiteの壁時計やPPMd単独のthroughputではない。
+既定coverage・試験側のround 2 / 3の再検証・再計測用runnerは [検証記録](verification/2026-10-07-encoder-debug-speed.md) を参照する。
+PPMd のoracle書庫とlogは下のfilterで再生成する。8 classのFullSize 14件はCIの両runnerでもrelease実行する。
 
 ```sh
 swift build
@@ -1593,24 +1602,23 @@ git diff --stat
 # cache が sandbox 外になる環境の検証用。製品の実行条件ではない。
 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox
 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter PPMd
-# 大きな corpus を高速に照合する場合
-CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release --filter PPMd
+# 元の大きな corpus を照合する場合
+GYOSHUKU_LARGE_ENCODER_TESTS=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release --filter PPMd
 # Swift 6.4 の swiftbuild が dSYM 作成を禁止される環境では debug 情報を省略できる。
-CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox -c release -debug-info-format none --filter PPMd
+GYOSHUKU_LARGE_ENCODER_TESTS=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release -debug-info-format none --filter PPMd
 # XCTest の参照比較（-enable-testing。旧版との速度倍率には使わない）
 GYOSHUKU_PPMD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
   swift test --disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none \
   --filter PPMdEncoderBenchmarkTests
 # 非 XCTest、同一 -O -wmo の release。build / bench / identity を逐次実行する。
 python3 Benchmarks/PPMd/run.py --runs 11
-# round 3 の交互計測（source は変更せず、build 後に bench のみ実行）
-python3 Benchmarks/PPMd/run.py --mode build --directory .build/ppmd-r3 --runs 11
-python3 Benchmarks/PPMd/run.py --mode bench --directory .build/ppmd-r3 --runs 11
 # overhead を含む stage 診断（速度の表には使わない）
 python3 Benchmarks/PPMd/run.py --mode profile
 ```
 
-### 自前 Zstandard frame encoder（2026-10-06）
+### 自前 Zstandard frame encoder（2026-10-07）
 
 `Compression/Zstd/ZstdFrameEncoder.swift` の internal `ZstdFrameEncoder` は、RFC 8878 の frame を純 Swift で書く。
 同期 API は `write(_:finish:emit:)`、独立 frame を作る helper は `encode(_:level:)`。
@@ -1630,7 +1638,8 @@ repeat offset の初期値 1 / 4 / 8、LL=0 の規則、rep1-1、compressed bloc
 raw / RLE block は repeat offset を変更しない。treeless Huffman、sequence Repeat_Mode、dictionary、ultra は生成しない。
 
 以下は GyoshukuKit 独自の level 表で、参照実装の preset を転記していない。
-fast / double hash は unaligned 8 byte load の主 hash と4 byteの補助 hash を一回ずつ調べる greedy 解析。
+fast は8 byte loadから5 byteをhashする主表とprefix tag、直近のrepeatを調べる専用解析。
+double hash は unaligned 8 byte load の主 hash と4 byteの補助 hash を一回ずつ調べる greedy 解析。
 不一致区間は適応サンプリングし、一致内の辞書更新は低 level ほど間引く。
 lazy / lazy2 は8 byte / 4 byteの循環 row table と1 / 2 byte先読みを使う。
 row は16 / 32 / 64 / 128候補、tag は `SIMD16<UInt8>` / `SIMD32<UInt8>` で比較し、新しい候補から調べる。
@@ -1710,8 +1719,10 @@ GYOSHUKU_ZSTD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cach
 git diff --stat
 ```
 
-実測（2026-10-07、Apple M4 Max / 128 GB、macOS 27.2、Apple Swift 6.4、Zstandard CLI 1.5.7）。
-基準は `f273d34` の変更前 source。最初に既存 `ZstdEncoderBenchmarkTests` を `.build-base` の release で計測し、
+#### Zstandard 高速化 round 1（2026-10-07）
+
+実測（Apple M4 Max / 128 GB、macOS 27.2、Apple Swift 6.4、Zstandard CLI 1.5.7）。
+基準は `f273d34` の変更前 source。最初に既存 `ZstdEncoderBenchmarkTests` を基準版の release で計測し、
 最低5回のベンチマーク、変更版の targeted test と連続比較も行った。並行 workstream の負荷で CLI の値も変動するため、
 下表は追加の同一 process 計測を使う。基準版は型名だけを `BaselineZstd...` に変更して同じ program に組み込み、
 両 source を `swiftc -O -whole-module-optimization` で build。入力を一度読み、条件ごとに両 encoder を交互に5回実行した最良値。
@@ -1739,7 +1750,7 @@ level 3: text 43.0%、binary 31.4%。
 
 全19 level・両 corpusの38条件で、変更後のサイズ増加は最大 +0.222916%（binary level 9）。
 level 3の CLI サイズ +10%以内、level 19の +8%以内も達成。level 13...19の frame サイズは基準と同じ。
-全サイズは `.build/zstd-size-comparison.tsv`、速度は `.build/zstd-accepted-paired.tsv` に保存。
+サイズ・速度は、両commitのSwift sourceを上記の同一programに組み込み、全19 levelを交互に実行して再生成する。
 
 最適化は fast の8 / 4 byte hash 専用経路、repeat の3 byte一括判定、row の SIMD tag 比較と lazy2 の探索省略、
 optimal の node / 長さ価格表の再利用と候補ごとの配列生成廃止。sequence code は確保済み buffer に書き、
@@ -1765,16 +1776,17 @@ file I/O・checksum・frame組立・公開処理を含む5回の最良値を、�
 変更版の12 threadは1 thread比で `.zst` 6.546倍、`tar.zst` 6.407倍。線形ではないが並列数で伸びる。
 XXH64とencoder内の入力copyは元からworkerで実行される。producerには片の組立copyがあるが、
 今回明らかなserial checksumは見つからず、`ParallelZstdCompressor` / 共通pipelineは変更していない。
-並列測定 logは `.build/zstd-parallel-final-{base,new}.log`。tarのsource timestampは各runで生成されるfileのmtimeを使う。
+並列測定は `GYOSHUKU_ZSTD_PARALLEL_BENCHMARK=1` とreleaseの `ZstdParallelBenchmarkTests` filterで再実行する。
+tarのsource timestampは各runで生成されるfileのmtimeを使う。
 
-最終版の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+round 1 の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
 `CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdEncoderBenchmarkTests` / `ZstdParallelBenchmarkTests` の
 26件成功・失敗0・117.727秒。debugの高速testは13件成功・失敗0・13.947秒。
 その後の並列benchmarkは基準1件50.144秒、変更1件33.007秒で成功。
-全実行履歴と正確なtest名は `.build/zstd-validation-report.md` に保存。全test suiteは走らせていない。
+再検証は上記classのfilterを使い、大入力を含める場合は `GYOSHUKU_LARGE_ENCODER_TESTS=1` を指定する。全test suiteは走らせていない。
 fixtureは再生成・変更せず、public APIと取消し・進捗・error処理の経路を変えていない。
 測定はこのMacの二つのcorpusのみで、別入力の速度・比率、Intel Macは未測定。並行負荷による揺れは残る。
-`git diff --check` は成功。変更は未commitのまま残す。
+当時の `git diff --check` は成功。
 
 #### Zstandard 高速化 round 2（2026-10-07）
 
@@ -1796,8 +1808,7 @@ Apple M4 Max、macOS 27.2（26B5101f）、Apple Swift 6.4、CLI 1.5.7。
 text の50%と binary level 3の40%は達成。binary level 1の40%は未達で、あと約29%の速度向上が必要。
 60%の stretch は全条件で未達。round 1比では text 1 / 3が1.180 / 1.238倍、binary 1 / 3が1.478 / 1.287倍。
 binary level 3の達成幅は小さく、別の負荷・corpus で40%を保証する値ではない。
-速度表と全 sample・load は `.build/zstd-r2/final-speed.tsv` / `final-runs.json`、
-harness と build command は `.build/zstd-r2/final-measure.swift` / `build.py`、source hash は `source-manifest.json` に保存する。
+同じ比較は基準・round 1・round 2のsourceを上記の非XCTest条件でビルドし、全sampleと負荷を記録して再生成する。
 
 | corpus | level | 基準 bytes | round 1 bytes | round 2 bytes | CLI bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -1811,7 +1822,7 @@ harness と build command は `.build/zstd-r2/final-measure.swift` / `build.py`�
 全19 level・両 corpus の38条件で基準比 +0.3%以内。最大は binary level 9の +0.222916%。
 level 3の CLI サイズ +10%以内、level 19の +8%以内も保つ。
 level 1の出力は round 1より大きいが、基準比は text −1.550126%、binary +0.048176%。
-全サイズは `.build/zstd-r2/sizes.tsv` に保存する。サイズ確認用の1回実行の速度は性能値に使わない。
+全サイズは全19 levelの各版とCLIのframe byte数から再生成する。サイズ確認用の1回実行の速度は性能値に使わない。
 
 level 1 / 2は8 byte load から5 byteを hash し、二位置の head 読取・更新を先行させる。
 fast / double hash の表を loop 全体で借り、一致内の挿入をまとめる。短い周期は最後の一周期と境界の挿入だけで同じ表を保つ。
@@ -1832,7 +1843,7 @@ window・pending input・worker予約・checksum・並列pipelineの契約は変
 repeatを一つだけにする案も binaryサイズを約2.6%悪化させた。lazy先読みはサイズを改善したが速度を落とした。
 FSE表の再利用、sequence配列の一括初期化、repeatの不一致mask化も十分な改善がなく戻した。
 binary level 1には引き続き match+parseが最大の時間を占め、XXH64は約1 ms / 20 MiBなので変更していない。
-これらの比較・段階 profile は `.build/zstd-r2/` の個別logに保存する。
+段階profileは `collectProfile: true` の別encodeで再生成し、計時callbackなしの速度計測と分ける。
 
 最終 source の段階 profile（同じ非 XCTest build、各1回、binary 全体の経過 ms）。
 計時用 callback を有効にした値で、7回測定の性能表とは区別する。
@@ -1846,7 +1857,7 @@ binary level 1には引き続き match+parseが最大の時間を占め、XXH64�
 | 3 | literals（集約を含む） | 18.933 | 13.405 |
 | 3 | sequences | 33.063 | 22.058 |
 
-最終版の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+round 2 の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
 `CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdParallelBenchmarkTests` の28件成功・失敗0・53.823秒。
 `--disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none` を使う。
 この XCTest の速度値は上の非 XCTest 性能表に使わない。`.zst` / `tar.zst` の256 MiB入力で
@@ -1855,8 +1866,8 @@ debugの対象10件は成功・失敗0・14.145秒。新規試験は二位置loo
 一様literalのraw選択、offset code 30と61 bit extraの予約済み出力を含む。
 全19 level・両 corpus・基準 / round 1 / round 2の114 frameをCLIで全 byte復号照合し、
 交互測定で保存した12 frameも同じ出力と照合した（CLIサイズ確認を含め7.712秒）。
-検証結果は `.build/zstd-r2/validation.json`、test logは `final-{release,debug}-tests.log`。
-fixtureは変更せず、全suiteは走らせていない。新規変更は未commitのまま残し、提案messageは `.build/speed-commit-message-r2.txt`。
+同じclassとopt-inで試験・oracle出力を再生成できる。過去版の件数・秒数は当時の試験構成による。
+fixtureは変更せず、全suiteは走らせていない。
 
 #### Zstandard 高速化 round 3（2026-10-07）
 
@@ -1881,7 +1892,8 @@ Apple M4 Max / macOS 27.2（26B5101f）/ Apple Swift 6.4。
 | mixed | 2 | 222.458 | 462.134 | 613.266 | 1032.400 | 59.4% |
 | mixed | 3 | 126.347 | 386.194 | 397.444 | 799.800 | 49.7% |
 
-binary L1の40%、binary L3の40%、text L1/L3の50%を全て満たす。
+binary L1のCLI比はこの計測で41.8%、独立再計測では39.4%だった。約40%の目標境界にあり、達成判定は負荷に依存する。
+binary L3の40%、text L1/L3の50%はこの計測で満たした。
 binary L1の50% stretchは未達。値はこのMac・三つのcorpus・測定時の負荷に限る。
 L1/L2の予算は各corpusで基準比 +2.0%以内かつ同levelのCLI以下、L3以上は基準比 +0.3%以内。
 全19 level × 3 corpusの57条件で成立した。L1/L2の最大増はbinary L1の +1.740389%、
@@ -1907,7 +1919,7 @@ L3以上の最大増はbinary L9の +0.222916%。L3のCLI比 +10%、L19の +8%�
 区間番号/4 × 261,632 byteを開始位置として末尾で循環する。日時・uid/gidは0、modeは0644。
 SHA-256は `c173284311befae01e348b2d953d039d5a3493dd7f1e4de5ea79ee6631af7cf9`。
 textは4,194,304 bytes、binaryはdyld 4,129,088 + CreateML 16,559,504 = 20,688,592 bytes。
-全corpusのhashは `validation.json` に記録する。
+再計測時は `ZstdEncoderCorpus.mixed` と同じ入力を保存し、text / binaryも含めてSHA-256を記録する。
 
 | mixed level | 基準 bytes | round 2 bytes | round 3 bytes | CLI bytes | 基準比 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -1946,7 +1958,7 @@ L1/L2のFSEだけは最大log 7（128 state）で一候補を評価し、表の�
 大きい表の二候補を評価する版よりbinaryのsequence table時間が減り、サイズの緩和分で収まった。
 6-byte hash、強いmiss間引き、rep0だけを同位置で調べる案はサイズ超過、
 一致内を常に4 byte間隔で挿入する案やhashの二位置更新は十分な速度増がなく採用していない。
-段階ごとの7回交互測定・profileは `.build/zstd-r3/` の個別logに残す。
+段階ごとの比較は各案を同じ非XCTest条件で7回交互に測定し、profileは別encodeで再生成する。
 
 最終sourceの段階profileは同じ非 XCTest buildで、計時callbackありの各level一回、binary全体の経過ms。
 7回の最良値による速度表とは区別する。
@@ -1969,6 +1981,9 @@ L1/L2のFSEだけは最大log 7（128 state）で一候補を評価し、表の�
 | 3 | sequence tables | 4.626 | 5.671 |
 | 3 | literal bits | 4.174 | 1.690 |
 
+L3のsequence tablesの4.626 → 5.671 msは単回計測の揺れとして扱う。
+L3のtable codeは変更しておらず、frameもround 2とbyte一致しているため、この値だけで処理の退行とはしない。
+
 最終検証はreleaseの `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
 `CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdParallelBenchmarkTests` が30件成功・失敗0・54.703秒（build 86.35秒）。
 `--disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none` と並列benchmarkのopt-inを使う。
@@ -1978,13 +1993,15 @@ L1/L2のFSEだけは最大log 7（128 state）で一候補を評価し、表の�
 L1/L2の64 MiB・16 frameとL3の256 MiB `.zst` / `tar.zst` で、1 / 4 / 8 / 12 thread間のbyte一致が成立する。
 基準・round 2・round 3・CLIの全levelの228 frameをCLI `-t` / `-dc` で全byte照合し、
 最終交互測定の27 frameも同じ出力と照合した（計255 frame、CLIサイズ生成込み36.572秒）。
-fixtureは変更せず、全suiteは実行していない。新規変更は未commit。
+fixtureは変更せず、全suiteは実行していない。
 
-再現用harness/buildは `.build/zstd-r3/{final-measure,final-size,measure}.swift` / `build.py`、
-最終sample/loadは `final-runs.json` / `final-speed.tsv`、全サイズは `sizes.tsv`、
-source hashは `source-manifest.json`、復号は `verify.py` / `validation.json`、
-profileは `final-profile.log`、試験は `{release,debug}-tests.log`。
-提案日本語commit messageは `.build/speed-commit-message-r3.txt`。
+現行版の全levelのサイズ・速度・段階profile・必須oracle照合は、
+`GYOSHUKU_ZSTD_BENCHMARK=1 GYOSHUKU_ZSTD_ALL_LEVELS=1` とreleaseの `ZstdEncoderBenchmarkTests` filterで再生成する。
+XCTestには `-Xswiftc -enable-testing` を指定し、上の非XCTest表との数値を混ぜない。
+表と同じ旧版比較には、`f273d34`・`914f6c0`・`4011086` の `Compression/Zstd/` のSwift sourceを取り出し、
+型名・helper名だけを変えて上記commandで一つのprogramに組み込む。三つのcorpusを固定し、
+全19 levelのframeを保存・CLI復号照合し、速度の7回交互測定とprofileの単回encodeを別々に行う。
+全sample・負荷・source / corpusのSHA-256を記録し、最速値とframe byte数を集計する。
 
 ### Zstandard の writer 接続（2026-10-06）
 

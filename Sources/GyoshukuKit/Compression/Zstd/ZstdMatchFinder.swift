@@ -164,9 +164,11 @@ final class ZstdMatchFinder {
         }
         return match
     }
-    // fast の走査中は二つの辞書表を一度だけ借りる。
+    // double hash の走査中は二つの辞書表を一度だけ借りる。
     func withFastTables<R>(_ body: (UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt32>) -> R) -> R {
-        body(heads, shortHeads)
+        // .fast は shortHeads を確保しない。
+        assert(p.strategy != .fast)
+        return body(heads, shortHeads)
     }
     // fast の tag は衝突時の入力 load を省く。実一致と履歴範囲は別途検証する。
     func withFastHeads<R>(_ body: (UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt8>) -> R) -> R { body(heads, fastTags!) }
@@ -176,6 +178,8 @@ final class ZstdMatchFinder {
     /// greedy 専用。探索深さ1/2の候補を直接返し、strategy 分岐と scratch 書込を省く。
     @inline(__always) func fastMatch(_ cur: UnsafePointer<UInt8>, position: Int, available: Int,
                                     hashLog: Int, window: Int, niceLength: Int) -> ZstdMatch {
+        // .fast は shortHeads を確保しない。
+        assert(p.strategy != .fast)
         let raw = UnsafeRawPointer(cur), word = raw.loadUnaligned(as: UInt32.self)
         let h: Int
         if available >= 8 {
@@ -210,6 +214,8 @@ final class ZstdMatchFinder {
     }
     @inline(__always) func insertFast(_ cur: UnsafePointer<UInt8>, position: Int, available: Int,
                                      hashLog: Int) {
+        // .fast は shortHeads を確保しない。
+        assert(p.strategy != .fast)
         guard available >= 4 else { return }
         let raw = UnsafeRawPointer(cur), word = raw.loadUnaligned(as: UInt32.self)
         let h: Int

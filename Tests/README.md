@@ -53,13 +53,12 @@
 
 | 鍵 | 開く試験 | 内容・条件 |
 |---|---|---|
-| `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 8 class の `…FullSize` 14 件 | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅を保持する。既定の境界・復旧検査と実測は [検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) |
+| `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 8 class の `…FullSize` 14 件 | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅を保持する。CI は両 runner で release 実行する。既定の境界・復旧検査と実測は [検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) |
 | `GYOSHUKU_ENCODER_TIMING=1` | ✱ `EncoderWriterOverheadProbeTests`・工程の計測 | probe は Copy / file I/O の対照を測る。`ENCODER_PHASE`、工程名、秒、入力 byte、出力 byte を TSV で出す。encoder / writer、corpus、KaitoKit、oracle、CRC、Data append を分ける |
 | `GYOSHUKU_ENCODER_BENCHMARK_RUN=<label>` | skip しない。計測 process の分離 | 出力を `.build/verification/encoder-speed/<label>/` に置く。before / after の反復で一時 file を共有しない |
-| `GYOSHUKU_ZSTD_BENCHMARK=1` | ✱ `ZstdEncoderBenchmarkTests` | 自前 frame / zstd の level 1・3・9・19、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須 |
 | `GYOSHUKU_LZMA_BENCHMARK=1` | ✱ `LZMAEncoderBenchmarkTests` | 自前 LZMA2 / xz / Apple の level 1・6・9、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須。design.md の自前 LZMA encoder 節 |
 | `GYOSHUKU_PPMD_BENCHMARK=1` | ✱ `PPMdEncoderBenchmarkTests` | var.H / var.I と 7zz single-thread、level 1・6・9、8 MiB 英文風 text と実在 Mach-O（最大 16 MiB）。order / restart を指定し 7zz の実 heap も記録する best-of-5 の TSV。`-c release` 必須。design.md の PPMd 節 |
-| `GYOSHUKU_ZSTD_BENCHMARK=1`（任意で `GYOSHUKU_ZSTD_ALL_LEVELS=1`） | ✱ `ZstdEncoderBenchmarkTests` | 4 MiB text / 実在Mach-O / 固定seedの16 MiB tar風混合入力、level 1・3・9・19（または全19 level）、最低5回の最良値、必須zstd / KaitoKit復号 |
+| `GYOSHUKU_ZSTD_BENCHMARK=1`（任意で `GYOSHUKU_ZSTD_ALL_LEVELS=1`） | ✱ `ZstdEncoderBenchmarkTests` | 4 MiB text / 実在Mach-O（最大32 MiB）/ 固定seedの16 MiB tar風混合入力、level 1・3・9・19（または全19 level）、最低5回の最良値、必須zstd / KaitoKit復号。`-c release` 必須 |
 | `GYOSHUKU_ZSTD_PARALLEL_BENCHMARK=1` | ✱ `ZstdParallelBenchmarkTests` | 上のtext / Mach-O連結を繰り返した256 MiB、公開 `.zst` / `tar.zst` writerを1 / 4 / 8 / 12 threadで最低5回、file I/Oを含む。thread間byte一致と必須zstd検査 |
 | `GYOSHUKU_LARGE_ZIP_TESTS=1` | `ZipReencryptionBoundaryTests` の `testLarge…` 3 件 | 300 MiB の payload と、ZIP32 の上限（4 GiB）をまたぐ再暗号化。10 GiB 以上の空き |
 | `GYOSHUKU_LARGE_TAR_TESTS=1` | `CompressedTarWriterTests.testEntryLargerThanFourGiB…` | 4 GiB を越える entry。6 GiB 以上の空き |
@@ -103,6 +102,8 @@ ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
 - CI（`.github/workflows/ci.yml`）は `brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake` と
   固定commitの LHa for UNIX の一時ビルドで必須ツールを入れる。製品の依存には加えない。
+  両 runner で既定の debug suite の後に release の test をビルドし、`GYOSHUKU_LARGE_ENCODER_TESTS=1` と
+  `--filter FullSize` で大入力の14件を実行する。実行件数0も失敗にする。
 
 `LHACompressionMethodTests` は Lhasa・7zz に加えて `~/.local/bin/lha-unix`（LHa for UNIX）を必須にする。
 `--help` の `o[567]` を確認して `-ao62` / `-ao72` で逆方向の書庫も作る。未導入なら失敗する。
