@@ -44,7 +44,14 @@ final class TarXZLZMALevelTests: XCTestCase {
         try TestSupport.assertKaitoKitRoundTrip(output, expected: items + [added])
     }
 
-    func testLevelNineConcurrencyCapOn128MiBInput() throws {
+    func testLevelNineConcurrencyCapOn128MiBInput() throws { try verifyConcurrencyCap(large: false) }
+
+    func testLevelNineConcurrencyCapOn128MiBInputFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyConcurrencyCap(large: true)
+    }
+
+    private func verifyConcurrencyCap(large: Bool) throws {
         let directory = try TestSupport.directory("tar-xz-lzma-memory")
         let options = WriterOptions(lzmaLevel: 9, memoryLimit: 1200 << 20, compressionThreads: 64)
         let configuration = try LZMAWriterConfiguration(options: options)
@@ -53,7 +60,9 @@ final class TarXZLZMALevelTests: XCTestCase {
         XCTAssertLessThanOrEqual(UInt64(configuration.threads) * configuration.memoryPerThread, configuration.memoryBudget)
         XCTAssertEqual(options.maximumPendingInputBytes(for: .tarXZ), UInt64((192 + 4) << 20))
         let url = directory.appendingPathComponent("archive.tar.xz")
-        let input = Data(repeating: 0x5A, count: 128 << 20)
+        // 4 MiB packing を越え、512 byte 整列で本文だけの chunk を元の試験と同じように作る。
+        let input = Data(repeating: 0x5A, count: large ? 128 << 20 : (4 << 20) + 512)
+        XCTAssertGreaterThan(input.count, ParallelXZCompressor.memberPackingSize)
         try LZMAWriterTestSupport.write(url, format: .tarXZ, options: options, items: [.init(name: "large", data: input)])
         try TestSupport.run(ReferenceTool.xz, ["-t", url.path], in: directory, log: "xz-t")
         let reader = try CompressedTarTestSupport.open(url)

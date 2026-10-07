@@ -3,18 +3,26 @@ import XCTest
 @testable import GyoshukuKit
 
 final class LZWStreamEncoderTests: XCTestCase {
-    func testVariableWidthsClearAndRealCompressCompatibility() throws {
+    func testVariableWidthsClearAndRealCompressCompatibility() throws { try verifyWidthsAndClear(large: false) }
+
+    func testVariableWidthsClearAndRealCompressCompatibilityFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyWidthsAndClear(large: true)
+    }
+
+    private func verifyWidthsAndClear(large: Bool) throws {
         let directory = try TestSupport.directory("lzw-stream-encoder")
         // text → random → text: 辞書を満杯にした後で圧縮率を下げ、CLEAR と再学習を必ず通す。
-        let mixed = TestCorpus.pseudoSource(mebibytes: 2) + TestCorpus.random(3 * 1024 * 1024)
-            + TestCorpus.pseudoSource(mebibytes: 2)
-        let samples = StreamEncoderTestSupport.samples() + [(name: "clear-7m", data: mixed)]
+        // 16-bit 辞書も 256 KiB 乱数で満杯になる。CLEAR 後の text も復号する。
+        let text = large ? TestCorpus.pseudoSource(mebibytes: 2) : EncoderTestCorpus.shortSource
+        let mixed = text + (large ? TestCorpus.random(3 << 20) : EncoderTestCorpus.random256KiB) + text
+        let samples = (large ? StreamEncoderTestSupport.samples() : Self.smallSamples) + [(name: "clear", data: mixed)]
         for maxbits in [12, 16] {
             for sample in samples {
                 let encoder = try LZWStreamEncoder(maxbits: maxbits)
                 let encoded = try StreamEncoderTestSupport.encode(sample.data) { try encoder.write($0, finish: $1, emit: $2) }
                 XCTAssertEqual(Array(encoded.prefix(3)), [0x1F, 0x9D, 0x80 | UInt8(maxbits)])
-                if sample.name == "clear-7m" { XCTAssertGreaterThan(encoder.clearCount, 0, "maxbits \(maxbits)") }
+                if sample.name == "clear" { XCTAssertGreaterThan(encoder.clearCount, 0, "maxbits \(maxbits)") }
                 let label = "\(sample.name)-bits\(maxbits)"
                 let url = directory.appendingPathComponent(label + ".Z")
                 try encoded.write(to: url)
@@ -22,7 +30,9 @@ final class LZWStreamEncoderTests: XCTestCase {
                 try StreamEncoderTestSupport.assertKaito(url, equals: sample.data)
                 let plain = directory.appendingPathComponent(label + ".raw")
                 try sample.data.write(to: plain)
-                let oracle = try StreamEncoderTestSupport.compressReference(plain, maxbits: maxbits, in: directory, label: label)
+                let oracle = try EncoderTestTiming.measure("reference.compress", input: sample.data.count) {
+                    try StreamEncoderTestSupport.compressReference(plain, maxbits: maxbits, in: directory, label: label)
+                }
                 // BSD compress -f は空入力を 0 byte file にする（compress(1) BUGS）。
                 if !sample.data.isEmpty { XCTAssertEqual(Array(oracle.prefix(3)), [0x1F, 0x9D, 0x80 | UInt8(maxbits)]) }
                 // CLEAR の評価時点は実装ごとに異なる。byte 一致でなく実ツールとのサイズ比を見る。
@@ -35,6 +45,11 @@ final class LZWStreamEncoderTests: XCTestCase {
             }
         }
     }
+
+    private static let smallSamples: [(name: String, data: Data)] = [
+        ("empty", Data()), ("one", Data([0xA7])), ("zeros-64k", Data(repeating: 0, count: 65_536)),
+        ("random", EncoderTestCorpus.random256KiB), ("text", EncoderTestCorpus.shortSource)
+    ]
 
     func testEndOfFilePartialGroupsAndBytewiseWrites() throws {
         let directory = try TestSupport.directory("lzw-stream-groups")

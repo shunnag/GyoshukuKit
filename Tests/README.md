@@ -53,6 +53,10 @@
 
 | 鍵 | 開く試験 | 内容・条件 |
 |---|---|---|
+| `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 8 class の `…FullSize` 14 件 | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅を保持する。既定の境界・復旧検査と実測は [検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) |
+| `GYOSHUKU_ENCODER_TIMING=1` | ✱ `EncoderWriterOverheadProbeTests`・工程の計測 | probe は Copy / file I/O の対照を測る。`ENCODER_PHASE`、工程名、秒、入力 byte、出力 byte を TSV で出す。encoder / writer、corpus、KaitoKit、oracle、CRC、Data append を分ける |
+| `GYOSHUKU_ENCODER_BENCHMARK_RUN=<label>` | skip しない。計測 process の分離 | 出力を `.build/verification/encoder-speed/<label>/` に置く。before / after の反復で一時 file を共有しない |
+| `GYOSHUKU_ZSTD_BENCHMARK=1` | ✱ `ZstdEncoderBenchmarkTests` | 自前 frame / zstd の level 1・3・9・19、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須 |
 | `GYOSHUKU_LZMA_BENCHMARK=1` | ✱ `LZMAEncoderBenchmarkTests` | 自前 LZMA2 / xz / Apple の level 1・6・9、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須。design.md の自前 LZMA encoder 節 |
 | `GYOSHUKU_PPMD_BENCHMARK=1` | ✱ `PPMdEncoderBenchmarkTests` | var.H / var.I と 7zz single-thread、level 1・6・9、8 MiB 英文風 text と実在 Mach-O（最大 16 MiB）。order / restart を指定し 7zz の実 heap も記録する best-of-5 の TSV。`-c release` 必須。design.md の PPMd 節 |
 | `GYOSHUKU_ZSTD_BENCHMARK=1`（任意で `GYOSHUKU_ZSTD_ALL_LEVELS=1`） | ✱ `ZstdEncoderBenchmarkTests` | 4 MiB text / 実在Mach-O / 固定seedの16 MiB tar風混合入力、level 1・3・9・19（または全19 level）、最低5回の最良値、必須zstd / KaitoKit復号 |
@@ -83,7 +87,9 @@ label は suite の中で重ねない（重なると別の試験の出力を消�
 `ZipPPMdWriterTests` / `SevenZipPPMdWriterTests` は level 1・既定6・9と order / memory の上書き、
 ZIP AES / ZipCrypto、7z AES / header 暗号化・solid・BCJ / ARM64 / Delta、updater / rewriter を検査する。
 必須の7zz `t / l -slt / x` と KaitoKit の全 byte 往復、7zz が書く PPMd の逆方向、
-20 MiB text と1 MiBモデルの restart、thread 数による出力 byte 一致を扱う。
+既定は 256 KiB + 17 byte text と1 MiBモデルの restart、thread 数による出力 byte 一致を扱う。
+元の20 MiBは `…FullSize` に残す。encoder 単体は同じ text と256 KiBの全256値乱数（各byteを二度置く）を1 MiBモデルで圧縮し、
+H / I restart と I cut-off を count > 0、7z / ZIP oracleとKaitoKitの全byte復号で確認する。
 ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7z は表示の order / memory と5 byte propertiesを照合する。
 
 ## 外部ツールが無いとき
@@ -108,14 +114,15 @@ macOS の Lhasa / 7zz は日本語名での抽出を復元できないため、�
 bsdtar の stdin に pipe して一覧・抽出を検査する。20 MiB の混合入力、lzip level 0 / 6 / 9 と
 trailer から数えた複数 member、KaitoKit の全 byte 往復も検査する。`ArchiveRewriterNewTarFormatTests` は
 ZIP との相互変換と tar.lz4 / tar.lz の削除・改名・追加を扱う。
-`SingleStreamCompressorTests` は9形式で空・1 byte・1 MiB text・9 MiB乱数の実ツールとKaitoKit往復、
-読取 byte 進捗、directory / symlink / 既存出力の拒否、公開時の競合、途中取消しの一時file削除を検査する。
+`SingleStreamCompressorTests` は既定で9形式の空・1 byte・128 KiB text・1 MiB + 17 byte乱数の実ツールとKaitoKit往復、
+乱数のbzip2 level 9で二つのblockの入力順、読取 byte 進捗、directory / symlink / 既存出力の拒否、
+公開時の競合、途中取消しの一時file削除を検査する。
 `LzipCompressorTests` はメモリ予算による並列数制限、辞書を保った拒否、DSの分数、
 16 MiB境界を越える入力の逐次・並列byte一致とpending input上界を検査する。
 `/opt/homebrew/bin/lzip`・`lz4`・`brotli`、xz、macOS の gzip / bzip2 / uncompress と bsdtar を必須にする。
 `CompressedTarZstdTests` は level 1 / 3 / 19、20 MiB入力と4 threadの複数frame、
 `zstd -t` と decoderからbsdtarへのpipe、KaitoKit往復、ArchiveRewriterの追加・削除・改名を検査する。
-単独 .zstも `SingleStreamCompressorTests` の空・1 byte・1 MiB text・9 MiB乱数に含める。
+単独 .zstも `SingleStreamCompressorTests` の既定ケースと、1 MiB text・9 MiB乱数の `…FullSize` に含める。
 `ZipZstdWriterTests` は必須7zzの `i / t / l -slt / x` とKaitoKitで非暗号・AES・ZipCryptoを照合し、
 raw entry dataのzstd復号、単一frame・ZIP64・updater追加・rewriterも検査する。
 7-Zip 26.03はmethod 93の実抽出に成功する。必須の `/opt/homebrew/bin/zstd` はCIでも導入する。

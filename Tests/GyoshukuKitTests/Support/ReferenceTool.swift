@@ -62,6 +62,8 @@ enum ReferenceTool {
                     expect: ExitExpectation = .success, stdin: FileHandle? = nil,
                     environment extra: [String: String] = englishUTF8,
                     workingDirectory: URL? = nil, standardOutput: String? = nil) throws -> Output {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("oracle.process+files", phaseStart, input: 0) }
         guard FileManager.default.isExecutableFile(atPath: tool) else {
             XCTFail("Required reference tool missing: \(tool)")
             throw CocoaError(.fileNoSuchFile)

@@ -6,6 +6,7 @@ import XCTest
 
 final class PPMdEncoderTests: XCTestCase {
     func testPropertiesAndPresets() throws {
+        XCTAssertEqual(PPMdTestArchives.crc(Data("123456789".utf8)), 0xCBF4_3926)
         let h = try PPMd7EncoderProperties(order: 6, memorySize: 16 << 20)
         XCTAssertEqual(h.coderProperties, Data([6, 0, 0, 0, 1]))
         for method in PPMdRestorationMethod.allCases {
@@ -48,31 +49,59 @@ final class PPMdEncoderTests: XCTestCase {
         }
     }
 
-    func testLargeTextAndRandom() throws {
+    func testLargeTextAndRandom() throws { try verifyTextAndRandom(large: false) }
+
+    func testLargeTextAndRandomFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyTextAndRandom(large: true)
+    }
+
+    private func verifyTextAndRandom(large: Bool) throws {
         let directory = try PPMdTestArchives.directory("ppmd-large")
-        for (name, input) in [("text-1m", TestCorpus.pseudoSource(mebibytes: 1)),
-                              ("random-8m", TestCorpus.random(8 << 20))] {
+        for (name, input) in [("text", large ? EncoderTestCorpus.sourceMiB : EncoderTestCorpus.shortSource),
+                              ("random", large ? TestCorpus.random(8 << 20) : EncoderTestCorpus.random256KiB)] {
             try verifyH(input, order: 6, memory: 16 << 20, name: name + "-h", directory: directory)
             try verifyI(input, order: 6, memory: 16 << 20, restoration: .restart,
                         name: name + "-i", directory: directory)
         }
     }
 
-    func testSmallMemoryRestorationOnTwentyMiBText() throws {
+    func testSmallMemoryRestorationOnTwentyMiBText() throws { try verifyRestoration(large: false) }
+
+    func testSmallMemoryRestorationOnTwentyMiBTextFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyRestoration(large: true)
+    }
+
+    // 全256値を保って隣接byteを相関させ、I の cut-off 分岐も通す。
+    private static let restorationRandom = Data(EncoderTestCorpus.random256KiB.prefix(128 << 10).flatMap { [$0, $0] })
+
+    private func verifyRestoration(large: Bool) throws {
         let directory = try PPMdTestArchives.directory("ppmd-restoration")
-        let input = TestCorpus.pseudoSource(mebibytes: 20)
+        // text と全256値の乱数で、1 MiB heap の枯渇と復旧後の全 byte を照合する。
+        let samples = large ? [("text-20m", EncoderTestCorpus.sourceTwentyMiB)]
+            : [("text-restoration", EncoderTestCorpus.restoration), ("random-restoration", Self.restorationRandom)]
+        if !large { XCTAssertEqual(Set(Self.restorationRandom).count, 256) }
+        for (label, input) in samples {
+            try verifyRestoration(input, label: label, directory: directory)
+        }
+    }
+
+    private func verifyRestoration(_ input: Data, label: String, directory: URL) throws {
         let h = try PPMd7StreamEncoder(properties: .init(order: 6, memorySize: 1 << 20))
         let encoded = try StreamEncoderTestSupport.encode(input, write: h.write)
         XCTAssertGreaterThan(h.model.restartCount, 0)
+        TestSupport.report("PPMD_RESTORATION H bytes=\(input.count) restarts=\(h.model.restartCount)")
         try PPMdTestArchives.verify(PPMdTestArchives.sevenZip(encoded, input: input, properties: h.properties),
-                                    input: input, extension: "7z", method: "PPMD:o6:mem20", label: "text-20m-h", directory: directory)
+                                    input: input, extension: "7z", method: "PPMD:o6:mem20", label: label + "-h", directory: directory)
         for restoration in PPMdRestorationMethod.allCases {
             let i = try PPMd8StreamEncoder(properties: .init(order: 6, memorySize: 1 << 20, restoration: restoration))
             let encoded = try StreamEncoderTestSupport.encode(input, write: i.write)
+            TestSupport.report("PPMD_RESTORATION I method=\(restoration.rawValue) bytes=\(input.count) restarts=\(i.model.restartCount) cutoffs=\(i.model.cutOffCount)")
             if restoration == .restart { XCTAssertGreaterThan(i.model.restartCount, 0) }
             else { XCTAssertGreaterThan(i.model.cutOffCount, 0) }
             try PPMdTestArchives.verify(PPMdTestArchives.zip(encoded, input: input), input: input,
-                                        extension: "zip", method: "PPMd", label: "text-20m-i\(restoration.rawValue)", directory: directory)
+                                        extension: "zip", method: "PPMd", label: label + "-i\(restoration.rawValue)", directory: directory)
         }
     }
 
@@ -110,12 +139,14 @@ final class PPMdEncoderTests: XCTestCase {
         let input = TestCorpus.englishLike(size: 1 << 20)
         let plain = directory.appendingPathComponent("english.txt")
         try input.write(to: plain)
+        let referenceStart = EncoderTestTiming.start()
         let reference = try ReferenceTool.run(ReferenceTool.xz, ["-6", "-c", plain.path], in: directory,
                                               log: "xz-six", standardOutput: "english.xz")
+        EncoderTestTiming.end("reference.xz-6", referenceStart, input: input.count, output: reference.bytes.count)
         let h = try PPMd7EncoderProperties(order: 6, memorySize: 16 << 20)
         let i = try PPMd8EncoderProperties(order: 6, memorySize: 16 << 20)
-        let encodedH = try PPMd7StreamEncoder.encode(input, properties: h)
-        let encodedI = try PPMd8StreamEncoder.encode(input, properties: i)
+        let encodedH = try EncoderTestTiming.measure("encode.PPMd7StreamEncoder.encode", input: input.count) { try PPMd7StreamEncoder.encode(input, properties: h) }
+        let encodedI = try EncoderTestTiming.measure("encode.PPMd8StreamEncoder.encode", input: input.count) { try PPMd8StreamEncoder.encode(input, properties: i) }
         TestSupport.report("PPMd English size: H=\(encodedH.count), I=\(encodedI.count), xz-6=\(reference.bytes.count)")
         XCTAssertLessThan(encodedH.count, reference.bytes.count)
         XCTAssertLessThan(encodedI.count, reference.bytes.count)

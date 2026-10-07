@@ -137,23 +137,71 @@ final class LZMAEncoderTests: XCTestCase {
             }
         }
     }
-    func testLargeCorporaAndChunkBoundaries() throws {
-        let random = TestCorpus.random(1 << 20)
-        let text = LZMAEncoderCorpus.text(size: 4 << 20)
-        let mixed = LZMAEncoderCorpus.mixed(size: 20 << 20)
-        for level in levels {
-            for (name, input) in [("random", random), ("text", text), ("mixed", mixed)] {
-                TestSupport.report("LZMAEncoder round trip: level=\(level) corpus=\(name)")
-                try roundTrip(input, level: level)
-            }
+    func testLargeCorporaAndChunkBoundaries() throws { try verifyCorpora(large: false) }
+
+    func testLargeCorporaAndChunkBoundariesFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyCorpora(large: true)
+    }
+
+    private func verifyCorpora(large: Bool) throws {
+        for sample in try (large ? Self.largeEncoded : Self.smallEncoded).get() where sample.name != "empty" {
+            try roundTrip(sample)
         }
     }
-    func testOddPiecesProduceIdenticalStreams() throws {
-        let input = LZMAEncoderCorpus.mixed(size: (2 << 20) + 777)
+
+    // text の EOS、有無の既知サイズ、LZMA2 を一度ずつ作り、reader と実ツールで同じ bytes を検査する。
+    private struct EncodedSample: Sendable {
+        let name: String
+        let input: Data
+        let level: Int
+        let unknownAlone: Data
+        let knownAlone: Data
+        let two: Data
+    }
+
+    private static let smallEncoded = Result { try encodedSamples(large: false) }
+    private static let largeEncoded = Result { try encodedSamples(large: true) }
+
+    private static func encodedSamples(large: Bool) throws -> [EncodedSample] {
+        // mixed の一周期は 2.625 MiB。1 MiB 超の距離と raw→compressed の reset を保持する。
+        let inputs: [(String, Data)] = [
+            ("empty", Data()), ("random", TestCorpus.random(large ? 1 << 20 : 65_537)),
+            ("text", LZMAEncoderCorpus.text(size: large ? 4 << 20 : 65_537)),
+            ("mixed", LZMAEncoderCorpus.mixed(size: large ? 20 << 20 : (2688 << 10) + 17))
+        ]
+        var result: [EncodedSample] = []
+        for level in [0, 1, 3, 5, 6, 9] {
+            let p = LZMAEncoderProperties.preset(level)
+            for (name, input) in inputs {
+                let unknown = try EncoderTestTiming.measure("encode.LZMAEncoder.alone", input: input.count) {
+                    try LZMAEncoder.alone(input, properties: p, knownSize: false)
+                }
+                let known = try EncoderTestTiming.measure("encode.LZMAEncoder.alone", input: input.count) {
+                    try LZMAEncoder.alone(input, properties: p, knownSize: true)
+                }
+                let two = try EncoderTestTiming.measure("encode.LZMA2Encoder.encode", input: input.count) {
+                    try LZMA2Encoder.encode(input, properties: p)
+                }
+                result.append(.init(name: name, input: input, level: level, unknownAlone: unknown, knownAlone: known, two: two))
+            }
+        }
+        return result
+    }
+
+    func testOddPiecesProduceIdenticalStreams() throws { try verifyOddPieces(large: false) }
+
+    func testOddPiecesProduceIdenticalStreamsFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyOddPieces(large: true)
+    }
+
+    private func verifyOddPieces(large: Bool) throws {
+        let input = LZMAEncoderCorpus.mixed(size: large ? (2 << 20) + 777 : 65_537)
         for level in [1, 6] {
             let p = LZMAEncoderProperties.preset(level)
-            let raw = try LZMAEncoder.encode(input, properties: p)
-            let lzma2 = try LZMA2Encoder.encode(input, properties: p)
+            let raw = try EncoderTestTiming.measure("encode.LZMAEncoder.encode", input: input.count) { try LZMAEncoder.encode(input, properties: p) }
+            let lzma2 = try EncoderTestTiming.measure("encode.LZMA2Encoder.encode", input: input.count) { try LZMA2Encoder.encode(input, properties: p) }
             for width in [1, 7, 65537] {
                 let one = try LZMAEncoder(properties: p, expectedSize: UInt64(input.count))
                 let two = try LZMA2Encoder(properties: p, expectedSize: UInt64(input.count))
@@ -170,36 +218,93 @@ final class LZMAEncoderTests: XCTestCase {
             }
         }
     }
-    func testIndependentXZAndAloneOracles() throws {
+    func testIndependentXZAndAloneOracles() throws { try verifyOracles(large: false) }
+
+    func testIndependentXZAndAloneOraclesFullSize() throws {
+        try OptInGate.flag("GYOSHUKU_LARGE_ENCODER_TESTS")
+        try verifyOracles(large: true)
+    }
+
+    private func verifyOracles(large: Bool) throws {
         let directory = try TestSupport.directory("lzma-encoder-oracles")
-        for level in levels {
-            for (name, input) in [("empty", Data()), ("random", TestCorpus.random(1 << 20)),
-                                  ("text", LZMAEncoderCorpus.text(size: 4 << 20)),
-                                  ("mixed", LZMAEncoderCorpus.mixed(size: 20 << 20))] {
-                let p = LZMAEncoderProperties.preset(level)
-                let payload = try LZMA2Encoder.encode(input, properties: p)
-                let container = try LZMAEncoderCorpus.xz(payload, input: input, properties: p)
-                let stem = "\(level)-\(name)"
-                let xzURL = directory.appendingPathComponent(stem + ".xz")
-                try container.write(to: xzURL)
-                try ReferenceTool.run(ReferenceTool.xz, ["-t", xzURL.path], in: directory, log: stem + "-xz-test")
-                let decoded = try ReferenceTool.run(ReferenceTool.xz, ["-dc", xzURL.path], in: directory,
-                                                     log: stem + "-xz-decode", standardOutput: stem + ".decoded")
-                XCTAssertEqual(decoded.bytes, input)
-                try ReferenceTool.run(ReferenceTool.sevenZip, ["t", xzURL.path], in: directory, log: stem + "-7zz")
-                for known in [false, true] {
-                    let aloneURL = directory.appendingPathComponent(stem + "-\(known).lzma")
-                    try LZMAEncoder.alone(input, properties: p, knownSize: known).write(to: aloneURL)
-                    let result = try ReferenceTool.run(ReferenceTool.xz, ["--format=lzma", "-dc", aloneURL.path],
-                                                       in: directory, log: stem + "-alone-\(known)", standardOutput: stem + ".decoded")
-                    XCTAssertEqual(result.bytes, input)
-                    if result.status == 0 && result.bytes == input {
-                        try FileManager.default.removeItem(at: directory.appendingPathComponent(stem + ".decoded"))
-                    }
+        for sample in try (large ? Self.largeEncoded : Self.smallEncoded).get() {
+            let input = sample.input, p = LZMAEncoderProperties.preset(sample.level)
+            let container = try LZMAEncoderCorpus.xz(sample.two, input: input, properties: p)
+            let stem = "\(sample.level)-\(sample.name)"
+            let xzURL = directory.appendingPathComponent(stem + ".xz")
+            try container.write(to: xzURL)
+            try ReferenceTool.run(ReferenceTool.xz, ["-t", xzURL.path], in: directory, log: stem + "-xz-test")
+            let decoded = try ReferenceTool.run(ReferenceTool.xz, ["-dc", xzURL.path], in: directory,
+                                                 log: stem + "-xz-decode", standardOutput: stem + ".decoded")
+            XCTAssertEqual(decoded.bytes, input)
+            try ReferenceTool.run(ReferenceTool.sevenZip, ["t", xzURL.path], in: directory, log: stem + "-7zz")
+            for (known, alone) in [(false, sample.unknownAlone), (true, sample.knownAlone)] {
+                let aloneURL = directory.appendingPathComponent(stem + "-\(known).lzma")
+                try alone.write(to: aloneURL)
+                let result = try ReferenceTool.run(ReferenceTool.xz, ["--format=lzma", "-dc", aloneURL.path],
+                                                   in: directory, log: stem + "-alone-\(known)", standardOutput: stem + ".decoded")
+                XCTAssertEqual(result.bytes, input)
+                if result.status == 0 && result.bytes == input {
+                    try FileManager.default.removeItem(at: directory.appendingPathComponent(stem + ".decoded"))
                 }
             }
         }
     }
+
+    func testTwoMiBChunkBoundaryWithOddPieces() throws {
+        // 高圧縮入力なら packLimit より先に unpackLimit に届き、2 MiB と 17 byte の二 chunk を必ず作る。
+        let input = Data(repeating: 0x5A, count: (2 << 20) + 17)
+        for level in levels {
+            let p = LZMAEncoderProperties.preset(level)
+            let raw = try EncoderTestTiming.measure("encode.LZMAEncoder.encode", input: input.count) {
+                try LZMAEncoder.encode(input, properties: p)
+            }
+            let expected = try EncoderTestTiming.measure("encode.LZMA2Encoder.encode", input: input.count) {
+                try LZMA2Encoder.encode(input, properties: p)
+            }
+            XCTAssertEqual(try chunks(expected).map(\.size), [2 << 20, 17])
+            for widths in [[65_537], [(2 << 20) - 8, 1, 7, 17]] {
+                let one = try LZMAEncoder(properties: p, expectedSize: UInt64(input.count))
+                let encoder = try LZMA2Encoder(properties: p, expectedSize: UInt64(input.count))
+                var actualRaw = Data(), actual = Data(), offset = 0, index = 0
+                while offset < input.count {
+                    let end = min(offset + widths[index % widths.count], input.count)
+                    actualRaw.append(try one.push(input[offset..<end]))
+                    actual.append(try encoder.push(input[offset..<end]))
+                    offset = end; index += 1
+                }
+                actualRaw.append(try one.finish())
+                actual.append(try encoder.finish())
+                XCTAssertEqual(actualRaw, raw)
+                XCTAssertEqual(actual, expected)
+                XCTAssertEqual(try decodeRaw(actualRaw, properties: p, size: nil), input)
+                XCTAssertEqual(try decodeTwo(actual, properties: p, size: input.count), input)
+            }
+        }
+    }
+
+    /// LZMA2 の独立した長さ検査。compressed / raw の payload は読み飛ばす。
+    private func chunks(_ data: Data) throws -> [(control: UInt8, size: Int)] {
+        var cursor = 0, result: [(control: UInt8, size: Int)] = []
+        while cursor < data.count {
+            let control = data[cursor]; cursor += 1
+            if control == 0 { XCTAssertEqual(cursor, data.count); return result }
+            guard cursor + 2 <= data.count else { throw CocoaError(.fileReadCorruptFile) }
+            let size = (Int(data[cursor]) << 8) + Int(data[cursor + 1]) + 1
+            cursor += 2
+            if control < 0x80 {
+                XCTAssertTrue(control == 1 || control == 2)
+                result.append((control, size)); cursor += size
+            } else {
+                guard cursor + 2 <= data.count else { throw CocoaError(.fileReadCorruptFile) }
+                let packed = (Int(data[cursor]) << 8) + Int(data[cursor + 1]) + 1
+                result.append((control, (Int(control & 31) << 16) + size))
+                cursor += 2 + (control >= 0xC0 ? 1 : 0) + packed
+            }
+        }
+        throw CocoaError(.fileReadCorruptFile)
+    }
+
     func testRangeOutputGrowthRetainsCarryAndHonorsBudget() throws {
         let input = TestCorpus.random(256 << 10)
         let p = LZMAEncoderProperties.preset(1)
@@ -280,19 +385,37 @@ final class LZMAEncoderTests: XCTestCase {
     }
     private func roundTrip(_ input: Data, level: Int) throws {
         let p = LZMAEncoderProperties.preset(level)
-        let raw = try LZMAEncoder.encode(input, properties: p)
+        let raw = try EncoderTestTiming.measure("encode.LZMAEncoder.encode", input: input.count) { try LZMAEncoder.encode(input, properties: p) }
         XCTAssertEqual(try decodeRaw(raw, properties: p, size: nil), input, "raw level \(level)")
-        let known = try LZMAEncoder.encode(input, properties: p, endMarker: false)
+        let known = try EncoderTestTiming.measure("encode.LZMAEncoder.encode", input: input.count) { try LZMAEncoder.encode(input, properties: p, endMarker: false) }
         XCTAssertEqual(try decodeRaw(known, properties: p, size: input.count), input, "known level \(level)")
-        let two = try LZMA2Encoder.encode(input, properties: p)
+        let two = try EncoderTestTiming.measure("encode.LZMA2Encoder.encode", input: input.count) { try LZMA2Encoder.encode(input, properties: p) }
         XCTAssertEqual(try decodeTwo(two, properties: p, size: input.count), input, "LZMA2 level \(level)")
     }
+    private func roundTrip(_ sample: EncodedSample) throws {
+        let p = LZMAEncoderProperties.preset(sample.level)
+        XCTAssertEqual(try decodeRaw(Data(sample.unknownAlone.dropFirst(13)), properties: p, size: nil), sample.input)
+        XCTAssertEqual(try decodeRaw(Data(sample.knownAlone.dropFirst(13)), properties: p, size: sample.input.count), sample.input)
+        XCTAssertEqual(try decodeTwo(sample.two, properties: p, size: sample.input.count), sample.input)
+        if sample.name == "mixed" {
+            let parts = try chunks(sample.two)
+            XCTAssertTrue(parts.contains { $0.control < 0x80 })
+            XCTAssertTrue(parts.contains { $0.control >= 0x80 })
+            // copy chunk の直後に LZMA chunk があることを wire で確認する。
+            XCTAssertTrue(zip(parts, parts.dropFirst()).contains { $0.0.control < 0x80 && $0.1.control >= 0x80 })
+        }
+    }
+
     private func decodeRaw(_ bytes: Data, properties p: LZMAEncoderProperties, size: Int?) throws -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("decode.lzma-raw", phaseStart, input: bytes.count) }
         let decoder = try LZMADecoder(source: DataByteSource(bytes), offset: 0, compressedSize: UInt64(bytes.count),
                                      properties: Array(p.bytes), expectedSize: size.map(UInt64.init), dictionarySizeLimit: UInt64(3 << 29))
         return try read(decoder)
     }
     private func decodeTwo(_ bytes: Data, properties p: LZMAEncoderProperties, size: Int?) throws -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("decode.lzma2", phaseStart, input: bytes.count) }
         let decoder = try LZMA2Decoder(source: DataByteSource(bytes), offset: 0, compressedSize: UInt64(bytes.count),
                                      properties: [LZMA2Encoder.dictionaryProperty(for: p.dictSize)],
                                      expectedSize: size.map(UInt64.init), dictionarySizeLimit: UInt64(3 << 29))
@@ -300,10 +423,15 @@ final class LZMAEncoderTests: XCTestCase {
     }
     private func read(_ decoder: any Decompressor) throws -> Data {
         var output = Data(), buffer = [UInt8](repeating: 0, count: 65537)
+        var appendTime: UInt64 = 0
+        defer { EncoderTestTiming.duration("test.decode-append", appendTime, output: output.count) }
         while true {
             let n = try buffer.withUnsafeMutableBytes { try decoder.read(into: $0) }
             if n == 0 { break }
-            output.append(contentsOf: buffer.prefix(n))
+            guard n > 0 && n <= buffer.count else { throw CocoaError(.fileReadCorruptFile) }
+            let start = EncoderTestTiming.start()
+            buffer.withUnsafeBytes { output.append($0.baseAddress!.assumingMemoryBound(to: UInt8.self), count: n) }
+            if EncoderTestTiming.enabled { appendTime += DispatchTime.now().uptimeNanoseconds - start }
         }
         return output
     }
