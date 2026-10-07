@@ -7,6 +7,129 @@ import XCTest
 final class LZMAEncoderTests: XCTestCase {
     private let levels = [0, 1, 3, 5, 6, 9]
 
+    func testWordMatchLengthAtUnalignedBoundaries() {
+        var bytes = [UInt8](repeating: 0xA7, count: 640)
+        for mismatch in [0, 1, 7, 8, 15, 16, 63, 127, 272, 273] {
+            bytes[320 + mismatch] = 0x19
+            bytes.withUnsafeBufferPointer { buffer in
+                for offset in 0..<8 {
+                    let a = buffer.baseAddress! + offset, b = buffer.baseAddress! + 320 + offset
+                    for limit in [0, 1, 7, 8, 9, 16, 64, 128, 273] {
+                        for start in [0, min(3, limit), limit] {
+                            var expected = start
+                            while expected < limit && a[expected] == b[expected] { expected += 1 }
+                            XCTAssertEqual(lzmaMatchLength(a, b, start: start, limit: limit), expected)
+                            XCTAssertEqual(lzmaMatchLength(a, b, start: start, limit: limit, checkFirstByte: false), expected)
+                        }
+                    }
+                }
+            }
+            bytes[320 + mismatch] = 0xA7
+        }
+        bytes.withUnsafeBufferPointer { buffer in
+            for distance in 1...31 {
+                XCTAssertEqual(lzmaMatchLength(buffer.baseAddress! + distance, buffer.baseAddress!, limit: 273), 273)
+            }
+        }
+    }
+
+    func testFinderPositionNormalizationPreservesStream() throws {
+        let input = LZMAEncoderCorpus.mixed(size: 8192 + 777)
+        for level in [1, 6] {
+            var p = LZMAEncoderProperties.preset(level)
+            p.dictSize = 4096
+            func encode(normalizing: Bool) throws -> Data {
+                var engine = try LZMAEncodingEngine(properties: p, sizeHint: UInt64(input.count), memoryLimit: 4 << 20)
+                defer { engine.release() }
+                input.withUnsafeBytes { bytes in
+                    engine.window.update(from: bytes.baseAddress!.assumingMemoryBound(to: UInt8.self), count: bytes.count)
+                }
+                engine.end = input.count
+                engine.process(limit: 4096, reserve: 0)
+                if normalizing {
+                    // 履歴の相対距離を保ち、128位置後に UInt32 の正規化を起こす。
+                    let shift = UInt32.max - 65536 - 128 - engine.finder.position
+                    for i in 0..<engine.finder.hashCount where engine.finder.hash[i] != 0 { engine.finder.hash[i] += shift }
+                    for i in 0..<(engine.finder.cyclicSize * (engine.finder.tree ? 2 : 1)) where engine.finder.son[i] != 0 {
+                        engine.finder.son[i] += shift
+                    }
+                    engine.finder.position += shift
+                }
+                engine.process(limit: engine.end, reserve: 0)
+                if normalizing { XCTAssertLessThan(engine.finder.position, 1 << 20) }
+                engine.writeEndMarker(); engine.rc.finish()
+                return engine.rc.take()
+            }
+            let expected = try encode(normalizing: false), normalized = try encode(normalizing: true)
+            XCTAssertEqual(normalized, expected)
+            XCTAssertEqual(try decodeRaw(normalized, properties: p, size: nil), input)
+        }
+    }
+
+    func testExpandedBitPricesKeepOriginalQuantization() throws {
+        // 展開前の SDK 1/16 bit 表を凍結し、全確率と両 bit の lookup を照合する。
+        let original = [
+            128, 103, 91, 84, 78, 73, 69, 66, 63, 61, 58, 56, 54, 52, 51, 49,
+            48, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 34, 33,
+            32, 31, 31, 30, 29, 29, 28, 28, 27, 26, 26, 25, 25, 24, 24, 23,
+            23, 22, 22, 22, 21, 21, 20, 20, 19, 19, 19, 18, 18, 17, 17, 17,
+            16, 16, 16, 15, 15, 15, 14, 14, 14, 13, 13, 13, 12, 12, 12, 11,
+            11, 11, 11, 10, 10, 10, 10, 9, 9, 9, 9, 8, 8, 8, 8, 7,
+            7, 7, 7, 6, 6, 6, 6, 5, 5, 5, 5, 5, 4, 4, 4, 4,
+            3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1,
+        ]
+        let engine = try LZMAEncodingEngine(properties: .preset(6), sizeHint: 4096, memoryLimit: 4 << 20)
+        defer { engine.release() }
+        for probability in 1...2047 {
+            for bit in 0...1 {
+                XCTAssertEqual(engine.price(UInt16(probability), bit), original[(probability ^ (bit * 2047)) >> 4])
+            }
+        }
+    }
+
+    func testCachedPricesEqualBitTreePrices() throws {
+        for niceLen in [5, 9, 16, 17, 18, 32, 64, 192, 273] {
+            var p = LZMAEncoderProperties.preset(6)
+            p.niceLen = niceLen; p.pb = 4
+            var engine = try LZMAEncodingEngine(properties: p, sizeHint: 4096, memoryLimit: 4 << 20)
+            defer { engine.release() }
+            for i in 0..<engine.probCount { engine.probs[i] = UInt16(1 + (i * 131 + niceLen * 17) % 2047) }
+            engine.updatePrices(lengths: true, repetitions: true, distances: true)
+            for (offset, table) in [(LZMAEncodingEngine.lenOffset, engine.lengthPrices),
+                                    (LZMAEncodingEngine.repLenOffset, engine.repLengthPrices)] {
+                let probabilities = engine.probs + offset
+                for pos in 0..<16 {
+                    for sym in 0..<(niceLen - 1) {
+                        let expected: Int
+                        if sym < 8 {
+                            expected = engine.price(probabilities[0], 0)
+                                + engine.treePrice(probabilities + 2 + pos * 8, bits: 3, symbol: sym)
+                        } else if sym < 16 {
+                            expected = engine.price(probabilities[0], 1) + engine.price(probabilities[1], 0)
+                                + engine.treePrice(probabilities + 130 + pos * 8, bits: 3, symbol: sym - 8)
+                        } else {
+                            expected = engine.price(probabilities[0], 1) + engine.price(probabilities[1], 1)
+                                + engine.treePrice(probabilities + 258, bits: 8, symbol: sym - 16)
+                        }
+                        XCTAssertEqual(table[pos * 272 + sym], expected)
+                    }
+                }
+            }
+            for ls in 0..<4 {
+                for distance in 0..<128 {
+                    let slot = LZMAEncodingEngine.slot(distance)
+                    var expected = engine.treePrice(engine.probs + 432 + ls * 64, bits: 6, symbol: slot)
+                    if slot >= 4 {
+                        let bits = (slot >> 1) - 1, base = (2 | (slot & 1)) << bits
+                        expected += engine.treePrice(engine.probs + 688 + base - slot - 1, bits: bits,
+                                                     symbol: distance - base, reverse: true)
+                    }
+                    XCTAssertEqual(engine.distancePrices[ls * 128 + distance], expected)
+                }
+            }
+        }
+    }
+
     func testSmallInputsAndEndMarker() throws {
         for level in levels {
             for input in [Data(), Data([0xE7]), Data(repeating: 0, count: 65536), TestCorpus.random(12003, alphabetMask: 15)] {

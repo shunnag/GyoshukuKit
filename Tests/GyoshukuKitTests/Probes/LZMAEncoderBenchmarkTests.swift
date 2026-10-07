@@ -12,6 +12,11 @@ final class LZMAEncoderBenchmarkTests: XCTestCase {
         return
         #else
         let directory = try TestSupport.directory("lzma-encoder-benchmark")
+        let repeats = max(1, Int(ProcessInfo.processInfo.environment["GYOSHUKU_LZMA_BENCHMARK_REPEATS"] ?? "5") ?? 5)
+        let levels = ProcessInfo.processInfo.environment["GYOSHUKU_LZMA_BENCHMARK_LEVELS"]?
+            .split(separator: ",").compactMap { Int($0) }.filter { (0...9).contains($0) } ?? [1, 2, 3, 6, 9]
+        let swiftOnly = ProcessInfo.processInfo.environment["GYOSHUKU_LZMA_BENCHMARK_SWIFT_ONLY"] == "1"
+        TestSupport.report("LZMA-BENCH-RUN\tpid=\(ProcessInfo.processInfo.processIdentifier)\trepeats=\(repeats)")
         let text = LZMAEncoderCorpus.text(size: 4 << 20)
         let binary = try binaryCorpus()
         TestSupport.report("LZMA-BENCH-CORPUS\ttext\t\(text.count)")
@@ -21,34 +26,50 @@ final class LZMAEncoderBenchmarkTests: XCTestCase {
             let url = directory.appendingPathComponent(name + ".bin")
             try input.write(to: url)
             var results: [Int: (bytes: Int, speed: Double, xzBytes: Int, xzSpeed: Double)] = [:]
-            for level in [1, 6, 9] {
+            for level in levels {
                 let p = LZMAEncoderProperties.preset(level)
-                let start = ProcessInfo.processInfo.systemUptime
-                let bytes = try LZMA2Encoder.encode(input, properties: p)
-                let elapsed = ProcessInfo.processInfo.systemUptime - start
+                var bytes = Data(), elapsed = Double.infinity
+                for iteration in 0..<repeats {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    let encoded = try LZMA2Encoder.encode(input, properties: p)
+                    elapsed = min(elapsed, ProcessInfo.processInfo.systemUptime - start)
+                    if iteration == 0 { bytes = encoded } else { XCTAssertEqual(encoded, bytes) }
+                }
+                try bytes.write(to: directory.appendingPathComponent("\(name)-\(level).swift.raw"))
                 let speed = Double(input.count) / 1_000_000 / elapsed
                 report(name, level, "swift", bytes.count, elapsed, input.count)
+                if swiftOnly { continue }
                 let container = try LZMAEncoderCorpus.xz(bytes, input: input, properties: p)
                 let compressedURL = directory.appendingPathComponent("\(name)-\(level).xz")
                 try container.write(to: compressedURL)
                 try ReferenceTool.run(ReferenceTool.xz, ["-t", compressedURL.path], in: directory, log: "\(name)-\(level)-verify")
-                let xzStart = ProcessInfo.processInfo.systemUptime
-                let oracle = try ReferenceTool.run(ReferenceTool.xz, ["-\(level)", "-T1", "--format=raw", "-c", url.path],
+                var xzBytes = 0, xzElapsed = Double.infinity
+                for _ in 0..<repeats {
+                    let xzStart = ProcessInfo.processInfo.systemUptime
+                    let oracle = try ReferenceTool.run(ReferenceTool.xz, ["-\(level)", "-T1", "--format=raw", "-c", url.path],
                                                    in: directory, log: "\(name)-\(level)-xz", standardOutput: "\(name)-\(level).raw")
-                let xzElapsed = ProcessInfo.processInfo.systemUptime - xzStart
-                report(name, level, "xz", oracle.bytes.count, xzElapsed, input.count)
-                results[level] = (bytes.count, speed, oracle.bytes.count, Double(input.count) / 1_000_000 / xzElapsed)
-                let appleStart = ProcessInfo.processInfo.systemUptime
-                let apple = try LZMA2Compressor.encode(input)
-                let appleElapsed = ProcessInfo.processInfo.systemUptime - appleStart
-                report(name, level, "apple", apple.payload.count, appleElapsed, input.count)
+                    xzElapsed = min(xzElapsed, ProcessInfo.processInfo.systemUptime - xzStart)
+                    xzBytes = oracle.bytes.count
+                }
+                report(name, level, "xz", xzBytes, xzElapsed, input.count)
+                results[level] = (bytes.count, speed, xzBytes, Double(input.count) / 1_000_000 / xzElapsed)
+                var appleBytes = 0, appleElapsed = Double.infinity
+                for _ in 0..<repeats {
+                    let appleStart = ProcessInfo.processInfo.systemUptime
+                    let apple = try LZMA2Compressor.encode(input)
+                    appleElapsed = min(appleElapsed, ProcessInfo.processInfo.systemUptime - appleStart)
+                    appleBytes = apple.payload.count
+                }
+                report(name, level, "apple", appleBytes, appleElapsed, input.count)
             }
-            for level in [6, 9] {
+            for level in [6, 9] where results[level] != nil {
                 let r = results[level]!
                 TestSupport.report(String(format: "LZMA-BENCH-TARGET\t%@\t%d\tsize-gap=%.3f%%\tspeed/xz=%.3f", name, level,
                                           100 * (Double(r.bytes) / Double(r.xzBytes) - 1), r.speed / r.xzSpeed))
             }
-            TestSupport.report(String(format: "LZMA-BENCH-TARGET\t%@\tlevel1/level6=%.3f", name, results[1]!.speed / results[6]!.speed))
+            if let one = results[1], let six = results[6] {
+                TestSupport.report(String(format: "LZMA-BENCH-TARGET\t%@\tlevel1/level6=%.3f", name, one.speed / six.speed))
+            }
         }
         #endif
     }

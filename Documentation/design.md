@@ -1112,6 +1112,15 @@ fast parser は GetOptimumFast の rep 優先と次位置の一致による遅�
 window、hash、tree / chain、確率、価格、parser node は unsafe buffer で確保し、入力全体を別途保持しない。
 window は辞書と先読み、入力 staging 分で、空きが足りなくなったときにだけ履歴を移す。
 位置参照は UInt32 で正規化して 4 GiB を越える stream でも wrap しない。
+一致長の延長と rep の比較は limit 内の未整列 UInt64 比較を使う。HC4 の skip は hash と chain の
+リンクだけを更新し、候補を走査しない。長さ価格は niceLen 以下の葉を親の価格から展開し、
+posState 共通の high tree を再利用する。node / action / match は32 / 8 / 8 byteに収め、
+以前の88 / 16 / 16 byteから探索 buffer を縮めた。rep 距離は UInt32、state と tail は一つの UInt16 に保持する。
+normal parser は posState の価格行と長さ5以上の距離価格を再利用し、複合遷移は長さの loop の後で一度だけ調べる。
+BT4 の2 / 3 byte hash は SDK と同じ選択で延長を一度にまとめ、HC4 は二候補から best を先に得て chain を除外する。
+通常の advance は inline 化し、大きな表の正規化だけを別関数に分ける。bit 価格は0 / 1 の各2048確率を UInt8 の4 KiB表に展開し、
+lookup の shift / xor を省いた。symbol の入力位置・state・rep は pointer の書込みにまたがる local 値で保持する。
+`memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減り、MiB切上げの予算表と入力上界は変わらない。
 
 LZMA2 は最大 2 MiB の入力、64 KiB 以下の圧縮 byte に区切る。range coder を chunk ごとに flush し、
 辞書と確率 state は継続する。先頭 compressed chunk は辞書 / state / property を reset する。
@@ -1141,7 +1150,7 @@ preset の数値は [xz の lzma_encoder_presets.c](https://github.com/tukaani-p
 | 9 | 64 | BT4 / normal | 64 | 48 | 64.254 | 512 | 640.254 |
 
 表は入力サイズ未知のときの確保量。これに probability / price / optimum / range buffer と raw LZMA1 の staging が
-約 0.7 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
+約 0.5 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
 match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが、確保前に総量と `memoryLimit` を照合する。
 既定の上限は 768 MiB で、上限超過や allocation 失敗は error にする。黙って小さい辞書へ変更しない。
 range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
@@ -1213,11 +1222,48 @@ Apple の値は現行 `LZMA2Compressor.encode` 呼出し全体なので framing 
 
 level 6 / 9 の size 差は text が各 -0.029%、binary が -0.169% / -0.184% で、1.5% 以内。
 text の level 6 速度は xz の 93.1%（目標 40% 以上）、level 1 / 6 は 7.093 倍（目標 2 倍以上）。
-全目標を満たした。idle Mac mini での再計測を最終比較とする。
+この時点の目標を満たした。2026-10-07 の速度改善は同じ corpus を使い、以下の別計測で比較する。
 
 release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests と追加 2 tests、release benchmark を検証済み。
 通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
 検証時の log は `.build/verification/lzma-encoder-run/`、oracle の書庫と log は `.build/verification/lzma-encoder-oracles/` に保存する。
+
+2026-10-07 の単一thread速度改善（Apple M4 Max / 128 GB、Swift 6.4、xz 5.8.4、release）。
+上と同じ4,194,304 byteのtext、20,688,592 byteのbinaryを使った。`f273d34` の pristine copy と最終版を
+基準版 → 最終版の順で5組実行し、各版の5回から最速を選んだ。xz / Apple は両版の計10回から最速を選ぶ。
+表の速度は MB/s、byte数は raw LZMA2。Swift byteは基準版 / 最終版で共通で、5組とも全10条件が完全一致した。
+確保と終了処理、xzのprocess起動・file I/O、Appleのframing抽出を含む。別workstreamも同じMacで動いているため、速度には揺れがある。
+
+| corpus | level | 基準 MB/s | 最終 MB/s | xz MB/s | Apple MB/s | Swift byte（両版） | xz byte | Apple byte |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 22.918 | 54.705 | 31.447 | 3.498 | 1,024,529 | 1,024,519 | 695,024 |
+| text | 2 | 9.315 | 32.243 | 20.953 | 3.557 | 1,000,977 | 1,000,969 | 695,024 |
+| text | 3 | 4.490 | 18.846 | 15.744 | 3.538 | 939,624 | 939,612 | 695,024 |
+| text | 6 | 3.056 | 3.823 | 3.491 | 3.528 | 694,823 | 695,024 | 695,024 |
+| text | 9 | 3.122 | 3.827 | 3.499 | 3.528 | 694,823 | 695,024 | 695,024 |
+| binary | 1 | 19.246 | 36.125 | 30.995 | 5.568 | 6,453,276 | 6,451,638 | 4,623,756 |
+| binary | 2 | 10.464 | 25.827 | 23.842 | 5.831 | 6,041,450 | 6,039,816 | 4,623,756 |
+| binary | 3 | 5.656 | 17.019 | 16.345 | 5.840 | 5,995,056 | 5,993,481 | 4,623,756 |
+| binary | 6 | 5.128 | 6.189 | 5.853 | 5.653 | 4,615,940 | 4,623,756 | 4,623,756 |
+| binary | 9 | 4.903 | 6.146 | 5.854 | 5.705 | 4,612,054 | 4,620,542 | 4,623,756 |
+
+level 6 は text / binary が xz の 109.5% / 105.7%、levels 1〜3 は両corpusでxz以上。
+level 9 は基準版の 1.226倍 / 1.254倍で、単一threadの速度目標を全て満たした。
+圧縮sizeの増加は0%。計測の元データと比較scriptは `.build/verification/speed-lzma/paired-shipping-*` に保存する。
+
+2026-10-07 の LZMA1 並列 finder 試作は public-domain の `C/LzFindMt.c` の block 受渡しを参考に、
+`Thread` と semaphore、4096位置の二つの block で実装した。65536 byte の追加入力と window 移動にまたがる
+pause / resume、終端273 byte、memory budget、cancel / abandon を検証し、thread数1 / 2 / 4の出力が一致した。
+しかし実際の raw LZMA1 streaming の level 6、best-of-5 では text が3.424 → 4.494 MB/s（1.312倍）、
+binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満たさなかった。
+固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
+指示された条件に従い並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
+raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
+
+最終版の release targeted suite は52 tests / 0 failures、116.391秒。debug の短い通常試験は
+14 tests / 0 failures、2.861秒。価格表、bit価格の量子化、未整列の一致長、position正規化、独立xz / 7zz oracle、
+writer / updater、並列LZMA2、nilレベルの凍結出力を検証した。全suiteは実行していない。
+全ての開発・試作試験の一覧は `.build/verification/speed-lzma/test-run-ledger.txt` に保存する。
 
 ### LZ4 frame encoder（2026-10-06）
 
