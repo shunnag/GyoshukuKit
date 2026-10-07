@@ -39,7 +39,13 @@ final class LHAStreamSpliceTests: XCTestCase {
                 defer { try? observer.close() }
                 try writer.add(data: Data([65]), as: "before", modificationDate: TestSupport.date)
                 try writer.add(data: input, as: label, modificationDate: TestSupport.date)
-                XCTAssertEqual(try observer.offset(), UInt64(before.count + reference.bytes.count), "\(label), threads=\(threads)")
+                if threads == 1 || count > EntryCompressionConfiguration.inputLimit {
+                    XCTAssertEqual(try observer.offset(), UInt64(before.count + reference.bytes.count), "\(label), threads=\(threads)")
+                } else {
+                    // 中memberは入力を読み切ってから返り、完成recordは順序待ちの窓に残る。
+                    XCTAssertEqual(try observer.offset(), UInt64(before.count), "\(label), threads=\(threads)")
+                    XCTAssertEqual(writer.pendingInputBytes, UInt64(count))
+                }
                 try writer.addDirectory("directory", modificationDate: TestSupport.date, ownerIDs: nil)
                 try writer.add(data: Data([66]), as: "after", modificationDate: TestSupport.date)
                 try writer.finish()

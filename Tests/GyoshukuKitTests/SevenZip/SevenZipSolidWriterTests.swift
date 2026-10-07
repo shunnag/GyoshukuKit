@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import XCTest
 @_spi(SevenZipEditLayout) import KaitoKit
 @testable import GyoshukuKit
@@ -78,6 +79,88 @@ final class SevenZipSolidWriterTests: XCTestCase {
             if let baseline { XCTAssertEqual(data, baseline) } else { baseline = data }
             try SevenZipSolidFilterSupport.verify(url, items: items, options: options, blocks: 1, solid: true, filter: "BCJ")
         }
+    }
+
+    func testInnerWorkerBudgetAndAbortJoin() throws {
+        struct Activity { var running = 0, peak = 0, started = 0 }
+        let root = try TestSupport.directory("7z-inner-worker-budget")
+        let data = Data(repeating: 0x61, count: 256 << 10)
+        for method: SevenZipCompressionMethod in [.lzma2, .deflate] {
+            for abort in [false, true] {
+                let activity = Mutex(Activity())
+                let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+                let options = WriterOptions(sevenZipMethod: method, sevenZipSolid: .on(blockSize: UInt64(data.count)), compressionThreads: 4)
+                let writer = SevenZipBlockWriter(options: options, directory: root, chunkSize: 128 << 10, workerActivity: { began in
+                    activity.withLock {
+                        $0.running += began ? 1 : -1
+                        if began { $0.started += 1; $0.peak = max($0.peak, $0.running) }
+                    }
+                    if began {
+                        started.signal()
+                        if abort { XCTAssertEqual(release.wait(timeout: .now() + 5), .success) }
+                        else { Thread.sleep(forTimeInterval: 0.02) }
+                    }
+                })
+                var position: UInt64 = 0
+                let write: (Data) -> Void = { position += UInt64($0.count) }
+                for index in 0..<(abort ? 2 : 8) {
+                    var offset = 0
+                    try writer.add(name: "block-\(index)", mode: 0o100644, size: UInt64(data.count), date: TestSupport.date,
+                        read: { count in
+                            let end = min(data.count, offset + count)
+                            defer { offset = end }
+                            return data.subdata(in: offset..<end)
+                        }, position: { position }, write: write)
+                    XCTAssertGreaterThan(writer.assignedThreads, 0)
+                    XCTAssertLessThanOrEqual(writer.assignedThreads, 4)
+                }
+                if abort {
+                    // 動作中のcodecを確保してから取消し、join後の終了を検査する。
+                    XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+                    XCTAssertGreaterThan(activity.withLock { $0.running }, 0)
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) {
+                        for _ in 0..<4 { release.signal() }
+                    }
+                    writer.abandon()
+                } else { try writer.flush(position: { position }, write: write) }
+                XCTAssertEqual(writer.assignedThreads, 0)
+                XCTAssertEqual(writer.pendingInputBytes, 0)
+                XCTAssertEqual(activity.withLock { $0.running }, 0)
+                print("7Z INNER \(method) abort=\(abort) peak=\(activity.withLock { $0.peak }) assigned=\(writer.assignedThreads)")
+                XCTAssertLessThanOrEqual(activity.withLock { $0.peak }, 4)
+                if !abort {
+                    XCTAssertEqual(activity.withLock { $0.started }, 16)
+                    XCTAssertGreaterThan(activity.withLock { $0.peak }, 1)
+                }
+            }
+        }
+    }
+
+    func testThrowingBlockEmitCannotReturnThreadsTwice() throws {
+        let root = try TestSupport.directory("7z-inner-worker-error")
+        let data = Data(repeating: 0x61, count: 256 << 10)
+        let options = WriterOptions(sevenZipMethod: .deflate, sevenZipSolid: .on(blockSize: UInt64(data.count)), compressionThreads: 4)
+        let writer = SevenZipBlockWriter(options: options, directory: root, chunkSize: 128 << 10)
+        defer { writer.abandon() }
+        for index in 0..<2 {
+            var offset = 0
+            try writer.add(name: "block-\(index)", mode: 0o100644, size: UInt64(data.count), date: TestSupport.date,
+                read: { count in
+                    let end = min(data.count, offset + count)
+                    defer { offset = end }
+                    return data.subdata(in: offset..<end)
+                }, position: { 0 }, write: { _ in XCTFail("early emit") })
+        }
+        XCTAssertEqual(writer.assignedThreads, 4)
+        var calls = 0
+        let fail: (Data) throws -> Void = { _ in calls += 1; throw WriterError.compression(-77) }
+        XCTAssertThrowsError(try writer.flush(position: { 0 }, write: fail))
+        XCTAssertEqual(writer.assignedThreads, 2)
+        XCTAssertThrowsError(try writer.flush(position: { 0 }, write: fail))
+        XCTAssertEqual(writer.assignedThreads, 2)
+        XCTAssertEqual(calls, 1)
+        writer.abandon()
+        XCTAssertEqual(writer.assignedThreads, 0)
     }
 
     func testInvalidOptionsAreRejectedBeforeCreation() throws {

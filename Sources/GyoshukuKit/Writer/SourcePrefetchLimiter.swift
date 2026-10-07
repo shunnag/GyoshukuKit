@@ -35,6 +35,11 @@ final class SourcePrefetchLimiter: @unchecked Sendable {
 struct Prefetched: Sendable {
     let data: Data
     let crc: UInt32
+    let spool: OrderedEntrySpool?
+
+    init(data: Data, crc: UInt32, spool: OrderedEntrySpool? = nil) {
+        self.data = data; self.crc = crc; self.spool = spool
+    }
 }
 
 struct FileJob: Sendable {

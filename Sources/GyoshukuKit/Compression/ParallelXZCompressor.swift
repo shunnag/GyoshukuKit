@@ -23,6 +23,7 @@ final class ParallelXZCompressor: TarCompressor {
          chunkSize: Int = ParallelXZCompressor.defaultBlockSize,
          packingSize: Int? = nil,
          allowsLightChunks: Bool = true,
+         inlineSingleThread: Bool = false,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) throws {
         guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         precondition(chunkSize > 0)
@@ -32,7 +33,7 @@ final class ParallelXZCompressor: TarCompressor {
         layout = TarChunkCutter(limits: .init(packing: packing, piece: chunkSize))
         pipeline = LZMA2ChunkPipeline(threads: threads, checksum: true,
                                      lightWeightLimit: allowsLightChunks && threads > 1 ? UInt64(Self.lightChunkLimit) : 0,
-                                     pieceSize: chunkSize, encoder: encoder)
+                                     pieceSize: chunkSize, inlineSingleThread: inlineSingleThread, encoder: encoder)
     }
 
     deinit { abandon() }

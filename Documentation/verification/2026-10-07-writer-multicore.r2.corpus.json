@@ -1,0 +1,55 @@
+{
+  "baseline": "f273d346fc8e0743d56604e8c59adb61cedc1828",
+  "new": "f9d5178 + uncommitted round2",
+  "baseline_source_files_verified": 129,
+  "measurement_period_jst": "2026-10-07 23:32 to 2026-10-08 01:58",
+  "build": "release; --disable-sandbox -debug-info-format none; no enable-testing; CLANG_MODULE_CACHE_PATH=$PWD/.build/clang-module-cache",
+  "environment": "Apple M4 Max, 16 cores, 128 GB (round1 environment record); macOS 27.2 (26B5101f); Apple Swift 6.4; arm64",
+  "workloads": {
+    "corpus": {
+      "files": 97,
+      "bytes": 268435456,
+      "names_sizes_contents_sha256": "269b03edd504d62e5610bc4c233e41be6bd066d65878e032fb55b5a007d255bb"
+    },
+    "single": {
+      "files": 1,
+      "bytes": 10485760,
+      "names_sizes_contents_sha256": "64f82d4575014804b065b7959e9506986eebce29a682ef2a66eeb00dee308c8a"
+    },
+    "small": {
+      "files": 5000,
+      "bytes": 12819316,
+      "names_sizes_contents_sha256": "cac75bd8535a72c7f4520e6a24e418d0d3f9bb235ecb51e910349540261c6d04"
+    },
+    "lha-mixed": {
+      "files": 129,
+      "bytes": 10800731,
+      "names_sizes_contents_sha256": "87d9f3082d3b7480de7a7e469aa45a6c27e8a828114e7ce3d2f3f93e03169468"
+    }
+  },
+  "corpus": {
+    "bytes": 268435456,
+    "files": 97,
+    "medium": "96 x 2 MiB",
+    "large": "1 x 64 MiB",
+    "composition": "50% repository Swift text, 25% repeated binary bytes, 25% seeded random",
+    "seed": "0x47594f5348554b55",
+    "sha256": "473b4f17c3c378e80a0a4be156cb0e80480258ba787e7f6b3ca97c2d2e2f9f51"
+  },
+  "mode": "0644",
+  "mtime": 1700000000,
+  "repeats": 5,
+  "threads": [
+    1,
+    12
+  ],
+  "samples": 940,
+  "conditions": 47,
+  "load": "1/5/15-minute averages captured at sample start",
+  "binary_sha256": {
+    "base": "6c1e0303dd6ee2bbb0e94deb8cba5974b8ad1845d4efc131a0a7aaece7e3234a",
+    "new": "f5607769a1e12e4dc182b5b4744dfb5eac8b86f2281b043423e780cd84a75948"
+  },
+  "no_regression": "all best-of-5 new/base ratios <= 1.05 at threads 1 and 12",
+  "identity": "one output SHA-256 and size across all 20 samples for each condition"
+}

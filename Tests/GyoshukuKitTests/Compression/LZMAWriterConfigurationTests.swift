@@ -11,16 +11,20 @@ final class LZMAWriterConfigurationTests: XCTestCase {
             XCTAssertEqual(configuration.pieceSize, piece)
             XCTAssertEqual(configuration.threads, min(64, Int((3 << 30) / configuration.memoryPerThread)))
             XCTAssertLessThanOrEqual(UInt64(configuration.threads) * configuration.memoryPerThread, configuration.memoryBudget)
-            let actual = try LZMAWriterConfiguration(options: options)
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), UInt64(actual.threads + 1) * UInt64(piece))
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip), UInt64(actual.threads) * UInt64(piece))
+            // 固定予算の値は別表に保持し、実装の解決結果から期待値を作らない。
+            let zipMiB = [1040, 1040, 1008, 784, 624, 400, 400, 240, 576, 576]
+            let sevenMiB = [1024, 1024, 992, 768, 608, 384, 384, 224, 480, 384]
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 8 << 30), UInt64(zipMiB[level]) << 20)
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), UInt64(sevenMiB[level]) << 20)
         }
         let options = WriterOptions(lzmaLevel: 9, memoryLimit: .max, compressionThreads: 64)
         let configuration = try LZMAWriterConfiguration(options: options, physicalMemory: 4 << 30)
         XCTAssertEqual(configuration.memoryBudget, 2 << 30)
         XCTAssertEqual(configuration.threads, 1)
-        XCTAssertEqual(WriterOptions(compressionMethod: .lzma).maximumPendingInputBytes(for: .zip), 0)
-        XCTAssertEqual(WriterOptions(sevenZipMethod: .lzma).maximumPendingInputBytes(for: .sevenZip), 0)
+        let zipRaw = WriterOptions(compressionMethod: .lzma, memoryLimit: 4 << 30, compressionThreads: 12)
+        XCTAssertEqual(zipRaw.maximumPendingInputBytes(for: .zip, physicalMemory: 16 << 30), 192 << 20)
+        let sevenRaw = WriterOptions(sevenZipMethod: .lzma, memoryLimit: 4 << 30, compressionThreads: 12)
+        XCTAssertEqual(sevenRaw.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 192 << 20)
         XCTAssertNil(WriterOptions().lzmaLevel)
         XCTAssertFalse(WriterOptions().lzmaExtreme)
         for threads in [Int.min, 0, 65, Int.max] {

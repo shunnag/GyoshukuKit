@@ -14,10 +14,10 @@ final class LZMA2ChunkPipeline<Tag> {
     var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
     init(threads: Int, checksum: Bool = false, lightWeightLimit: UInt64 = 0, pieceSize: Int = LZMA2ChunkPipeline.chunkSize,
-         encoder: @escaping Encoder = LZMA2Compressor.encode) {
+         inlineSingleThread: Bool = false, encoder: @escaping Encoder = LZMA2Compressor.encode) {
         precondition(pieceSize > 0)
         self.pieceSize = pieceSize
-        pipeline = OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit) { input in
+        pipeline = OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit, inlineSingleThread: inlineSingleThread) { input in
             Output(compressed: try encoder(input), crc: checksum ? updateCRC(0, input) : 0)
         }
     }

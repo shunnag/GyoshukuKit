@@ -1,0 +1,54 @@
+{
+  "workloads": {
+    "tree": {
+      "bytes": 96446400,
+      "files": 700,
+      "directories": 200,
+      "sha256": "2aa4a36398f911767eedb1a75c7b4d012ec55a695f864e842e0e86173e9b741c"
+    },
+    "single": {
+      "bytes": 10485760,
+      "files": 1,
+      "directories": 0,
+      "sha256": "a34ff3526c1265c21e1dd8b77149ad80f5a2f20c05e11f397e02fd48b00c93c2"
+    },
+    "single16r": {
+      "bytes": 16777216,
+      "files": 1,
+      "directories": 0,
+      "sha256": "8558d2e823fb3ff1042f5d578f7410e4bce9f3685f50a730958c461d66246cd5"
+    },
+    "small": {
+      "bytes": 12819316,
+      "files": 5000,
+      "directories": 0,
+      "sha256": "fbf3d29f562f2024286733779b50a7a576b97437007f700fb0ce9f1ef456b6e5"
+    },
+    "lha-mixed": {
+      "bytes": 10800731,
+      "files": 129,
+      "directories": 0,
+      "sha256": "22bb51cbd2408e03a71d6184d81e9782fe24d93d175dea12d2fa51a16a1dbfb8"
+    },
+    "mixed": {
+      "bytes": 268435456,
+      "files": 97,
+      "directories": 0,
+      "sha256": "f5b5b98d2c005b19ead895c1693fe111d0934487d071d25e1538e5b06b4a8c26"
+    }
+  },
+  "tree_seed": 20261008,
+  "random_seed": 20261008,
+  "date": 1700000000,
+  "file_mode": "0644",
+  "directory_mode": "0755",
+  "corpus": {
+    "bytes": 268435456,
+    "files": 97,
+    "medium": "96 x 2 MiB",
+    "large": "1 x 64 MiB",
+    "composition": "50% repository Swift text, 25% repeated binary bytes, 25% seeded random",
+    "seed": "0x47594f5348554b55",
+    "sha256": "473b4f17c3c378e80a0a4be156cb0e80480258ba787e7f6b3ca97c2d2e2f9f51"
+  }
+}

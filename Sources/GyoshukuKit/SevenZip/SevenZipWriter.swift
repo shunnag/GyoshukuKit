@@ -20,6 +20,22 @@ final class SevenZipWriter {
     private var aborted = false
     private let pipeline: SevenZipChunkPipeline<ChunkTag>
     private let blocks: SevenZipBlockWriter?
+    private let entryPipeline: OrderedChunkPipeline<EntryJob, EncodedEntry, SevenZipRecords.Entry>?
+    private let entryCancellation = CompressionCancellation()
+    // AES と spool は一つの worker に移譲し、完了後は呼出側だけが結果を読む。
+    private struct EntryJob: @unchecked Sendable {
+        let data: Data
+        let aes: SevenZipAESEncryptor?
+        let spool: OrderedEntrySpool
+    }
+    private struct EncodedEntry: Sendable {
+        let spool: OrderedEntrySpool
+        let properties: UInt8
+        let lzmaProperties: Data
+        let ppmdProperties: Data
+        let aesProperties: Data?
+        let compressedSize: UInt64
+    }
     private let startPosition: UInt64
 
     private final class PendingEntry {
@@ -60,14 +76,37 @@ final class SevenZipWriter {
         pipeline = try SevenZipChunkPipeline(options: options, chunkSize: chunkSize, encoder: encoder)
         blocks = options.sevenZipSolid == .off && options.sevenZipFilter == .none ? nil
             : SevenZipBlockWriter(options: options, directory: url.deletingLastPathComponent(), chunkSize: chunkSize)
+        let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod).threads
+        let cancellation = entryCancellation
+        var workerOptions = options
+        workerOptions.compressionThreads = 1
+        let resolvedWorkerOptions = workerOptions
+        entryPipeline = blocks == nil && threads > 1 && options.sevenZipMethod != .lzma2 && options.sevenZipMethod != .deflate
+            && options.sevenZipMethod != .copy ? OrderedChunkPipeline(threads: threads) { job in
+                var offset = 0
+                let encoder = try SevenZipFolderEncoder.encode(size: UInt64(job.data.count), options: resolvedWorkerOptions,
+                    chunkSize: chunkSize, inlineSingleThread: true, aes: job.aes, read: { count in
+                        try cancellation.check()
+                        let end = min(offset + count, job.data.count)
+                        defer { offset = end }
+                        return job.data.subdata(in: offset..<end)
+                    }, write: { bytes in
+                        try cancellation.check()
+                        try job.spool.append(bytes)
+                    })
+                return EncodedEntry(spool: job.spool, properties: encoder.properties, lzmaProperties: encoder.lzmaProperties,
+                                    ppmdProperties: encoder.ppmdProperties, aesProperties: job.aes?.properties,
+                                    compressedSize: encoder.compressedSize)
+            } : nil
     }
 
     deinit { abort() }
 
-    var pendingInputBytes: UInt64 { blocks?.pendingInputBytes ?? pipeline.pendingInputBytes }
+    var pendingInputBytes: UInt64 { blocks?.pendingInputBytes ?? (pipeline.pendingInputBytes + (entryPipeline?.pendingInputBytes ?? 0)) }
 
     func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
         try blocks?.flush(position: { self.position }, write: write, didEmit: didEmit)
+        try entryPipeline?.drain(didEmit: didEmit, emit: emitEntry)
         try pipeline.drain(didEmit: didEmit, emit: emit)
     }
 
@@ -80,9 +119,29 @@ final class SevenZipWriter {
             try Task.checkCancellation()
             return
         }
-        let record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
+        var record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
+        if let entryPipeline, size <= EntryCompressionConfiguration.inputLimit {
+            try entryPipeline.waitForCapacity(emit: emitEntry)
+            var input = Data()
+            input.reserveCapacity(Int(size))
+            while input.count < Int(size) {
+                try Task.checkCancellation()
+                let requested = min(IOChunk.size, Int(size) - input.count)
+                let bytes = try read(requested)
+                guard !bytes.isEmpty, bytes.count <= requested else { throw WriterError.sourceChanged(name) }
+                record.crc = updateCRC(record.crc, bytes)
+                input.append(bytes)
+            }
+            guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
+            record.method = options.sevenZipMethod
+            let job = size == 0 ? nil : EntryJob(data: input, aes: try encryptors.make(),
+                spool: try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "7z-entry"))
+            try entryPipeline.submit(job, tag: record, weight: size, emit: emitEntry)
+            return
+        }
+        try entryPipeline?.drain(emit: emitEntry)
         let entry = try PendingEntry(record: record, aes: size > 0 ? try encryptors.make() : nil, options: options)
         var remaining = size
         while remaining > 0 {
@@ -116,7 +175,7 @@ final class SevenZipWriter {
     // 検証済みの単一 chunk は、読み直し・コピー・CRC の再計算をせず既存の encoder へ渡す。
     func add(name: String, mode: UInt16, date: Date, prefetched: Prefetched) throws {
         let data = prefetched.data
-        guard blocks == nil, data.count <= pipeline.chunkSize else {
+        guard blocks == nil, entryPipeline == nil, data.count <= pipeline.chunkSize else {
             var offset = data.startIndex
             try add(name: name, mode: mode, size: UInt64(data.count), date: date) { count in
                 let end = min(offset + count, data.endIndex)
@@ -140,6 +199,7 @@ final class SevenZipWriter {
         try Task.checkCancellation()
         try reserveSignature()
         try blocks?.flush(position: { self.position }, write: write)
+        try entryPipeline?.finish(emit: emitEntry)
         try pipeline.finish(emit: emit)
         var packedSize = position - 32
         var header = try blocks?.header(start: startPosition) ?? SevenZipRecords.header(entries)
@@ -175,7 +235,9 @@ final class SevenZipWriter {
     func abort() {
         guard !finished, !aborted else { return }
         aborted = true
-        pipeline.abandon()
+        entryCancellation.cancel()
+        entryPipeline?.abandonAndWait()
+        pipeline.abandonAndWait()
         blocks?.abandon()
         // 出力先が置換されていても別の inode を削除しない。旧 inode の別名は truncate で無効になる。
         ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)
@@ -184,6 +246,24 @@ final class SevenZipWriter {
 
     private func reserveSignature() throws {
         if position == 0 { try write(Data(count: 32)) }
+    }
+
+    private func emitEntry(_ source: SevenZipRecords.Entry, _ result: EncodedEntry?) throws {
+        try Task.checkCancellation()
+        var record = source
+        let start = position
+        if let result {
+            defer { result.spool.close() }
+            try result.spool.forEachChunk(write)
+            record.properties = result.properties
+            record.lzmaProperties = result.lzmaProperties
+            record.ppmdProperties = result.ppmdProperties
+            record.aesProperties = result.aesProperties
+            record.compressedSize = result.compressedSize
+            record.packedSize = position - start
+        }
+        entries.append(record)
+        if isAppend { appendedEntries.append(.init(record: record, packRange: start..<position)) }
     }
 
     private func emit(_ tag: ChunkTag, _ result: SevenZipChunkOutput?) throws {
@@ -207,6 +287,7 @@ final class SevenZipWriter {
         guard !finished, !aborted, isAppend else { throw WriterError.invalidState }
         try Task.checkCancellation()
         try blocks?.flush(position: { self.position }, write: write)
+        try entryPipeline?.finish(emit: emitEntry)
         try pipeline.finish(emit: emit)
         finished = true
         return blocks?.appendedEntries(start: startPosition) ?? appendedEntries

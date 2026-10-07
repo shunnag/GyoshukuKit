@@ -55,6 +55,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
 
     private let threads: Int
     private let lightWeightLimit: UInt64
+    private let inlineSingleThread: Bool
     private let encoder: Encoder
     private let queue: DispatchQueue
     private let state = State()
@@ -63,18 +64,20 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private(set) var pendingInputBytes: UInt64 = 0
     private var nextID: UInt64 = 0
     private var finished = false
+    var pendingCount: Int { items.count }
 
-    init(threads: Int, lightWeightLimit: UInt64 = 0, encoder: @escaping Encoder) {
+    init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, encoder: @escaping Encoder) {
         precondition((1...64).contains(threads))
         self.threads = threads
         self.lightWeightLimit = lightWeightLimit
+        self.inlineSingleThread = inlineSingleThread
         self.encoder = encoder
         queue = DispatchQueue(label: "GyoshukuKit.Compression", qos: Self.currentQoS, attributes: .concurrent)
     }
 
     deinit { abandon() }
 
-    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0,
+    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0, inline: Bool = false,
                 didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
@@ -89,8 +92,13 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
             if let input {
                 let state = state, encoder = encoder
                 state.workers.enter()
-                queue.async(qos: Self.currentQoS, flags: .enforceQoS) {
+                if (threads == 1 && inlineSingleThread) || inline {
+                    // 内側が逐次なら worker 自身で処理し、GCD の待機 thread を増やさない。
                     state.encode(input, id: id, encoder: encoder)
+                } else {
+                    queue.async(qos: Self.currentQoS, flags: .enforceQoS) {
+                        state.encode(input, id: id, encoder: encoder)
+                    }
                 }
             } else {
                 state.complete(.success(nil), id: id)
@@ -143,14 +151,21 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         state.workers.wait()
     }
 
-    private func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)?) throws {
-        let item = items[0]
-        let result = try state.take(item.id)
-        try emit(item.tag, result)
-        items.removeFirst()
-        if item.isHeavy { heavyCount -= 1 }
-        pendingInputBytes -= item.weight
-        try didEmit?(item.weight)
+    // 内部 codec の予約待ちでも先頭だけを出力し、残りの窓を保つ。
+    func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)? = nil) throws {
+        guard !finished, !items.isEmpty else { throw WriterError.invalidState }
+        do {
+            let item = items[0]
+            let result = try state.take(item.id)
+            try emit(item.tag, result)
+            items.removeFirst()
+            if item.isHeavy { heavyCount -= 1 }
+            pendingInputBytes -= item.weight
+            try didEmit?(item.weight)
+        } catch {
+            abandon()
+            throw error
+        }
     }
 
     private static var currentQoS: DispatchQoS {
