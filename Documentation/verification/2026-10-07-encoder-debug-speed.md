@@ -18,7 +18,7 @@ Copy / file I/O対照の `EncoderWriterOverheadProbeTests` は別の `GYOSHUKU_E
 | ZIP PPMd restarts | 同じtext・heap、単一stream・pending input 0、thread 1 / 4のbyte一致 | 20 MiB |
 | 7z PPMd filters / encryption | 4,097 / 8,197 byte、正負のbranch、none / BCJ / ARM64 / Delta × solid × AES / header暗号化、coder / bind / properties / CRC / metadata | 32,769 / 262,149 byte |
 | Zstd odd pieces | text 128 KiB + 17 byte・random 256 KiB + 17 byte、level 1 / 3 / 9 / 19、raw fallback・compressed / ratio・pending input上界 | 1 / 8 MiB |
-| Zstd window / transitions | random + zeros + random + text + zeros + text。乱数の距離はwindow + 4096、textの距離はwindow - 128 KiB + 4096。2 × window + blockSizeを越えるcompact、raw / RLE / compressed・未知content size | 20 MiB mixed |
+| Zstd window / transitions | random + zeros + random + text + zeros + text。textは文字範囲の異なる二つの決定的ASCII区間で128 KiB + 17 byte。乱数の距離はwindow + 64 KiB、textの距離はwindow - 4096。二つ目のtext全体がcompact後に入り、2 × randomサイズ < 出力サイズ < 2 × randomサイズ + 同levelの単独text圧縮サイズを検査。raw / RLE / compressed・未知content size | 20 MiB mixed |
 | Zstd tree tail | text 256 KiB + 17 byte、level 13 / 19、128 KiB block末尾と17 byte tail | 4 MiB |
 | Single stream | 9形式 × 空 / 1 byte / text 128 KiB / random 1 MiB + 17 byte。bzip2 level 9の二つのblock、複数I/O・非整列finish・進捗・原子的公開・取消しcleanup | text 1 MiB / random 9 MiB |
 | LZW widths / CLEAR | text 128 KiB → random 256 KiB → text 128 KiB、maxbits 12 / 16のCLEAR count > 0・再学習・header・実compressサイズ比 | mixed 7 MiB / random 9 MiB / text 12 MiB |
@@ -76,11 +76,13 @@ baseline `f273d346fc8e0743d56604e8c59adb61cedc1828` → round-1 `b46d496`。DEBU
 | `ZstdWriterConfigurationTests` | 1.051 | 1.0 | 5 / 5 |
 | `ZstdXXH64Tests` | 0.112 | 0.11 | 5 / 5 |
 
-## round 2のDEBUG実測
+## round 2のDEBUG単回実行記録
 
 HEAD `b46d496` と修正版を同じ `swift build --build-tests --disable-sandbox -debug-info-format none` で作り、
 保存した各DEBUG XCTest bundleの対象classだけを `xcrun xctest -XCTest GyoshukuKitTests.<class>` で実行する。
 FullSizeと工程timerの鍵は外す。全suiteは実行しない。LZMAの圧縮cache初期化もclass時間に含む。
+下表は各版1回の非交互実行で、他作業を含む1分load average 3.95–8.47の下で採ったDEBUG XCTest（`-enable-testing`）時間。
+負荷と実行順を揃えた比較ではなく、修正の測定コストとしては扱わない。
 
 | Class | HEAD s | 修正版 s | 成功 / skip（両版） |
 |---|---:|---:|---:|
@@ -98,7 +100,7 @@ FullSizeと工程timerの鍵は外す。全suiteは実行しない。LZMAの圧�
 | `ZstdEncoderTests` | 18.710 | 19.537 | 11 / 3 |
 
 各版1回、1 processで逐次実行。HEADの11 classは一括、修正版は10 classの結果とcorpus修正後に単独再実行したPPMdを採る。
-既定11 classの時間合計は492.975 s → 552.384 s（+12.1%）。両版61成功・FullSize 11 skip・失敗0。
+両版61成功・FullSize 11 skip・失敗0。
 PPMdの乱数はH restart=4、I restart=4、I cut-off=3。7zz / KaitoKit全byte復号も成功した。
 一様乱数を使った修正前PPMdのcut-off count assertionは1 failure（class 112.569 s）で、表から除く。他10 classは成功。
 
@@ -113,3 +115,39 @@ Sources/・Package.swift・固定fixtureは `f273d34` とbyte同一で、製品�
 再計測用の [runner](2026-10-07-encoder-debug-speed.run.py)、[集計器](2026-10-07-encoder-debug-speed.summarize.py)、
 独立したDEBUG corpus / CRC [probe](2026-10-07-encoder-debug-speed.corpus.swift) を同じdirectoryに置く。
 FullSizeで保持するLZMA結果cacheは試験の滞在メモリを増やす。製品のmemoryLimit契約は変更しない。
+
+## round 3のサイズ検査とDEBUG再検証
+
+HEAD `f8cba1d` からtest / 本記録だけを変更。共通oracleの未使用reader引数を削除し、常に `ReaderOptions(password:)` で開く。
+Zstd既定入力の乱数距離はwindow + 4096 → window + 65,536、text距離はwindow - 126,976 → window - 4096。
+二つ目のtextは最初のcompact位置（2 × window + 131,072）より61,440 byte後に始まり、全体がcompact後に入る。
+
+従来の単語textでは、混合blockの分割とframe / RLE / 二つ目のtextの符号化分により指定の上限を全4 levelで超えた。
+同じ131,089 byteの決定的ASCIIに替え、文字範囲32–63 / 64–95の区間を混合入力のblock境界に合わせる。
+単独frameではこの区間の境界がblock内に入り、混合入力とのサイズ差で追加のframingも含めた上限を検査できる。
+英単語textのodd pieces / tree tailとFullSize入力は従来どおり。
+
+下表は非XCTestの同一 `swiftc -O -wmo` harnessで、各levelの旧 / 新入力を同じloop内で7回交互に符号化したbyte数。
+各7回は同じbyte数で、round 3のDEBUG出力サイズとも一致。入力変更の記録で、速度コストは再計測していない。
+測定前後のload average（1 / 5 / 15分）は3.81 / 3.94 / 4.27。共通下限は262,144 B。
+
+| Level | HEAD旧入力 B | round 3 B | round 3単独text B | round 3上限 B |
+|---|---:|---:|---:|---:|
+| 1 | 297,393 | 357,058 | 98,233 | 360,377 |
+| 3 | 292,981 | 356,894 | 97,952 | 360,096 |
+| 9 | 292,573 | 357,231 | 97,704 | 359,848 |
+| 19 | 290,623 | 357,324 | 98,364 | 360,508 |
+
+`swift build --build-tests --disable-sandbox -debug-info-format none`（`CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache"`）で全callersのcompile成功。
+最終buildは1.98 s。保存したDEBUG XCTest（`-Onone` / `-enable-testing`）bundleをclassごとに1回ずつ逐次実行し、LARGE / TIMINGは外した。
+以下の秒数は成功確認の単回記録。15秒ごとの1分load averageは2.94–4.36。
+
+| Class | 成功 / skip / 失敗 | Class s |
+|---|---:|---:|
+| `ZstdEncoderTests` | 11 / 3 / 0 | 20.799 |
+| `ZipZstdWriterTests` | 4 / 0 / 0 | 16.720 |
+| `SevenZipCompressionMethodTests` | 4 / 0 / 0 | 51.704 |
+
+Zstdの全4 levelで上下限・raw / RLE / compressed・zstd / KaitoKit全byte復号が成功。
+ZIP / 7zはpasswordあり・なしとthread 1 / 4のbyte一致も成功。FullSize・全suiteは実行しない。
+log・サイズTSV・load sampleは `.build/speed-r3/`、提案commit messageは `.build/speed-commit-message-r3.txt`。

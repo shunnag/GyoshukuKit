@@ -55,7 +55,9 @@ final class ZstdEncoderTests: XCTestCase {
     }
 
     private static let windowRandom = TestCorpus.random(128 << 10)
-    private static let windowText = LZMAEncoderCorpus.text(size: (128 << 10) + 17)
+    // 文字範囲の異なる二つの ASCII 区間。単独 frame と混合入力で block 境界をずらす。
+    private static let windowText = Data(TestCorpus.random(64 << 10, alphabetMask: 31).map { $0 + 32 })
+        + Data(TestCorpus.random((64 << 10) + 17, alphabetMask: 31).map { $0 + 64 })
     private static let largeMixed = LZMAEncoderCorpus.mixed(size: 20 << 20)
 
     private func verifyTransitions(large: Bool) throws {
@@ -65,12 +67,12 @@ final class ZstdEncoderTests: XCTestCase {
             let input: Data
             if large { input = Self.largeMixed }
             else {
-                // 乱数の再出現は window + 4096 byte 先。text は compact 後も window 内で再出現する。
+                // 乱数の距離は window + 64 KiB。text は window - 4096 先で、二つ目の全体が compact 後に入る。
                 var mixed = Self.windowRandom
-                mixed.append(Data(repeating: 0, count: window - Self.windowRandom.count + 4096))
+                mixed.append(Data(repeating: 0, count: window - Self.windowRandom.count / 2))
                 mixed.append(Self.windowRandom)
                 mixed.append(Self.windowText)
-                mixed.append(Data(repeating: 0, count: window - Self.windowRandom.count - Self.windowText.count + 4096))
+                mixed.append(Data(repeating: 0, count: window - Self.windowText.count - 4096))
                 mixed.append(Self.windowText)
                 input = mixed
             }
@@ -81,7 +83,13 @@ final class ZstdEncoderTests: XCTestCase {
             try verify(output, input: input, label: "mixed-\(level)", directory: directory)
             let types = blockTypes(output)
             XCTAssertTrue(types.contains(0)); XCTAssertTrue(types.contains(2))
-            if !large { XCTAssertTrue(types.contains(1)) }
+            if !large {
+                XCTAssertTrue(types.contains(1))
+                let singleTextSize = try ZstdFrameEncoder.encode(Self.windowText, level: level).count
+                // window 外の乱数は再利用せず、window 内の text は再利用する。
+                XCTAssertGreaterThan(output.count, 2 * Self.windowRandom.count, "level \(level)")
+                XCTAssertLessThan(output.count, 2 * Self.windowRandom.count + singleTextSize, "level \(level)")
+            }
         }
     }
     func testOptimalTreeBlockTailWithLongText() throws { try verifyTreeTail(large: false) }
