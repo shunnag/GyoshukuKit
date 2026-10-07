@@ -15,10 +15,11 @@ python3 Benchmarks/PPMd/run.py --mode profile
 
 build、bench、identity はこの順に実行する。bench 中は別の build / test を開始しない。
 bench は固定 seed の英文風 text 8 MiB と、この Mac の `/usr/lib/dyld` を level 1 / 6 / 9 で
-測る。旧→新→旧→新の順に交互実行し、7 回の最良値を使う（`--runs` は5以上）。
+測る。旧→新→7zz の順に各反復で実行し、7 回の最良値を使う（`--runs` は5以上）。
 入力読込みは計時外、model allocation、payload 生成、finish は計時内。
 7zz は `-mmt=1` で起動・file I/O・書庫作成も計時内。全試行、load average、compiler / 7zz の版、
-実際の参照 heap、source / build command を JSON に保存する。参照書庫は `7zz t` と全 byte 復号で確認する。
+実際の参照 heap、source / build command を JSON に保存する。参照書庫は各反復の前に削除し、
+最後の書庫を loop 後に一度だけ `7zz t` と全 byte 復号で確認する。
 7zz が入力サイズに応じて heap を縮小した場合も記録する。
 
 identity は dyld、`/bin/zsh`、8 MiB の混合 corpus、空、1 byte、64 KiB zeros を対象に、

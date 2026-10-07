@@ -69,18 +69,17 @@ def encode(label, corpus, variant, order, heap, restoration=0, width=0, output=N
     return {"bytes": int(size), "seconds": float(elapsed), "MB/s": float(speed)}
 
 
-def reference(corpus, variant, level, order, heap):
+def reference_command(corpus, variant, level, order, heap):
     tool = shutil.which("7zz")
     archive = work / f"reference-{corpus}-{variant}-{level}.{'zip' if variant == 'I' else '7z'}"
     method = (["-t7z", f"-m0=PPMd:o={order}:mem={heap}m"] if variant == "H" else
               ["-tzip", f"-mm=PPMd:o={order}:mem={heap}m:a=0", f"-mx={level}"])
     command = [tool, "a", *method, "-mmt=1", archive, work / "corpora" / f"{corpus}.bin"]
-    times = []
-    for _ in range(args.runs):
-        archive.unlink(missing_ok=True)
-        start = time.monotonic()
-        run(command)
-        times.append(time.monotonic() - start)
+    return archive, command
+
+
+def reference(corpus, variant, order, archive, command, times):
+    tool = command[0]
     run([tool, "t", archive])
     assert run([tool, "x", "-so", archive]) == (work / "corpora" / f"{corpus}.bin").read_bytes()
     listing = run([tool, "l", "-slt", archive], text=True)
@@ -109,11 +108,17 @@ def bench():
         row = {"corpus": corpus, "variant": variant, "level": level, "order": order, "heapMiB": heap,
                "input_bytes": (work / "corpora" / f"{corpus}.bin").stat().st_size,
                "load": os.getloadavg(), "baseline": [], "new": []}
+        archive, command = reference_command(corpus, variant, level, order, heap)
+        reference_times = []
         for _ in range(args.runs):
             for label in ["baseline", "new"]:
                 row[label].append(encode(label, corpus, variant, order, heap, output=work / f"bench-{label}"))
+            archive.unlink(missing_ok=True)
+            reference_start = time.monotonic()
+            run(command)
+            reference_times.append(time.monotonic() - reference_start)
         assert filecmp.cmp(work / "bench-baseline", work / "bench-new", shallow=False)
-        row["7zz"] = reference(corpus, variant, level, order, heap)
+        row["7zz"] = reference(corpus, variant, order, archive, command, reference_times)
         result["rows"].append(row)
         (work / "benchmark.json").write_text(json.dumps(result, indent=2))
         speeds = {label: max(x["MB/s"] for x in row[label]) for label in ["baseline", "new"]}

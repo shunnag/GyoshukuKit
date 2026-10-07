@@ -1402,7 +1402,8 @@ Array の bounds check を除いた。heap offset は最大 1 GiB 内、頻度�
 取消しを 4096 byte ごとの内側 loop の入口で確認し、記号ごとの判定を省く。
 model の計算式・復元方法・framing は変えない。
 追加保持量の 192 KiB 上限、per-worker reservation、4096 byte ごとのキャンセル確認、64 KiB の排出は維持する。
-`-O -wmo` の SIL でも記号 loop 内に retain がなく、class の動的な排他アクセスは入口で開始することを確認した。
+記号 loop 内の retain と class の動的な排他アクセスの範囲は、
+`-O -wmo` の特殊化された encode 関数の SIL では未検証。
 
 7z の order は 2...32、memorySize は 1 MiB...1 GiB（byte 単位）。5 byte coder properties は
 order byte と memorySize の LE32。raw stream に properties や EOF marker は入れず、7z range coder を
@@ -1456,10 +1457,12 @@ I の order 32 は形式・properties の契約外なので扱わない。text /
 encoder の旧比は非 XCTest の `Benchmarks/PPMd/run.py` で測る。
 f273d34 と作業 tree の source を **両方 `swiftc -O -wmo -swift-version 6`** でビルドし、
 `-enable-testing` を使わない。固定 seed の英文風 text 8,388,608 byte と `/usr/lib/dyld` 4,129,088 byte を使う。
-2026-10-07、Apple M4 Max / Swift 6.4、導入済みの 7zz は **26.04**。
-旧→新→旧→新の順で各11回を交互実行する best-of-11。MB/s は 1,000,000 byte/s。
+round 3 の再計測は2026-10-07、Apple M4 Max / Swift 6.4、導入済みの 7zz は **26.04**。
+旧→新→7zz の順で各11回を交互実行する best-of-11。参照書庫は各反復の前に削除し、
+`7zz t` / `7zz x -so` / properties の確認は loop 後に一度だけ行う。MB/s は 1,000,000 byte/s。
 測定中にこの作業の build / test は重ねていないが、Mac の他の負荷はある。
-load average（1 / 5 / 15 分）は開始 6.74 / 5.50 / 5.24 → 終了 5.82 / 5.46 / 5.24。
+load average（1 / 5 / 15 分）は開始 3.99 / 3.79 / 4.50 → 終了 4.94 / 4.15 / 4.57。
+12条件の計測・照合は82.146秒、記録は `.build/ppmd-r3/benchmark.json` と `build.json`。
 Swift は model allocation / payload 生成 / finish、7zz は起動 / file I/O / archive 作成を含む wall time。
 入力準備、CRC / container の組立、復号 oracle は計測外。SDK の内部 loop だけの速度比較ではない。
 round 1 の XCTest `-enable-testing` baseline は旧版を不均等に遅くしたため、その速度表と倍率を撤回した。
@@ -1475,23 +1478,24 @@ H の order は 3 / 6 / 16、I は 3 / 8 / 16、heap は両方 1 / 16 / 192 MiB�
 
 | corpus | var. | level | 旧 MB/s | 新 MB/s | 7zz MB/s | 旧=新 byte | 7zz byte |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| text | H | 1 | 76.83 | 139.29 | 120.82 | 703,855 | 703,855 |
-| text | H | 6 | 93.26 | 189.58 | 155.50 | 328,737 | 328,737 |
-| text | H | 9 | 88.81 | 131.67 | 110.15 | 293,408 | 293,408 |
-| text | I | 1 | 69.29 | 125.43 | 110.16 | 704,541 | 704,541 |
-| text | I | 6 | 80.34 | 175.13 | 141.00 | 297,284 | 297,284 |
-| text | I | 9 | 76.29 | 121.61 | 103.60 | 294,144 | 294,144 |
-| binary | H | 1 | 10.47 | 22.82 | 22.82 | 1,286,117 | 1,286,117 |
-| binary | H | 6 | 8.68 | 17.80 | 16.60 | 1,110,799 | 1,110,799 |
-| binary | H | 9 | 8.30 | 15.17 | 15.01 | 903,351 | 1,057,380 |
-| binary | I | 1 | 10.18 | 22.35 | 22.42 | 1,282,687 | 1,282,687 |
-| binary | I | 6 | 7.99 | 16.89 | 17.10 | 1,134,452 | 1,134,452 |
-| binary | I | 9 | 8.24 | 15.15 | 14.76 | 900,741 | 1,053,497 |
+| text | H | 1 | 77.88 | 142.18 | 125.09 | 703,855 | 703,855 |
+| text | H | 6 | 95.69 | 195.54 | 162.02 | 328,737 | 328,737 |
+| text | H | 9 | 89.21 | 135.30 | 115.66 | 293,408 | 293,408 |
+| text | I | 1 | 70.60 | 128.57 | 113.79 | 704,541 | 704,541 |
+| text | I | 6 | 81.36 | 176.49 | 141.15 | 297,284 | 297,284 |
+| text | I | 9 | 77.59 | 126.88 | 107.21 | 294,144 | 294,144 |
+| binary | H | 1 | 10.95 | 23.54 | 23.38 | 1,286,117 | 1,286,117 |
+| binary | H | 6 | 9.17 | 18.68 | 18.47 | 1,110,799 | 1,110,799 |
+| binary | H | 9 | 8.58 | 15.74 | 15.13 | 903,351 | 1,057,380 |
+| binary | I | 1 | 10.52 | 22.95 | 22.90 | 1,282,687 | 1,282,687 |
+| binary | I | 6 | 8.14 | 17.19 | 17.44 | 1,134,452 | 1,134,452 |
+| binary | I | 9 | 8.35 | 15.57 | 14.87 | 900,741 | 1,053,497 |
 
-level 6 の旧比は H が text 2.033 倍 / binary 2.050 倍、
-I が text 2.180 倍 / binary 2.114 倍。
-この測定では H の両 corpus で 2 倍を達成した。binary の新 / 7zz 比は H 107.2% / I 98.7% で、
-H は 100% の stretch target も達成した。負荷による揺れがあるため、他の環境での下限を保証する値ではない。
+level 6 の旧比は H が text 2.044 倍 / binary 2.038 倍、
+I が text 2.169 倍 / binary 2.113 倍。
+H level 6 の新 / 7zz 比は text **120.7%** / binary **101.1%**（丸める前の速度から算出）。
+binary は reviewer の交互計測の約100～102%とも整合し、7zz とほぼ同等で負荷に依存する。
+I level 6 の binary 比は98.6%。他の環境での速度の下限を保証する値ではない。
 表の出力は全て旧版と同一。参照と同じ heap の level 1 / 6 は 7zz のサイズにも一致した。
 
 残る時間は診断用の別 build で 1024 回ごとの `mach_absolute_time` を20回分集計した。
@@ -1529,6 +1533,9 @@ GYOSHUKU_PPMD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cach
   --filter PPMdEncoderBenchmarkTests
 # 非 XCTest、同一 -O -wmo の release。build / bench / identity を逐次実行する。
 python3 Benchmarks/PPMd/run.py --runs 11
+# round 3 の交互計測（source は変更せず、build 後に bench のみ実行）
+python3 Benchmarks/PPMd/run.py --mode build --directory .build/ppmd-r3 --runs 11
+python3 Benchmarks/PPMd/run.py --mode bench --directory .build/ppmd-r3 --runs 11
 # overhead を含む stage 診断（速度の表には使わない）
 python3 Benchmarks/PPMd/run.py --mode profile
 ```
