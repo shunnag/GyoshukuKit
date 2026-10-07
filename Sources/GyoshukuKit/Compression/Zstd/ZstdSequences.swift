@@ -41,7 +41,7 @@ enum ZstdSequences {
         return shortMatchCodes[length]
     }
     static func encode(_ sequences: [ZstdSequence], repeats: inout ZstdRepeatOffsets,
-                       workspace: Workspace? = nil, profile: ((Double, Double, Double) -> Void)? = nil) -> Data {
+                       workspace: Workspace? = nil, fast: Bool = false, profile: ((Double, Double, Double) -> Void)? = nil) -> Data {
         let n = sequences.count
         precondition(n <= ZstdFrameEncoder.blockSize / 3)
         if n == 0 { return Data([0]) }
@@ -89,9 +89,10 @@ enum ZstdSequences {
         precondition(maxOf <= 30)
         let last = commands[n - 1].codes
         let codesEnd = profile == nil ? 0 : ProcessInfo.processInfo.systemUptime
-        let l = ZstdSequenceEntropy.choose(counts: lc, last: Int(last & 63), count: n, predefined: .literals, maximumLog: 9)
-        let o = ZstdSequenceEntropy.choose(counts: oc, last: Int((last >> 12) & 63), count: n, predefined: .offsets, maximumLog: 8)
-        let m = ZstdSequenceEntropy.choose(counts: mc, last: Int((last >> 6) & 63), count: n, predefined: .matches, maximumLog: 9)
+        // fast は128 stateまでに抑え、表構築と参照量を減らす。
+        let l = ZstdSequenceEntropy.choose(counts: lc, last: Int(last & 63), count: n, predefined: .literals, maximumLog: fast ? 7 : 9, fast: fast)
+        let o = ZstdSequenceEntropy.choose(counts: oc, last: Int((last >> 12) & 63), count: n, predefined: .offsets, maximumLog: fast ? 7 : 8, fast: fast)
+        let m = ZstdSequenceEntropy.choose(counts: mc, last: Int((last >> 6) & 63), count: n, predefined: .matches, maximumLog: fast ? 7 : 9, fast: fast)
         let tablesEnd = profile == nil ? 0 : ProcessInfo.processInfo.systemUptime
         var result = Data()
         if n < 128 { result.append(UInt8(n)) }

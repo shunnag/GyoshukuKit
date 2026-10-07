@@ -1499,7 +1499,8 @@ memory は `estimatedMemoryBytes` の保守的な見積り。二つ分の window
 block / entropy / parser scratch の予算を含み、呼出元が保持する入力・出力と allocator の管理領域は含めない。
 level 6...12の上表は、従来からコードが予約していた値に訂正した（以前の表は UInt32 link の byte 数を過少記載）。
 row table の実確保は従来の chain 予算以下。optimal の永続 node と長さ別価格表は既存16 MiB scratch 内に収める。
-level 1 / 2 の4 byte補助 head は256 KiB増え、worker予約も同量増える。window と pending input の上界は変わらない。
+round 3の level 1 / 2は4 byte補助 headを省き、1 byteのtag表（128 / 256 KiB）に置き換える。
+見積りは従来の256 KiB補助 head予算を残すため保守的な上界を保つ。window・pending input・worker予約は変わらない。
 連続 buffer は window ごとに compact し、入力全体を保存しない。未処理入力は 128 KiB 以下。
 長い stream の table position は 2 GiB ごとに番号を縮め、live window を保つ。
 比較・table 反転・符号化の hot loop は検証済み範囲の unsafe buffer を使い、unaligned load は初期化済み入力だけを読む。
@@ -1683,6 +1684,134 @@ debugの対象10件は成功・失敗0・14.145秒。新規試験は二位置loo
 交互測定で保存した12 frameも同じ出力と照合した（CLIサイズ確認を含め7.712秒）。
 検証結果は `.build/zstd-r2/validation.json`、test logは `final-{release,debug}-tests.log`。
 fixtureは変更せず、全suiteは走らせていない。新規変更は未commitのまま残し、提案messageは `.build/speed-commit-message-r2.txt`。
+
+#### Zstandard 高速化 round 3（2026-10-07）
+
+基準 `f273d34`、round 2 `914f6c0`、round 3を同じ非 XCTest harness に組み込み、
+型名・helper名だけを変えた過去 source を元commitと照合した。
+全版とも `swiftc -O -wmo -module-cache-path .build/clang-module-cache`、`-enable-testing` なし。
+入力は一度だけ読み、instance確保・checksum・frame組立を含む encode を測る。
+基準→round 2→round 3→CLI と逆順を交互に各7回実行し、最良値同士を比較する。
+CLI 1.5.7は `-b<level> -e<level> -i1 -T1` の内部計測、MB/sは1,000,000 byte/秒。
+Apple M4 Max / macOS 27.2（26B5101f）/ Apple Swift 6.4。
+この計測中の1分load averageは3.26〜6.82。サイズ確認・XCTestは速度計測と別に実行した。
+
+| corpus | level | 基準 MB/s | round 2 MB/s | round 3 MB/s | CLI MB/s | round 3 / CLI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 154.427 | 340.820 | 355.215 | 575.900 | 61.7% |
+| text | 2 | 154.446 | 340.105 | 355.804 | 561.700 | 63.3% |
+| text | 3 | 162.913 | 287.981 | 289.526 | 534.000 | 54.2% |
+| binary | 1 | 98.862 | 231.887 | 315.152 | 753.300 | 41.8% |
+| binary | 2 | 97.123 | 214.951 | 312.138 | 593.300 | 52.6% |
+| binary | 3 | 101.221 | 195.438 | 207.364 | 478.500 | 43.3% |
+| mixed | 1 | 220.669 | 462.567 | 618.842 | 1192.700 | 51.9% |
+| mixed | 2 | 222.458 | 462.134 | 613.266 | 1032.400 | 59.4% |
+| mixed | 3 | 126.347 | 386.194 | 397.444 | 799.800 | 49.7% |
+
+binary L1の40%、binary L3の40%、text L1/L3の50%を全て満たす。
+binary L1の50% stretchは未達。値はこのMac・三つのcorpus・測定時の負荷に限る。
+L1/L2の予算は各corpusで基準比 +2.0%以内かつ同levelのCLI以下、L3以上は基準比 +0.3%以内。
+全19 level × 3 corpusの57条件で成立した。L1/L2の最大増はbinary L1の +1.740389%、
+L3以上の最大増はbinary L9の +0.222916%。L3のCLI比 +10%、L19の +8%以内も保つ。
+サイズは各一回のencodeと `zstd -<level> -T1 -c` のframe全体（checksumあり）のbyte数。
+この確認の実行時間は上の速度値に使わない。
+
+| corpus | level | 基準 bytes | round 2 bytes | round 3 bytes | CLI bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 1,008,821 | 993,183 | 1,007,734 | 1,022,409 |
+| text | 2 | 1,008,787 | 993,073 | 1,007,669 | 1,019,676 |
+| text | 3 | 933,816 | 933,779 | 933,779 | 970,449 |
+| text | 19 | 704,190 | 704,190 | 704,190 | 692,480 |
+| binary | 1 | 7,997,811 | 8,001,664 | 8,137,004 | 9,037,641 |
+| binary | 2 | 7,985,150 | 7,940,706 | 8,068,679 | 8,319,767 |
+| binary | 3 | 7,371,581 | 7,372,748 | 7,372,748 | 7,570,180 |
+| binary | 19 | 5,339,170 | 5,339,170 | 5,339,170 | 5,204,544 |
+
+追加したmixed corpusは16,777,216 bytes。`ZstdEncoderCorpus.mixed` で64個の256 KiB区間を作り、
+各区間の先頭512 byteは固定のustar風header、その後は乱数・text・Mach-O・乱数の順に配置する。
+乱数はxorshift64（左13・右7・左17）、初期値 `0x726F756E64330001`、各更新の下位byteを使う。
+圧縮済み風の高entropy部分は実際のJPEG/zstd/xzではなく乱数。text/binaryは上記の同じ入力で、
+区間番号/4 × 261,632 byteを開始位置として末尾で循環する。日時・uid/gidは0、modeは0644。
+SHA-256は `c173284311befae01e348b2d953d039d5a3493dd7f1e4de5ea79ee6631af7cf9`。
+textは4,194,304 bytes、binaryはdyld 4,129,088 + CreateML 16,559,504 = 20,688,592 bytes。
+全corpusのhashは `validation.json` に記録する。
+
+| mixed level | 基準 bytes | round 2 bytes | round 3 bytes | CLI bytes | 基準比 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 10,751,883 | 10,753,769 | 10,796,603 | 10,929,529 | +0.415927% |
+| 2 | 10,751,622 | 10,750,390 | 10,791,686 | 10,843,327 | +0.372632% |
+| 3 | 10,658,740 | 10,648,507 | 10,648,507 | 10,723,527 | -0.096006% |
+| 4 | 10,646,099 | 10,641,061 | 10,641,061 | 10,710,788 | -0.047322% |
+| 5 | 10,646,099 | 10,641,061 | 10,641,061 | 10,698,145 | -0.047322% |
+| 6 | 10,653,735 | 10,512,076 | 10,512,076 | 10,652,061 | -1.329665% |
+| 7 | 10,637,429 | 10,493,379 | 10,493,379 | 10,639,591 | -1.354181% |
+| 8 | 10,613,585 | 10,484,516 | 10,484,516 | 10,615,580 | -1.216074% |
+| 9 | 10,568,202 | 10,470,978 | 10,470,978 | 10,608,354 | -0.919967% |
+| 10 | 10,541,523 | 10,469,476 | 10,469,476 | 10,582,011 | -0.683459% |
+| 11 | 10,507,653 | 10,459,454 | 10,459,454 | 10,538,263 | -0.458704% |
+| 12 | 10,483,644 | 10,458,444 | 10,458,444 | 10,538,063 | -0.240374% |
+| 13 | 10,076,329 | 10,076,329 | 10,076,329 | 10,462,598 | +0.000000% |
+| 14 | 10,079,410 | 10,079,410 | 10,079,410 | 10,451,591 | +0.000000% |
+| 15 | 10,079,084 | 10,079,084 | 10,079,084 | 10,444,466 | +0.000000% |
+| 16 | 10,078,747 | 10,078,747 | 10,078,747 | 10,367,059 | +0.000000% |
+| 17 | 10,076,688 | 10,076,688 | 10,076,688 | 10,019,107 | +0.000000% |
+| 18 | 10,076,227 | 10,076,227 | 10,076,227 | 9,972,525 | +0.000000% |
+| 19 | 10,077,623 | 10,077,623 | 10,077,623 | 9,958,324 | +0.000000% |
+
+L1/L2は一つ先の位置でrep0を先に調べ、現在位置の5-byte hash候補をtagで絞る専用loopにした。
+探索用のrepeatは直近距離だけを保持し、RFCの三つのrepeatの更新はsequence encoderで行う。
+tagは4-byte prefixから作る1 byteで、採用時には実入力と履歴距離を検証する。
+fastで使わない256 KiBの短いheadを省き、tag表はL1が128 KiB、L2が256 KiB。
+見積り・window・pending input・worker予約の契約を変えず、頻度表10 KiBは従来の5 MiB scratch内に収める。
+Huffmanの1024 laneと256 countはframe所有のworkspaceに移し、blockごとの確保を省いた。
+literalの広いcopyを行うsequence loopには `assert(s.length >= 3)` を加えた。
+
+予約済みbit writerは各appendで完了byteを吐き、残りを0...7 bitに保つ。
+入力幅<=56 bit・残り<=7 bit・非負値・予約内storeのassertを維持/追加し、hot loopの幅分岐を省く。
+全てのL3以上のframeはround 2とbyte一致し、bit出力の変更で圧縮率は変わらない。
+L1/L2のFSEだけは最大log 7（128 state）で一候補を評価し、表の構築・参照量を減らす。
+大きい表の二候補を評価する版よりbinaryのsequence table時間が減り、サイズの緩和分で収まった。
+6-byte hash、強いmiss間引き、rep0だけを同位置で調べる案はサイズ超過、
+一致内を常に4 byte間隔で挿入する案やhashの二位置更新は十分な速度増がなく採用していない。
+段階ごとの7回交互測定・profileは `.build/zstd-r3/` の個別logに残す。
+
+最終sourceの段階profileは同じ非 XCTest buildで、計時callbackありの各level一回、binary全体の経過ms。
+7回の最良値による速度表とは区別する。
+
+| level | stage | round 2 ms | round 3 ms |
+| --- | --- | ---: | ---: |
+| 1 | match+parse | 51.829 | 38.535 |
+| 1 | literals（集約を含む） | 15.033 | 11.931 |
+| 1 | sequences | 19.448 | 13.139 |
+| 1 | sequence tables | 4.734 | 1.927 |
+| 1 | literal bits | 5.366 | 2.266 |
+| 2 | match+parse | 60.674 | 40.185 |
+| 2 | literals（集約を含む） | 14.898 | 11.735 |
+| 2 | sequences | 19.819 | 13.468 |
+| 2 | sequence tables | 4.770 | 1.924 |
+| 2 | literal bits | 5.252 | 2.191 |
+| 3 | match+parse | 69.952 | 69.362 |
+| 3 | literals（集約を含む） | 13.280 | 10.958 |
+| 3 | sequences | 22.032 | 20.233 |
+| 3 | sequence tables | 4.626 | 5.671 |
+| 3 | literal bits | 4.174 | 1.690 |
+
+最終検証はreleaseの `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+`CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdParallelBenchmarkTests` が30件成功・失敗0・54.703秒（build 86.35秒）。
+`--disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none` と並列benchmarkのopt-inを使う。
+このXCTestの速度値は性能表に使わない。debugは並列benchmarkを除く同じ5 classを
+`--disable-sandbox -c debug -debug-info-format none` で実行し、29件成功・失敗0・123.103秒（build 9.41秒）。
+頻度workspaceのraw/RLE/Huffman遷移、二位置loop末尾、bit境界と予約、L1/L2を含むrebaseを検証した。
+L1/L2の64 MiB・16 frameとL3の256 MiB `.zst` / `tar.zst` で、1 / 4 / 8 / 12 thread間のbyte一致が成立する。
+基準・round 2・round 3・CLIの全levelの228 frameをCLI `-t` / `-dc` で全byte照合し、
+最終交互測定の27 frameも同じ出力と照合した（計255 frame、CLIサイズ生成込み36.572秒）。
+fixtureは変更せず、全suiteは実行していない。新規変更は未commit。
+
+再現用harness/buildは `.build/zstd-r3/{final-measure,final-size,measure}.swift` / `build.py`、
+最終sample/loadは `final-runs.json` / `final-speed.tsv`、全サイズは `sizes.tsv`、
+source hashは `source-manifest.json`、復号は `verify.py` / `validation.json`、
+profileは `final-profile.log`、試験は `{release,debug}-tests.log`。
+提案日本語commit messageは `.build/speed-commit-message-r3.txt`。
 
 ### Zstandard の writer 接続（2026-10-06）
 

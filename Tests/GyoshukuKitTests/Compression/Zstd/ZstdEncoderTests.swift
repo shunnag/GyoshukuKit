@@ -153,6 +153,41 @@ final class ZstdEncoderTests: XCTestCase {
         reference.append(ZstdFSEEncoder.literals.start(35), bits: 6)
         XCTAssertEqual(encoded, Data([1,0x10,30]) + reference.finish())
     }
+    func testReusedLiteralHistogramTransitions() throws {
+        let directory = try TestSupport.directory("zstd-reused-literals")
+        let workspace = ZstdHuffmanEncoder.Workspace()
+        let pattern: [UInt8] = (0..<8192).map { i in
+            let symbol = i % 8 == 0 ? i % 256 : i % 4
+            return UInt8(symbol)
+        }
+        let skewed = Data(pattern)
+        for (i, input) in [skewed, TestCorpus.random(4096), Data(repeating: 17, count: 4096), Data(), skewed].enumerated() {
+            let literals = ZstdHuffmanEncoder.literals(input, workspace: workspace)
+            try verify(manualFrame(literals + Data([0]), input: input), input: input,
+                       label: "transition-\(i)", directory: directory)
+        }
+    }
+    func testFastWriterThreadIdentity() throws {
+        let directory = try TestSupport.directory("zstd-fast-thread-identity")
+        let seed = ZstdEncoderCorpus.mixed(text: LZMAEncoderCorpus.text(size: 4 << 20),
+                                          binary: LZMAEncoderCorpus.mixed(size: 4 << 20))
+        // 16 frame を作り、12 workerにも十分な入力を渡す。
+        var input = Data(); input.reserveCapacity(64 << 20)
+        for _ in 0..<4 { input.append(seed) }
+        let source = directory.appendingPathComponent("input.bin")
+        try input.write(to: source)
+        for level in [1,2] {
+            var baseline: Data?
+            for threads in [1,4,8,12] {
+                let url = directory.appendingPathComponent("level-\(level)-threads-\(threads).zst")
+                try SingleStreamCompressor.compress(file: source, to: url, format: .zstd,
+                                                    options: WriterOptions(zstdLevel: level, compressionThreads: threads))
+                let output = try Data(contentsOf: url)
+                if let baseline { XCTAssertEqual(output, baseline) } else { baseline = output }
+                try verify(output, input: input, label: "decode-\(level)-\(threads)", directory: directory)
+            }
+        }
+    }
     func testCancellationMakesEncoderTerminal() async throws {
         let (gate, continuation) = AsyncStream<Void>.makeStream()
         let task = Task {
@@ -174,6 +209,7 @@ final class ZstdEncoderTests: XCTestCase {
     }
     func testHuffmanOneAndFourStreamsWithDirectAndFSEWeights() throws {
         let directory = try TestSupport.directory("zstd-huffman")
+        let workspace = ZstdHuffmanEncoder.Workspace()
         for size in [997,1024,1025,1026,1027,16_383,16_384,131_072] {
             for highBytes in [false,true] {
                 var random = TestCorpus.XorShift64(state: 0x8743_2211)
@@ -181,7 +217,7 @@ final class ZstdEncoderTests: XCTestCase {
                     let n = random.next()
                     return UInt8(n & 7 == 0 ? (highBytes ? (n >> 8) & 255 : (n >> 8) & 127) : n & 3)
                 })
-                let literals = ZstdHuffmanEncoder.literals(bytes)
+                let literals = ZstdHuffmanEncoder.literals(bytes, workspace: workspace)
                 XCTAssertEqual(literals[0] & 3, 2)
                 let payload = literals + Data([0])
                 let frame = manualFrame(payload, input: bytes)
@@ -261,7 +297,7 @@ final class ZstdEncoderTests: XCTestCase {
     }
     func testMatchRowsAndTreePreserveCandidatesAfterRebase() throws {
         let input = LZMAEncoderCorpus.text(size: 8 << 10)
-        for level in [1,3,6,9,11,12,19] {
+        for level in [1,2,3,6,9,11,12,19] {
             let properties = try ZstdEncoderProperties.preset(level)
             let ordinary = ZstdMatchFinder(properties: properties), rebased = ZstdMatchFinder(properties: properties)
             let a = UnsafeMutablePointer<ZstdMatch>.allocate(capacity: properties.depth + 4)

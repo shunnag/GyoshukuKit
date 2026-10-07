@@ -8,21 +8,30 @@ enum ZstdHuffmanEncoder {
         var bits: Int { Int(packed & 15) }
         init(value: Int, bits: Int) { packed = UInt16((value << 4) | bits) }
     }
+    // frame 内の block 間で頻度表を再利用する。
+    final class Workspace {
+        let counts = UnsafeMutablePointer<Int>.allocate(capacity: 256)
+        let lanes = UnsafeMutablePointer<Int>.allocate(capacity: 1024)
+        init() { counts.initialize(repeating: 0, count: 256); lanes.initialize(repeating: 0, count: 1024) }
+        deinit { counts.deallocate(); lanes.deallocate() }
+    }
     private struct Node { let frequency: Int; let left: Int; let right: Int; let symbol: Int }
 
     /// RFC §3.1.1.3.1, selecting raw, RLE or a new Huffman tree by complete section size.
-    static func literals(_ bytes: Data, profile: ((Double, Double, Double) -> Void)? = nil) -> Data {
-        bytes.withUnsafeBytes { literals($0, profile: profile) }
+    static func literals(_ bytes: Data, workspace: Workspace = Workspace(), profile: ((Double, Double, Double) -> Void)? = nil) -> Data {
+        bytes.withUnsafeBytes { literals($0, workspace: workspace, profile: profile) }
     }
-    static func literals(_ bytes: UnsafeRawBufferPointer, profile: ((Double, Double, Double) -> Void)? = nil) -> Data {
+    static func literals(_ bytes: UnsafeRawBufferPointer, workspace: Workspace = Workspace(), profile: ((Double, Double, Double) -> Void)? = nil) -> Data {
+        defer { withExtendedLifetime(workspace) {} }
         let start = profile == nil ? 0 : ProcessInfo.processInfo.systemUptime
         var histogramEnd = start, treeEnd = start
         defer { if let profile { profile(histogramEnd - start, treeEnd - histogramEnd, ProcessInfo.processInfo.systemUptime - treeEnd) } }
         let n = bytes.count
-        var counts = [Int](repeating: 0, count: 256)
+        let counts = UnsafeMutableBufferPointer(start: workspace.counts, count: 256)
         // 四つの表で同じ symbol の連続加算を分散する。
-        var lanes = [Int](repeating: 0, count: 1024)
-        lanes.withUnsafeMutableBufferPointer { frequencies in
+        workspace.lanes.update(repeating: 0, count: 1024)
+        do {
+            let frequencies = UnsafeMutableBufferPointer(start: workspace.lanes, count: 1024)
             if n > 0 {
                 let f = frequencies.baseAddress!, p = bytes.baseAddress!.assumingMemoryBound(to: UInt8.self)
                 var i = 0
@@ -41,7 +50,7 @@ enum ZstdHuffmanEncoder {
         guard n >= 64 else { return rawLiterals(bytes) }
         // 256種の頻度差が2倍以内なら8 bit固定の木が最適。表の分だけ raw より大きい。
         if let minimum = counts.min(), minimum > 0, 2 * minimum >= counts.max()! { return rawLiterals(bytes) }
-        let codes = makeCodes(counts)
+        let codes = makeCodes(UnsafeBufferPointer(counts))
         let last = counts.lastIndex(where: { $0 > 0 })!
         let maxBits = codes.map(\.bits).max()!
         let weights = codes.prefix(last).map { $0.bits == 0 ? 0 : maxBits + 1 - $0.bits }
@@ -84,7 +93,7 @@ enum ZstdHuffmanEncoder {
         else { zstdAppendLE(UInt64(type | 12 | (n << 4)), bytes: 3, to: &result) }
         return result
     }
-    private static func makeCodes(_ counts: [Int]) -> [Code] {
+    private static func makeCodes(_ counts: UnsafeBufferPointer<Int>) -> [Code] {
         var floor = 1
         var lengths = [Int](repeating: 0, count: 256)
         while true {

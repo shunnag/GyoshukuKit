@@ -30,7 +30,7 @@ struct ZstdBitWriter: ~Copyable {
             UnsafeMutableRawPointer(bytes + written).copyMemory(from: $0.baseAddress!, byteCount: 8)
         }
         let flushed = count & ~7
-        written += flushed >> 3
+        written &+= flushed >> 3
         // count / flushed は0...63なので、幅の再判定を省く。
         accumulator &>>= flushed; count &= 7
     }
@@ -41,12 +41,14 @@ struct ZstdBitWriter: ~Copyable {
         count += bits
     }
 
-    /// 呼出元が最大 bit 数+8 byte を予約した hot loop 専用。
+    /// 呼出元が最大 bit 数+8 byte を予約した hot loop 専用。各回で完了 byte を吐く。
     @inline(__always) mutating func appendUnchecked(_ value: Int, bits: Int) {
         assert(bits >= 0 && bits <= 56)
-        if count + bits > 63 { flushUnchecked() }
-        accumulator |= UInt64(value) &<< count
-        count += bits
+        assert(count <= 7 && value >= 0)
+        // 残り<=7 bitと入力<=56 bitなので、flush 前の幅判定は不要。
+        accumulator |= UInt64(truncatingIfNeeded: value) &<< count
+        count &+= bits
+        flushUnchecked()
     }
     mutating func finish(marker: Bool = true) -> Data {
         if marker { append(1, bits: 1) }

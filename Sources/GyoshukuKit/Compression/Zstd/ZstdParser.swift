@@ -74,7 +74,7 @@ final class ZstdParser {
                      && max(repeats.a, repeats.b, repeats.c) <= min(p.windowSize, max(8, position)))
         let result: [ZstdSequence]
         if p.strategy == .optimal { result = optimal(bytes, count: count, position: position, repeats: repeats) }
-        else if p.strategy == .fast { result = finder.withFastHeads { singleFast(bytes, count: count, position: position, repeats: repeats, heads: $0) } }
+        else if p.strategy == .fast { result = finder.withFastHeads { singleFast(bytes, count: count, position: position, repeats: repeats, heads: $0, tags: $1) } }
         else if p.strategy == .doubleHash { result = fast(bytes, count: count, position: position, repeats: repeats) }
         else { result = greedy(bytes, count: count, position: position, repeats: repeats) }
         retainedSequences = result
@@ -217,29 +217,33 @@ final class ZstdParser {
         return best
     }
     private func singleFast(_ bytes: UnsafePointer<UInt8>, count: Int, position: Int, repeats: ZstdRepeatOffsets,
-                            heads: UnsafeMutablePointer<UInt32>) -> [ZstdSequence] {
-        var reps = repeats, sequences = takeSequences(count)
+                            heads: UnsafeMutablePointer<UInt32>, tags: UnsafeMutablePointer<UInt8>) -> [ZstdSequence] {
+        // 探索は直近距離だけを保持する。wire の三つの repeat は sequence encoder が更新する。
+        var rep0 = repeats.a, sequences = takeSequences(count)
         var index = 0, anchor = 0, misses = 0
         let hashLog = p.hashLog, window = p.windowSize
-        while index &+ 8 <= count {
+        while index &+ 9 <= count {
             let cur = bytes + index, available = count &- index
             let word = UnsafeRawPointer(cur).loadUnaligned(as: UInt64.self)
             let h = Self.singleHash(word, log: hashLog), value = UInt32(truncatingIfNeeded: position &+ index &+ 1)
-            let old = heads[h]
-            let paired = misses < 7 && available >= 9
-            var nextWord: UInt64 = 0, nextOld: UInt32 = 0
-            if paired {
-                nextWord = UnsafeRawPointer(cur + 1).loadUnaligned(as: UInt64.self)
-                let nextHash = Self.singleHash(nextWord, log: hashLog)
-                nextOld = nextHash == h ? value : heads[nextHash]
-                heads[h] = value; heads[nextHash] = value &+ 1
-            } else { heads[h] = value }
-            var match = Self.singleBest(cur, word: word, old: old, value: value, available: available,
-                                        window: window, repeats: reps)
-            if match.length < 3 && paired {
-                index &+= 1; misses &+= 1
-                match = Self.singleBest(cur + 1, word: nextWord, old: nextOld, value: value &+ 1, available: available &- 1,
-                                         window: window, repeats: reps)
+            let old = heads[h], tag = ZstdMatchFinder.fastTag(UInt32(truncatingIfNeeded: word)), oldTag = tags[h]
+            heads[h] = value; tags[h] = tag
+            var match = ZstdMatch(length: 0, distance: 0)
+            // 一つ先の repeat と現在位置の hash を調べ、短い一致も後方延長で回収する。
+            if rep0 <= position &+ index &+ 1 {
+                let nextWord = UnsafeRawPointer(cur + 1).loadUnaligned(as: UInt64.self)
+                Self.singleRepeat(cur + 1, word: nextWord, distance: rep0, available: available &- 1, best: &match)
+            }
+            if match.length >= 3 { index &+= 1 }
+            else {
+                let distance = Int(value &- old)
+                if oldTag == tag
+                    && distance > 0 && distance <= min(window, position &+ index) {
+                    let diff = word ^ UnsafeRawPointer(cur - distance).loadUnaligned(as: UInt64.self)
+                    let length = diff & 0xFFFFFFFF != 0 ? 0 : diff == 0 ? ZstdMatchFinder.length(cur, distance: distance, limit: available, start: 8)
+                        : diff.trailingZeroBitCount >> 3
+                    match = ZstdMatch(length: length, distance: distance)
+                }
             }
             guard match.length >= 3 else {
                 misses &+= 1
@@ -256,31 +260,31 @@ final class ZstdParser {
                 start &-= 1; match.length &+= 1
             }
             let sequence = ZstdSequence(literals: start &- anchor, length: match.length, distance: match.distance)
-            sequences.append(sequence); _ = reps.value(distance: match.distance, literals: sequence.literals)
+            sequences.append(sequence); rep0 = match.distance
             let end = start &+ match.length
             var insert = max(inserted &+ 1, start &+ 1)
             let step = match.length > 64 ? 4 : 2
             insert = Self.periodicInsertStart(insert, end: end, distance: match.distance, step: step)
             while insert < min(end &- 1, count &- 7) {
                 let word = UnsafeRawPointer(bytes + insert).loadUnaligned(as: UInt64.self)
-                heads[Self.singleHash(word, log: hashLog)] = UInt32(truncatingIfNeeded: position &+ insert &+ 1)
+                let h = Self.singleHash(word, log: hashLog)
+                heads[h] = UInt32(truncatingIfNeeded: position &+ insert &+ 1); tags[h] = ZstdMatchFinder.fastTag(UInt32(truncatingIfNeeded: word))
                 insert &+= step
             }
             if end > inserted &+ 1 && end &+ 7 <= count {
                 let word = UnsafeRawPointer(bytes + (end &- 1)).loadUnaligned(as: UInt64.self)
-                heads[Self.singleHash(word, log: hashLog)] = UInt32(truncatingIfNeeded: position &+ end)
+                let h = Self.singleHash(word, log: hashLog)
+                heads[h] = UInt32(truncatingIfNeeded: position &+ end); tags[h] = ZstdMatchFinder.fastTag(UInt32(truncatingIfNeeded: word))
             }
             index = end; anchor = end
         }
         while index &+ 4 <= count {
             var match = ZstdMatch(length: 0, distance: 0)
             let cur = bytes + index, maximumDistance = min(window, position &+ index)
-            repeatMatch(cur, distance: reps.a, maximumDistance: maximumDistance, available: count &- index, best: &match)
-            repeatMatch(cur, distance: reps.b, maximumDistance: maximumDistance, available: count &- index, best: &match)
-            repeatMatch(cur, distance: reps.c, maximumDistance: maximumDistance, available: count &- index, best: &match)
+            repeatMatch(cur, distance: rep0, maximumDistance: maximumDistance, available: count &- index, best: &match)
             if match.length < 3 { index &+= 1; continue }
             let sequence = ZstdSequence(literals: index &- anchor, length: match.length, distance: match.distance)
-            sequences.append(sequence); _ = reps.value(distance: match.distance, literals: sequence.literals)
+            sequences.append(sequence); rep0 = match.distance
             index &+= match.length; anchor = index
         }
         return sequences
@@ -294,21 +298,6 @@ final class ZstdParser {
     }
     @inline(__always) private static func singleHash(_ word: UInt64, log: Int) -> Int {
         Int(((word &<< 24) &* 0xCF1BBCDCB7A56463) &>> (64 &- log))
-    }
-    @inline(__always) private static func singleBest(_ cur: UnsafePointer<UInt8>, word: UInt64, old: UInt32, value: UInt32,
-                                                   available: Int, window: Int, repeats: ZstdRepeatOffsets) -> ZstdMatch {
-        let maximumDistance = min(window, Int(value) &- 1)
-        var best = fastRepeats(cur, word: word, available: available, value: value, repeats: repeats)
-        let distance = Int(value &- old)
-        if distance > 0 && distance <= maximumDistance && distance != best.distance {
-            let diff = word ^ UnsafeRawPointer(cur - distance).loadUnaligned(as: UInt64.self)
-            if diff & 0xFFFFFFFF == 0 {
-                let length = diff == 0 ? ZstdMatchFinder.length(cur, distance: distance, limit: available, start: 8)
-                    : diff.trailingZeroBitCount >> 3
-                if length > best.length &+ (best.length >= 3 ? 1 : 0) { best = ZstdMatch(length: length, distance: distance) }
-            }
-        }
-        return best
     }
     // 最初の8 byte以後は初期 repeat も全て履歴内。選択した距離は常に現在位置以下。
     @inline(__always) private static func fastRepeats(_ cur: UnsafePointer<UInt8>, word: UInt64, available: Int,

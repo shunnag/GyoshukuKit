@@ -9,6 +9,7 @@ final class ZstdFrameEncoder {
     let properties: ZstdEncoderProperties
     private let contentSize: UInt64?
     private let parser: ZstdParser
+    private let literalWorkspace = ZstdHuffmanEncoder.Workspace()
     private let sequenceWorkspace: ZstdSequences.Workspace
     private let storage: UnsafeMutablePointer<UInt8>
     private let literalStorage: UnsafeMutablePointer<UInt8>
@@ -124,6 +125,7 @@ final class ZstdFrameEncoder {
             sequences.withUnsafeBufferPointer { sequences in
                 var cursor = 0
                 for s in sequences {
+                    assert(s.length >= 3)
                     if s.literals > 0 {
                         // 一致は3 byte以上。短い literal の広い copy も入力・予約内に収まる。
                         let target = destination.advanced(by: literalCount)
@@ -143,13 +145,13 @@ final class ZstdFrameEncoder {
             let literalTiming: ((Double, Double, Double) -> Void)? = collectProfile ? { [self] histogram, tables, bits in
                 profile.literalHistogram += histogram; profile.literalTables += tables; profile.literalBits += bits
             } : nil
-            var compressed = ZstdHuffmanEncoder.literals(UnsafeRawBufferPointer(start: literalStorage, count: literalCount), profile: literalTiming)
+            var compressed = ZstdHuffmanEncoder.literals(UnsafeRawBufferPointer(start: literalStorage, count: literalCount), workspace: literalWorkspace, profile: literalTiming)
             if collectProfile { profile.literals += ProcessInfo.processInfo.systemUptime - start }
             start = collectProfile ? ProcessInfo.processInfo.systemUptime : 0
             let timing: ((Double, Double, Double) -> Void)? = collectProfile ? { [self] codes, tables, bits in
                 profile.sequenceCodes += codes; profile.sequenceTables += tables; profile.sequenceBits += bits
             } : nil
-            compressed.append(ZstdSequences.encode(sequences, repeats: &proposedRepeats, workspace: sequenceWorkspace, profile: timing))
+            compressed.append(ZstdSequences.encode(sequences, repeats: &proposedRepeats, workspace: sequenceWorkspace, fast: properties.strategy == .fast, profile: timing))
             if collectProfile { profile.sequences += ProcessInfo.processInfo.systemUptime - start }
             if compressed.count < n && compressed.count <= Self.blockSize {
                 type = 2; payload = compressed

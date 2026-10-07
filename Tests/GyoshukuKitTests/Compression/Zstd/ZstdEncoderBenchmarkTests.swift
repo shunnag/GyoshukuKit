@@ -16,7 +16,7 @@ final class ZstdEncoderBenchmarkTests: XCTestCase {
         let text = LZMAEncoderCorpus.text(size: 4 << 20)
         let binary = try Self.binaryCorpus()
         TestSupport.report("ZSTD-BENCH\tcorpus\tlevel\tencoder\tbytes\tMB/s\tseconds")
-        for (name, input) in [("text",text), ("binary",binary)] {
+        for (name, input) in [("text",text), ("binary",binary), ("mixed",ZstdEncoderCorpus.mixed(text: text, binary: binary))] {
             let plain = directory.appendingPathComponent(name + ".bin")
             try input.write(to: plain)
             TestSupport.report("ZSTD-BENCH-CORPUS\t\(name)\t\(input.count)")

@@ -14,6 +14,7 @@ final class ZstdMatchFinder {
     private let rowWidth: Int
     private let rowLog: Int
     private let p: ZstdEncoderProperties
+    private let fastTags: UnsafeMutablePointer<UInt8>?
     private let heads: UnsafeMutablePointer<UInt32>
     private let shortHeads: UnsafeMutablePointer<UInt32>
     private let links: UnsafeMutablePointer<UInt32>?
@@ -39,14 +40,18 @@ final class ZstdMatchFinder {
             shortPositions = nil; shortTags = nil; shortCursors = nil
         }
         heads = .allocate(capacity: hashCount); heads.initialize(repeating: 0, count: hashCount)
-        shortHeads = .allocate(capacity: 1 << 16); shortHeads.initialize(repeating: 0, count: 1 << 16)
+        let shortCount = p.strategy == .fast ? 0 : 1 << 16
+        shortHeads = .allocate(capacity: shortCount); shortHeads.initialize(repeating: 0, count: shortCount)
+        if p.strategy == .fast {
+            fastTags = .allocate(capacity: hashCount); fastTags!.initialize(repeating: 0, count: hashCount)
+        } else { fastTags = nil }
         linkCount = p.strategy == .optimal ? p.windowSize * 2 : 0
         if linkCount > 0 {
             links = .allocate(capacity: linkCount); links!.initialize(repeating: 0, count: linkCount)
         } else { links = nil }
     }
     deinit {
-        heads.deallocate(); shortHeads.deallocate(); links?.deallocate()
+        heads.deallocate(); fastTags?.deallocate(); shortHeads.deallocate(); links?.deallocate()
         rowPositions?.deallocate(); rowTags?.deallocate(); rowCursors?.deallocate()
         shortPositions?.deallocate(); shortTags?.deallocate(); shortCursors?.deallocate()
     }
@@ -54,7 +59,7 @@ final class ZstdMatchFinder {
     /// Extremely long streams periodically renumber table positions, preserving the live window.
     func rebase(by amount: UInt32) {
         for i in 0..<hashCount { heads[i] = heads[i] > amount ? heads[i] - amount : 0 }
-        for i in 0..<(1 << 16) { shortHeads[i] = shortHeads[i] > amount ? shortHeads[i] - amount : 0 }
+        if fastTags == nil { for i in 0..<(1 << 16) { shortHeads[i] = shortHeads[i] > amount ? shortHeads[i] - amount : 0 } }
         if let links { for i in 0..<linkCount { links[i] = links[i] > amount ? links[i] - amount : 0 } }
         if let rowPositions { for i in 0..<(rowCount * rowWidth) { rowPositions[i] = rowPositions[i] > amount ? rowPositions[i] - amount : 0 } }
         if let shortPositions { for i in 0..<(rowCount * shortWidth) { shortPositions[i] = shortPositions[i] > amount ? shortPositions[i] - amount : 0 } }
@@ -90,6 +95,11 @@ final class ZstdMatchFinder {
     @inline(__always) func insert(_ cur: UnsafePointer<UInt8>, position: Int, available: Int) {
         guard available >= 4 else { return }
         let (h, s) = hash(cur, available: available), value = UInt32(position + 1)
+        if let fastTags {
+            heads[h] = value
+            fastTags[h] = Self.fastTag(UnsafeRawPointer(cur).loadUnaligned(as: UInt32.self))
+            return
+        }
         let previous = heads[h]; heads[h] = value; shortHeads[s] = value
         if rowPositions != nil { insertRow(cur, value: value, available: available) }
         if let links {
@@ -158,7 +168,11 @@ final class ZstdMatchFinder {
     func withFastTables<R>(_ body: (UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt32>) -> R) -> R {
         body(heads, shortHeads)
     }
-    func withFastHeads<R>(_ body: (UnsafeMutablePointer<UInt32>) -> R) -> R { body(heads) }
+    // fast の tag は衝突時の入力 load を省く。実一致と履歴範囲は別途検証する。
+    func withFastHeads<R>(_ body: (UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt8>) -> R) -> R { body(heads, fastTags!) }
+    @inline(__always) static func fastTag(_ word: UInt32) -> UInt8 {
+        UInt8(truncatingIfNeeded: (word &* 0x9E3779B1) >> 24)
+    }
     /// greedy 専用。探索深さ1/2の候補を直接返し、strategy 分岐と scratch 書込を省く。
     @inline(__always) func fastMatch(_ cur: UnsafePointer<UInt8>, position: Int, available: Int,
                                     hashLog: Int, window: Int, niceLength: Int) -> ZstdMatch {
@@ -211,6 +225,17 @@ final class ZstdMatchFinder {
                                   into result: UnsafeMutablePointer<ZstdMatch>) -> Int {
         guard available >= 4 else { return 0 }
         let (h, s) = hash(cur, available: available), value = UInt32(position + 1)
+        if let fastTags {
+            let word = UnsafeRawPointer(cur).loadUnaligned(as: UInt32.self), tag = Self.fastTag(word)
+            let old = heads[h], oldTag = fastTags[h]
+            heads[h] = value; fastTags[h] = tag
+            let distance = Int(value &- old)
+            guard oldTag == tag && distance > 0 && distance <= min(p.windowSize, position)
+                && UnsafeRawPointer(cur - distance).loadUnaligned(as: UInt32.self) == word else { return 0 }
+            let length = Self.length(cur, distance: distance, limit: available, start: 4)
+            result[0] = ZstdMatch(length: length, distance: distance)
+            return 1
+        }
         var candidate = heads[h]; heads[h] = value
         let limit = min(available, p.niceLength)
         var best = p.strategy == .optimal ? 2 : 3, count = 0

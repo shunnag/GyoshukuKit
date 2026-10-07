@@ -142,7 +142,7 @@ struct ZstdSequenceEntropy {
         }
         return choose(counts: counts, last: symbols.last!, count: symbols.count, predefined: predefined, maximumLog: maximumLog)
     }
-    static func choose(counts: [Int], last: Int, count: Int, predefined: ZstdFSEEncoder, maximumLog: Int) -> Self {
+    static func choose(counts: [Int], last: Int, count: Int, predefined: ZstdFSEEncoder, maximumLog: Int, fast: Bool = false) -> Self {
         var best = Self(mode: 0, description: Data(), table: predefined, rleSymbol: nil)
         var cost = ZstdFSEEncoder.estimatedCost(counts, last: last, probabilities: predefined.probabilities, log: predefined.log)
         let present = counts.filter { $0 > 0 }.count
@@ -154,7 +154,9 @@ struct ZstdSequenceEntropy {
         // More than 2 candidate logs seldom repay table construction on small blocks.
         let preferred = min(maximumLog, max(minimum, Int.bitWidth - max(1, count / 8).leadingZeroBitCount))
         var selected: ([Int], Int)?
-        for log in Set([minimum, preferred]).sorted() {
+        // fast は block の頻度に応じた一つの log だけを評価する。
+        let logs = fast ? [preferred] : Set([minimum, preferred]).sorted()
+        for log in logs {
             let probabilities = ZstdFSEEncoder.normalize(counts, log: log)
             let description = ZstdFSEEncoder.describe(probabilities, log: log)
             let candidate = description.count * 8 * 256
