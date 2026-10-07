@@ -5,6 +5,7 @@ import Foundation
 /// 一つの heap に 6 byte STATE と 12 byte CONTEXT を置く。永続参照は UInt32 offset。
 /// Int は計算時だけ使用する。0 は null、text successor は unitsStart より下の領域。
 struct PPMdArena: ~Copyable {
+    // offset / unit 数は最大 1 GiB の heap 内。Int の wrapping 算術で溢れない。
     let base: UnsafeMutableRawPointer
     let size: Int
     let alignment: Int
@@ -71,14 +72,14 @@ struct PPMdArena: ~Copyable {
         copy(first, second, 6)
         setByte(second, symbol); setByte(second &+ 1, frequency); setRef(second &+ 2, successor)
     }
-    @inline(__always) func unitIndex(_ units: Int) -> Int { unitsToIndex[units - 1] }
+    @inline(__always) func unitIndex(_ units: Int) -> Int { unitsToIndex[units &- 1] }
 
     mutating func reset() {
         freeList.update(repeating: 0, count: 38)
         stamps.update(repeating: 0, count: 38)
         text = alignment
-        highUnit = text + size
-        lowUnit = highUnit - size / 8 / 12 * 7 * 12
+        highUnit = text &+ size
+        lowUnit = highUnit &- size / 8 / 12 * 7 &* 12
         unitsStart = lowUnit
         glueCount = 0
     }
@@ -86,9 +87,9 @@ struct PPMdArena: ~Copyable {
     @inline(__always) mutating func insert(_ node: Int, _ index: Int) {
         if variantI {
             setRef(node, 0xFFFF_FFFF)
-            setRef(node + 4, freeList[index])
-            setRef(node + 8, indexToUnits[index])
-            stamps[index] += 1
+            setRef(node &+ 4, freeList[index])
+            setRef(node &+ 8, indexToUnits[index])
+            stamps[index] &+= 1
         } else {
             setRef(node, freeList[index])
         }
@@ -97,36 +98,36 @@ struct PPMdArena: ~Copyable {
 
     @inline(__always) mutating func remove(_ index: Int) -> Int {
         let node = freeList[index]
-        freeList[index] = ref(node + (variantI ? 4 : 0))
-        if variantI { stamps[index] -= 1 }
+        freeList[index] = ref(node &+ (variantI ? 4 : 0))
+        if variantI { stamps[index] &-= 1 }
         return node
     }
 
     @inline(__always) mutating func split(_ node: Int, oldIndex: Int, newIndex: Int) {
-        let units = indexToUnits[oldIndex] - indexToUnits[newIndex]
-        let tail = node + 12 * indexToUnits[newIndex]
+        let units = indexToUnits[oldIndex] &- indexToUnits[newIndex]
+        let tail = node &+ 12 &* indexToUnits[newIndex]
         var i = unitIndex(units)
         if indexToUnits[i] != units {
-            i -= 1
+            i &-= 1
             let k = indexToUnits[i]
-            insert(tail + 12 * k, units - k - 1)
+            insert(tail &+ 12 &* k, units &- k &- 1)
         }
         insert(tail, i)
     }
 
     @inline(__always) mutating func allocate(_ index: Int) -> Int {
         if freeList[index] != 0 { return remove(index) }
-        let bytes = 12 * indexToUnits[index]
-        if highUnit - lowUnit >= bytes {
+        let bytes = 12 &* indexToUnits[index]
+        if highUnit &- lowUnit >= bytes {
             let result = lowUnit
-            lowUnit += bytes
+            lowUnit &+= bytes
             return result
         }
         return allocateRare(index)
     }
 
     @inline(__always) mutating func allocateContext() -> Int {
-        if highUnit != lowUnit { highUnit -= 12; return highUnit }
+        if highUnit != lowUnit { highUnit &-= 12; return highUnit }
         if freeList[0] != 0 { return remove(0) }
         return allocateRare(0)
     }
@@ -136,13 +137,13 @@ struct PPMdArena: ~Copyable {
             glue()
             if freeList[index] != 0 { return remove(index) }
         }
-        var i = index + 1
-        while i < 38 && freeList[i] == 0 { i += 1 }
+        var i = index &+ 1
+        while i < 38 && freeList[i] == 0 { i &+= 1 }
         if i == 38 {
-            let bytes = 12 * indexToUnits[index]
-            glueCount -= 1
-            if unitsStart - text <= bytes { return 0 }
-            unitsStart -= bytes
+            let bytes = 12 &* indexToUnits[index]
+            glueCount &-= 1
+            if unitsStart &- text <= bytes { return 0 }
+            unitsStart &-= bytes
             return unitsStart
         }
         let node = remove(i)
@@ -155,7 +156,7 @@ struct PPMdArena: ~Copyable {
         if old == new { return node }
         if freeList[new] != 0 {
             let result = remove(new)
-            copy(result, node, newUnits * 12)
+            copy(result, node, newUnits &* 12)
             insert(node, old)
             return result
         }
@@ -165,7 +166,7 @@ struct PPMdArena: ~Copyable {
 
     mutating func specialFree(_ node: Int) {
         if node != unitsStart { insert(node, 0) }
-        else { unitsStart += 12 }
+        else { unitsStart &+= 12 }
     }
 
     private mutating func glue() {
@@ -175,15 +176,15 @@ struct PPMdArena: ~Copyable {
     private mutating func fill(_ head: Int, nextOffset: Int, unitsOffset: Int) {
         var n = head
         while n != 0 {
-            var node = n, units = variantI ? ref(n + unitsOffset) : word(n + unitsOffset)
-            n = ref(n + nextOffset)
+            var node = n, units = variantI ? ref(n &+ unitsOffset) : word(n &+ unitsOffset)
+            n = ref(n &+ nextOffset)
             if units == 0 { continue }
-            while units > 128 { insert(node, 37); units -= 128; node += 128 * 12 }
+            while units > 128 { insert(node, 37); units &-= 128; node &+= 128 * 12 }
             var i = unitIndex(units)
             if indexToUnits[i] != units {
-                i -= 1
+                i &-= 1
                 let k = indexToUnits[i]
-                insert(node + k * 12, units - k - 1)
+                insert(node &+ k &* 12, units &- k &- 1)
             }
             insert(node, i)
         }
@@ -199,27 +200,27 @@ struct PPMdArena: ~Copyable {
             while next != 0 {
                 let node = next
                 next = ref(node)
-                setWord(node, 0); setWord(node + 2, indexToUnits[i]); setRef(node + 4, head)
+                setWord(node, 0); setWord(node &+ 2, indexToUnits[i]); setRef(node &+ 4, head)
                 head = node
             }
         }
         var n = head, previous = 0
         while n != 0 {
             let node = n
-            var units = word(node + 2)
-            n = ref(node + 4)
+            var units = word(node &+ 2)
+            n = ref(node &+ 4)
             if units == 0 {
-                if previous == 0 { head = n } else { setRef(previous + 4, n) }
+                if previous == 0 { head = n } else { setRef(previous &+ 4, n) }
                 continue
             }
             previous = node
             while true {
-                let next = node + units * 12
+                let next = node &+ units &* 12
                 if word(next) != 0 { break }
-                let sum = units + word(next + 2)
+                let sum = units &+ word(next &+ 2)
                 if sum >= 0x10000 { break }
                 units = sum
-                setWord(node + 2, units); setWord(next + 2, 0)
+                setWord(node &+ 2, units); setWord(next &+ 2, 0)
             }
         }
         fill(head, nextOffset: 4, unitsOffset: 2)
@@ -235,19 +236,19 @@ struct PPMdArena: ~Copyable {
             freeList[i] = 0
             while next != 0 {
                 let node = next
-                var units = ref(node + 8)
-                if previous == 0 { head = node } else { setRef(previous + 4, node) }
-                next = ref(node + 4)
+                var units = ref(node &+ 8)
+                if previous == 0 { head = node } else { setRef(previous &+ 4, node) }
+                next = ref(node &+ 4)
                 if units == 0 { continue }
                 previous = node
-                while ref(node + units * 12) == 0xFFFF_FFFF {
-                    let other = node + units * 12
-                    units += ref(other + 8)
-                    setRef(other + 8, 0); setRef(node + 8, units)
+                while ref(node &+ units &* 12) == 0xFFFF_FFFF {
+                    let other = node &+ units &* 12
+                    units &+= ref(other &+ 8)
+                    setRef(other &+ 8, 0); setRef(node &+ 8, units)
                 }
             }
         }
-        if previous == 0 { head = 0 } else { setRef(previous + 4, 0) }
+        if previous == 0 { head = 0 } else { setRef(previous &+ 4, 0) }
         fill(head, nextOffset: 4, unitsOffset: 8)
     }
 
@@ -255,27 +256,27 @@ struct PPMdArena: ~Copyable {
         var counts = [Int](repeating: 0, count: 38)
         if lowUnit != highUnit { setRef(lowUnit, 0) }
         while ref(unitsStart) == 0xFFFF_FFFF {
-            let units = ref(unitsStart + 8)
+            let units = ref(unitsStart &+ 8)
             setRef(unitsStart, 0)
-            counts[unitIndex(units)] += 1
-            unitsStart += units * 12
+            counts[unitIndex(units)] &+= 1
+            unitsStart &+= units &* 12
         }
         for i in 0..<38 where counts[i] != 0 {
             var remaining = counts[i], previous = 0, n = freeList[i]
-            stamps[i] -= remaining
+            stamps[i] &-= remaining
             while remaining != 0 {
                 let node = n
-                n = ref(node + 4)
+                n = ref(node &+ 4)
                 if ref(node) != 0 { previous = node; continue }
-                if previous == 0 { freeList[i] = n } else { setRef(previous + 4, n) }
-                remaining -= 1
+                if previous == 0 { freeList[i] = n } else { setRef(previous &+ 4, n) }
+                remaining &-= 1
             }
         }
     }
 
     var usedMemory: Int {
         var freeUnits = 0
-        for i in 0..<38 { freeUnits += stamps[i] * indexToUnits[i] }
-        return size - (highUnit - lowUnit) - (unitsStart - text) - freeUnits * 12
+        for i in 0..<38 { freeUnits &+= stamps[i] &* indexToUnits[i] }
+        return size &- (highUnit &- lowUnit) &- (unitsStart &- text) &- freeUnits &* 12
     }
 }

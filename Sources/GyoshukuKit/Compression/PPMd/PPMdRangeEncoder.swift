@@ -17,7 +17,7 @@ struct PPMdRangeEncoder: ~Copyable {
 
     @inline(__always) private mutating func put(_ byte: UInt8, emit: (Data) throws -> Void) throws {
         output[count] = byte
-        count += 1
+        count &+= 1
         if count == 65_536 { try drain(emit: emit) }
     }
 
@@ -37,15 +37,15 @@ struct PPMdRangeEncoder: ~Copyable {
             repeat {
                 try put(byte &+ carry, emit: emit)
                 byte = 0xFF
-                cacheSize -= 1
+                cacheSize &-= 1
             } while cacheSize != 0
             cache = UInt8(lower >> 24)
         }
-        cacheSize += 1
+        cacheSize &+= 1
         low = UInt64(lower << 8)
     }
 
-    @inline(__always) mutating func normalize(emit: (Data) throws -> Void) throws {
+    @inline(__always) mutating func normalize(variantI: Bool, emit: (Data) throws -> Void) throws {
         if variantI {
             var lower = UInt32(truncatingIfNeeded: low)
             while true {
@@ -71,23 +71,23 @@ struct PPMdRangeEncoder: ~Copyable {
         }
     }
 
-    @inline(__always) mutating func encode(start: Int, size: Int, total: Int, normalize: Bool = true,
+    @inline(__always) mutating func encode(start: Int, size: Int, total: Int, normalize: Bool = true, variantI: Bool,
                 emit: (Data) throws -> Void) throws {
         // total / start / size は model の 16 bit 頻度。probability は 14 bit scale。
         let scale = variantI ? min(UInt32(truncatingIfNeeded: total), range) : UInt32(truncatingIfNeeded: total)
         range /= scale
         let increment = UInt32(truncatingIfNeeded: start) &* range
         if variantI { low = UInt64(UInt32(truncatingIfNeeded: low) &+ increment) }
-        else { low += UInt64(increment) }
+        else { low &+= UInt64(increment) }
         range &*= UInt32(truncatingIfNeeded: size)
-        if normalize { try self.normalize(emit: emit) }
+        if normalize { try self.normalize(variantI: variantI, emit: emit) }
     }
 
-    @inline(__always) mutating func binary(probability: Int, success: Bool, emit: (Data) throws -> Void) throws {
-        let bound = (range >> 14) * UInt32(truncatingIfNeeded: probability)
+    @inline(__always) mutating func binary(probability: Int, success: Bool, variantI: Bool, emit: (Data) throws -> Void) throws {
+        let bound = (range >> 14) &* UInt32(truncatingIfNeeded: probability)
         if success {
             range = bound
-            if variantI { try normalize(emit: emit) }
+            if variantI { try normalize(variantI: variantI, emit: emit) }
             else if range < 1 << 24 {
                 // binary success は SDK の RC_NORM_1。1 回の shift で正規化できる。
                 range <<= 8
@@ -98,8 +98,8 @@ struct PPMdRangeEncoder: ~Copyable {
                 low = UInt64(UInt32(truncatingIfNeeded: low) &+ bound)
                 range = (range & ~UInt32(16_383)) &- bound
             } else {
-                low += UInt64(bound)
-                range -= bound
+                low &+= UInt64(bound)
+                range &-= bound
             }
             // escape 後の normalize は suffix へ移る直前に行う。
         }

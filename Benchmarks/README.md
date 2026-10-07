@@ -1,5 +1,7 @@
 # Write-throughput benchmark
 
+PPMd の encoder 単独で旧 commit と同一 flags を比較する手順は [PPMd/README.md](PPMd/README.md) を参照。
+
 macOS 26+、Swift 6、Python 3 が必要です。独立した SwiftPM package なので、root の
 products / targets / `swift test` は変えません。repository root から実行します。
 `../` の GyoshukuKit に依存する実行 package なので `Tests/` の外に置きます（KaitoKit の

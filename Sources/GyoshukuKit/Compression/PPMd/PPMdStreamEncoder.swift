@@ -26,13 +26,18 @@ class PPMdStreamEncoder {
         try Task.checkCancellation()
         if !header.isEmpty { try emit(header); header.removeAll(keepingCapacity: false) }
         try input.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-            try Self.encode(bytes, model: &model, coder: &coder, emit: emit)
+            // variant を block の入口で固定し、記号処理を定数で特殊化する。
+            if model.variantI {
+                try Self.encode(bytes, variantI: true, model: &model, coder: &coder, emit: emit)
+            } else {
+                try Self.encode(bytes, variantI: false, model: &model, coder: &coder, emit: emit)
+            }
         }
         try Task.checkCancellation()
         if finish {
             // ZIP は root からの escape を EOF として書き、4 byte flush する。
             // 7z は folder の展開サイズで終端を知るため、5 byte flush だけを書く。
-            if coder.variantI { try model.encode(-1, using: &coder, emit: emit) }
+            if coder.variantI { try model.encode(-1, variantI: true, using: &coder, emit: emit) }
             try coder.finish(emit: emit)
         } else { try coder.drain(emit: emit) }
         state = finish ? .finished : .ready
@@ -40,12 +45,18 @@ class PPMdStreamEncoder {
     }
 
     // class の排他アクセスは block ごとに一度だけ開始し、記号ごとは値型の状態を更新する。
-    private static func encode(_ bytes: UnsafeRawBufferPointer, model: inout PPMdEncodingModel,
+    @inline(__always) private static func encode(_ bytes: UnsafeRawBufferPointer, variantI: Bool, model: inout PPMdEncodingModel,
                                coder: inout PPMdRangeEncoder, emit: (Data) throws -> Void) throws {
         guard let base = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-        for i in 0..<bytes.count {
-            if i & 4095 == 0 { try Task.checkCancellation() }
-            try model.encode(Int(base[i]), using: &coder, emit: emit)
+        var offset = 0
+        while offset < bytes.count {
+            try Task.checkCancellation()
+            let end = min(offset &+ 4096, bytes.count)
+            // 取消しの間隔を保ち、記号ごとの bit 判定を省く。
+            repeat {
+                try model.encode(Int(base[offset]), variantI: variantI, using: &coder, emit: emit)
+                offset &+= 1
+            } while offset != end
         }
     }
 
