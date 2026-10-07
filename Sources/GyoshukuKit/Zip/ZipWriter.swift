@@ -33,6 +33,7 @@ final class ZipWriter {
         let data: Data
         let crc: UInt32
     }
+    private var waitingEntry: (entry: ZipRecords.Entry, name: String, input: Data)?
     private var emittingEntry: ZipRecords.Entry?
     private var emittingHeaderSize = 0
     private var emittingStart: UInt64 = 0
@@ -95,7 +96,7 @@ final class ZipWriter {
 
     deinit { abort() }
 
-    var pendingInputBytes: UInt64 { pipeline.pendingInputBytes + (entryPipeline?.pendingInputBytes ?? 0) }
+    var pendingInputBytes: UInt64 { pipeline.pendingInputBytes + (entryPipeline?.pendingInputBytes ?? 0) + UInt64(waitingEntry?.input.count ?? 0) }
 
     // ZipCrypto は CRC が要るので spool を通り、一括追加の通常ファイルは項目別の経路へ戻す。
     var encryptsWithZipCrypto: Bool { options.password != nil && options.zipEncryption == .zipCrypto }
@@ -108,11 +109,13 @@ final class ZipWriter {
     }
 
     func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
+        try flushWaitingEntry(didEmit: didEmit)
         try entryPipeline?.drain(didEmit: didEmit, emit: emitEntry)
         try pipeline.drain(didEmit: didEmit, emit: emitDeflate)
     }
 
     func drainAppendedRecords() throws -> AppendedRecords {
+        try flushWaitingEntry()
         try entryPipeline?.drain(emit: emitEntry)
         try pipeline.drain(emit: emitDeflate)
         return (entries, position)
@@ -122,6 +125,7 @@ final class ZipWriter {
     func finish(existingCount: UInt64, comment: Data,
                 progress: ((UInt64, Int) throws -> Void)?,
                 copyCentral: (_ emit: (Data) throws -> Void) throws -> Void) throws {
+        try flushWaitingEntry()
         try entryPipeline?.finish(emit: emitEntry)
         try pipeline.finish(emit: emitDeflate)
         let start = position
@@ -155,7 +159,8 @@ final class ZipWriter {
     func abort() {
         entryCancellation.cancel()
         entryPipeline?.abandonAndWait()
-        pipeline.abandon()
+        pipeline.abandonAndWait()
+        waitingEntry = nil
         emittingEntry = nil
         emittingAES = nil
         outputBuffer.removeAll()
@@ -168,7 +173,9 @@ final class ZipWriter {
              read: (Int) throws -> Data) throws {
         try Task.checkCancellation()
         let method = compression(name: name, mode: mode, size: size)
-        if let entryPipeline, size > 0, method != .stored, size <= EntryCompressionConfiguration.inputLimit {
+        if let entryPipeline, !encryptsWithZipCrypto,
+           size <= (method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit) {
+            try submitWaitingEntry()
             try entryPipeline.waitForCapacity(emit: emitEntry)
             let entry = try makeEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners, method: method)
             var input = Data()
@@ -181,11 +188,18 @@ final class ZipWriter {
                 input.append(bytes)
             }
             guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
-            let spool = try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry")
-            try entryPipeline.submit(EntryJob(data: input, file: nil, name: name, method: method, spool: spool), tag: Tag(entry: entry, crc: nil),
-                                     weight: size, inline: method == .zstd && size < 64 << 10, emit: emitEntry)
+            // 単独なら finish で直接書き、後続が来たときだけ worker へ渡す。
+            if method != .stored, size >= 64 << 10, entryPipeline.pendingCount == 0 {
+                waitingEntry = (entry, name, input)
+            } else {
+                let spool = method == .stored || size == 0 ? nil
+                    : try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry")
+                try entryPipeline.submit(EntryJob(data: input, file: nil, name: name, method: method, spool: spool), tag: Tag(entry: entry, crc: nil),
+                    weight: size, inline: method == .stored || size == 0 || (method == .zstd && size < 64 << 10), emit: emitEntry)
+            }
             return
         }
+        try flushWaitingEntry()
         if method != .deflate || encryptsWithZipCrypto || entryPipeline != nil {
             try entryPipeline?.drain(emit: emitEntry)
             try pipeline.drain(emit: emitDeflate)
@@ -201,18 +215,45 @@ final class ZipWriter {
             try submitDeflate(entry, name: name, read: read)
             return
         }
+        try writeStreamedEntry(entry, name: name, read: read)
+    }
+
+    private func writeStreamedEntry(_ source: ZipRecords.Entry, name: String, read: (Int) throws -> Data) throws {
+        var entry = source
+        entry.offset = try checkedAdd(recordBase, position - appendStart)
+        let password = entry.encryption == nil ? nil : options.password
         let header = entry.local()
         try write(header)
         let start = position
         let aes = try password.map { try ZipAESEncryptor(password: $0, salt: salt()) }
         if let aes { try write(aes.prefix) }
-        entry.crc = try compressEntry(name: name, size: size, method: method, read: read) { chunk in
+        entry.crc = try compressEntry(name: name, size: entry.size, method: entry.method, read: read) { chunk in
             try write(aes.map { try $0.encrypt(chunk) } ?? chunk)
         }
         if let aes { try write(aes.finish()) }
         entry.compressedSize = position - start
         try patchLocalHeader(entry, expectedSize: header.count)
         entries.append(entry)
+    }
+
+    private func submitWaitingEntry() throws {
+        guard let waiting = waitingEntry else { return }
+        waitingEntry = nil
+        let spool = try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry")
+        try entryPipeline!.submit(EntryJob(data: waiting.input, file: nil, name: waiting.name, method: waiting.entry.method, spool: spool),
+            tag: Tag(entry: waiting.entry, crc: nil), weight: UInt64(waiting.input.count), emit: emitEntry)
+    }
+
+    private func flushWaitingEntry(didEmit: ((UInt64) throws -> Void)? = nil) throws {
+        guard let waiting = waitingEntry else { return }
+        waitingEntry = nil
+        var offset = 0
+        try writeStreamedEntry(waiting.entry, name: waiting.name) { count in
+            let end = min(waiting.input.count, offset + count)
+            defer { offset = end }
+            return waiting.input[offset..<end]
+        }
+        try didEmit?(UInt64(waiting.input.count))
     }
 
     // 圧縮だけを worker で行い、暗号化・header・本文・CRC は投入順に確定する。
@@ -486,6 +527,7 @@ final class ZipWriter {
     }
 
     func waitForCapacity(emit: (Tag, Prefetched?) throws -> Void) throws {
+        try submitWaitingEntry()
         try entryPipeline?.waitForCapacity { tag, result in try self.emitEntry(tag, result, batchEmit: emit) }
         try pipeline.waitForCapacity(emit: emit)
     }
@@ -498,7 +540,7 @@ final class ZipWriter {
                 EntryJob(data: nil, file: file, name: attribution.addition.path, method: method,
                          spool: method == .stored || file.size == 0 ? nil : try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry"))
             }
-            try entryPipeline.submit(work, tag: Tag(entry: nil, crc: nil, attribution: attribution), weight: weight, inline: method == .zstd && weight < 64 << 10) {
+            try entryPipeline.submit(work, tag: Tag(entry: nil, crc: nil, attribution: attribution), weight: weight, inline: method == .stored || weight == 0 || (method == .zstd && weight < 64 << 10)) {
                 tag, result in try self.emitEntry(tag, result, batchEmit: emit)
             }
         } else {
@@ -507,11 +549,13 @@ final class ZipWriter {
     }
 
     func drain(emit: (Tag, Prefetched?) throws -> Void) throws {
+        try flushWaitingEntry()
         try entryPipeline?.drain { tag, result in try self.emitEntry(tag, result, batchEmit: emit) }
         try pipeline.drain(emit: emit)
     }
 
     func abandonAndWait() {
+        waitingEntry = nil
         entryCancellation.cancel()
         entryPipeline?.abandonAndWait()
         pipeline.abandonAndWait()

@@ -18,7 +18,12 @@ final class LHAWriter {
         let directory: Bool
     }
     private let pipeline: OrderedChunkPipeline<Data, Data?, Pending>?
-    private let entryPipeline: OrderedChunkPipeline<LHAEntryCompressionJob, LHAEncodedMember, LHARecords.Entry>?
+    private struct MemberTag {
+        let entry: LHARecords.Entry
+        let threads: Int
+    }
+    private var assignedThreads = 0
+    private let entryPipeline: OrderedChunkPipeline<LHAEntryCompressionJob, LHAEncodedMember, MemberTag>?
     private let entryCancellation = CompressionCancellation()
     private var waitingMember: (entry: LHARecords.Entry, name: String, mode: UInt16, date: Date, input: Data)?
 
@@ -138,11 +143,17 @@ final class LHAWriter {
     }
 
     private func submitMember(_ entry: LHARecords.Entry, name: String, mode: UInt16, date: Date, input: Data) throws {
+        let pipeline = entryPipeline!
+        try pipeline.waitForCapacity(emit: emitMember)
+        while assignedThreads >= threads { try pipeline.emitNext(emitMember) }
+        let pieces = max(1, (input.count + Self.compressionChunkSize - 1) / Self.compressionChunkSize)
+        let innerThreads = min(pieces, threads - assignedThreads, max(1, threads / (pipeline.pendingCount + 1)))
         let spool = try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "lha-entry", diskBacked: input.count > Self.compressionChunkSize)
+        assignedThreads += innerThreads
         try entryPipeline!.submit(.init(name: name, mode: mode, date: date, data: input, output: spool,
                                        directory: url.deletingLastPathComponent(),
-                                       threads: max(1, threads / (entryPipeline!.pendingCount + 1)), encoder: encoder),
-            tag: entry, weight: UInt64(input.count), emit: emitMember)
+                                       threads: innerThreads, encoder: encoder),
+            tag: MemberTag(entry: entry, threads: innerThreads), weight: UInt64(input.count), emit: emitMember)
     }
 
     private func flushWaitingMember(didEmit: ((UInt64) throws -> Void)? = nil) throws {
@@ -164,7 +175,9 @@ final class LHAWriter {
         try writeMember(pending.entry, method: method, payload: compressed ?? pending.input, crc: pending.crc)
     }
 
-    private func emitMember(_ entry: LHARecords.Entry, _ result: LHAEncodedMember?) throws {
+    private func emitMember(_ tag: MemberTag, _ result: LHAEncodedMember?) throws {
+        defer { assignedThreads -= tag.threads }
+        let entry = tag.entry
         guard let result else { throw WriterError.invalidState }
         try Task.checkCancellation()
         defer { result.output.close() }
@@ -396,7 +409,8 @@ final class LHAWriter {
         entryCancellation.cancel()
         waitingMember = nil
         entryPipeline?.abandonAndWait()
-        pipeline?.abandon()
+        assignedThreads = 0
+        pipeline?.abandonAndWait()
         // LHA は完了済み member だけでも読める。終端を省くのではなく旧 inode 全体を無効にする。
         ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)
         try? output.truncate(atOffset: 0)

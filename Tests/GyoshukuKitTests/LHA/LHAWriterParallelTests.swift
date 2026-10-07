@@ -105,10 +105,12 @@ final class LHAWriterParallelTests: XCTestCase {
         try Data([3]).write(to: source)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
         let submitting = DispatchSemaphore(value: 0), read = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
         let task = Task.detached {
             let writer = try LHAWriterParallelTests.create(url, threads: 2) { input in
                 started.signal()
                 release.wait()
+                defer { completed.signal() }
                 return input
             }
             try FileManager.default.linkItem(at: url, to: alias)
@@ -127,8 +129,12 @@ final class LHAWriterParallelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(75))
         XCTAssertEqual(read.wait(timeout: .now()), .timedOut)
         task.cancel()
+        // abort は worker を join する。試験の停止を解除してから完了を待つ。
+        release.signal(); release.signal()
         do { try await task.value; XCTFail("cancelled writer succeeded") }
         catch is CancellationError {}
+        XCTAssertEqual(completed.wait(timeout: .now()), .success)
+        XCTAssertEqual(completed.wait(timeout: .now()), .success)
         XCTAssertEqual(read.wait(timeout: .now()), .timedOut)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
         XCTAssertEqual(try Data(contentsOf: alias).count, 0)

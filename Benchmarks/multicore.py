@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""単一・小ファイル・256 MiB corpus の release executable 交互比較。C/C++ のソースは使わない。"""
+"""単一・tree・小ファイル・256 MiB corpus の release executable 交互比較。C/C++ のソースは使わない。"""
 import argparse
 import hashlib
 import json
@@ -67,6 +67,25 @@ ROUND2 = {
 }
 
 
+ROUND3 = {
+    "tree": ["zip-zstd", "zip-bzip2", "zip-deflate", "zip-stored", "7z-lzma", "7z-lzma2"],
+    "single16r": ["zip-zstd", "zip-bzip2", "zip-deflate", "zip-stored", "7z-lzma", "7z-lzma2"],
+    "single": ROUND2["single"],
+    "small": ROUND2["small"],
+    "lha-mixed": ROUND2["lha-mixed"],
+    "corpus": ["zip-zstd", "zip-bzip2", "7z-lzma2-solid", "lha-lh7"],
+}
+
+
+def workload_cases(args, workload):
+    catalog = ROUND3 if args.profile == "round3" else {**ROUND2, "tree": ROUND3["tree"], "single16r": ROUND3["single16r"]}
+    return args.cases.split(",") if args.cases else catalog[workload]
+
+
+def workload_threads(args, workload):
+    return [int(t) for t in args.threads.split(",")] if args.threads else ([12] if args.profile == "round3" and workload == "corpus" else [1, 12])
+
+
 def regression_corpora(directory):
     source = (directory / "mixed.bin").read_bytes()
     single = directory / "single"
@@ -84,9 +103,30 @@ def regression_corpora(directory):
     shutil.copyfile(single / "single.dat", mixed / "000-medium.dat")
     for index, path in enumerate(sorted(small.iterdir())[:128]):
         shutil.copyfile(path, mixed / f"tiny-{index:04d}.dat")
-    for members in [single, small, mixed]:
-        for path in members.iterdir():
-            os.chmod(path, 0o644)
+    random_single = directory / "single16r"
+    random_single.mkdir(exist_ok=True)
+    (random_single / "random.dat").write_bytes(random.Random(20261008).randbytes(16 << 20))
+    tree = directory / "tree"
+    tree.mkdir(exist_ok=True)
+    snapshot = subprocess.run(["git", "archive", "f273d34", "Sources/GyoshukuKit"], cwd=ROOT,
+                              stdout=subprocess.PIPE, check=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(snapshot)) as archive:
+        text = b"".join(archive.extractfile(p).read() for p in sorted(archive.getmembers(), key=lambda p: p.name)
+                        if p.name.endswith(".swift") and p.isfile())
+    rng = random.Random(20261008)
+    for index in range(100):
+        folder = tree / f"folder-{index:03d}"
+        folder.mkdir(exist_ok=True)
+        for file in range(6):
+            size = rng.randint(64 << 10, 256 << 10)
+            start = rng.randrange(len(text))
+            data = text[start:] + text[:start]
+            (folder / f"text-{file}.txt").write_bytes((data * ((size + len(data) - 1) // len(data)))[:size])
+        (folder / "z-empty").write_bytes(b"")
+        (folder / "zz-subdirectory").mkdir(exist_ok=True)
+    for members in [single, small, mixed, random_single, tree]:
+        for path in list(members.rglob("*")) + [members]:
+            os.chmod(path, 0o755 if path.is_dir() else 0o644)
             os.utime(path, (1700000000, 1700000000))
 
 
@@ -94,6 +134,8 @@ def measure(args):
     results = args.results.resolve()
     results.parent.mkdir(parents=True, exist_ok=True)
     bundles = {"base": args.base.resolve(), "new": args.new.resolve()}
+    if args.round1:
+        bundles = {"base": args.base.resolve(), "round1": args.round1.resolve(), "new": args.new.resolve()}
     completed = {}
     hashes = {}
     if results.exists():
@@ -103,18 +145,21 @@ def measure(args):
             completed[key] = completed.get(key, 0) + 1
             hashes.setdefault((row["workload"], row["path"]), set()).add(row["sha256"])
     for workload in args.workloads.split(","):
-        selected = args.cases.split(",") if args.cases else ROUND2[workload]
+        selected = workload_cases(args, workload)
         members = args.corpus / ("mixed" if workload == "corpus" else workload)
         for case in selected:
             for repeat in range(args.repeats):
-                # 各 pair 内の先行版も交互にする。
-                for threads in [1, 12]:
-                    for label in (["base", "new"] if repeat % 2 == 0 else ["new", "base"]):
+                # 三版の順も回転・反転し、同じ条件を続けて比較する。
+                labels = list(bundles)
+                order = labels[repeat % len(labels):] + labels[:repeat % len(labels)]
+                if len(labels) == 3 and (repeat // len(labels)) % 2: order.reverse()
+                for threads in workload_threads(args, workload):
+                    for label in order:
                         if completed.get((workload, case, threads, label), 0) > repeat:
                             continue
-                        log = results.parent / f"{workload}-{case}-{threads}-{label}-{repeat}.log"
+                        log = results.parent / f"{workload}-{case}-{threads}-{label}-{repeat}{'.r3' if args.profile == 'round3' else ''}.log"
                         print(f"{workload} {case} threads={threads} {label} sample={repeat + 1}/{args.repeats}", flush=True)
-                        for source in members.iterdir():
+                        for source in list(members.rglob("*")) + [members]:
                             os.utime(source, (1700000000, 1700000000))
                         with log.open("w") as out:
                             subprocess.run([str(bundles[label]), str(args.corpus.resolve()), str(results),
@@ -129,29 +174,38 @@ def measure(args):
 
 def report(args):
     rows = [json.loads(line) for line in args.results.read_text().splitlines()]
-    print("| workload / method | t=1 base → new 秒 | t=12 base → new 秒 | new/base 最大 | load(1分) base/new: t=1; t=12 |")
-    print("|---|---:|---:|---:|---|")
+    labels = ["base", "round1", "new"] if args.round1 else ["base", "new"]
+    names = " / ".join(labels)
+    print(f"| workload / method | t=1 {names} 秒 | t=12 {names} 秒 | new/base 最大 | new/round1 最大 | load(1分) {names}: t=1; t=12 |")
+    print("|---|---:|---:|---:|---:|---|")
     failures = []
     for workload in args.workloads.split(","):
-        for case in (args.cases.split(",") if args.cases else ROUND2[workload]):
+        for case in workload_cases(args, workload):
             samples = {}
-            for threads in [1, 12]:
-                for label in ["base", "new"]:
-                    group = [r for r in rows if (r["workload"], r["path"], r["threads"], r["label"]) == (workload, case, threads, label)]
+            threads = workload_threads(args, workload)
+            for t in threads:
+                for label in labels:
+                    group = [r for r in rows if (r["workload"], r["path"], r["threads"], r["label"]) == (workload, case, t, label)]
                     if len(group) != args.repeats:
-                        raise RuntimeError(f"Expected {args.repeats} samples: {workload}/{case}/{threads}/{label}: {len(group)}")
-                    samples[threads, label] = min(group, key=lambda r: r["wall_s"])
-            hashes = {r["sha256"] for r in rows if r["workload"] == workload and r["path"] == case}
-            if len(hashes) != 1:
+                        raise RuntimeError(f"Expected {args.repeats} samples: {workload}/{case}/{t}/{label}: {len(group)}")
+                    samples[t, label] = min(group, key=lambda r: r["wall_s"])
+            identities = {(r["sha256"], r["output_bytes"]) for r in rows if r["workload"] == workload and r["path"] == case}
+            if len(identities) != 1:
                 raise RuntimeError(f"Output identity failed: {workload}/{case}")
-            ratios = [samples[t, "new"]["wall_s"] / samples[t, "base"]["wall_s"] for t in [1, 12]]
-            timing = [f'{samples[t, "base"]["wall_s"]:.4f} → {samples[t, "new"]["wall_s"]:.4f}' for t in [1, 12]]
-            loads = "; ".join(f'{samples[t, "base"]["load"][0]:.2f}/{samples[t, "new"]["load"][0]:.2f}' for t in [1, 12])
-            print(f"| {workload} / {case} | {timing[0]} | {timing[1]} | {max(ratios):.3f} | {loads} |")
-            for t, ratio in zip([1, 12], ratios):
+            ratios = [samples[t, "new"]["wall_s"] / samples[t, "base"]["wall_s"] for t in threads]
+            r1 = [samples[t, "new"]["wall_s"] / samples[t, "round1"]["wall_s"] for t in threads] if args.round1 else []
+            timing = [" / ".join(f'{samples[t, label]["wall_s"]:.4f}' for label in labels) if t in threads else "—" for t in [1, 12]]
+            loads = "; ".join("/".join(f'{samples[t, label]["load"][0]:.2f}' for label in labels) if t in threads else "—" for t in [1, 12])
+            r1_ratio = f"{max(r1):.3f}" if r1 else "—"
+            print(f"| {workload} / {case} | {timing[0]} | {timing[1]} | {max(ratios):.3f} | {r1_ratio} | {loads} |")
+            for t, ratio in zip(threads, ratios):
                 if ratio > 1.05:
-                    failures.append(f"{workload}/{case}/t={t}: {ratio:.3f}")
-    print(f"\nSHA-256: all base/new/t=1/t=12 identical. No-regression (new/base <= 1.05): {len(failures) == 0}.")
+                    failures.append(f"{workload}/{case}/t={t} new/base: {ratio:.3f}")
+            if workload in ["tree", "small"]:
+                for t, ratio in zip(threads, r1):
+                    if ratio > 1.05:
+                        failures.append(f"{workload}/{case}/t={t} new/round1: {ratio:.3f}")
+    print(f"\nSHA-256/size: all builds/thread counts identical. No-regression: {len(failures) == 0}.")
     if failures:
         print("\n" + "\n".join(failures))
         raise SystemExit(1)
@@ -244,12 +298,19 @@ def main():
     parser.add_argument("operation", choices=["corpus", "measure", "report", "references"])
     parser.add_argument("--corpus", type=Path, default=ROOT / ".build/multicore/corpus")
     parser.add_argument("--base", type=Path, default=ROOT / ".build-base/multicore-release/out/Products/Release/gyoshuku-multicore")
+    parser.add_argument("--round1", type=Path)
+    parser.add_argument("--profile", choices=["round2", "round3"], default="round2")
+    parser.add_argument("--threads")
     parser.add_argument("--new", type=Path, default=ROOT / ".build/multicore-release/out/Products/Release/gyoshuku-multicore")
-    parser.add_argument("--results", type=Path, default=ROOT / ".build/multicore/round2.jsonl")
+    parser.add_argument("--results", type=Path)
     parser.add_argument("--cases")
-    parser.add_argument("--workloads", default="single,small,lha-mixed,corpus")
+    parser.add_argument("--workloads")
     parser.add_argument("--repeats", type=int, default=5)
     args = parser.parse_args()
+    if args.results is None:
+        args.results = ROOT / (".build/multicore/round3.r3.jsonl" if args.profile == "round3" else ".build/multicore/round2.jsonl")
+    if args.workloads is None:
+        args.workloads = "tree,single,single16r,small,lha-mixed,corpus" if args.profile == "round3" else "single,small,lha-mixed,corpus"
     if args.repeats < 5:
         parser.error("best-of-5 以上で測定する")
     if args.operation == "corpus":

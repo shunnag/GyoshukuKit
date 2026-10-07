@@ -1,0 +1,57 @@
+{
+  "builds": [
+    {
+      "label": "base",
+      "commit": "f273d34",
+      "flags": [
+        "--disable-sandbox",
+        "-debug-info-format",
+        "none",
+        "-c",
+        "release",
+        "--product",
+        "gyoshuku-multicore"
+      ],
+      "binary": ".build/r3-builds/base/build/out/Products/Release/gyoshuku-multicore",
+      "sha256": "de03596851cd26104ef2bb4fa0ecde785e374fb6ff396e01eb68bbabec460293",
+      "harness_sha256": "d0f0c152c34a9c71a40e0fcba369d7f97a72a55a28aabee5e9c51f5b94d6ad8c",
+      "release_testability": false
+    },
+    {
+      "label": "round1",
+      "commit": "f9d5178",
+      "flags": [
+        "--disable-sandbox",
+        "-debug-info-format",
+        "none",
+        "-c",
+        "release",
+        "--product",
+        "gyoshuku-multicore"
+      ],
+      "binary": ".build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore",
+      "sha256": "3239183c7e6bc0852832db92f468f58b4ba9c70260a71c762d3a261c2dfdf9e8",
+      "harness_sha256": "d0f0c152c34a9c71a40e0fcba369d7f97a72a55a28aabee5e9c51f5b94d6ad8c",
+      "release_testability": false
+    },
+    {
+      "label": "new",
+      "commit": "fb40b62 + uncommitted r3",
+      "flags": [
+        "--disable-sandbox",
+        "-debug-info-format",
+        "none",
+        "-c",
+        "release",
+        "--product",
+        "gyoshuku-multicore"
+      ],
+      "binary": ".build/r3-builds/new/build/out/Products/Release/gyoshuku-multicore",
+      "sha256": "53881c17401de661527e6a946e63cff8d6b5361db58f6e36b16a2c0f1e5ff4d1",
+      "harness_sha256": "d0f0c152c34a9c71a40e0fcba369d7f97a72a55a28aabee5e9c51f5b94d6ad8c",
+      "release_testability": false
+    }
+  ],
+  "kaitoKit_shared_path": "/Users/nagash/Github/KaitoKit",
+  "module_cache": "$PWD/.build/clang-module-cache"
+}

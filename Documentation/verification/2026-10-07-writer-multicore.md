@@ -1,5 +1,155 @@
 # writerのmulti-core実測（2026-10-07）
 
+## round 3: treeの窓停止・内部thread予約・単独ZIP spoolの修正
+
+実施日は2026-10-08。HEAD `fb40b62`（round 2）への未commitの変更。
+基準は`f273d34`、round 1は`f9d5178`。下のround 1/2本文とrawは保存し、今回の結果を`.r3.*`へ追加した。
+
+### 実装と検証範囲
+
+ZIPの空file・directory・symlink・1 MiB以下のStoredは同じ項目窓へinline投入し、spoolを作らない。
+小さいStoredの前では全窓をdrainしない。16 MiB超の圧縮項目、1 MiB超のStored、ZipCryptoは従来のstream経路。
+項目別APIでは空の窓の64 KiB〜16 MiBの圧縮項目を一つ保留し、後続が来ればworkerへ渡す。
+単独のfinish/finishAdditions/drainではcallerが既存encoderで直接書き、出力spoolと再読取を省く。
+保留もpendingInputBytesと一枠の予約に含める。
+batchのdirectory URLは再帰探索のfallbackを保つが、その中の項目も同じ窓を使う。
+空・directory・Stored・symlinkの混在、batchのdirectory URLと1 MiB超Stored、暗号化、進捗・出力順を試験した。
+
+LHA/7z folderの内部threadsは実際の片数、未割当threads、`max(1, t / (pendingCount + 1))`の最小値。
+割当はcallerだけで管理し、未出力jobの合計をt以下に保ち、emitで返す。
+LHAは1 MiB片、7z LZMA2/Deflateは既存の片幅、他の7z codecは単一streamの1枠。
+予算が一杯なら先頭だけをemitする。codec状態の予約は従来の保守的な上界を保つ。
+今回のsingle/lha-mixed/corpusを含む全54比較でbase比1.05以下のため、この上限を採用した。
+ZIP/LHA/7zのabortは片workerもjoinする。取消しとspool解放、workerの注入失敗を確認した。
+既存LHA取消し試験は、cancel後もworkerをsemaphoreで止めたままtask.valueを待っていたため、join追加後の再確認を1回中断した。
+試験をcancel→worker解放→task.valueの順へ直し、戻った時点の両worker完了も検査した。修正後18件は成功。
+
+小予算試験は入力上限を1 MiB+4,096 byte、各方式の予約2枠分の予算へTaskLocalで注入する。
+要求t=12でもentryThreads=2を確認し、ZIP、LHAの保留member、7z solid（blockSizeも同じ小上限）へ
+上限近くの5項目を追加する。各add後は2枠分以下、観測最大は上界との差8 byte以内。
+finishAdditionsの進捗とpending=0も確認する。通常値は16 MiB・既存予算のまま。
+
+### 計測条件
+
+既存記録と同じMac、macOS 27.2 (26B5101f)、Apple Swift 6.4、arm64。
+base/round1のSourcesはgit archiveの129/132 fileとbyte単位で一致を確認した。
+三版は同じharnessとKaitoKit checkoutを使い、下の同一release flagsでbuildした。
+Release build planの27構成すべてでtestabilityはNO、`-enable-testing`無しを確認した。
+[binary/flags記録](2026-10-07-writer-multicore.r3.builds.json)へfingerprintを保存した。
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path Benchmarks --scratch-path .build/r3-builds/new/build --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path .build/r3-builds/base/source/Benchmarks --scratch-path .build/r3-builds/base/build --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path .build/r3-builds/round1/source/Benchmarks --scratch-path .build/r3-builds/round1/build --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+python3 Benchmarks/multicore.py corpus --profile round3
+python3 Benchmarks/multicore.py measure --profile round3 --base .build/r3-builds/base/build/out/Products/Release/gyoshuku-multicore --round1 .build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore --new .build/r3-builds/new/build/out/Products/Release/gyoshuku-multicore --results .build/multicore/round3.r3.jsonl
+python3 Benchmarks/multicore.py report --profile round3 --round1 .build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore --results .build/multicore/round3.r3.jsonl
+```
+
+測定期間: 2026-10-08 03:06:51 JST〜2026-10-08 03:29:16 JST。三版の先行順も回転・反転し、各群best-of-5を採用。
+create/compress/finishのwall、process user+system、開始時load averageの1/5/15分を保存する。
+こちらのbuild/testは計測と重ねていない。列挙・sort（tree内部の再帰探索は計時内）、入力byte集計、出力SHA-256は計時外。
+固定日時1700000000、file0644 / directory0755、heuristic=false、既定codec levelを三版で揃えた。
+
+| workload | 入力・設定 |
+|---|---|
+| tree | 100 folder × (64〜256 KiBのSwift text 6 file＋空file＋空subdirectory)、seed20261008。計96,446,400 byte、700 file＋200 directory。ZIP Zstd/BZip2/Deflate/Stored、7z LZMA/LZMA2 |
+| single | 既存10 MiB。LHA LH5/LH7、7z Deflate/LZMA2 solid（既定blockSize）、ZIP XZ/Zstd |
+| single16r | 16 MiBのseed20261008乱数1 file。treeと同じ6方式 |
+| small | 既存5,000 × 1〜4 KiB、計12,819,316 byte。ZIP Zstd/BZip2/Deflate、7z LZMA/LZMA2 |
+| lha-mixed | 10 MiB先頭member＋128小file、LH5/LH7 |
+| corpus | 既存256 MiB（96×2 MiB＋64 MiB）。ZIP Zstd/BZip2、7z LZMA2 solid16 MiB、LHA LH7、t=12のみ |
+
+入力digest・構成は[corpus記録](2026-10-07-writer-multicore.r3.corpus.json)。
+[全810 sample](2026-10-07-writer-multicore.r3.samples.jsonl)、[best値TSV](2026-10-07-writer-multicore.r3.tsv)。
+全47条件の940-sample matrixは繰り返さず、指定の29条件・三版だけに絞った。
+
+### 回帰表
+
+秒、各群best-of-5。各欄の順はbase / round1 / new。
+loadはそれぞれの最短wall sampleの1分値、corpusのt=1は今回測定しないため「—」。
+
+| workload / method | t=1 base / round1 / new 秒 | t=12 base / round1 / new 秒 | new/base 最大 | new/round1 最大 | load(1分) base / round1 / new: t=1; t=12 |
+|---|---:|---:|---:|---:|---|
+| tree / zip-zstd | 0.7515 / 0.7517 / 0.7481 | 0.7539 / 0.1675 / 0.1303 | 0.995 | 0.995 | 2.30/2.33/2.33; 2.33/2.33/2.60 |
+| tree / zip-bzip2 | 3.3995 / 3.4029 / 3.3989 | 3.4063 / 0.5689 / 0.5466 | 1.000 | 0.999 | 2.47/2.35/2.24; 2.24/2.11/2.60 |
+| tree / zip-deflate | 1.3601 / 1.3708 / 1.3668 | 0.3910 / 0.3901 / 0.3907 | 1.005 | 1.001 | 2.88/2.55/2.67; 2.81/2.69/2.55 |
+| tree / zip-stored | 0.0468 / 0.0466 / 0.0470 | 0.0467 / 0.0469 / 0.0473 | 1.013 | 1.010 | 2.81/2.81/2.81; 2.81/2.81/2.81 |
+| tree / 7z-lzma | 13.8200 / 13.8041 / 13.7275 | 13.8127 / 2.2671 / 2.2399 | 0.993 | 0.994 | 1.89/2.11/2.47; 1.86/2.10/1.93 |
+| tree / 7z-lzma2 | 11.6166 / 11.5653 / 11.5497 | 1.9602 / 1.9665 / 1.9632 | 1.002 | 0.999 | 1.99/1.90/1.92; 2.02/3.58/3.22 |
+| single / lha-lh5 | 0.1166 / 0.1157 / 0.1156 | 0.0359 / 0.1178 / 0.0366 | 1.017 | 0.999 | 3.27/3.27/3.27; 3.27/3.27/3.27 |
+| single / lha-lh7 | 0.2452 / 0.2450 / 0.2435 | 0.0588 / 0.2462 / 0.0599 | 1.018 | 0.994 | 3.09/3.27/3.09; 3.09/3.09/3.09 |
+| single / 7z-deflate-solid | 0.1215 / 0.1222 / 0.1220 | 0.0211 / 0.1230 / 0.0212 | 1.006 | 0.998 | 2.92/2.92/2.92; 2.92/3.09/3.09 |
+| single / 7z-lzma2-solid | 0.7737 / 0.7698 / 0.7701 | 0.7748 / 0.7711 / 0.7753 | 1.001 | 1.006 | 2.89/3.06/2.89; 3.06/2.77/2.89 |
+| single / zip-xz | 0.7665 / 0.7684 / 0.7688 | 0.7683 / 0.7678 / 0.7687 | 1.003 | 1.001 | 2.69/2.43/2.43; 2.56/2.69/2.56 |
+| single / zip-zstd | 0.0439 / 0.0436 / 0.0440 | 0.0444 / 0.0453 / 0.0442 | 1.004 | 1.010 | 2.32/2.43/2.43; 2.32/2.32/2.43 |
+| single16r / zip-zstd | 0.1406 / 0.1398 / 0.1398 | 0.1405 / 0.1435 / 0.1409 | 1.003 | 1.000 | 2.32/2.32/2.32; 2.32/2.32/2.29 |
+| single16r / zip-bzip2 | 1.0161 / 1.0157 / 1.0174 | 1.0145 / 1.0198 / 1.0167 | 1.002 | 1.002 | 2.32/2.53/2.53; 2.53/2.44/2.53 |
+| single16r / zip-deflate | 0.2280 / 0.2288 / 0.2289 | 0.0316 / 0.0316 / 0.0316 | 1.004 | 1.000 | 2.65/2.65/2.65; 2.60/2.65/2.60 |
+| single16r / zip-stored | 0.0033 / 0.0034 / 0.0034 | 0.0034 / 0.0035 / 0.0034 | 1.030 | 1.020 | 2.60/2.60/2.60; 2.60/2.60/2.60 |
+| single16r / 7z-lzma | 2.2202 / 2.2553 / 2.2428 | 2.2280 / 2.2542 / 2.2361 | 1.010 | 0.994 | 2.60/2.53/2.53; 2.38/2.41/2.67 |
+| single16r / 7z-lzma2 | 2.2051 / 2.2071 / 2.1966 | 2.2127 / 2.2024 / 2.2108 | 0.999 | 1.004 | 2.81/2.79/2.81; 2.74/2.71/2.53 |
+| small / zip-zstd | 0.3495 / 0.3465 / 0.3458 | 0.3493 / 0.6173 / 0.3481 | 0.997 | 0.998 | 2.49/2.49/3.17; 3.17/3.22/3.17 |
+| small / zip-bzip2 | 1.5000 / 1.4978 / 1.5012 | 1.4981 / 0.6373 / 0.2159 | 1.001 | 1.002 | 3.43/3.13/3.65; 3.13/3.23/3.55 |
+| small / zip-deflate | 0.2310 / 0.2307 / 0.2300 | 0.1737 / 0.1748 / 0.1740 | 1.002 | 0.997 | 3.52/3.52/3.04; 3.04/3.52/3.52 |
+| small / 7z-lzma | 1.1354 / 1.1321 / 1.1271 | 1.1297 / 0.6170 / 0.1918 | 0.993 | 0.996 | 3.69/4.00/3.64; 3.69/3.69/4.00 |
+| small / 7z-lzma2 | 1.1019 / 1.1054 / 1.1085 | 0.2272 / 0.2279 / 0.2292 | 1.009 | 1.006 | 3.74/3.68/4.02; 3.86/3.68/4.02 |
+| lha-mixed / lha-lh5 | 0.1302 / 0.1300 / 0.1300 | 0.0407 / 0.1244 / 0.0425 | 1.046 | 1.000 | 3.86/3.86/3.86; 3.63/3.86/3.86 |
+| lha-mixed / lha-lh7 | 0.2610 / 0.2593 / 0.2588 | 0.0649 / 0.2540 / 0.0661 | 1.019 | 0.998 | 3.63/3.42/3.63; 3.42/3.42/3.63 |
+| corpus / zip-zstd | — | 1.4984 / 0.3851 / 0.3751 | 0.250 | 0.974 | —; 4.15/3.38/3.42 |
+| corpus / zip-bzip2 | — | 20.3910 / 7.0937 / 7.0754 | 0.347 | 0.997 | —; 3.51/5.03/3.75 |
+| corpus / 7z-lzma2-solid | — | 16.4838 / 3.3141 / 3.3170 | 0.201 | 1.001 | —; 2.65/4.04/4.15 |
+| corpus / lha-lh7 | — | 3.9569 / 0.7092 / 0.9385 | 0.237 | 1.323 | —; 4.95/4.95/5.19 |
+
+SHA-256/size: all builds/thread counts identical. No-regression: True.
+
+明示的判定: **PASS**。new/baseの54比較すべて1.05以下（最大1.0461）、
+tree/smallのnew/round1も22比較すべて1.05以下（最大1.0099）。
+各条件の全版・全測定threadsでSHA-256と出力sizeが一致した。全sampleの1分load範囲は1.73〜6.12。
+
+### 対象試験
+
+全suiteと巨大gate試験は実行していない。共通flagsは`--disable-sandbox -debug-info-format none`、
+`CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache"`。release XCTestだけ`-Xswiftc -enable-testing`。
+最終cleanup再確認はjoin変更とLHA試験修正を含む最終sourceで実行した。
+
+| 実行 | 構成 | pass/fail/skip | XCTest秒 / build込みwall秒 | 開始/終了load(1分) |
+|---|---|---:|---:|---:|
+| debug-small | debug | 4/0/0 | 1.411 / 2.759 | 5.60/5.39 |
+| release-targeted | release、enable-testing | 94/0/0 | 167.655 / 306.413 | 5.39/2.42 |
+| release-cleanup-verified | release、enable-testing | 18/0/0 | 2.489 / 55.667 | 2.36/3.38 |
+
+
+主試験はmulticore、spool、順序窓、ZIP各codec/暗号化、7z各codec/solid/filter/AES・凍結byte、
+LHA片連結・parallel・凍結fixture、batch等価・安全性、finishAdditions。
+command・case別時間・中断の理由・全load値は[test raw](2026-10-07-writer-multicore.r3.tests.jsonl)に保存した。
+
+### 変更fileと目的
+
+| file | 目的 |
+|---|---|
+| Sources/GyoshukuKit/Zip/ZipWriter.swift | 小Stored/空/dir/symlinkの窓保持、単独圧縮項目の保留と直接出力、abort join |
+| Sources/GyoshukuKit/LHA/LHAWriter.swift | 未出力jobの内部thread合計をt以内、emitで解放、片worker join |
+| Sources/GyoshukuKit/SevenZip/SevenZipBlockWriter.swift | folderの実片数と合計thread予約、emitで解放 |
+| Sources/GyoshukuKit/SevenZip/SevenZipWriter.swift | abort時の片worker join |
+| Sources/GyoshukuKit/Compression/OrderedChunkPipeline.swift | 予約待ちで先頭だけをemitする内部操作 |
+| Sources/GyoshukuKit/Compression/EntryCompressionConfiguration.swift | 小入力上限・小予算のTaskLocal試験注入 |
+| Tests/GyoshukuKitTests/Writer/MulticoreWriterTests.swift | tight bound、ZIP窓混在、batch tree、単独disk spool無し |
+| Tests/GyoshukuKitTests/LHA/LHAWriterParallelTests.swift | joinする取消し経路でworkerを解放し、完了を検査 |
+| Benchmarks/multicore.py / Sources/GyoshukuMulticore/main.swift / README.md | tree/single16r、三版交互比較、thread指定、回帰判定と手順 |
+| Documentation/design.md / 本記録と.r3.* | 窓・thread予約・計測・試験の記録 |
+
+### 残る制約
+
+未解決の試験失敗・計測閾値超過は無い。最も閾値に近いのはLHA mixed LH5/t=12のnew/base=1.0461。
+LHA corpus LH7/t=12はthread上限を採用した結果、round 1の0.7092秒から0.9385秒へ32.3%遅くなった。
+baseの3.9569秒に対しては4.22倍速く、今回の基準を満たす。thread上限とmember並列度のトレードオフとして残す。
+性能確認は指定の29条件で、全方式・全threadsの速度を網羅するものではない。
+loadは他jobで変動する。大Stored、ZipCrypto、項目窓の入力上限超過は引き続きstream経路を使う。
+圧縮codecのSources/GyoshukuKit/Compression/{LZMA,PPMd,Zstd}、Tests/Fixturesは変更しない。
+変更は未commit。日本語commit messageは`.build/speed-commit-message-r3.txt`。
+
+
 ## round 2: 単独member・最終folder・小項目の退行修正
 
 基準は`f273d346fc8e0743d56604e8c59adb61cedc1828`、変更版はround 1の`f9d5178`へ加えた未commitの修正。

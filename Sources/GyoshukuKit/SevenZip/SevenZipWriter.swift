@@ -237,7 +237,7 @@ final class SevenZipWriter {
         aborted = true
         entryCancellation.cancel()
         entryPipeline?.abandonAndWait()
-        pipeline.abandon()
+        pipeline.abandonAndWait()
         blocks?.abandon()
         // 出力先が置換されていても別の inode を削除しない。旧 inode の別名は truncate で無効になる。
         ArchiveOwnedFile.remove(url: url, descriptor: output.fileDescriptor)

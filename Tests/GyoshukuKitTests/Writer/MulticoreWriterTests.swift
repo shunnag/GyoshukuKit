@@ -190,6 +190,136 @@ final class MulticoreWriterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: failed.path))
     }
 
+    func testZIPInlineItemsKeepEntryWindowAndIdentity() throws {
+        let root = try TestSupport.directory("multicore-zip-inline")
+        for method: CompressionMethod in [.zstd, .bzip2, .lzma, .xz, .ppmd] {
+            var baseline: Data?
+            for threads in [1, 12] {
+                let url = root.appendingPathComponent(UUID().uuidString + ".zip")
+                let writer = try ArchiveWriter.create(url: url, format: .zip,
+                    options: .init(compressionMethod: method, compressionThreads: threads))
+                try writer.add(data: payload, as: "first", modificationDate: TestSupport.date)
+                let first = writer.pendingInputBytes
+                try writer.add(data: Data(), as: "empty", modificationDate: TestSupport.date)
+                try writer.addDirectory("folder", modificationDate: TestSupport.date, ownerIDs: nil)
+                let stored = Data(repeating: 7, count: 4096)
+                try writer.add(data: stored, as: "stored.png", modificationDate: TestSupport.date)
+                var link = Data("first".utf8)
+                try writer.addEntry(path: "link", mode: FileMode.defaultSymlink, size: UInt64(link.count),
+                    date: TestSupport.date, atime: nil, owners: nil) { _ in
+                    defer { link = Data() }
+                    return link
+                }
+                if threads > 1 { XCTAssertEqual(writer.pendingInputBytes, first + UInt64(stored.count + 5)) }
+                try writer.add(data: payload, as: "last", modificationDate: TestSupport.date)
+                try writer.finish()
+                let bytes = try Data(contentsOf: url)
+                if let baseline { XCTAssertEqual(bytes, baseline, "\(method)") } else { baseline = bytes }
+            }
+        }
+    }
+
+    func testZIPBatchDirectoryURLAndLargeStoredKeepIdentityAndEvents() throws {
+        let root = try TestSupport.directory("multicore-zip-tree-batch")
+        let folder = root.appendingPathComponent("input")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for (name, data) in [("first", payload), ("middle-empty", Data()), ("stored.png", payload), ("last", payload)] {
+            try data.write(to: folder.appendingPathComponent(name))
+        }
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("subdirectory"), withIntermediateDirectories: true)
+        let large = root.appendingPathComponent("large.png")
+        try Data(repeating: 7, count: DeflateBlock.size + 1).write(to: large)
+        for method: CompressionMethod in [.zstd, .bzip2] {
+            var baseline: Data?
+            for threads in [1, 12] {
+                for file in [folder, large] + (FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []) {
+                    try AdditionProgressTestSupport.timestamp(file)
+                }
+                let url = root.appendingPathComponent(UUID().uuidString + ".zip")
+                let writer = try ArchiveWriter.create(url: url, format: .zip, options: .init(compressionMethod: method, compressionThreads: threads))
+                var finished: [Int] = []
+                try writer.add([.init(path: "folder", source: .contents(of: folder)), .init(path: "large.png", source: .contents(of: large))]) {
+                    if case let .didFinish(index) = $0 { finished.append(index) }
+                }
+                XCTAssertEqual(finished, [0, 1])
+                XCTAssertEqual(writer.pendingInputBytes, 0)
+                try writer.finish()
+                let bytes = try Data(contentsOf: url)
+                if let baseline { XCTAssertEqual(bytes, baseline, "\(method)") } else { baseline = bytes }
+            }
+        }
+    }
+
+    func testZIPOnlyEntryFinishesWithoutDiskSpool() throws {
+        let root = try TestSupport.directory("multicore-zip-only")
+        let input = LHATestSupport.random(2 << 20)
+        for finishAdditions in [false, true] {
+            let created = Mutex(0)
+            try ScratchFile.$testingCreated.withValue({ _ in created.withLock { $0 += 1 } }) {
+                let url = root.appendingPathComponent(UUID().uuidString + ".zip")
+                let writer = try ArchiveWriter.create(url: url, format: .zip,
+                    options: .init(compressionMethod: .zstd, compressionThreads: 12))
+                try writer.add(data: input, as: "only", modificationDate: TestSupport.date)
+                XCTAssertEqual(writer.pendingInputBytes, UInt64(input.count))
+                if finishAdditions {
+                    var progress: [ArchiveUpdater.CommitProgress] = []
+                    try writer.finishAdditions { progress.append($0) }
+                    XCTAssertEqual(progress.last?.completedBytes, UInt64(input.count))
+                    XCTAssertEqual(writer.pendingInputBytes, 0)
+                }
+                try writer.finish()
+                let reader = try ArchiveReader.open(url: url)
+                XCTAssertEqual(try reader.read(reader.entries[0]), input)
+            }
+            XCTAssertEqual(created.withLock { $0 }, 0)
+        }
+    }
+
+    func testSmallBudgetEntryWindowBoundsIncludingWaitingAndSolidBlock() throws {
+        let root = try TestSupport.directory("multicore-small-budget")
+        let limit = LHAWriter.compressionChunkSize + 4096
+        try EntryCompressionConfiguration.$testingInputLimit.withValue(limit) {
+            for format: GyoshukuKit.ArchiveFormat in [.zip, .lha, .sevenZip] {
+                let options = WriterOptions(compressionMethod: .bzip2, sevenZipMethod: .deflate,
+                    sevenZipSolid: .on(blockSize: UInt64(limit), filesPerBlock: nil), compressionThreads: 12)
+                let state: UInt64 = switch format {
+                case .zip: UInt64(400_000 + 8 * 100_000 * options.bzip2Level)
+                case .lha: UInt64(8 << 20) * 12
+                default: UInt64(4 << 20) * 12
+                }
+                let budget = 2 * (state + UInt64(limit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size))
+                try EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {
+                    let slots: Int = switch format {
+                    case .zip: EntryCompressionConfiguration(options: options).threads
+                    case .lha: EntryCompressionConfiguration(lhaThreads: 12).threads
+                    default: EntryCompressionConfiguration(options: options, method: .deflate, innerParallelism: true).threads
+                    }
+                    XCTAssertEqual(slots, 2)
+                    let writer = try ArchiveWriter.create(url: root.appendingPathComponent(UUID().uuidString), format: format, options: options)
+                    let bound = UInt64(2 * limit)
+                    var reached: UInt64 = 0
+                    // waiting member と組立中 folder も含め、二枠をほぼ満たしてから跨ぐ。
+                    for index in 0..<5 {
+                        let size = limit - index
+                        try writer.add(data: Data(repeating: UInt8(65 + index), count: size), as: "file-\(index)", modificationDate: TestSupport.date)
+                        let pending = writer.pendingInputBytes
+                        if index == 0 { XCTAssertEqual(pending, UInt64(size)) }
+                        reached = max(reached, pending)
+                        XCTAssertLessThanOrEqual(pending, bound, "\(format), item \(index)")
+                        XCTAssertLessThanOrEqual(pending, options.maximumPendingInputBytes(for: format))
+                    }
+                    XCTAssertGreaterThanOrEqual(reached, bound - 8)
+                    let pending = writer.pendingInputBytes
+                    var progress: [ArchiveUpdater.CommitProgress] = []
+                    try writer.finishAdditions { progress.append($0) }
+                    XCTAssertEqual(progress.last?.completedBytes, pending)
+                    XCTAssertEqual(writer.pendingInputBytes, 0)
+                    try writer.finish()
+                }
+            }
+        }
+    }
+
     func testMediumEntryWindowBoundsAfterEveryAddition() throws {
         try checkMediumBounds(threads: 2, sizes: [1_048_577, 1_200_001, 1_300_003])
     }

@@ -15,6 +15,11 @@ func benchmark() throws {
         let members = workload == "corpus" ? "mixed" : workload
         let files = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent(members), includingPropertiesForKeys: nil)
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let inputs = workload == "tree" ? (FileManager.default.enumerator(at: root.appendingPathComponent(members), includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey])?.allObjects as? [URL] ?? []) : files
+        let inputBytes = try inputs.reduce(0) { total, file in
+            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            return total + (values.isRegularFile == true ? values.fileSize ?? 0 : 0)
+        }
         for name in cases {
             var options = WriterOptions(useCompressionHeuristic: false, compressionThreads: threads)
             // 生の LZMA1 は既定6、LZMA2/XZ は凍結された Apple nil-level 経路。
@@ -104,7 +109,7 @@ func benchmark() throws {
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             let row: [String: Any] = ["label": label, "path": name, "threads": threads, "wall_s": wall,
                                       "cpu_s": cpu, "output_bytes": data.count, "sha256": hash,
-                                      "input_bytes": try files.reduce(0) { try $0 + (FileManager.default.attributesOfItem(atPath: $1.path)[.size] as! Int) },
+                                      "input_bytes": inputBytes,
                                       "workload": workload, "load": load, "level": workload == "single" ? "defaults; solid=default" : "defaults; solid=16MiB; filter=delta4"]
             var json = try JSONSerialization.data(withJSONObject: row, options: .sortedKeys)
             json.append(10)

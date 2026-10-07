@@ -113,3 +113,28 @@ SHA-256は両版・両threadsで一致を要求し、load average（1/5/15分）
 `report`は必要sample数、hash、new/base <= 1.05を検査し、一つでも不一致なら非ゼロ終了する。
 `--workloads single,small`や`--cases zip-zstd`で範囲を指定する。corpusは既存manifestがあれば再生成しない。
 `references`は従来どおり256 MiBのCLI計測用。最終結果は同日のverification記録のround 2節を参照。
+
+## writer multicore round 3
+
+`--profile round3 --round1 <executable>`はbase / round1 / newの三版を交互に各5回比較する。
+既定はtree、single、single16r、small、lha-mixedをt=1/12、corpusの4方式だけをt=12で測る（810 sample）。
+`tree`はseed20261008のSwift本文、100 folder ×（64〜256 KiB text 6 file＋空file＋空subdirectory）。
+`single16r`は同じseedの16 MiB乱数file。modeはfile0644 / directory0755、日時は1700000000。
+`report`は全版・threadsのSHA-256とsize、全条件new/base <= 1.05、tree/smallのnew/round1 <= 1.05を検査する。
+`--threads 12`で追加測定のthread数を絞れる。round 2の既定とraw記録は維持する。
+
+```sh
+python3 Benchmarks/multicore.py corpus --profile round3
+python3 Benchmarks/multicore.py measure --profile round3 \
+  --base .build/r3-builds/base/build/out/Products/Release/gyoshuku-multicore \
+  --round1 .build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore \
+  --new .build/r3-builds/new/build/out/Products/Release/gyoshuku-multicore \
+  --results .build/multicore/round3.r3.jsonl
+python3 Benchmarks/multicore.py report --profile round3 \
+  --round1 .build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore \
+  --results .build/multicore/round3.r3.jsonl
+```
+
+三版ともround 2と同じrelease flagsを使い、timingには`-enable-testing`を付けない。
+base / round1 sourceはworktree内の`git archive f273d34` / `git archive f9d5178`から作り、同じharnessをコピーする。
+結果は[検証記録](../Documentation/verification/2026-10-07-writer-multicore.md)のround 3節と`.r3.*`を参照。

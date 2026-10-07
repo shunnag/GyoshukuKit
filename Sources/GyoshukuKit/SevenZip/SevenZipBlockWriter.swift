@@ -19,6 +19,7 @@ final class SevenZipBlockWriter {
     private var blocks: [Block] = []
     private let pipeline: OrderedChunkPipeline<Job, EncodedBlock, BlockTag>?
     private let cancellation = CompressionCancellation()
+    private var assignedThreads = 0
     // scratch と AES は worker に所有権を渡し、完了後は出力 spool だけを呼出側へ渡す。
     private struct Job: @unchecked Sendable {
         let input: ScratchFile
@@ -35,6 +36,7 @@ final class SevenZipBlockWriter {
     private struct BlockTag {
         let files: [Int]
         let streams: [SevenZipEditModel.Substream]
+        let threads: Int
     }
 
     init(options: WriterOptions, directory: URL, chunkSize: Int?) {
@@ -140,10 +142,28 @@ final class SevenZipBlockWriter {
         let parallelLimit = options.sevenZipSolid == .off ? UInt64(EntryCompressionConfiguration.inputLimit)
             : options.resolvedSevenZipBlockSize
         if let pipeline, size <= parallelLimit, !(final && pipeline.pendingCount == 0) {
+            try pipeline.waitForCapacity(didEmit: didEmit) { tag, result in try self.emit(tag, result, position: position, write: write) }
+            while assignedThreads >= options.resolvedCompressionThreads {
+                try pipeline.emitNext({ tag, result in try self.emit(tag, result, position: position, write: write) }, didEmit: didEmit)
+            }
+            // 単一 stream の codec は一枠、片並列は実際の片数まで予約する。
+            let pieces: Int
+            switch options.sevenZipMethod {
+            case .lzma2:
+                let width = try chunkSize ?? LZMAWriterConfiguration(options: options).pieceSize
+                pieces = Int((size - 1) / UInt64(width) + 1)
+            case .deflate:
+                let width = try min(chunkSize ?? LZMAWriterConfiguration(options: WriterOptions(compressionThreads: options.compressionThreads)).pieceSize, DeflateBlock.size)
+                pieces = Int((size - 1) / UInt64(width) + 1)
+            case .lzma, .bzip2, .ppmd, .copy: pieces = 1
+            }
+            let innerThreads = min(pieces, options.resolvedCompressionThreads - assignedThreads,
+                max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1)))
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder")
             let job = Job(input: scratch, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,
-                threads: max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1)))
-            try pipeline.submit(job, tag: BlockTag(files: indices, streams: streams), weight: size,
+                threads: innerThreads)
+            assignedThreads += innerThreads
+            try pipeline.submit(job, tag: BlockTag(files: indices, streams: streams, threads: innerThreads), weight: size,
                 didEmit: didEmit) { tag, result in try self.emit(tag, result, position: position, write: write) }
             self.scratch = nil
             indices.removeAll(keepingCapacity: true)
@@ -168,6 +188,7 @@ final class SevenZipBlockWriter {
 
     private func emit(_ tag: BlockTag, _ result: EncodedBlock?, position: () -> UInt64,
                       write: (Data) throws -> Void) throws {
+        defer { assignedThreads -= tag.threads }
         try Task.checkCancellation()
         guard let result else { throw WriterError.invalidState }
         let scratch = result.output
@@ -207,6 +228,7 @@ final class SevenZipBlockWriter {
     func abandon() {
         cancellation.cancel()
         pipeline?.abandonAndWait()
+        assignedThreads = 0
         scratch?.close(); scratch = nil
     }
 }

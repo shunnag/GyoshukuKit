@@ -151,7 +151,8 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         state.workers.wait()
     }
 
-    private func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)?) throws {
+    // 内部 codec の予約待ちでも先頭だけを出力し、残りの窓を保つ。
+    func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)? = nil) throws {
         let item = items[0]
         let result = try state.take(item.id)
         try emit(item.tag, result)

@@ -2,7 +2,9 @@ import Foundation
 
 /// 片に分けられない codec は小〜中項目を並列化する。大項目は従来の有界 stream 経路へ戻す。
 struct EntryCompressionConfiguration {
-    static let inputLimit = 16 << 20
+    @TaskLocal static var testingInputLimit: Int?
+    @TaskLocal static var testingMemoryBudget: UInt64?
+    static var inputLimit: Int { testingInputLimit ?? (16 << 20) }
     // GCD の constrained thread 上限より十分小さくする。
     static let maximumEntryThreads = 16
     let threads: Int
@@ -72,7 +74,7 @@ struct EntryCompressionConfiguration {
         // 一枠も入らない場合は既存の逐次経路を使い、従来受理した memoryLimit を拒否しない。
         let (reservation, overflow) = state.addingReportingOverflow(UInt64(inputLimit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size))
         guard !overflow, reservation > 0 else { return 1 }
-        return max(1, min(requested, Int(min(UInt64(maximumEntryThreads), budget / reservation))))
+        return max(1, min(requested, Int(min(UInt64(maximumEntryThreads), min(budget, testingMemoryBudget ?? budget) / reservation))))
     }
 
     var maximumPendingInputBytes: UInt64 { threads > 1 ? UInt64(threads * Self.inputLimit) : 0 }
