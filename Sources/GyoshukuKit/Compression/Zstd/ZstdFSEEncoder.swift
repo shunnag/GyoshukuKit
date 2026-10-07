@@ -32,7 +32,8 @@ struct ZstdFSEEncoder: Sendable {
         var next = probabilities.map { max(1, $0) }
         var first = [Int](repeating: -1, count: probabilities.count)
         var inverse = [UInt32](repeating: 0, count: size * probabilities.count)
-        inverse.withUnsafeMutableBufferPointer { target in
+        inverse.withUnsafeMutableBufferPointer { buffer in
+            let target = buffer.baseAddress!
             for state in 0..<size {
                 let symbol = symbols[state], n = next[symbol]
                 next[symbol] += 1
@@ -134,26 +135,32 @@ struct ZstdSequenceEntropy {
         table?.encode(symbol, state: &state, to: &bits)
     }
     static func choose(_ symbols: [Int], predefined: ZstdFSEEncoder, maximumLog: Int) -> Self {
-        var best = Self(mode: 0, description: Data(), table: predefined, rleSymbol: nil)
         var counts = [Int](repeating: 0, count: 53)
-        counts.withUnsafeMutableBufferPointer { frequencies in
+        counts.withUnsafeMutableBufferPointer { buffer in
+            let frequencies = buffer.baseAddress!
             for symbol in symbols { frequencies[symbol] += 1 }
         }
-        var cost = ZstdFSEEncoder.estimatedCost(counts, last: symbols.last!, probabilities: predefined.probabilities, log: predefined.log)
+        return choose(counts: counts, last: symbols.last!, count: symbols.count, predefined: predefined, maximumLog: maximumLog)
+    }
+    static func choose(counts: [Int], last: Int, count: Int, predefined: ZstdFSEEncoder, maximumLog: Int, fast: Bool = false) -> Self {
+        var best = Self(mode: 0, description: Data(), table: predefined, rleSymbol: nil)
+        var cost = ZstdFSEEncoder.estimatedCost(counts, last: last, probabilities: predefined.probabilities, log: predefined.log)
         let present = counts.filter { $0 > 0 }.count
         if present == 1 {
-            if 8 * 256 < cost { best = Self(mode: 1, description: Data([UInt8(symbols[0])]), table: nil, rleSymbol: symbols[0]) }
+            if 8 * 256 < cost { best = Self(mode: 1, description: Data([UInt8(last)]), table: nil, rleSymbol: last) }
             return best
         }
         let minimum = max(5, Int.bitWidth - (present - 1).leadingZeroBitCount)
         // More than 2 candidate logs seldom repay table construction on small blocks.
-        let preferred = min(maximumLog, max(minimum, Int.bitWidth - max(1, symbols.count / 8).leadingZeroBitCount))
+        let preferred = min(maximumLog, max(minimum, Int.bitWidth - max(1, count / 8).leadingZeroBitCount))
         var selected: ([Int], Int)?
-        for log in Set([minimum, preferred]).sorted() {
+        // fast は block の頻度に応じた一つの log だけを評価する。
+        let logs = fast ? [preferred] : Set([minimum, preferred]).sorted()
+        for log in logs {
             let probabilities = ZstdFSEEncoder.normalize(counts, log: log)
             let description = ZstdFSEEncoder.describe(probabilities, log: log)
             let candidate = description.count * 8 * 256
-                + ZstdFSEEncoder.estimatedCost(counts, last: symbols.last!, probabilities: probabilities, log: log)
+                + ZstdFSEEncoder.estimatedCost(counts, last: last, probabilities: probabilities, log: log)
             if candidate < cost {
                 cost = candidate; selected = (probabilities, log)
             }

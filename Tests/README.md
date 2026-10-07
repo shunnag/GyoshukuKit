@@ -55,6 +55,8 @@
 |---|---|---|
 | `GYOSHUKU_LZMA_BENCHMARK=1` | ✱ `LZMAEncoderBenchmarkTests` | 自前 LZMA2 / xz / Apple の level 1・6・9、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須。design.md の自前 LZMA encoder 節 |
 | `GYOSHUKU_PPMD_BENCHMARK=1` | ✱ `PPMdEncoderBenchmarkTests` | var.H / var.I と 7zz single-thread、level 1・6・9、8 MiB 英文風 text と実在 Mach-O（最大 16 MiB）。order / restart を指定し 7zz の実 heap も記録する best-of-5 の TSV。`-c release` 必須。design.md の PPMd 節 |
+| `GYOSHUKU_ZSTD_BENCHMARK=1`（任意で `GYOSHUKU_ZSTD_ALL_LEVELS=1`） | ✱ `ZstdEncoderBenchmarkTests` | 4 MiB text / 実在Mach-O / 固定seedの16 MiB tar風混合入力、level 1・3・9・19（または全19 level）、最低5回の最良値、必須zstd / KaitoKit復号 |
+| `GYOSHUKU_ZSTD_PARALLEL_BENCHMARK=1` | ✱ `ZstdParallelBenchmarkTests` | 上のtext / Mach-O連結を繰り返した256 MiB、公開 `.zst` / `tar.zst` writerを1 / 4 / 8 / 12 threadで最低5回、file I/Oを含む。thread間byte一致と必須zstd検査 |
 | `GYOSHUKU_LARGE_ZIP_TESTS=1` | `ZipReencryptionBoundaryTests` の `testLarge…` 3 件 | 300 MiB の payload と、ZIP32 の上限（4 GiB）をまたぐ再暗号化。10 GiB 以上の空き |
 | `GYOSHUKU_LARGE_TAR_TESTS=1` | `CompressedTarWriterTests.testEntryLargerThanFourGiB…` | 4 GiB を越える entry。6 GiB 以上の空き |
 | `GYOSHUKU_LARGE_TESTS=1` | `CompressedTarLargeOffsetTests` | 4 GiB を越える CRC の結合と image の offset |
