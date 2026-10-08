@@ -9,8 +9,8 @@ final class ParallelBzip2StreamEncoder {
 
     static func chunkSize(level: Int, size: UInt64, threads: Int) -> Int {
         let block = 100_000 * level - 19
-        // 小〜中の単一項目でも要求coreへ配る。大入力は約5 blockずつまとめる。
-        let blocks = max(1, Int(min(5, size / UInt64(max(1, threads)) / UInt64(block))))
+        // 各threadへ約4片を配り、P/Eコアの処理速度差を吸収する。初期化負担を抑え、1〜5 blockに収める。
+        let blocks = max(1, Int(min(5, size / UInt64(max(1, threads)) / 4 / UInt64(block))))
         return blocks * block
     }
 

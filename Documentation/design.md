@@ -206,8 +206,11 @@ Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 
 独立した `BZ2_bzCompressInit(level, 0, 30)` でも同じblock内容・block CRCになる。
 `BZ_FINISH` は残り入力0の処理を満杯判定より優先するので、末尾のrunは最後のblockに数える。
 
-chunkは通常1〜5 block。既知の入力長 / 予約threads / block上限からblock数を選び、
-16 MiB・level 9・threads 12なら約900 KBずつ、推定19片となる。
+chunkは通常1〜5 block。block数は `clamp(入力長 / 予約threads / 4 / block上限, 1, 5)` とし、
+各threadに約4片を配ってP/Eコアの処理速度差を吸収する。1 block未満には分割せず、初期化負担を抑える。
+64 MiB・level 9・threads 12/16なら約900 KBずつ約75片（従来は約4.5 MBずつ15片）となる。
+16 MiB・level 9・threads 12では1 blockの下限により引き続き19片。
+予約用の片数見積もりも同じchunkサイズを使い、並列数の上限に合わせて64片までとする。
 入力capは各chunk 8 MiB。長い同値run（level 9の一blockは約45 MBの原入力を含み得る）で
 capに達したときは強制切断し、その位置からscannerを初期化する。
 強制切断がなければ逐次libbz2とbyte一致し、切断時も復号内容は同じ標準の単一streamとなる。
