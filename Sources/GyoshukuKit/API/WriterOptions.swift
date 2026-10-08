@@ -304,10 +304,11 @@ public struct WriterOptions: Sendable {
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// ZIP Stored / Deflate（ZipCrypto以外）は解決した compressionThreads × 1 MiB。組立中 block も同じ窓に含む。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
-    /// ZIP LZMA・Zstandard・PPMd と非solid 7z LZMA・PPMdは t > 1 なら t × 16 MiB、逐次は0。
+    /// ZIP LZMA・Zstandard・PPMd は t > 1 なら t × 16 MiB、逐次は0。
+    /// 非solid 7z LZMA・PPMdの項目窓は (f + 1) × 16 MiB。追加の一枠は長いstream専用、逐次は0。
     /// ZIP の大項目を stream worker に渡す場合も一枠16 MiB以下を予約し、全入力は保持せず、結果はdisk spoolへ運ぶ。
     /// BZip2は項目窓と、内側(t+1) × 8 MiBの大きい方。t=1の大入力も同じ有界切断を使う。
-    /// 項目窓の数は要求並列数・GCD poolの安全上限・メモリ予算で解決する。7z Copyは0。圧縮出力は1 MiBまでメモリ、超過時はdisk spoolで保持する。
+    /// 項目窓の数は要求並列数・GCD poolの安全上限・メモリ予算で解決する。filterなし非solid 7z Copyは0。圧縮出力は1 MiBまでメモリ、超過時はdisk spoolで保持する。
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
     /// ZIP XZは項目窓の上界と、既存block窓の (t + 1) × 片の大きい方。大項目の終了時にはblockを全て出力する。
@@ -315,11 +316,13 @@ public struct WriterOptions: Sendable {
     /// LHAは項目窓の t × 16 MiBと、既存の t 個の1 MiB入力＋履歴の大きい方。逐次とforced storeは0。
     /// 自動値はこの呼出しでも一度解決する。ジョブ開始後の電力状態とは異なる場合がある。
     /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
-    /// 7z solidはdisk上のfolder枠数 f × block上限、filter付き非solidは f × 16 MiB。
-    /// 解決したblock上限 > 256 MiBまたはfilterなしCopyは同期の一枠。組立中も一枠に数える。
-    /// rは要求並列数（自動解決後）。fは max(1, min(r, floor(GCD constrained pool / 4), floor(予算 / (I/O + p × codec状態))))。
+    /// 7z solidは (f + 1) × block上限、filter付き非solidは (f + 1) × 16 MiB。逐次は一枠、組立中も枠に数える。
+    /// 上限を超えるstreamは一窓分の待ち入力予約で報告する。disk入力はそのfolderの確定長、出力spoolは最大256 × 入力長 + 1 MiB（UInt64で飽和）。
+    /// 出力spoolの本数は通常f本と専用一本まで。空き容量から枠や上限を増減させない。
+    /// rは要求並列数（自動解決後）。fは max(1, min(r, floor(GCD constrained pool / 4), floor((予算 - 専用予約) / (I/O + p × codec状態))))。
     /// I/Oは16 MiB + 1 MiB + 4 × 256 KiB。pはLZMA・PPMd・Copyが1、LZMA2・Deflateが min(r, ceil(folder上限 / 片サイズ))。
-    /// BZip2は1スレッドもsplice予約を使い、solid/filterでは(t+1+f) × 8 MiBも加える。
+    /// LZMA・PPMd・Copyは予算内に二枠入る場合、一状態とI/Oを専用予約する。片並列も専用枠を含むf+1個のI/Oを先に差し引く。
+    /// BZip2は1スレッドもsplice予約を使い、solid/filterでは(t+1+w) × 8 MiBも加える。wは並列時f+1、逐次は1。
     /// codec状態とdisk入力byteの上界は別に数える。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
         maximumPendingInputBytes(for: format, physicalMemory: ProcessInfo.processInfo.physicalMemory)
@@ -367,8 +370,8 @@ public struct WriterOptions: Sendable {
         case .sevenZip:
             // solid/filterの未圧縮入力はdisk上のspool。組立中もfolder窓の一枠に数える。
             if sevenZipSolid != .off || sevenZipFilter != .none {
-                let sequential = resolvedSevenZipBlockSize > 256 << 20 || (sevenZipMethod == .copy && sevenZipFilter == .none)
-                let count = sequential ? 1 : UInt64(EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory, innerParallelism: true).threads)
+                let count = UInt64(EntryCompressionConfiguration(options: self, method: sevenZipMethod,
+                    physicalMemory: physicalMemory, innerParallelism: true).sevenZipWindowCount)
                 let limit = sevenZipSolid == .off ? UInt64(EntryCompressionConfiguration.inputLimit) : resolvedSevenZipBlockSize
                 let (bound, overflow) = limit.multipliedReportingOverflow(by: count)
                 if sevenZipMethod == .bzip2 {
@@ -386,9 +389,9 @@ public struct WriterOptions: Sendable {
             case .bzip2:
                 let inner = ParallelBzip2StreamEncoder.resolvedThreads(options: self, physicalMemory: physicalMemory)
                 let chunks = UInt64(inner + 1) * UInt64(ParallelBzip2StreamEncoder.inputCap)
-                return max(chunks, EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).maximumPendingInputBytes)
+                return max(chunks, EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).sevenZipMaximumPendingInputBytes)
             case .lzma, .ppmd:
-                return EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).maximumPendingInputBytes
+                return EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).sevenZipMaximumPendingInputBytes
             case .copy: return 0
             }
         case .lha:

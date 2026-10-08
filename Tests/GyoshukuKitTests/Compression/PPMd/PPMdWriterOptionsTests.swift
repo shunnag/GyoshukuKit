@@ -37,7 +37,7 @@ final class PPMdWriterOptionsTests: XCTestCase {
             }
             for threads in [1, 4, 64] {
                 let options = WriterOptions(compressionMethod: .ppmd, sevenZipMethod: .ppmd, memoryLimit: 1, compressionThreads: threads)
-                let expected: UInt64 = threads == 1 ? 0 : threads == 4 ? 64 << 20 : 256 << 20
+                let expected: UInt64 = threads == 1 ? 0 : threads == 4 ? (format == .sevenZip ? 80 : 64) << 20 : (format == .sevenZip ? 272 : 256) << 20
                 EntryCompressionConfiguration.$testingEntryThreadLimit.withValue(16) {
                     XCTAssertEqual(options.maximumPendingInputBytes(for: format, physicalMemory: 8 << 30), expected)
                 }
@@ -45,8 +45,8 @@ final class PPMdWriterOptionsTests: XCTestCase {
             }
         }
         let solid = WriterOptions(sevenZipMethod: .ppmd, sevenZipSolid: .on(), ppmdLevel: 9, compressionThreads: 12)
-        XCTAssertEqual(solid.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), 384 << 20)
+        XCTAssertEqual(solid.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), 4992 << 20)
         let explicit = WriterOptions(sevenZipMethod: .ppmd, sevenZipSolid: .on(blockSize: 123), ppmdMemoryMiB: 1, compressionThreads: 12)
-        XCTAssertEqual(explicit.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), 1476)
+        XCTAssertEqual(explicit.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), 1599)
     }
 }

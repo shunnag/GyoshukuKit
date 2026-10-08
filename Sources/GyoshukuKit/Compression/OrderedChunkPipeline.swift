@@ -62,8 +62,9 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private let cancellation: CompressionCancellation?
     private let queue: DispatchQueue
     private let state = State()
-    private var items: [(id: UInt64, tag: Tag, isHeavy: Bool, weight: UInt64)] = []
+    private var items: [(id: UInt64, tag: Tag, isHeavy: Bool, reserved: Bool, weight: UInt64)] = []
     private var heavyCount = 0
+    private var reservedCount = 0
     private(set) var pendingInputBytes: UInt64 = 0
     private var nextID: UInt64 = 0
     private var finished = false
@@ -82,18 +83,19 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
 
     deinit { abandon() }
 
-    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0, inline: Bool = false,
+    func submit(_ input: Input?, tag: Tag, weight: UInt64 = 0, inline: Bool = false, reserved: Bool = false,
                 didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
-            try waitForCapacity(didEmit: didEmit, emit: emit)
+            try waitForCapacity(reserved: reserved, didEmit: didEmit, emit: emit)
             let id = nextID
             nextID = try checkedAdd(nextID, 1)
             let isHeavy = lightWeightLimit == 0 || weight == 0 || weight > lightWeightLimit
             pendingInputBytes = try checkedAdd(pendingInputBytes, weight)
-            items.append((id, tag, isHeavy, weight))
-            if isHeavy { heavyCount += 1 }
+            items.append((id, tag, isHeavy, reserved, weight))
+            if reserved { reservedCount += 1 }
+            else if isHeavy { heavyCount += 1 }
             if let input {
                 let state = state, encoder = encoder
                 state.workers.enter()
@@ -115,11 +117,13 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     }
 
     // 入力を確保する前に待ち、呼出側の組立中 block も並列数の枠に含める。
-    func waitForCapacity(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
+    func waitForCapacity(reserved: Bool = false, didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try Task.checkCancellation()
-            while heavyCount >= threads || items.count >= 2 * threads + 1 { try emitNext(emit, didEmit: didEmit) }
+            // 長いstreamは通常窓と別に一枠だけ。二本目は先頭から出力して枠を返す。
+            while (reserved ? reservedCount > 0 : heavyCount >= threads)
+                || items.count >= 2 * threads + (reserved ? 2 : 1) { try emitNext(emit, didEmit: didEmit) }
         } catch {
             abandon()
             throw error
@@ -146,6 +150,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         state.abandon()
         items.removeAll()
         heavyCount = 0
+        reservedCount = 0
         pendingInputBytes = 0
         finished = true
     }
@@ -164,7 +169,8 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
             let result = try state.take(item.id, cancellation: cancellation)
             try emit(item.tag, result)
             items.removeFirst()
-            if item.isHeavy { heavyCount -= 1 }
+            if item.reserved { reservedCount -= 1 }
+            else if item.isHeavy { heavyCount -= 1 }
             pendingInputBytes -= item.weight
             try didEmit?(item.weight)
         } catch {
