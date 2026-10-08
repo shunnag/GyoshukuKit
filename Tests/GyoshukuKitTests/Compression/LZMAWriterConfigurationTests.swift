@@ -3,6 +3,33 @@ import XCTest
 @testable import GyoshukuKit
 
 final class LZMAWriterConfigurationTests: XCTestCase {
+    func testRawSlackMemoryAndDerivedPendingBounds() throws {
+        // 64-bit 通常 preset の raw予約を固定し、slack と range最大16 MiBの計上を検査する。
+        let rawMemory = [19_342_481, 25_240_721, 33_105_041, 48_833_681, 65_610_901,
+                         113_845_397, 113_845_397, 206_120_085, 390_669_461, 692_659_349]
+        let lzipThreads = [60, 54, 48, 39, 32, 19, 19, 10, 5, 2]
+        let lzipPendingMiB = [960, 864, 768, 624, 512, 456, 456, 480, 480, 384]
+        for level in 0...9 {
+            let options = WriterOptions(lzmaLevel: level, memoryLimit: 3 << 30, compressionThreads: 64)
+            let raw = try LZMAWriterConfiguration(options: options, raw: true, physicalMemory: 8 << 30)
+            XCTAssertEqual(raw.encoderMemory, rawMemory[level], "level \(level)")
+            XCTAssertEqual(raw.memoryPerThread, UInt64(rawMemory[level] + 524288), "level \(level)")
+            let lzip = try LZMAWriterConfiguration(options: options, raw: true, lzip: true, physicalMemory: 8 << 30)
+            XCTAssertEqual(lzip.threads, lzipThreads[level], "level \(level)")
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .tarLzip, physicalMemory: 8 << 30),
+                           UInt64(lzipPendingMiB[level]) << 20, "level \(level)")
+            var insufficient = options
+            insufficient.memoryLimit = raw.memoryPerThread - 1
+            XCTAssertThrowsError(try LZMAWriterConfiguration(options: insufficient, raw: true, physicalMemory: 8 << 30))
+        }
+        // 新予約の三枠に1 byte足りない境界では、ZIP / 7z の項目窓は二枠に減る。
+        let options = WriterOptions(compressionMethod: .lzma, sevenZipMethod: .lzma, lzmaLevel: 6,
+                                    memoryLimit: 399_732_158, compressionThreads: 64)
+        for format in [ArchiveFormat.zip, .sevenZip] {
+            XCTAssertEqual(options.maximumPendingInputBytes(for: format, physicalMemory: 8 << 30), 32 << 20)
+        }
+    }
+
     func testPieceSizesMemoryBudgetAndPendingInputBounds() throws {
         // 固定予算の値は別表に保持し、実装の解決結果から期待値を作らない。
         // 3 GiB / 物理8 GiB。探索buffer縮小後はlevel 2 / 4 / 5 / 6が一枠増える。

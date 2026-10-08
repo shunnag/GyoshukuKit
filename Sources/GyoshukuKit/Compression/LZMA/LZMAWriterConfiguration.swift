@@ -25,6 +25,7 @@ struct LZMAWriterConfiguration: Sendable {
         properties = p
         pieceSize = lzip ? max(16 << 20, 3 * p.dictSize) : raw ? IOChunk.size : p.dictSize > ParallelXZCompressor.defaultBlockSize
             ? max(ParallelXZCompressor.defaultBlockSize, 3 * p.dictSize) : ParallelXZCompressor.defaultBlockSize
+        // memorySize は raw の辞書に応じた slack と LZMA2 の2 MiBを含む。
         // LZMA2 の range buffer は64 KiBの pack limit 内。raw は最大16 MiBの伸長分も予約する。
         encoderMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
             + (raw ? (16 << 20) - 131072 : 0)
