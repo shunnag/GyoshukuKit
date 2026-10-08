@@ -3,13 +3,18 @@ import Foundation
 // ZIP の record を直列化する。名前の検証・衝突検査・ディスク探索は ArchiveWriter と共有し、ここでは ZIP だけを扱う。
 // position は論理 offset。出力 buffer は seek、外部への引渡し、公開操作の完了前に書き出す。
 final class ZipWriter {
+    // 大項目の投入直前に先行 block が窓に残っていることを検証する。
+    @TaskLocal static var testingBeforeBatchBlocks: (@Sendable (Int, Int, UInt64) -> Void)?
     typealias AppendedRecords = (entries: [ZipRecords.Entry], end: UInt64)
 
-    // pipeline の tag。entry の最初の block は entry を、最後の block は crc を運ぶ。一括追加の項目は帰属先を運ぶ。
+    // 最初の block は entry、最後は crc を運ぶ。一括追加の block は帰属先と入力幅も運び、
+    // 最後の verification で先行 callback 中の source 置換を検査する。
     struct Tag {
         let entry: ZipRecords.Entry?
         let crc: UInt32?
         var attribution: AdditionAttribution? = nil
+        var inputBytes: UInt64? = nil
+        var verification: FileJob? = nil
     }
 
     private let output: FileHandle
@@ -27,6 +32,7 @@ final class ZipWriter {
         let name: String
         let method: CompressionMethod
         let spool: OrderedEntrySpool?
+        var streamed = false
     }
     private struct EncodedEntry: Sendable {
         let spool: OrderedEntrySpool?
@@ -65,6 +71,15 @@ final class ZipWriter {
             ? OrderedChunkPipeline(threads: entryThreads) { job in
                 do {
                     let compressor = ZipEntryCompressor(options: resolvedWorkerOptions, inlineSingleThread: true)
+                    // 大項目は窓の codec 一つで stream 圧縮し、全入力を保持せず disk spool へ運ぶ。
+                    if job.streamed, let file = job.file {
+                        let crc = try file.withReader { read in
+                            try compressor.compress(name: job.name, size: UInt64(file.size), method: job.method,
+                                read: { try cancellation.check(); return try read($0) },
+                                emit: { try cancellation.check(); try job.spool!.append($0) })
+                        }
+                        return EncodedEntry(spool: job.spool, data: Data(), crc: crc)
+                    }
                     let data = try job.file.map { try $0.run { _ in throw WriterError.invalidState }.data } ?? job.data!
                     if job.method == .stored || data.isEmpty {
                         return EncodedEntry(spool: nil, data: data, crc: updateCRC(0, data))
@@ -88,7 +103,13 @@ final class ZipWriter {
             } : nil
         pipeline = OrderedChunkPipeline(threads: options.resolvedCompressionThreads) {
             switch $0 {
-            case let .block(block): return Prefetched(data: try deflateEncoder(block, options.deflateLevel), crc: 0)
+            case let .block(block, attribution):
+                do { return Prefetched(data: try deflateEncoder(block, options.deflateLevel), crc: 0) }
+                catch {
+                    if let attribution { throw additionFailure(error, index: attribution.index, addition: attribution.addition) }
+                    throw error
+                }
+            case let .stored(data): return Prefetched(data: data, crc: 0)
             case let .file(job): return try job.run { try deflateEncoder($0, options.deflateLevel) }
             }
         }
@@ -215,7 +236,7 @@ final class ZipWriter {
             return
         }
         if method == .deflate {
-            try submitDeflate(entry, name: name, read: read)
+            try submitDeflate(entry, name: name, emit: emitDeflate, read: read)
             return
         }
         try writeStreamedEntry(entry, name: name, read: read)
@@ -300,14 +321,17 @@ final class ZipWriter {
         entries.append(entry)
     }
 
-    private func submitDeflate(_ entry: ZipRecords.Entry, name: String, read: (Int) throws -> Data) throws {
+    private func submitDeflate(_ entry: ZipRecords.Entry, name: String, attribution: AdditionAttribution? = nil,
+                               verification: FileJob? = nil, emit: (Tag, Prefetched?) throws -> Void,
+                               read: (Int) throws -> Data) throws {
         var remaining = entry.size
         var first = true
         var crc: UInt32 = 0
         var dictionary = Data()
         while remaining > 0 {
-            try pipeline.waitForCapacity(emit: emitDeflate)
-            let count = Int(min(remaining, UInt64(deflateBlockSize)))
+            try pipeline.waitForCapacity(emit: emit)
+            let width = entry.method == .stored ? DeflateBlock.size : deflateBlockSize
+            let count = Int(min(remaining, UInt64(width)))
             var input = Data()
             input.reserveCapacity(count)
             while input.count < count {
@@ -320,10 +344,15 @@ final class ZipWriter {
             }
             remaining -= UInt64(count)
             if remaining == 0, try !read(1).isEmpty { throw WriterError.sourceChanged(name) }
-            let block = DeflateBlock(input: input, dictionary: dictionary, final: remaining == 0)
-            dictionary = remaining == 0 ? Data() : DeflateBlock.dictionary(from: input)
-            try pipeline.submit(.block(block), tag: Tag(entry: first ? entry : nil, crc: remaining == 0 ? crc : nil),
-                                weight: UInt64(input.count), emit: emitDeflate)
+            let work: ZipWork
+            if entry.method == .stored { work = .stored(input) }
+            else {
+                work = .block(DeflateBlock(input: input, dictionary: dictionary, final: remaining == 0), attribution)
+                dictionary = remaining == 0 ? Data() : DeflateBlock.dictionary(from: input)
+            }
+            try pipeline.submit(work, tag: Tag(entry: first ? entry : nil, crc: remaining == 0 ? crc : nil,
+                attribution: attribution, inputBytes: attribution == nil ? nil : UInt64(count),
+                verification: remaining == 0 ? verification : nil), weight: UInt64(input.count), emit: emit)
             first = false
         }
     }
@@ -332,7 +361,7 @@ final class ZipWriter {
     func emitDeflate(_ tag: Tag, _ result: Prefetched?) throws {
         try Task.checkCancellation()
         if let entry = tag.entry, let crc = tag.crc {
-            try emitComplete(entry, data: result!.data, crc: crc)
+            try emitComplete(entry, data: result!.data, crc: crc, attribution: tag.attribution)
             return
         }
         if var entry = tag.entry {
@@ -340,18 +369,18 @@ final class ZipWriter {
             emittingEntry = entry
             let header = entry.local()
             emittingHeaderSize = header.count
-            try write(header)
+            try write(header, attribution: tag.attribution)
             emittingStart = position
             emittingAES = try options.password.map { try ZipAESEncryptor(password: $0, salt: salt()) }
-            if let emittingAES { try write(emittingAES.prefix) }
+            if let emittingAES { try write(emittingAES.prefix, attribution: tag.attribution) }
         }
         let compressed = result!.data
         for offset in stride(from: compressed.startIndex, to: compressed.endIndex, by: IOChunk.size) {
             let chunk = compressed[offset..<min(offset + IOChunk.size, compressed.endIndex)]
-            try write(emittingAES.map { try $0.encrypt(chunk) } ?? chunk)
+            try write(emittingAES.map { try $0.encrypt(chunk) } ?? chunk, attribution: tag.attribution)
         }
         if let crc = tag.crc {
-            if let emittingAES { try write(emittingAES.finish()) }
+            if let emittingAES { try write(emittingAES.finish(), attribution: tag.attribution) }
             var entry = emittingEntry!
             entry.crc = crc
             entry.compressedSize = position - emittingStart
@@ -532,6 +561,17 @@ final class ZipWriter {
         return method == .deflate ? deflateBlockSize : DeflateBlock.size
     }
 
+    func supportsBatchStream(name: String, mode: UInt16, size: UInt64) -> Bool {
+        let method = compression(name: name, mode: mode, size: size)
+        if method == .deflate || options.compressionMethod == .stored { return true }
+        guard entryPipeline != nil, method != .bzip2 else { return false }
+        // XZ の片が項目入力の予約を超える設定は、既存の内部並列へ戻す。
+        if method == .xz {
+            return ((try? LZMAWriterConfiguration(options: options).pieceSize) ?? Int.max) <= EntryCompressionConfiguration.inputLimit
+        }
+        return true
+    }
+
     func waitForCapacity(emit: (Tag, Prefetched?) throws -> Void) throws {
         try submitWaitingEntry()
         try entryPipeline?.waitForCapacity { tag, result in try self.emitEntry(tag, result, batchEmit: emit) }
@@ -542,15 +582,45 @@ final class ZipWriter {
     func submit(_ job: FileJob?, method: CompressionMethod, attribution: AdditionAttribution, weight: UInt64,
                 emit: (Tag, Prefetched?) throws -> Void) throws {
         if let entryPipeline {
+            let limit = method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit
+            let streamed = weight > UInt64(limit)
             let work = try job.map { file in
                 EntryJob(data: nil, file: file, name: attribution.addition.path, method: method,
-                         spool: method == .stored || file.size == 0 ? nil : try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry"))
+                         spool: (method == .stored && file.size <= DeflateBlock.size) || file.size == 0 ? nil
+                            : try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry",
+                                                    diskBacked: streamed), streamed: streamed)
             }
-            try entryPipeline.submit(work, tag: Tag(entry: nil, crc: nil, attribution: attribution), weight: weight, inline: method == .stored || weight == 0 || (method == .zstd && weight < 64 << 10)) {
+            try entryPipeline.submit(work, tag: Tag(entry: nil, crc: nil, attribution: attribution,
+                verification: streamed ? job : nil), weight: min(weight, UInt64(limit)),
+                inline: (method == .stored && !streamed) || weight == 0 || (method == .zstd && weight < 64 << 10)) {
                 tag, result in try self.emitEntry(tag, result, batchEmit: emit)
             }
         } else {
             try pipeline.submit(job.map { .file($0) }, tag: Tag(entry: nil, crc: nil, attribution: attribution), weight: weight, emit: emit)
+        }
+    }
+
+    // 同じ窓へ複数 block を投入する。入力の組立前に空きを作るので、組立中も t × block の枠内。
+    func submitLarge(_ entry: ZipRecords.Entry, file: FileJob, attribution: AdditionAttribution,
+                     emit: (Tag, Prefetched?) throws -> Void) throws {
+        Self.testingBeforeBatchBlocks?(attribution.index, entryPipeline?.pendingCount ?? pipeline.pendingCount, pendingInputBytes)
+        if entryPipeline != nil {
+            try submit(file, method: entry.method, attribution: attribution, weight: entry.size, emit: emit)
+            return
+        }
+        do {
+            try file.withReader { read in
+                try submitDeflate(entry, name: attribution.addition.path, attribution: attribution,
+                                  verification: file, emit: emit, read: read)
+            }
+        } catch {
+            if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {
+                // caller の読取失敗より前の worker の失敗だけを確認する。失敗した項目は完了通知しない。
+                while let first = pipeline.firstTag, let previous = first.attribution, previous.index < attribution.index {
+                    try pipeline.emitNext(emit)
+                }
+            }
+            throw additionFailure(error, index: attribution.index, addition: attribution.addition)
         }
     }
 
@@ -574,14 +644,15 @@ final class ZipWriter {
     }
 }
 
-// deflate の pipeline に入る仕事。項目別 API の block と、一括追加が worker で読む file。
+// 項目別 API と一括追加の deflate / stored block、一括追加が worker で読む小 file。
 enum ZipWork: Sendable {
-    case block(DeflateBlock)
+    case block(DeflateBlock, AdditionAttribution?)
+    case stored(Data)
     case file(FileJob)
 }
 
 // 一括追加の項目への失敗の帰属。writer は index の比較と ArchiveAdditionError の生成にだけ使う。
-struct AdditionAttribution {
+struct AdditionAttribution: Sendable {
     let index: Int
     let addition: ArchiveAddition
 }

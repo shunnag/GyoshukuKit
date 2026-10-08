@@ -248,8 +248,10 @@ public struct WriterOptions: Sendable {
     }
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
+    /// ZIP Stored / Deflate（ZipCrypto以外）は解決した compressionThreads × 1 MiB。組立中 block も同じ窓に含む。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
     /// ZIP LZMA・Zstandard・PPMd と非solid 7z LZMA・PPMdは t > 1 なら t × 16 MiB、逐次は0。
+    /// ZIP の大項目を stream worker に渡す場合も一枠16 MiB以下を予約し、全入力は保持せず、結果はdisk spoolへ運ぶ。
     /// BZip2は項目窓と、内側(t+1) × 8 MiBの大きい方。t=1の内側は既存streamでbufferなし。
     /// tは項目窓のメモリ予算で解決した数。7z Copyは0。圧縮出力は1 MiBまでメモリ、超過時はdisk spoolで保持する。
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
@@ -275,7 +277,7 @@ public struct WriterOptions: Sendable {
         switch format {
         case .zip:
             switch compressionMethod {
-            case .stored: return 0
+            case .stored: return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
             case .bzip2:
                 let inner = ParallelBzip2StreamEncoder.resolvedThreads(options: self, physicalMemory: physicalMemory)
                 let chunks = inner > 1 ? UInt64(inner + 1) * UInt64(ParallelBzip2StreamEncoder.inputCap) : 0

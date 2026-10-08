@@ -637,7 +637,7 @@ extension ArchiveWriter {
     private enum BatchPreparation {
         // pipeline に渡す項目。job は worker が読む通常ファイルにだけある。
         case entry(BatchEntry, FileJob?)
-        // directory・一つの block に収まらない通常ファイル・ZipCrypto の通常ファイルは項目別の addDisk へ戻す。
+        // directory・項目窓を超える他 codec・ZipCrypto の通常ファイルは項目別の addDisk へ戻す。
         case fallBackToDisk(URL, DiskSignature)
     }
 
@@ -675,7 +675,8 @@ extension ArchiveWriter {
             let kind = info.st_mode & S_IFMT
             let threshold = zipWriter?.singleBlockLimit(name: addition.path, mode: mode, size: UInt64(max(0, info.st_size)))
                 ?? DeflateBlock.size
-            if kind == S_IFDIR || (kind == S_IFREG && (info.st_size > threshold || zipWriter?.encryptsWithZipCrypto == true)) {
+            let stream = zipWriter?.supportsBatchStream(name: addition.path, mode: mode, size: UInt64(max(0, info.st_size))) == true
+            if kind == S_IFDIR || (kind == S_IFREG && ((info.st_size > threshold && !stream) || zipWriter?.encryptsWithZipCrypto == true)) {
                 return .fallBackToDisk(url, expected ?? DiskSignature(info))
             }
             if kind == S_IFLNK {
@@ -709,7 +710,11 @@ extension ArchiveWriter {
                                   emit: (ZipWriter.Tag, Prefetched?) throws -> Void,
                                   receive: (BatchEntry, Prefetched?) throws -> Void) throws {
         if let zipWriter {
-            try zipWriter.submit(job, method: entry.zip!.method, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
+            if let job, entry.size > zipWriter.singleBlockLimit(name: entry.name, mode: entry.mode, size: entry.size) {
+                try zipWriter.submitLarge(entry.zip!, file: job, attribution: entry.attribution, emit: emit)
+            } else {
+                try zipWriter.submit(job, method: entry.zip!.method, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
+            }
         } else if sevenZipWriter != nil {
             // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
             try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
@@ -736,6 +741,7 @@ extension ArchiveWriter {
         let limiter = SourcePrefetchLimiter(threads: options.resolvedCompressionThreads)
         let prefetch = format == .zip || format == .sevenZip ? nil : OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>(
             threads: options.resolvedCompressionThreads) { try $0.run { _ in throw WriterError.invalidState } }
+        var blockProgress: CommitProgressMeter?
         func receive(_ entry: BatchEntry, _ result: Prefetched?) throws {
             do {
                 try Task.checkCancellation()
@@ -770,7 +776,18 @@ extension ArchiveWriter {
                 pendingBatch.removeFirst()
                 do { try meter?.advance(entry.hardLink == nil ? entry.inputBytes : 0) }
                 catch { throw AdditionEventFailure(underlying: error) }
-                try additionEvent(.progress(index: entry.index, .init(completedBytes: entry.inputBytes, totalBytes: entry.inputBytes)), events)
+                if entry.zip != nil, entry.size > zipWriter!.singleBlockLimit(name: entry.name, mode: entry.mode, size: entry.size) {
+                    // stream worker の読取は通知を保持しない。完了した項目の順に従来の4 MiB間隔を再現する。
+                    let progress = CommitProgressMeter(total: entry.inputBytes, progress: events.map { events in
+                        { try additionEvent(.progress(index: entry.index, $0), events) }
+                    })
+                    while progress.completed < entry.inputBytes {
+                        try progress.advance(min(CommitProgressMeter.notificationInterval, entry.inputBytes - progress.completed))
+                    }
+                    try progress.finish()
+                } else {
+                    try additionEvent(.progress(index: entry.index, .init(completedBytes: entry.inputBytes, totalBytes: entry.inputBytes)), events)
+                }
                 try additionEvent(.didFinish(index: entry.index), events)
             } catch { throw additionFailure(error, index: entry.index, addition: entry.addition) }
         }
@@ -778,7 +795,29 @@ extension ArchiveWriter {
         func emit(_ tag: ZipWriter.Tag, _ result: Prefetched?) throws {
             if let attribution = tag.attribution {
                 guard let entry = pendingBatch.first, entry.index == attribution.index else { throw WriterError.invalidState }
-                try receive(entry, result)
+                do {
+                    try tag.verification?.verifySource()
+                    if let count = tag.inputBytes {
+                        if tag.entry != nil {
+                            blockProgress = CommitProgressMeter(total: entry.inputBytes, progress: events.map { events in
+                                { try additionEvent(.progress(index: entry.index, $0), events) }
+                            })
+                            try blockProgress!.start()
+                        }
+                        try zipWriter!.emitDeflate(tag, result)
+                        try blockProgress!.advance(count)
+                        if tag.crc != nil {
+                            try zipWriter!.flushOutput()
+                            appendedPaths.append((entry.name, false))
+                            pendingBatch.removeFirst()
+                            do { try meter?.advance(entry.inputBytes) }
+                            catch { throw AdditionEventFailure(underlying: error) }
+                            try blockProgress!.finish()
+                            blockProgress = nil
+                            try additionEvent(.didFinish(index: entry.index), events)
+                        }
+                    } else { try receive(entry, result) }
+                } catch { throw additionFailure(error, index: entry.index, addition: entry.addition) }
             } else {
                 try zipWriter!.emitDeflate(tag, result)
             }

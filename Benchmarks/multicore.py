@@ -152,6 +152,8 @@ def measure(args):
     if results.exists():
         for line in results.read_text().splitlines():
             row = json.loads(line)
+            if row.get("mode", "item") != args.mode:
+                continue
             key = (row["workload"], row["path"], row["threads"], row["label"])
             completed[key] = completed.get(key, 0) + 1
             hashes.setdefault((row["workload"], row["path"]), set()).add((row["sha256"], row["output_bytes"]))
@@ -169,6 +171,7 @@ def measure(args):
                         if completed.get((workload, case, threads, label), 0) > repeat:
                             continue
                         suffix = {"round3": ".r3", "round3b": ".r3b"}.get(args.profile, "")
+                        if args.mode == "batch": suffix += ".batch"
                         log = results.parent / f"{workload}-{case}-{threads}-{label}-{repeat}{suffix}.log"
                         print(f"{workload} {case} threads={threads} {label} sample={repeat + 1}/{args.repeats}", flush=True)
                         key = (workload, case)
@@ -181,9 +184,11 @@ def measure(args):
                             attempt_log = log if attempt == 0 else log.with_suffix(".retry.log")
                             with attempt_log.open("w") as out:
                                 subprocess.run([str(bundles[label]), str(args.corpus.resolve()), str(sample),
-                                                case, str(threads), label, workload],
+                                                case, str(threads), label, workload] + (["batch"] if args.mode == "batch" else []),
                                                cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, check=True)
                             row = json.loads(sample.read_text())
+                            if row.get("mode", "item") != args.mode:
+                                raise RuntimeError(f"Harness mode mismatch: expected {args.mode}; see {attempt_log}")
                             sample.unlink()
                             identity = (row["sha256"], row["output_bytes"])
                             if not hashes.get(key) or identity in hashes[key]:
@@ -201,7 +206,8 @@ def measure(args):
 
 
 def report(args):
-    rows = [json.loads(line) for line in args.results.read_text().splitlines()]
+    rows = [row for line in args.results.read_text().splitlines()
+            if (row := json.loads(line)).get("mode", "item") == args.mode]
     labels = ["base", "round1", "new"] if args.round1 else ["base", "new"]
     names = " / ".join(labels)
     print(f"| workload / method | t=1 {names} 秒 | t=12 {names} 秒 | new/base 最大 | new/round1 最大 | load(1分) {names}: t=1; t=12 |")
@@ -329,6 +335,7 @@ def main():
     parser.add_argument("--round1", type=Path)
     parser.add_argument("--profile", choices=["round2", "round3", "round3b"], default="round2")
     parser.add_argument("--threads")
+    parser.add_argument("--mode", choices=["item", "batch"], default="item")
     parser.add_argument("--new", type=Path, default=ROOT / ".build/multicore-release/out/Products/Release/gyoshuku-multicore")
     parser.add_argument("--results", type=Path)
     parser.add_argument("--cases")
@@ -337,6 +344,8 @@ def main():
     args = parser.parse_args()
     if args.results is None:
         args.results = ROOT / {"round2": ".build/multicore/round2.jsonl", "round3": ".build/multicore/round3.r3.jsonl", "round3b": ".build/multicore/round3b.r3b.jsonl"}[args.profile]
+        if args.mode == "batch":
+            args.results = args.results.with_name(args.results.stem + ".batch.jsonl")
     if args.workloads is None:
         args.workloads = {"round2": "single,small,lha-mixed,corpus", "round3": "tree,single,single16r,small,lha-mixed,corpus", "round3b": "corpus,lha-mixed,single,tree,small"}[args.profile]
     if args.repeats < 5:
