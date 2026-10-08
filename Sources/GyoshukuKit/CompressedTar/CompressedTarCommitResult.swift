@@ -19,7 +19,7 @@ public struct CompressedTarAssessment: Sendable, Equatable {
     public let imageLength: UInt64
     public let reason: CompressedTarFullEncodeReason?
     public var nextEditReencodesEverything: Bool {
-        !framingReusable || (!hasInteriorBoundaries && imageLength > UInt64(CompressedTarSplicePlan.limits(format, options: WriterOptions()).piece))
+        !framingReusable || (!hasInteriorBoundaries && imageLength > UInt64(CompressedTarSplicePlan.limits(format, options: WriterOptions(compressionThreads: 1)).piece))
     }
 }
 

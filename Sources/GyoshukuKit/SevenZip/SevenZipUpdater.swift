@@ -57,6 +57,7 @@ public final class SevenZipUpdater: ArchiveReencrypting {
 
     public static func open(url: URL, password: String? = nil, output: URL,
                             options: WriterOptions = WriterOptions()) throws -> SevenZipUpdater {
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: .sevenZip)
         guard options.additionPlacement == .end else { throw UpdaterRouteError.requiresRewrite(reason: "additionPlacement") }
         guard ArchiveVolumeSet.parse(fileName: url.lastPathComponent) == nil else {

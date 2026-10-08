@@ -19,6 +19,6 @@ struct ZstdWriterConfiguration: Sendable {
         memoryPerThread = UInt64(properties.estimatedMemoryBytes + 2 * buffered + 3 * blocks + 1024)
         memoryBudget = min(options.memoryLimit ?? physicalMemory / 2, physicalMemory / 2)
         guard memoryPerThread <= memoryBudget else { throw WriterError.invalidOption("memoryLimit") }
-        threads = streaming ? 1 : min(options.resolvedCompressionThreads, Int(min(64, memoryBudget / memoryPerThread)))
+        threads = streaming ? 1 : min(options.resolvedCompressionThreads, Int(min(UInt64(WriterOptions.compressionThreadsRange.upperBound), memoryBudget / memoryPerThread)))
     }
 }

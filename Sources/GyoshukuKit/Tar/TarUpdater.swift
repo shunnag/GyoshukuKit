@@ -53,6 +53,7 @@ public final class TarUpdater: ArchiveEditing {
     /// output は既存でない file URL。その親 directory は呼出側で作成する。
     /// .beginning / .reset は原本の内容を変更せず requiresRewrite を返す。
     public static func open(url: URL, output: URL, options: WriterOptions = WriterOptions()) throws -> TarUpdater {
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: .tar)
         guard options.additionPlacement == .end else { throw TarUpdaterError.requiresRewrite(reason: "additionPlacement") }
         guard options.carriedTarOwnerIDs == .keep else { throw TarUpdaterError.requiresRewrite(reason: "carriedTarOwnerIDs") }

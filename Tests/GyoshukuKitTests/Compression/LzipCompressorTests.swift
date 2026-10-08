@@ -11,7 +11,7 @@ final class LzipCompressorTests: XCTestCase {
             XCTAssertEqual(configuration.properties, properties)
             XCTAssertEqual(configuration.pieceSize, max(16 << 20, 3 * properties.dictSize))
             XCTAssertEqual(configuration.memoryPerThread, UInt64(configuration.encoderMemory + 2 * configuration.pieceSize))
-            XCTAssertEqual(configuration.threads, min(64, Int(configuration.memoryBudget / configuration.memoryPerThread)))
+            XCTAssertEqual(configuration.threads, min(options.compressionThreads!, Int(configuration.memoryBudget / configuration.memoryPerThread)))
             XCTAssertLessThanOrEqual(UInt64(configuration.threads) * configuration.memoryPerThread, configuration.memoryBudget)
             var limited = options
             limited.memoryLimit = configuration.memoryPerThread * 2
@@ -25,7 +25,7 @@ final class LzipCompressorTests: XCTestCase {
         }
         XCTAssertEqual(try LZMAWriterConfiguration.singleStream(options: .init(lzmaExtreme: true), lzip: true).properties,
                        .preset(6, extreme: true))
-        for threads in [Int.min, 0, 65, Int.max] {
+        for threads in [Int.min, 0, WriterOptions.compressionThreadsRange.upperBound + 1, Int.max] {
             XCTAssertGreaterThan(WriterOptions(compressionThreads: threads).maximumPendingInputBytes(for: .tarLzip), 0)
         }
     }

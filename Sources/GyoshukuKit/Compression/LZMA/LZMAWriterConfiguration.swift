@@ -31,7 +31,7 @@ struct LZMAWriterConfiguration: Sendable {
             + (raw ? (16 << 20) - 131072 : 0)
         memoryPerThread = UInt64(encoderMemory) + 2 * UInt64(pieceSize)
         guard memoryPerThread <= memoryBudget else { throw WriterError.invalidOption("memoryLimit") }
-        threads = raw && !lzip ? 1 : min(options.resolvedCompressionThreads, Int(min(64, memoryBudget / memoryPerThread)))
+        threads = raw && !lzip ? 1 : min(options.resolvedCompressionThreads, Int(min(UInt64(WriterOptions.compressionThreadsRange.upperBound), memoryBudget / memoryPerThread)))
     }
 
     var encoder: LZMA2ChunkPipeline<Void>.Encoder {

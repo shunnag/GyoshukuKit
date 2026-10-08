@@ -163,11 +163,10 @@ final class SevenZipBlockWriter {
                 let width = try chunkSize ?? LZMAWriterConfiguration(options: options).pieceSize
                 pieces = Int((size - 1) / UInt64(width) + 1)
             case .deflate:
-                let width = try min(chunkSize ?? LZMAWriterConfiguration(options: WriterOptions(compressionThreads: options.compressionThreads)).pieceSize, DeflateBlock.size)
+                let width = try min(chunkSize ?? LZMAWriterConfiguration(options: WriterOptions(compressionThreads: options.resolvedCompressionThreads)).pieceSize, DeflateBlock.size)
                 pieces = Int((size - 1) / UInt64(width) + 1)
             case .bzip2:
-                pieces = ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level,
-                    threads: codecThreads)
+                pieces = ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level)
             case .lzma, .ppmd, .copy: pieces = 1
             }
             var innerThreads = min(pieces, codecThreads - assignedThreads,

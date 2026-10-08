@@ -130,6 +130,7 @@ public final class ArchiveUpdater: ArchiveEditing {
     /// options.password は追加する通常ファイルを暗号化する。
     /// 既存 entry にも適用するときは reencryptExistingEntries(currentPassword:) を予約する。
     public static func open(url: URL, output: URL? = nil, options: WriterOptions = WriterOptions()) throws -> ArchiveUpdater {
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: .zip)
         if let output { try ArchiveSourceSnapshot.validateOutput(output) }
         let snapshot = try output.map {

@@ -112,6 +112,9 @@ final class SevenZipCompressionMethodTests: XCTestCase {
     func testOptionsValidateBeforeCreatingOutputAndReportPendingBounds() throws {
         let root = try TestSupport.directory("7z-methods-options")
         XCTAssertEqual(WriterOptions().sevenZipMethod, .lzma2)
+        // 最大block指定も入力上界を飽和させ、追加bufferの和であふれない。
+        let largestBlock = WriterOptions(sevenZipMethod: .bzip2, sevenZipSolid: .on(blockSize: .max), compressionThreads: 1)
+        XCTAssertEqual(largestBlock.maximumPendingInputBytes(for: .sevenZip), .max)
         for method in SevenZipMethodTestSupport.methods {
             for threads in [1, 4, 64] {
                 let options = SevenZipMethodTestSupport.options(method, mode: 0, threads: threads)
@@ -124,11 +127,13 @@ final class SevenZipCompressionMethodTests: XCTestCase {
                     let entryWindow: UInt64 = threads == 1 ? 0 : threads == 4 ? 64 << 20 : 256 << 20
                     // 物理メモリ8 GiBではinner=threads。並列spliceは(inner + 1) × 8 MiBを保持する。
                     let inner = threads
-                    let spliceBuffers: UInt64 = inner == 1 ? 0 : UInt64(inner + 1) * (8 << 20)
+                    let spliceBuffers: UInt64 = UInt64(inner + 1) * (8 << 20)
                     expected = max(entryWindow, spliceBuffers)
                 default: expected = threads == 1 ? 0 : threads == 4 ? 64 << 20 : 256 << 20
                 }
-                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), expected)
+                EntryCompressionConfiguration.$testingEntryThreadLimit.withValue(16) {
+                    XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), expected)
+                }
                 XCTAssertNoThrow(try options.validate(for: .sevenZip))
             }
             for (deflate, bzip2, field) in [(-1, 9, "deflateLevel"), (10, 9, "deflateLevel"), (6, 0, "bzip2Level"), (6, 10, "bzip2Level")] {

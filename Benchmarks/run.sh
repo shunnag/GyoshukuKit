@@ -10,7 +10,7 @@ Usage: run.sh <corpora-dir> [formats] [corpora] [--references] [--level N] [--th
   corpora: comma- or space-separated; default "text random headers small"
   --references  Also measure zip -r -6, tar | xz -6 -T0, and 7zz a -mx6 when present
   --level N     Forward deflateLevel (0...9) to gyoshuku-bench only
-  --threads N   Forward compressionThreads (1...64) to gyoshuku-bench only
+  --threads N   Forward compressionThreads (1...1024) to gyoshuku-bench only
   --progress    Observe byte progress in gyoshuku-bench only
   --mode MODE   recursive (default), items or batch; gyoshuku-bench only
 USAGE
@@ -43,7 +43,8 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 && $2 =~ ^[0-9]$ ]] || fail '--level requires 0...9'
             writer_options+=("$1" "$2"); shift 2 ;;
         --threads)
-            [[ $# -ge 2 && $2 =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] || fail '--threads requires 1...64'
+            [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || fail '--threads requires 1...1024'
+            # 上限の検証は gyoshuku-bench の WriterOptions.compressionThreadsRange に委ねる。
             writer_options+=("$1" "$2"); shift 2 ;;
         --*) fail "Unknown option: $1" ;;
         *) positionals+=("$1"); shift ;;

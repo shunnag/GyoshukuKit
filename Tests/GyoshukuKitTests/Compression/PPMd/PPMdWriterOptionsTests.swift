@@ -38,7 +38,9 @@ final class PPMdWriterOptionsTests: XCTestCase {
             for threads in [1, 4, 64] {
                 let options = WriterOptions(compressionMethod: .ppmd, sevenZipMethod: .ppmd, memoryLimit: 1, compressionThreads: threads)
                 let expected: UInt64 = threads == 1 ? 0 : threads == 4 ? 64 << 20 : 256 << 20
-                XCTAssertEqual(options.maximumPendingInputBytes(for: format, physicalMemory: 8 << 30), expected)
+                EntryCompressionConfiguration.$testingEntryThreadLimit.withValue(16) {
+                    XCTAssertEqual(options.maximumPendingInputBytes(for: format, physicalMemory: 8 << 30), expected)
+                }
                 XCTAssertNoThrow(try options.validate(for: format))
             }
         }

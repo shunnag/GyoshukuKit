@@ -37,7 +37,7 @@ final class LHAWriter {
          method: LHACompressionMethod = .lh5, level: Int = 6, recordsMembers: Bool = false,
          allowsEntryParallelism: Bool = true,
          encoder: (@Sendable (Data) throws -> Data)? = nil) {
-        precondition((1...64).contains(threads))
+        precondition(WriterOptions.compressionThreadsRange.contains(threads))
         let configuration = LH5Encoder.Configuration(method: method, level: level)
         let encoder: @Sendable (Data) throws -> Data = encoder ?? { try LH5Encoder.encode($0, configuration: configuration) }
         self.output = output

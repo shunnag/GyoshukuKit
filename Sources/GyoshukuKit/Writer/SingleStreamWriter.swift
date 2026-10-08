@@ -9,6 +9,7 @@ enum SingleStreamWriter {
                          options: WriterOptions, progress: Progress?) throws {
         try FileRead.validateFileURL(source)
         try FileRead.validateFileURL(output)
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: format.archiveFormat)
         try checkCancellation(progress)
         var info = stat()

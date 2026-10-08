@@ -25,7 +25,7 @@ final class ParallelXZCompressor: TarCompressor {
          allowsLightChunks: Bool = true,
          inlineSingleThread: Bool = false,
          encoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode) throws {
-        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        guard WriterOptions.compressionThreadsRange.contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         precondition(chunkSize > 0)
         let packing = min(packingSize ?? Self.memberPackingSize, chunkSize)
         precondition((1...chunkSize).contains(packing))

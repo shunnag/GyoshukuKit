@@ -7,10 +7,15 @@
 
 ### 変更
 
-- writerの自動圧縮並列数の上限を8→16に増やす。CPU数と物理メモリGiB、codecごとのメモリ制限は維持する。
+- 自動圧縮並列数を全active logical CPUへ拡張し、perflevel番号順のtopologyと公開 `CompressionPowerPolicy` を導入する。
+  既定はLow Power Modeで削減。thermal pressureも考慮する方針と常時全coreの方針を選べ、各ジョブの開始時に一度解決する。
+  `WriterOptions.automaticCompressionThreads(powerPolicy:)` を表示用に公開し、明示値の公開範囲 `compressionThreadsRange` を1...1024に拡張する。
+  GiBとcodecメモリ制限は維持し、項目 / folder窓の固定16上限をGCD constrained poolの1/4へ置き換える。
 - 7z solid/filter窓のcodec状態を、各folderに入る最大片数分だけ予約する。LZMA1 / PPMd / Copyは一つ。
   全folderの割当codec数も予算内に抑え、片サイズ・folder区切り・圧縮byteを維持する。
-- `maximumPendingInputBytes(for:)`の式は維持するが、自動並列数と7z folder枠数の増加で返り値が増える場合がある。
+- BZip2の片幅を並列数と独立な5 block相当の目標幅に固定し、1スレッドの大入力にも同じ8 MiB強制切断を使い、thread数によるbyte差をなくす。
+  ZIP / 7z BZip2の1スレッドにもbufferを予約し、公開入力上界は最低16 MiB、solid/filterは内側とfolderごとのbufferを含む。
+- `maximumPendingInputBytes(for:)`の他形式の式は維持するが、自動並列数と項目 / 7z folder枠数の増加で返り値が増える場合がある。
   物理16 GiB・要求12・予算8 GiBの既定LZMA2 / LZMA1の64 MiB solidは320 / 384→768 MiB。
   詳細とPPMd / filter付き非solidの値は[設定リファレンス](Documentation/options.md#pending-input-の意味)を参照する。
 

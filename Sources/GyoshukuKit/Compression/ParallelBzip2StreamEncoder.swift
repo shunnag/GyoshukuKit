@@ -7,29 +7,27 @@ final class ParallelBzip2StreamEncoder {
     @TaskLocal static var testingEncoder: Encoder?
     static let inputCap = 8 << 20
 
-    static func chunkSize(level: Int, size: UInt64, threads: Int) -> Int {
+    static func chunkSize(level: Int) -> Int {
         let block = 100_000 * level - 19
-        // 各threadへ約4片を配り、P/Eコアの処理速度差を吸収する。初期化負担を抑え、1〜5 blockに収める。
-        let blocks = max(1, Int(min(5, size / UInt64(max(1, threads)) / 4 / UInt64(block))))
-        return blocks * block
+        // 5 block相当の固定目標幅を使い、完全なblock境界まで走査する。並列数には依存しない。
+        return 5 * block
     }
 
-    static func estimatedChunkCount(size: UInt64, level: Int, threads: Int) -> Int {
+    static func estimatedChunkCount(size: UInt64, level: Int) -> Int {
         guard size > 0 else { return 1 }
-        let width = UInt64(chunkSize(level: level, size: size, threads: threads))
-        return Int(min(64, (size - 1) / width + 1))
+        let width = UInt64(chunkSize(level: level))
+        return Int(min(UInt64(WriterOptions.compressionThreadsRange.upperBound), (size - 1) / width + 1))
     }
 
     static func memoryReservation(level: Int, threads: Int) -> UInt64 {
         // 入力(t+1)cap、完了結果の最悪膨張とcodec状態t個、切断時の一時copyを予約する。
         let cap = UInt64(inputCap)
-        if threads == 1 { return UInt64(400_000 + 800_000 * level) }
         return UInt64(threads + 2) * cap + UInt64(threads) * (cap + cap / 100 + 601 + UInt64(400_000 + 800_000 * level + IOChunk.size))
     }
 
     static func resolvedThreads(options: WriterOptions, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
         let budget = min(physicalMemory / 2, options.memoryLimit ?? UInt64.max)
-        var threads = max(1, min(64, options.resolvedCompressionThreads))
+        var threads = max(1, min(WriterOptions.compressionThreadsRange.upperBound, options.resolvedCompressionThreads))
         while threads > 1, memoryReservation(level: options.bzip2Level, threads: threads) > budget { threads -= 1 }
         return threads
     }
@@ -47,6 +45,7 @@ final class ParallelBzip2StreamEncoder {
     private let cap: Int
     private let cancellation: CompressionCancellation?
     private let sequential: Bzip2StreamEncoder?
+    private let inline: Bool
     private let pipeline: OrderedChunkPipeline<Data, Data, Int>
     private var scanner: Bzip2BlockScanner
     private var input = Data()
@@ -61,15 +60,18 @@ final class ParallelBzip2StreamEncoder {
     init(level: Int, threads: Int, size: UInt64 = 0, chunkSize: Int? = nil, inputCap: Int = ParallelBzip2StreamEncoder.inputCap,
          encoder: Encoder? = nil, cancellation: CompressionCancellation? = nil, workerActivity: (@Sendable (Bool) -> Void)? = nil) throws {
         guard (1...9).contains(level) else { throw WriterError.invalidOption("bzip2Level") }
-        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        guard WriterOptions.compressionThreadsRange.contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         precondition(inputCap > 0 && (chunkSize ?? 1) > 0)
         self.level = level; cap = inputCap
         self.cancellation = cancellation
-        target = min(inputCap, chunkSize ?? Self.chunkSize(level: level, size: size, threads: threads))
+        target = min(inputCap, chunkSize ?? Self.chunkSize(level: level))
         scanner = Bzip2BlockScanner(level: level)
-        sequential = threads == 1 ? try Bzip2StreamEncoder(level: level) : nil
+        // cap 以下の既知入力は強制切断されない。大入力は1 threadでも同じ境界でspliceする。
+        sequential = threads == 1 && size > 0 && size <= inputCap && chunkSize == nil
+            ? try Bzip2StreamEncoder(level: level) : nil
+        inline = threads == 1
         let encode = encoder ?? Self.testingEncoder ?? Self.encodeChunk
-        pipeline = OrderedChunkPipeline(threads: threads, cancellation: cancellation) { bytes in
+        pipeline = OrderedChunkPipeline(threads: threads, inlineSingleThread: true, cancellation: cancellation) { bytes in
             workerActivity?(true)
             defer { workerActivity?(false) }
             return try encode(bytes, level)
@@ -145,6 +147,7 @@ final class ParallelBzip2StreamEncoder {
     private func submit(_ chunk: Data, blocks: Int, emit: (Data) throws -> Void) throws {
         submitted = true
         try pipeline.submit(chunk, tag: blocks, weight: UInt64(chunk.count)) { try self.splice($1!, blocks: $0, emit: emit) }
+        if inline { try pipeline.drain { try self.splice($1!, blocks: $0, emit: emit) } }
     }
 
     private func splice(_ stream: Data, blocks: Int, emit: (Data) throws -> Void) throws {

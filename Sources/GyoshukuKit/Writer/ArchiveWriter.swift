@@ -38,6 +38,7 @@ public final class ArchiveWriter {
          deflateBlockSize: Int = DeflateBlock.size,
          deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
          zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) }) {
+        let options = options.resolvingCompressionThreads()
         self.output = output
         self.outputURL = url
         self.format = format
@@ -75,6 +76,7 @@ public final class ArchiveWriter {
     public static func create(
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
     ) throws -> ArchiveWriter {
+        let options = options.resolvingCompressionThreads()
         let piece = format == .tarXZ || (format == .sevenZip && options.sevenZipMethod == .lzma2)
             ? try LZMAWriterConfiguration(options: options).pieceSize : LZMA2ChunkPipeline<Void>.chunkSize
         return try create(url: url, format: format, options: options, lzmaChunkSize: piece)
@@ -93,6 +95,7 @@ public final class ArchiveWriter {
         lh5Encoder: (@Sendable (Data) throws -> Data)? = nil
     ) throws -> ArchiveWriter {
         try FileRead.validateFileURL(url)
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: format)
         try Task.checkCancellation()
         let compressor: (any TarCompressor)?

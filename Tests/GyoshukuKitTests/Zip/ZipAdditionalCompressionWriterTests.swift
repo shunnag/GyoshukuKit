@@ -174,15 +174,17 @@ final class ZipAdditionalCompressionWriterTests: XCTestCase {
                     let entryWindow: UInt64 = threads == 1 ? 0 : threads == 2 ? 32 << 20 : 256 << 20
                     // 物理メモリ8 GiBではinner=threads。並列spliceは(inner + 1) × 8 MiBを保持する。
                     let inner = threads
-                    let spliceBuffers: UInt64 = inner == 1 ? 0 : UInt64(inner + 1) * (8 << 20)
+                    let spliceBuffers: UInt64 = UInt64(inner + 1) * (8 << 20)
                     let expected: UInt64 = method == .bzip2
                         ? max(entryWindow, spliceBuffers)
                         : (threads == 1 ? 32 << 20 : threads == 2 ? 48 << 20 : 1040 << 20)
+                    EntryCompressionConfiguration.$testingEntryThreadLimit.withValue(16) {
                     XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 8 << 30), expected)
+                }
                 }
             }
             for level in [0, 10] { XCTAssertThrowsError(try WriterOptions(compressionMethod: method, bzip2Level: level).validate(for: .zip)) }
-            XCTAssertThrowsError(try WriterOptions(compressionMethod: method, compressionThreads: 65).validate(for: .zip))
+            XCTAssertThrowsError(try WriterOptions(compressionMethod: method, compressionThreads: WriterOptions.compressionThreadsRange.upperBound + 1).validate(for: .zip))
             let directory = try TestSupport.directory("zip-additional-bound-\(method)")
             let archive = directory.appendingPathComponent("unused")
             FileManager.default.createFile(atPath: archive.path, contents: nil)

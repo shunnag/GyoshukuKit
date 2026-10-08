@@ -23,7 +23,7 @@ final class SevenZipChunkPipeline<Tag> {
          encoder: LZMA2ChunkPipeline<Void>.Encoder? = nil,
          workerActivity: (@Sendable (Bool) -> Void)? = nil) throws {
         let configuration = try LZMAWriterConfiguration(options: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-            ? options : WriterOptions(compressionThreads: options.compressionThreads), raw: options.sevenZipMethod == .lzma)
+            ? options : WriterOptions(compressionThreads: options.resolvedCompressionThreads), raw: options.sevenZipMethod == .lzma)
         let pieceSize = chunkSize ?? configuration.pieceSize
         precondition(pieceSize > 0)
         let encode = encoder ?? configuration.encoder

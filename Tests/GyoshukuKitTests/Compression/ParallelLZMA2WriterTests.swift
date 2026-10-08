@@ -14,7 +14,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let directory = try TestSupport.directory("parallel-7z-chunks")
         let items = [SevenZipTestSupport.Expected(name: "large.txt", data: ParallelLZMA2WriterTests.payload)]
         let expected = try serialArchive(items)
-        for (threads, drain) in [(1, false), (4, false), (8, false), (16, false), (1, true), (8, true), (16, true)] {
+        for (threads, drain) in [(1, false), (4, false), (8, false), (16, false), (36, false), (64, false), (1, true), (8, true), (16, true)] {
             let url = directory.appendingPathComponent("threads-\(threads)-\(drain).7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
                                                  options: WriterOptions(compressionThreads: threads), lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize)
@@ -201,11 +201,11 @@ final class ParallelLZMA2WriterTests: XCTestCase {
     func testCompressionThreadsValidationAndAutomaticLimit() throws {
         let directory = try TestSupport.directory("parallel-lzma-options")
         XCTAssertNil(WriterOptions().compressionThreads)
-        XCTAssertEqual(WriterOptions().resolvedCompressionThreads,
-                       max(1, min(ProcessInfo.processInfo.activeProcessorCount, EntryCompressionConfiguration.maximumEntryThreads,
-                                  Int(ProcessInfo.processInfo.physicalMemory / (1 << 30)))))
+        WriterOptions.$testingAutomaticThreads.withValue({ _ in 36 }) {
+            XCTAssertEqual(WriterOptions().resolvedCompressionThreads, 36)
+        }
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha] {
-            for threads in [Int.min, 0, 65, Int.max] {
+            for threads in [Int.min, 0, WriterOptions.compressionThreadsRange.upperBound + 1, Int.max] {
                 let url = directory.appendingPathComponent("\(format)-\(threads)")
                 XCTAssertThrowsError(try ArchiveWriter.create(url: url, format: format,
                                                               options: WriterOptions(compressionThreads: threads))) {
@@ -213,7 +213,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
                 }
                 XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
             }
-            for threads in [1, 64] { XCTAssertNoThrow(try WriterOptions(compressionThreads: threads).validate(for: format)) }
+            for threads in [1, 64, 1024] { XCTAssertNoThrow(try WriterOptions(compressionThreads: threads).validate(for: format)) }
         }
     }
 

@@ -59,7 +59,7 @@ final class LZ4FrameEncoderTests: XCTestCase {
 
     func testDeclaredSizeValidationAndSinkFailureAreTerminal() throws {
         XCTAssertThrowsError(try LZ4FrameEncoder(threads: 0))
-        XCTAssertThrowsError(try LZ4FrameEncoder(threads: 65))
+        XCTAssertThrowsError(try LZ4FrameEncoder(threads: WriterOptions.compressionThreadsRange.upperBound + 1))
         for input in [Data(), Data([1, 2])] {
             let encoder = try LZ4FrameEncoder(contentSize: 1, threads: 1)
             XCTAssertThrowsError(try encoder.write(input, finish: true) { _ in }) {

@@ -283,7 +283,7 @@ final class MulticoreWriterTests: XCTestCase {
                 let options = WriterOptions(compressionMethod: .bzip2, sevenZipMethod: .deflate,
                     sevenZipSolid: .on(blockSize: UInt64(limit), filesPerBlock: nil), compressionThreads: 12)
                 let state: UInt64 = switch format {
-                case .zip: UInt64(400_000 + 8 * 100_000 * options.bzip2Level)
+                case .zip: ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level, threads: 1)
                 case .lha: UInt64(8 << 20) * 12
                 default: UInt64(4 << 20) * 2
                 }

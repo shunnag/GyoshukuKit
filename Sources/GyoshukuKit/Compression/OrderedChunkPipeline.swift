@@ -70,7 +70,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     var pendingCount: Int { items.count }
 
     init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, cancellation: CompressionCancellation? = nil, encoder: @escaping Encoder) {
-        precondition((1...64).contains(threads))
+        precondition(WriterOptions.compressionThreadsRange.contains(threads))
         self.threads = threads
         self.lightWeightLimit = lightWeightLimit
         self.inlineSingleThread = inlineSingleThread

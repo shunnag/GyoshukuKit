@@ -3,10 +3,10 @@ import XCTest
 @testable import GyoshukuKit
 
 final class EntryCompressionConfigurationTests: XCTestCase {
-    func testAutomaticThreadsUseSixteenCoresAndGiBClamp() {
+    func testAutomaticThreadsUseAllActiveCoresAndGiBClamp() {
         let options = WriterOptions()
         for (cores, memory, expected) in [(16, UInt64(128 << 30), 16), (10, 16 << 30, 10),
-                                        (32, 128 << 30, 16), (16, 4 << 30, 4), (0, 0, 1), (16, 1 << 29, 1)] {
+                                        (32, 128 << 30, 32), (16, 4 << 30, 4), (0, 0, 1), (16, 1 << 29, 1)] {
             XCTAssertEqual(options.resolvedCompressionThreads(activeProcessorCount: cores, physicalMemory: memory), expected)
         }
         XCTAssertEqual(WriterOptions(compressionThreads: 64).resolvedCompressionThreads(activeProcessorCount: 16, physicalMemory: 1 << 30), 64)

@@ -206,15 +206,13 @@ Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 
 独立した `BZ2_bzCompressInit(level, 0, 30)` でも同じblock内容・block CRCになる。
 `BZ_FINISH` は残り入力0の処理を満杯判定より優先するので、末尾のrunは最後のblockに数える。
 
-chunkは通常1〜5 block。block数は `clamp(入力長 / 予約threads / 4 / block上限, 1, 5)` とし、
-各threadに約4片を配ってP/Eコアの処理速度差を吸収する。1 block未満には分割せず、初期化負担を抑える。
-64 MiB・level 9・threads 12/16なら約900 KBずつ約75片（従来は約4.5 MBずつ15片）となる。
-16 MiB・level 9・threads 12では1 blockの下限により引き続き19片。
-予約用の片数見積もりも同じchunkサイズを使い、並列数の上限に合わせて64片までとする。
-入力capは各chunk 8 MiB。長い同値run（level 9の一blockは約45 MBの原入力を含み得る）で
-capに達したときは強制切断し、その位置からscannerを初期化する。
-強制切断がなければ逐次libbz2とbyte一致し、切断時も復号内容は同じ標準の単一streamとなる。
-並列数1は既存stream経路、一block以下の入力も既存codecで符号化する。
+chunk は5 block相当の固定目標幅で完全なblock境界まで走査し、並列数・topologyに依存させない。RLEによって一片の実block数は変わる。
+予約用の片数見積もりは同じ固定幅を使い、公開範囲 `compressionThreadsRange` の1024まで数える。
+入力capは各chunk 8 MiB。長い同値runでcapに達したときは強制切断し、その位置からscannerを初期化する。
+並列数1の大入力も同じscanner・切断・spliceを使い、workerは inline 実行し、結果を直ちに出力する。
+cap以下の既知入力の逐次処理と一block以下の入力は既存codecを使う。
+強制切断の有無にかかわらず並列数1/8/36/64でbyte一致する。強制切断時のbyteは従来の逐次libbz2とは異なるが、標準の単一streamを維持する。
+1スレッドもspliceのbuffer予約に含め、公開の入力上界は `(t + 1) × 8 MiB`（最低16 MiB）にする。
 
 `OrderedChunkPipeline` がchunkを並列符号化し、入力順にbitをspliceする。
 byte境界が揃うpayloadは一括copyし、揃わないpayloadは64 bit単位でshiftする。
@@ -239,13 +237,12 @@ filterの後に圧縮し、spliceしたbyteを従来のAES / ZipCrypto層へ渡�
 solidのworkerは共有取消しを内部の容量待ちでも観測し、source descriptorの回収だけを待つ。
 
 C=8 MiB、O=C+floor(C/100)+601、E=400000+800000×level、I=256 KiBとすると、
-内側t>1のメモリ予約は `(t+2)C + t(O+E+I)`。入力(t+1)片に加え切断copy、
+内側t>=1のメモリ予約は `(t+2)C + t(O+E+I)`。入力(t+1)片に加え切断copy、
 圧縮結果、codecとI/Oを含める。Oは[libbz2 manual §3.5.1](https://sourceware.org/bzip2/manual/manual.html#bzbufftobuffcompress)
 の出力上界を使い、結果bufferを先に予約して成長時の余剰容量を抑える。
 threadsは物理メモリの半分と `memoryLimit` の小さい方で絞る。一枠も入らない指定では
 従来どおりthreads=1へ戻し、既存のoptionを拒否しない。
-項目窓の逐次codec予約はEのままなので既存の固定期待値は変えず、
-solid窓は内側の全予約を各枠に数える。新しい固定表は `Bzip2SpliceTests` に置く。
+項目窓の逐次codec予約も上のt=1の予約を使い、solid窓は内側の全予約を各枠に数える。新しい固定表は `Bzip2SpliceTests` に置く。
 
 Mac mini M4でのbase 9d46fe2とda08ba6の交互比較は
 [BZip2 splice検証記録](verification/2026-10-08-bzip2-splice-mini-ab.md)に記載する。
@@ -438,7 +435,7 @@ bzip2 は運ぶ stream の元の level を維持する。CRC64 の xz、地図�
 進捗の total は橋の image byte、運ぶ圧縮 byte、自己照合の圧縮/framing 読取 byte の合計。
 圧縮長を先に求めて total を固定し、その後に出力を作る。並列数 × piece × 2 の
 cache に符号化結果を残し、収まらない fullEncode の chunk は書出し時に再符号化する。
-xz の cache 上限は片が16 MiBなら8 threadsで256 MiB、既定の最大16 threadsで512 MiB。事前符号化と書出しの両方に下記の軽い block の枠を使う。
+xz の cache 上限は片が16 MiBなら8 threadsで256 MiB、明示16 threadsなら512 MiB（自動値に固定上限はない）。事前符号化と書出しの両方に下記の軽い block の枠を使う。
 追加の圧縮 spool は作らない。この事前符号化中も Task の取消しを確認するが、
 最初の進捗通知は total が確定した後になる。callback の throw・再入も失敗として扱う。
 
@@ -685,7 +682,7 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 |---|---|
 | ZIP stored | 0 |
 | ZIP LZMA / Zstandard / PPMd | `t > 1 ? t × 16 MiB : 0`（tは項目窓の予算で解決） |
-| ZIP / 非solid/filterなし7z BZip2 | `max(項目窓の上界, 内側t > 1 ? (t+1) × 8 MiB : 0)` |
+| ZIP / 非solid/filterなし7z BZip2 | `max(項目窓の上界, (t+1) × 8 MiB)` |
 | ZIP Deflate | `t × DeflateBlock.size`（ZipCrypto は 0） |
 | ZIP XZ | `max((t + 1) × 片, 項目窓の上界)`（大項目は終了時にblockを全て出力） |
 | tar | 0 |
@@ -697,7 +694,7 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 | 7z Deflate | `t × 1 MiB` |
 | 非solid/filterなし7z LZMA / PPMd | `t > 1 ? t × 16 MiB : 0` |
 | 非solid/filterなし7z Copy | 0 |
-| 7z solid / filter | `f × (solidならblockSize、非solidなら16 MiB)`（disk上の入力。fはfolder窓）BZip2は内側t>1ならさらに`(t+1+f) × 8 MiB` |
+| 7z solid / filter | `f × (solidならblockSize、非solidなら16 MiB)`（disk上の入力。fはfolder窓）BZip2はさらに`(t+1+f) × 8 MiB` |
 | LHA LH5 / LH6 / LH7 | `t > 1 ? max(項目窓の上界, t × (1 MiB + 8 / 32 / 64 KiB)) : 0` |
 | LHA stored | 0（同期処理） |
 
@@ -891,9 +888,9 @@ Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指�
 空 file / directory は EmptyStream のままで、件数とサイズには数えない。拡張子による並べ替えは行わない。
 folder の全サイズ確定後に `SevenZipFolderEncoder` を使うので raw LZMA の expectedSize も既知となる。
 圧縮前と圧縮後のfolderをunlink済みspoolで保持し、投入順に出力する。
-未出力folderと組立中folderを合わせt枠以下（t <= 16）。並列投入する各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
+未出力folderと組立中folderを合わせt枠以下（tは要求数・GCD poolの安全上限・メモリ予算で解決）。並列投入する各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
 blockSizeが256 MiBを超える場合とfilterなしCopyはfolder間の並列化を使わず、従来の同期経路へ戻す。
-従って並列入力spoolの一時disk上界はt × blockSize <= 4 GiB（非solid/filterはt × 16 MiB <= 256 MiB）。
+従って並列入力spoolの一時disk上界はt × blockSize（非solid/filterはt × 16 MiB）。tは要求数・GCD poolの安全上限・メモリ予算で解決する。
 圧縮出力は各folderの最初の1 MiBをメモリに保持し、超過時だけspoolへ移す。
 通常の作業disk合計はこの入力上界と、未出力folderの圧縮長の合計（AESのpaddingを含む）。
 fileを分割しないため、組立中の単一fileが入力上限Lを超える場合だけ、入力disk上界にmax(0, fileSize - L)を加える。
@@ -1296,7 +1293,7 @@ Appleのnilレベルの既存block経路は従来のbyteと16 MiB境界を維持
 `MemoryLayout.stride`を照合した。通常preset、入力サイズ未知、LZMA2（`chunked: true`）、
 `memoryLimit = 3 GiB`、物理メモリ8 GiB、要求64 threadの結果は次のとおり。
 Eは`LZMAEncodingEngine.memorySize`、Mは`memoryPerThread = E + 2 × 片`（いずれもbyte）。
-tは`min(64, floor(3 GiB / M))`。右二列はHEADのZIP XZ / 非solid・filterなし7z LZMA2の入力上界。
+この表は明示threads=64の測定なのでtは`min(64, floor(3 GiB / M))`（64は既定上限ではない）。右二列はHEADのZIP XZ / 非solid・filterなし7z LZMA2の入力上界。
 
 | level | E: base → HEAD byte | M: base → HEAD byte | t: base → HEAD | ZIP MiB | 7z MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -1339,7 +1336,7 @@ range出力の伸長は`memoryLimit - required + 131072`以下（最大16 MiB）
 writerのraw予約は初期容量との差`16 MiB - 131072`を追加し、LZMA2は64 KiBのpack limitで区切る。
 小さい`expectedSize`による実効辞書の縮小も、完全な辞書で算出したwriter予約の範囲内。
 ここで数えるのはcodec bufferのbyte数であり、allocatorの管理領域やプロセス全体のRSSではない。
-`EntryCompressionConfiguration`はMに入力16 MiB・spool 1 MiB・I/O 1 MiBを追加し、最大16項目に制限する。
+`EntryCompressionConfiguration`はMに入力16 MiB・spool 1 MiB・I/O 1 MiBを追加し、要求数・GCD poolの1/4・メモリ予算で項目窓を制限する。
 この条件ではZIP XZのblock上界`(t + 1) × 片`が項目窓の上界以上になる。
 `Tests/`のraw / lzip / level-9の並列数、`MulticoreWriterTests`の項目窓の期待値、
 `WriterOptions`の式とその他の固定上界も照合し、更新が必要なのは上の固定表とraw level 0の切上げ値だった。
@@ -2279,7 +2276,7 @@ LHAのseekを使う中memberの完成recordはdiskへ保持し、小memberはhea
 LHAの内部並列数は、1 MiBの実際の片数とmax(1, 要求threads / 投入後の未出力数)の最小値。
 未出力jobの合計を要求threadsで制限しない。round 3の合計上限はcorpus LH7/t=12をround 1比32.3%遅くしたため撤回する。
 先頭の出力までの割当上界はt×H(枠数)で、t=12なら約3t。先頭を出力して再投入する場合も、
-各jobは最大t、窓は最大16枠なので上界は枠数×t。各枠のcodec状態は元からt分予約し、入力窓も有界に保つ。
+各jobは最大t、窓はGCD poolの1/4以下なので上界は枠数×t。各枠のcodec状態は元からt分予約し、入力窓も有界に保つ。
 7z folderは実際の片数、未割当threads、max(1, 要求threads / 投入後の未出力数)の最小値。
 こちらは未出力jobの合計を`min(要求threads, floor(予算 / codec状態))`以下に保つ。BZip2は既存spliceの解決した並列数を使う。
 先頭の出力開始時に予約を返し、予算待ちは先頭だけをemitする。出力失敗は窓をabandonし、二重返却しない。
@@ -2304,7 +2301,7 @@ folder上限はsolidのblockSize、filter付き非solidは16 MiB。既存の片�
 | 自前LZMA1 / XZ / 7z LZMA2 | 既存`LZMAWriterConfiguration.memoryPerThread` |
 | Apple XZ / LZMA2 | 130 MiB |
 | Zstandard | 既存streaming用`ZstdWriterConfiguration.memoryPerThread` |
-| BZip2 | `400,000 + 8 × level × 100,000` byte |
+| BZip2 | `ParallelBzip2StreamEncoder.memoryReservation(level:threads: 1)`（level 9は41,501,063 byte） |
 | PPMd | 指定model memory + 2 MiB |
 | Deflate / Copyのfilter folder | 4 MiB |
 | LHA中member | 8 MiB（LH7の約3.7 MiB＋符号列の一時コピー・Huffman領域） |
@@ -2313,9 +2310,9 @@ LZMA/XZ/Zstandardの新規項目/folder窓は`min(memoryLimit（nilは物理メ�
 Appleも窓の見積りに含めるが、既存のblock経路の内部並列数・予約は変更しない。
 BZip2は単一stream spliceの導入後、項目/folder窓と内側codecの予約にも同じmemoryLimit予算を使う（上のBZip2節）。
 PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
-tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
+tは要求threadsと`floor(GCD constrained pool / 4)`と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
 従来受理できた単一codecのmemoryLimitを拒否しない。モデル・辞書・片境界を縮めない。
-既定の要求threadsは`max(1, min(CPU数, 物理メモリGiB, EntryCompressionConfiguration.maximumEntryThreads（16）))`。
+既定の要求threadsは下記の topology / powerPolicy で開始時に解決する。
 7z並列窓の割当codec合計をa、folder枠数をf、最大片数をpとすると`a <= min(要求threads, floor(予算/S), f × p)`。
 従ってpeak予約は`a × S + f × I/O <= f × (p × S + I/O) <= 予算`。要求threads分のcodec状態を各folderへ重複予約しない。
 公開pending-inputの式`f × folder上限`は維持するが、fの増加により値が増える。
@@ -2323,7 +2320,7 @@ tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら�
 PPMd level 9の明示64 MiB solidは3→12枠（192→768 MiB）、既定384 MiB solidは同期のまま。
 filter付き非solidのLZMA2 / LZMA1は80→192 / 96→192 MiB。PPMd level 9は既定block上限384 MiBによる同期経路を維持し、filter付き非solidは16 MiBのまま。
 BZip2の式・予約と明示並列数の他形式の上界は維持する。
-自動並列数の上限8→16に伴う他形式の既定上界は、それぞれのcodecメモリ制限に従って増える。
+自動並列数と項目窓の固定16上限を撤廃したため、既定入力上界は topology・電力状態・pool・codecメモリ制限に従って変わる。
 入力上界は上の`maximumPendingInputBytes`表。spoolのfile cacheとallocator管理領域はcodecの予約に含めない。
 round 3はtree/single/single16r/small/LHA混在をthreads=1/12、corpus4方式をthreads=12で三版各5回測定した。
 810 sampleの出力size・SHA-256が一致し、54比較すべてnew/base <= 1.05、tree/smallの22比較もnew/round1 <= 1.05。
@@ -2348,3 +2345,27 @@ ZIP93の64 MiB memberを4 MiB frameへ分けるprobeは7zz26.04とKaitoKitが受
 全ZIPのbody差し替えによる計算上のサイズ増加は3.583%（単一16,990,650→連結20,122,354 byte）で、
 0.3%上限を超えるため採用しない。7zz26.03そのものと候補全ZIPの速度は未検証。
 wall/CPU・参照tool・全sample・対象testの詳細は[実測記録](verification/2026-10-07-writer-multicore.md)を参照。
+
+
+## 自動並列数と電力方針
+
+`CPUTopology` は `hw.activecpu`（失敗時は `ProcessInfo.activeProcessorCount`）と、
+`hw.nperflevels` / `hw.perflevelN.logicalcpu` / `physicalcpu` を読む。0が最高性能で、名称を参照しない。
+levelの欠落・0は全 CPU を持つ単一levelに戻す。core classや製品別の固定数は持たない。
+通常の要求数は全active logical CPU、削減時は `max(1, min(ceil(n/2), 最低levelのlogical CPU数))`。
+levelが一つなら `ceil(n/2)`。その後 `max(1, 物理メモリGiB)` と既存codecメモリresolverで制限する。
+`.reduceInLowPowerMode` はLow Power Mode、`.reduceInLowPowerModeOrThermalPressure` はそれに加えて
+serious / criticalで削減、`.alwaysUseAllCores` は削減しない。明示並列数には作用しない。
+`WriterOptions.automaticCompressionThreads(powerPolicy:)` は表示用の現在値、`compressionThreadsRange` は明示値の受理範囲1...1024。
+writer / updater / rewriter / 単独圧縮の入口で内部optionsコピーに自動値を固定し、検証・add・commit・workerは同じ値を使う。
+外部の `maximumPendingInputBytes(for:)` も呼出しごとに一度解決するため、ジョブ開始後の電力状態によっては内部の固定値と異なる。
+片・chunk・block・folder境界は並列数に依存させない。
+
+項目 / folder窓の安全上限は `floor(pool / 4)`（最低1）。poolは `kern.wq_max_constrained_threads` を読み、
+poolの安全上限はprocess内で共有し、失敗時はxnuの既定規則 `max(64, 5 × activeCPUs)` を使う。64はkernel fallbackの下限で、要求並列数の上限ではない。
+ZIP項目workerは内側を1にし、XZの逐次片はinline実行する。7z folderworkerはOrderedChunkPipeline / LZMA2ChunkPipeline / ParallelBzip2StreamEncoderの片を待つが、片workerはcodecを実行する葉であり、さらにGCD workerを待たない。
+ParallelXZCompressorも同じ葉に到達し、filterはそのfolder内で逐次。LHA memberworkerは内側LHAWriterの項目並列を無効にし、1 MiB片workerだけを待つため、外側の再帰はない。
+外側の待機は一段だけなのでpoolの1/4以下にし、残り3/4を内側の葉、先読み、呼出側の待機と他の仕事の余地に残す。
+先読みは最大4 descriptorを扱い、取得したworker自身が読取を完了して解放するため、別の内側workerの開始を待つ循環は作らない。
+内側の窓が大きくても未着手の葉はthreadを占有せず、既に動く葉の完了で窓が進む。このジョブの入れ子によるpoolの枯渇を防ぐための上限であり、他ライブラリが同じprocessのpool全体を塞ぐ状況までは保証しない。
+メモリ制限と全folderの割当codec数制限は引き続き適用する。

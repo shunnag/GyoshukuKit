@@ -5,15 +5,15 @@ struct EntryCompressionConfiguration {
     @TaskLocal static var testingInputLimit: Int?
     @TaskLocal static var testingMemoryBudget: UInt64?
     static var inputLimit: Int { testingInputLimit ?? (16 << 20) }
-    // GCD の constrained thread 上限より十分小さくする。
-    static let maximumEntryThreads = 16
+    @TaskLocal static var testingEntryThreadLimit: Int?
+    static var maximumEntryThreads: Int { testingEntryThreadLimit ?? CompressionWorkerPool.maximumEntryThreads }
     let threads: Int
     let codecThreads: Int
 
     init(lhaThreads: Int, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
         codecThreads = 1
         // 各memberの片並列にも最大の内部codec数を予約する。
-        let state = UInt64(8 << 20) * UInt64(max(1, min(64, lhaThreads)))
+        let state = UInt64(8 << 20) * UInt64(max(1, min(WriterOptions.compressionThreadsRange.upperBound, lhaThreads)))
         threads = Self.resolve(requested: lhaThreads, state: state,
                                budget: physicalMemory / 2)
     }
@@ -41,7 +41,7 @@ struct EntryCompressionConfiguration {
             budget = physicalMemory / 2
             pieceSize = min(chunkSize ?? ParallelXZCompressor.defaultBlockSize, DeflateBlock.size)
         }
-        let requested = max(1, min(64, options.resolvedCompressionThreads))
+        let requested = max(1, min(WriterOptions.compressionThreadsRange.upperBound, options.resolvedCompressionThreads))
         codecThreads = method == .bzip2 ? ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: physicalMemory)
             : max(1, Int(min(UInt64(requested), min(budget, Self.testingMemoryBudget ?? budget) / state)))
         // 単一 stream は一つ、片並列はfolder上限に入る片数だけcodec状態を予約する。
