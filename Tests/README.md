@@ -2,6 +2,7 @@
 
 `swift test` が走らせる XCTest の target は `GyoshukuKitTests/`、試験が読む書庫は `Fixtures/`。
 書き込み速度の計測は別 package の [Benchmarks](../Benchmarks/README.md) で行う。
+ビルド要件・CI・大容量検証の入口は[開発と検証](../Documentation/testing.md)を参照する。
 説明はこの file に置く（target の directory の中の `.md` は SwiftPM が未処理の file として警告する）。
 
 ## 配置

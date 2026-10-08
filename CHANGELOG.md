@@ -1,8 +1,25 @@
 # 変更履歴
 
 注目すべき変更を記録する。バージョニングは Semantic Versioning に従う。
+現在の導入方法は [README](README.md)、方式・互換性は[形式リファレンス](Documentation/formats.md)、全設定は [WriterOptions](Documentation/options.md)を参照する。
 
 ## [Unreleased]
+
+### ドキュメント
+
+- README を開発者向けの導入・使用例・対応表に整理し、依存解決、API の保証、形式・全設定、開発・検証の詳細を `Documentation/` に分離する。
+  英語の導入にも要件・SwiftPM・ZIP 例・編集 API・KaitoKit 0.12.x の依存と詳細資料へのリンクを用意する。
+- 移動時に、実装と一致しなくなった説明を訂正する。LZMA raw level 0 の同期予算は20→19 MiB。
+  ZIP LZMA / PPMd / Zstandard の圧縮待ち入力上界に項目窓、BZip2 に項目窓と内側並列の最大値を反映し、
+  BZip2 / PPMd の項目間並列化と、追加終了後も小項目の出力が後続の `add` / `finishAdditions` / `finish` まで残り得ることを明記する。
+  tar.gz / tar.bz2 は組立中も含む `(t + 1) × chunk size`、LHA は項目窓も含む上界に修正し、
+  Apple 経路の tar.xz は `t × 16 MiB + 4 MiB`（tが2以上ならさらに `(t + 1) × 64 KiB`）に統一する。
+- 圧縮 tar の数を8→9形式に訂正し、ZIP AES の0x9901に記録する実 method の一覧に既存の0 / 8を含める。
+  `preserveOwnerIDs` の tar 数値欄・空の uname/gname・7z / LHA での拒否を明記し、libbz2 用の最小 C header shim が存在する説明に修正する。
+  symlink 保存の LHA 例外、パスワード指定時だけの追加暗号化、ZIP に限った clone と metadata 復元の説明も明確にする。
+- README の依存関係・形式別の `lzmaLevel: nil`・ZIP reader の互換性・toolchain 方針を明確にし、
+  編集ガイドの重複文・旧版参照・tar.zst 例の配置と検証ガイドの文体を整理する。
+  CI コメントの FullSize 件数を16に更新し、追加前14件の測定時間は履歴として残す。実装・CI の実行手順は変更しない。
 
 ## [0.8.0] - 2026-10-08
 
