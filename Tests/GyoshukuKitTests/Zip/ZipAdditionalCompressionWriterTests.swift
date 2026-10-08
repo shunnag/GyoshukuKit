@@ -171,8 +171,12 @@ final class ZipAdditionalCompressionWriterTests: XCTestCase {
                 for encryption in [ZipEncryption.aes256, .zipCrypto] {
                     let options = WriterOptions(compressionMethod: method, password: "password", zipEncryption: encryption, compressionThreads: threads)
                     XCTAssertNoThrow(try options.validate(for: .zip))
+                    let entryWindow: UInt64 = threads == 1 ? 0 : threads == 2 ? 32 << 20 : 256 << 20
+                    // 物理メモリ8 GiBではinner=threads。並列spliceは(inner + 1) × 8 MiBを保持する。
+                    let inner = threads
+                    let spliceBuffers: UInt64 = inner == 1 ? 0 : UInt64(inner + 1) * (8 << 20)
                     let expected: UInt64 = method == .bzip2
-                        ? (threads == 1 ? 0 : threads == 2 ? 32 << 20 : 256 << 20)
+                        ? max(entryWindow, spliceBuffers)
                         : (threads == 1 ? 32 << 20 : threads == 2 ? 48 << 20 : 1040 << 20)
                     XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 8 << 30), expected)
                 }

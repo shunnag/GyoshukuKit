@@ -7,7 +7,10 @@ final class SevenZipFolderEncoder {
     private let method: SevenZipCompressionMethod
     private let deflateLevel: Int
     private let bzip2Level: Int
-    private var bzip2: Bzip2StreamEncoder?
+    private var bzip2: ParallelBzip2StreamEncoder?
+    private let cancellation: CompressionCancellation?
+    private let bzip2Threads: Int
+    private let workerActivity: (@Sendable (Bool) -> Void)?
     private var rawLZMA: LZMAEncoder?
     private var ppmd: PPMd7StreamEncoder?
     private let ppmdConfiguration: PPMd7EncoderProperties?
@@ -22,9 +25,12 @@ final class SevenZipFolderEncoder {
 
     init(aes: SevenZipAESEncryptor?, method: SevenZipCompressionMethod = .lzma2, deflateLevel: Int = 6, bzip2Level: Int = 9,
          lzma: LZMAWriterConfiguration? = nil, ppmd: PPMd7EncoderProperties? = nil,
+         bzip2Threads: Int = 1, cancellation: CompressionCancellation? = nil, workerActivity: (@Sendable (Bool) -> Void)? = nil,
          size: UInt64 = 0, filter: SevenZipWriteFilter = .none) {
         self.aes = aes; self.method = method; self.deflateLevel = deflateLevel; self.bzip2Level = bzip2Level
         self.lzma = lzma; self.size = size; self.filter = filter
+        self.cancellation = cancellation
+        self.bzip2Threads = bzip2Threads; self.workerActivity = workerActivity
         ppmdConfiguration = ppmd
         // 空の solid folder でも選択した辞書を宣言する。Apple 経路の既定値は変えない。
         if method == .lzma2, let properties = lzma?.properties {
@@ -45,7 +51,7 @@ final class SevenZipFolderEncoder {
                 try beginRawLZMA()
                 try emit(lzmaWriterOperation { try rawLZMA!.push(bytes) }, write: write)
             } else if method == .bzip2 {
-                if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
+                try beginBzip2()
                 try bzip2!.write(bytes, finish: false) { try emit($0, write: write) }
             } else if method == .ppmd {
                 try beginPPMd()
@@ -61,7 +67,7 @@ final class SevenZipFolderEncoder {
             try emit(lzmaWriterOperation { try rawLZMA!.finish() }, write: write)
             rawLZMA = nil
         case .bzip2:
-            if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
+            try beginBzip2()
             try bzip2!.write(Data(), finish: true) { try emit($0, write: write) }
             bzip2 = nil
         case .ppmd:
@@ -77,6 +83,15 @@ final class SevenZipFolderEncoder {
         }
         if let aes { try output(aes.finish(), write: write) }
     }
+    func abandon() { bzip2?.abandon(); bzip2 = nil }
+
+    private func beginBzip2() throws {
+        if bzip2 == nil {
+            bzip2 = try ParallelBzip2StreamEncoder(level: bzip2Level, threads: bzip2Threads, size: size,
+                cancellation: cancellation, workerActivity: workerActivity)
+        }
+    }
+
     private func beginRawLZMA() throws {
         if rawLZMA == nil {
             guard let lzma else { throw WriterError.invalidState }
@@ -119,16 +134,17 @@ final class SevenZipFolderEncoder {
 
     static func encode(size: UInt64, options: WriterOptions, chunkSize: Int? = nil, inlineSingleThread: Bool = false,
                        aes: SevenZipAESEncryptor?, filter: SevenZipWriteFilter = .none,
-                       workerActivity: (@Sendable (Bool) -> Void)? = nil, read: (Int) throws -> Data,
+                       workerActivity: (@Sendable (Bool) -> Void)? = nil, cancellation: CompressionCancellation? = nil, read: (Int) throws -> Data,
                        write: (Data) throws -> Void) throws -> SevenZipFolderEncoder {
         let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
             deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
             lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
                 ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
-            ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil, size: size, filter: filter)
+            ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
+            bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), cancellation: cancellation, workerActivity: workerActivity, size: size, filter: filter)
         let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize, inlineSingleThread: inlineSingleThread, workerActivity: workerActivity)
         let filtered = filter == .none ? nil : SevenZipFilteredInput(filter: filter, size: size)
-        defer { pipeline.abandonAndWait() }
+        defer { pipeline.abandonAndWait(); encoder.abandon() }
         func emit(_: Void, _ result: SevenZipChunkOutput?) throws {
             if let result { try encoder.consume(result, write: write) }
         }

@@ -150,8 +150,8 @@ method 93 の Zstandard は下の「Zstandard の writer 接続」節に framing
 updater の既存 local record・圧縮 byte・central directory は追加時にそのまま運ぶ。
 空ファイル・directory・symlink と、heuristic が選ぶ圧縮済み拡張子は stored。
 
-method 12 は `Bzip2StreamEncoder` を項目ごとに一つ作り、`bzip2Level` で同期圧縮する。
-tar.bz2 の chunk stream の連結は使わない。最大の codec state は level 9 で約7.6 MBと I/O buffer。
+method 12 は `ParallelBzip2StreamEncoder` で一組のheader・EOSを持つstreamを作る（下のsplice節）。
+並列数1は従来の `Bzip2StreamEncoder` を使う。codec stateはlevel 9で約7.6 MBとI/O buffer。
 method 14 は自前 `LZMAEncoder` を entry ごとに一つ作り、同期符号化する。
 [APPNOTE §5.8](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) に従い、
 SDK version `[26, 3]`、properties size `[5, 0]`、lc/lp/pb byte と辞書 LE32 の5 byte、
@@ -191,6 +191,61 @@ LZMA1 は最悪 literal 膨張の上界として16 × 入力長 + 1,024 byteを�
 
 macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 / 98 を展開できない。
 Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 7-Zip を使う場合の opt-in とする。
+
+### ZIP / 7z BZip2 の単一stream並列圧縮
+
+`Bzip2BlockScanner` はsystem libbz2のRLE1入力段をSwiftでO(n)走査する。
+照合元はbzip2 1.0.8のBSD形式ライセンスの
+[bzlib.c](https://raw.githubusercontent.com/libarchive/bzip2/bzip2-1.0.8/bzlib.c)
+（`copy_input_until_stop` / `ADD_CHAR_TO_BLOCK` / `add_pair_to_block` / `handle_compress`）と
+[compress.c](https://raw.githubusercontent.com/libarchive/bzip2/bzip2-1.0.8/compress.c)。Cの同梱はしない。
+`nblockMAX = 100000 × level - 19`、run 1〜3はその長さ、4〜255は5 byteとして数える。
+次の入力byteを消費する前の満杯判定では未確定runをflushしない。そのrunの入力先頭で切ると、
+独立した `BZ2_bzCompressInit(level, 0, 30)` でも同じblock内容・block CRCになる。
+`BZ_FINISH` は残り入力0の処理を満杯判定より優先するので、末尾のrunは最後のblockに数える。
+
+chunkは通常1〜5 block。既知の入力長 / 予約threads / block上限からblock数を選び、
+16 MiB・level 9・threads 12なら約900 KBずつ、推定19片となる。
+入力capは各chunk 8 MiB。長い同値run（level 9の一blockは約45 MBの原入力を含み得る）で
+capに達したときは強制切断し、その位置からscannerを初期化する。
+強制切断がなければ逐次libbz2とbyte一致し、切断時も復号内容は同じ標準の単一streamとなる。
+並列数1は既存stream経路、一block以下の入力も既存codecで符号化する。
+
+`OrderedChunkPipeline` がchunkを並列符号化し、入力順にbitをspliceする。
+byte境界が揃うpayloadは一括copyし、揃わないpayloadは64 bit単位でshiftする。
+出力bufferは `IOChunk.size` 以下とし、端数bitだけを次のchunkへ持ち越す。
+各結果の32 bit headerを除き、末尾の `totalBits - 80 - pad`（pad 0〜7）の8候補から
+EOS magic `0x177245385090` と零paddingを満たす位置がちょうど一つであることを検査する。
+block数mのchunk CRCをCとして全体CRCを `rotl(crc, m) XOR C` で結合し、
+最後にEOS・全体CRC・零paddingを一度だけ書く。block数はscannerで数え、byte一致試験で照合する。
+Mac miniの事前probeでは連結streamをZIP / 7zに入れると7zzが最初のstreamだけを展開し
+rc=2・切詰め、Python zipfileはBad CRC-32、bsdtarも失敗したため、このspliceを採る。
+tar.bz2 / 単独.bz2の `ParallelBzip2Compressor` は従来の連結streamを保つ。
+
+ZIP（一括disk追加も含む）と非solid/filterなし7zは5 block上限を超える項目で
+項目窓をdrainし、内側threadsを使う。
+それ以下の複数項目は既存の項目窓で各workerをthreads=1にする。
+solid/filterの7zは推定片数を予約し、`assignedThreads` の合計を予算内に保つ。
+filter付きsolidに次folderがあるときは、内側の予約を `max(1, 予算threads / min(4, folder窓threads))`
+以下に分配する。filterはfolder内で逐次なので、先頭folderが全予約を取ると他folderのfilterも待たされる。
+BZip2 solidの確定folderは次入力またはflushまで保持し、単独folderのflushでは全予算を使う。
+filterの後に圧縮し、spliceしたbyteを従来のAES / ZipCrypto層へ渡す。
+取消しは `abandon()` で結果を捨て、chunk codecの終了を待たない。
+solidのworkerは共有取消しを内部の容量待ちでも観測し、source descriptorの回収だけを待つ。
+
+C=8 MiB、O=C+floor(C/100)+601、E=400000+800000×level、I=256 KiBとすると、
+内側t>1のメモリ予約は `(t+2)C + t(O+E+I)`。入力(t+1)片に加え切断copy、
+圧縮結果、codecとI/Oを含める。Oは[libbz2 manual §3.5.1](https://sourceware.org/bzip2/manual/manual.html#bzbufftobuffcompress)
+の出力上界を使い、結果bufferを先に予約して成長時の余剰容量を抑える。
+threadsは物理メモリの半分と `memoryLimit` の小さい方で絞る。一枠も入らない指定では
+従来どおりthreads=1へ戻し、既存のoptionを拒否しない。
+項目窓の逐次codec予約はEのままなので既存の固定期待値は変えず、
+solid窓は内側の全予約を各枠に数える。新しい固定表は `Bzip2SpliceTests` に置く。
+
+Mac mini M4でのbase 9d46fe2とda08ba6の交互比較は
+[BZip2 splice検証記録](verification/2026-10-08-bzip2-splice-mini-ab.md)に記載する。
+全26入力 / 方式・690 sampleで逐次経路と出力が一致し、単一10 MiBのZIP BZip2 / 7z BZip2はt=12で約5倍、
+256 MiB corpusの同2方式は約2.3倍。filter付きsolidのtree退行も解消した。
 
 ### LHA の方式・探索 level と並列圧縮（P4-G-a）
 
@@ -624,7 +679,8 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 | 形式 | 上界（byte） |
 |---|---|
 | ZIP stored | 0 |
-| ZIP BZip2 / LZMA / Zstandard / PPMd | `t > 1 ? t × 16 MiB : 0`（tは項目窓の予算で解決） |
+| ZIP LZMA / Zstandard / PPMd | `t > 1 ? t × 16 MiB : 0`（tは項目窓の予算で解決） |
+| ZIP / 非solid/filterなし7z BZip2 | `max(項目窓の上界, 内側t > 1 ? (t+1) × 8 MiB : 0)` |
 | ZIP Deflate | `t × DeflateBlock.size`（ZipCrypto は 0） |
 | ZIP XZ | `max((t + 1) × 片, 項目窓の上界)`（大項目は終了時にblockを全て出力） |
 | tar | 0 |
@@ -634,9 +690,9 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 | tar.xz | `t × 16 MiB + 4 MiB + (t > 1 ? (t + 1) × 64 KiB : 0)` |
 | 7z LZMA2 | `t × 16 MiB` |
 | 7z Deflate | `t × 1 MiB` |
-| 非solid/filterなし7z LZMA / BZip2 / PPMd | `t > 1 ? t × 16 MiB : 0` |
+| 非solid/filterなし7z LZMA / PPMd | `t > 1 ? t × 16 MiB : 0` |
 | 非solid/filterなし7z Copy | 0 |
-| 7z solid / filter | `t × (solidならblockSize、非solidなら16 MiB)`（disk上の入力を含む） |
+| 7z solid / filter | `f × (solidならblockSize、非solidなら16 MiB)`（disk上の入力。fはfolder窓）BZip2は内側t>1ならさらに`(t+1+f) × 8 MiB` |
 | LHA LH5 / LH6 / LH7 | `t > 1 ? max(項目窓の上界, t × (1 MiB + 8 / 32 / 64 KiB)) : 0` |
 | LHA stored | 0（同期処理） |
 
@@ -768,7 +824,7 @@ Deflate は `DeflateBlock` の最大1 MiB入力と直前の末尾32 KiBを辞書
 LZMA は `LZMAEncoder` を folder ごとに保持し、size を expectedSize に渡して EOS 無しで一度だけ finish する。
 solid folder の再圧縮と追加も WriterOptions 全体を FolderEncoder に渡すので方式・level・extreme が揃う。
 header の再圧縮は従来の Apple LZMA2 の設定を保つ。
-BZip2 は `Bzip2StreamEncoder` の状態を folder ごとに持ち、I/O ごとの入力を同期処理して一度だけ終端を書く。
+BZip2 は `ParallelBzip2StreamEncoder` をfolderごとに持ち、blockを並列圧縮して単一streamへspliceする。
 PPMd は `PPMd7StreamEncoder` の状態を folder ごとに持つ。properties は stream の外側の coder に書き、
 folder の展開サイズで終端を知るため EOF を書かず5 byte flush を一度だけ出力する。
 order は2...32、encoder の対応メモリは1...1024 MiB。solid は block 全体を一つのモデルで符号化する。

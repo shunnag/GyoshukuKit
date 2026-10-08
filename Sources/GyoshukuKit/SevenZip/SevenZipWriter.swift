@@ -50,7 +50,7 @@ final class SevenZipWriter {
                 lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
                     ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
                 ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
-                size: record.size)
+                bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: record.size)
             self.record.method = options.sevenZipMethod
             self.record.lzmaProperties = encoder.lzmaProperties
             self.record.ppmdProperties = encoder.ppmdProperties
@@ -122,7 +122,8 @@ final class SevenZipWriter {
         var record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
-        if let entryPipeline, size <= EntryCompressionConfiguration.inputLimit {
+        if let entryPipeline, size <= EntryCompressionConfiguration.inputLimit,
+           !(options.sevenZipMethod == .bzip2 && size > UInt64(5 * (100_000 * options.bzip2Level - 19))) {
             try entryPipeline.waitForCapacity(emit: emitEntry)
             var input = Data()
             input.reserveCapacity(Int(size))

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### 改善
+
+- ZIP method 12と7z BZip2の単一大項目・solid folder内を並列圧縮する。
+  system libbz2のblock境界をSwiftで数え、圧縮結果のblockだけを単一streamへspliceする。
+  通常は逐次出力とbyte一致し、長いrunで8 MiBの入力capに達した場合も同じ内容へ復号できる。
+  スレッド・メモリの予約、filter、AES / ZipCrypto、取消しの非同期codec破棄に対応する。
+  filter付きsolidの複数folderに内側スレッドを分配し、逐次filterの待ち合わせを減らす。
+  spliceのpayloadを一括copy / 64 bit shiftで処理する。
+  tar.bz2 / 単独.bz2の連結stream経路は従来どおり。
+  [Mac mini交互比較の検証記録](Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md)に
+  26条件・690 sampleの出力一致、ZIP BZip2 / 7z BZip2の単一10 MiBで約5倍、256 MiB corpusで約2.3倍の計測を記載する。
+
 ## [0.7.0] - 2026-09-29
 
 コード品質レビュー（2026-09-28）とその後回し項目の処理をまとめた release。公開 API の名前と書庫の出力 byte は変えていない。

@@ -176,7 +176,8 @@ final class ZipWriter {
         try Task.checkCancellation()
         let method = compression(name: name, mode: mode, size: size)
         if let entryPipeline, !(encryptsWithZipCrypto && mode.isRegularFileMode && (method == .stored || size == 0)),
-           size <= (method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit) {
+           size <= (method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit),
+           !(method == .bzip2 && size > UInt64(5 * (100_000 * options.bzip2Level - 19))) {
             try submitWaitingEntry()
             try entryPipeline.waitForCapacity(emit: emitEntry)
             let entry = try makeEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners, method: method)
@@ -521,7 +522,10 @@ final class ZipWriter {
         // stored は従来の1 MiB先読みかstream経路を使い、完成recordの複製を有界にする。
         if method == .stored, entryPipeline != nil { return DeflateBlock.size }
         switch options.compressionMethod {
-        case .bzip2, .lzma, .xz, .zstd, .ppmd:
+        case .bzip2:
+            // 大項目の一括disk追加も、項目workerを経ず内側のblock並列へ渡す。
+            return entryPipeline == nil ? 0 : min(EntryCompressionConfiguration.inputLimit, 5 * (100_000 * options.bzip2Level - 19))
+        case .lzma, .xz, .zstd, .ppmd:
             return entryPipeline == nil ? 0 : EntryCompressionConfiguration.inputLimit
         case .stored, .deflate: break
         }

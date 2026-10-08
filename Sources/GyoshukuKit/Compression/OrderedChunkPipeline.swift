@@ -32,13 +32,15 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
             condition.broadcast()
         }
 
-        func take(_ id: UInt64) throws -> Output? {
+        func take(_ id: UInt64, cancellation: CompressionCancellation?) throws -> Output? {
             condition.lock()
             defer { condition.unlock() }
             while !abandoned, results[id] == nil {
+                try cancellation?.check()
                 try Task.checkCancellation()
                 _ = condition.wait(until: Date(timeIntervalSinceNow: 0.05))
             }
+            try cancellation?.check()
             try Task.checkCancellation()
             guard !abandoned else { throw CancellationError() }
             return try results.removeValue(forKey: id)!.get()
@@ -57,6 +59,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private let lightWeightLimit: UInt64
     private let inlineSingleThread: Bool
     private let encoder: Encoder
+    private let cancellation: CompressionCancellation?
     private let queue: DispatchQueue
     private let state = State()
     private var items: [(id: UInt64, tag: Tag, isHeavy: Bool, weight: UInt64)] = []
@@ -66,12 +69,13 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private var finished = false
     var pendingCount: Int { items.count }
 
-    init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, encoder: @escaping Encoder) {
+    init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, cancellation: CompressionCancellation? = nil, encoder: @escaping Encoder) {
         precondition((1...64).contains(threads))
         self.threads = threads
         self.lightWeightLimit = lightWeightLimit
         self.inlineSingleThread = inlineSingleThread
         self.encoder = encoder
+        self.cancellation = cancellation
         queue = DispatchQueue(label: "GyoshukuKit.Compression", qos: Self.currentQoS, attributes: .concurrent)
     }
 
@@ -156,7 +160,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
         guard !finished, !items.isEmpty else { throw WriterError.invalidState }
         do {
             let item = items[0]
-            let result = try state.take(item.id)
+            let result = try state.take(item.id, cancellation: cancellation)
             try emit(item.tag, result)
             items.removeFirst()
             if item.isHeavy { heavyCount -= 1 }

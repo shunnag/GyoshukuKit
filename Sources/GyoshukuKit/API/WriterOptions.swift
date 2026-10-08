@@ -133,11 +133,12 @@ public struct WriterOptions: Sendable {
     /// 自前 LZMA の探索量を増やす。既定は false。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使う。
     /// 他の形式は lzmaLevel を指定したときだけ使う。
     public var lzmaExtreme: Bool
-    /// 自前 LZMA / Zstandard の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
-    /// 物理メモリの50%との小さい方で並列数を抑える。一つも入らなければ invalidOption("memoryLimit")。
-    /// 辞書を上限に合わせて縮小しない。Appleの既存block経路と他のcodecには適用しない。
+    /// 自前 LZMA / Zstandard、ZIP / 7z BZip2の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
+    /// 物理メモリの50%との小さい方で並列数を抑える。LZMA / Zstandardは一つも入らなければ invalidOption("memoryLimit")。
+    /// 辞書を上限に合わせて縮小しない。Appleの既存block経路と上記以外のcodecには適用しない。
     /// 新規のLZMA/XZ項目・folder窓はAppleの見積りも含めこの予算で解決し、2枠未満なら従来経路へ戻す。
     /// Zstandard は encoder の見積りと入出力 buffer を数え、ZIP の逐次 frame も予算を検証する。
+    /// ZIP / 7z BZip2はcodec・8 MiB capの入出力を予約して並列数を絞る。一枠未満は既存の逐次経路。
     public var memoryLimit: UInt64?
     /// ZIP で既知の圧縮済み拡張子は stored にする。false なら指定方式を使う。
     /// 空ファイル、ディレクトリ、symlink は常に stored。
@@ -156,7 +157,8 @@ public struct WriterOptions: Sendable {
     /// ZIP / 圧縮tar / 7z / LHA の圧縮並列数（1...64）。
     /// tar.zst / 単独 Zstandard は max(4 MiB, level の window) の独立 frame を同じ並列数で処理する。
     /// 単独 gzip / bzip2 / XZ / lzip / LZ4 も同じ設定。LZMA_Alone / Brotli / compress は逐次。
-    /// ZIP BZip2・LZMA・XZ・Zstandard・PPMd と非solid 7z LZMA・BZip2・PPMd は16 MiB以下の項目を並列化する。
+    /// ZIP LZMA・XZ・Zstandard・PPMd と非solid 7z LZMA・PPMd は16 MiB以下の項目を並列化する。
+    /// ZIP / 7z BZip2は約5 block分以下を項目間、それより大きい項目内はblockを並列化し単一streamへspliceする。
     /// 大項目と7z Copyは既存のstream経路。ZIP XZと7z LZMA2・Deflateは大項目内のblockも並列化する。
     /// 7z solid/filterはfolderごとのdisk spoolを並列圧縮する。非solidは16 MiB、solidはblock上限まで。
     /// LHAは1 MiB超〜16 MiBのmemberも項目間で並列化し、内部の1 MiB境界と履歴を保つ。
@@ -242,7 +244,8 @@ public struct WriterOptions: Sendable {
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
-    /// ZIP BZip2・LZMA・Zstandard・PPMd と非solid 7z LZMA・BZip2・PPMdは t > 1 なら t × 16 MiB、逐次は0。
+    /// ZIP LZMA・Zstandard・PPMd と非solid 7z LZMA・PPMdは t > 1 なら t × 16 MiB、逐次は0。
+    /// BZip2は項目窓と、内側(t+1) × 8 MiBの大きい方。t=1の内側は既存streamでbufferなし。
     /// tは項目窓のメモリ予算で解決した数。7z Copyは0。圧縮出力は1 MiBまでメモリ、超過時はdisk spoolで保持する。
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
@@ -264,7 +267,11 @@ public struct WriterOptions: Sendable {
         case .zip:
             switch compressionMethod {
             case .stored: return 0
-            case .bzip2, .lzma, .zstd, .ppmd:
+            case .bzip2:
+                let inner = ParallelBzip2StreamEncoder.resolvedThreads(options: self, physicalMemory: physicalMemory)
+                let chunks = inner > 1 ? UInt64(inner + 1) * UInt64(ParallelBzip2StreamEncoder.inputCap) : 0
+                return max(chunks, EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes)
+            case .lzma, .zstd, .ppmd:
                 return EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
@@ -293,12 +300,22 @@ public struct WriterOptions: Sendable {
                 let count = sequential ? 1 : UInt64(EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory, innerParallelism: true).threads)
                 let limit = sevenZipSolid == .off ? UInt64(EntryCompressionConfiguration.inputLimit) : resolvedSevenZipBlockSize
                 let (bound, overflow) = limit.multipliedReportingOverflow(by: count)
+                if sevenZipMethod == .bzip2 {
+                    let inner = ParallelBzip2StreamEncoder.resolvedThreads(options: self, physicalMemory: physicalMemory)
+                    let chunks = inner > 1 ? UInt64(inner + 1) * UInt64(ParallelBzip2StreamEncoder.inputCap) : 0
+                    // disk spoolと、複数folderの内側組立bufferを同時に数える。
+                    return overflow ? UInt64.max : bound + chunks + (inner > 1 ? count * UInt64(ParallelBzip2StreamEncoder.inputCap) : 0)
+                }
                 return overflow ? UInt64.max : bound
             }
             switch sevenZipMethod {
             case .lzma2: return lzmaThreads * piece
             case .deflate: return threads * UInt64(DeflateBlock.size)
-            case .lzma, .bzip2, .ppmd:
+            case .bzip2:
+                let inner = ParallelBzip2StreamEncoder.resolvedThreads(options: self, physicalMemory: physicalMemory)
+                let chunks = inner > 1 ? UInt64(inner + 1) * UInt64(ParallelBzip2StreamEncoder.inputCap) : 0
+                return max(chunks, EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).maximumPendingInputBytes)
+            case .lzma, .ppmd:
                 return EntryCompressionConfiguration(options: self, method: sevenZipMethod, physicalMemory: physicalMemory).maximumPendingInputBytes
             case .copy: return 0
             }

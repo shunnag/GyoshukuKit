@@ -7,7 +7,7 @@ enum SevenZipChunkOutput: Sendable {
 }
 
 /// LZMA2 / Deflate の block は並列化し、LZMA / Copy / BZip2 / PPMd の入力は同期で folder encoder に渡す。
-/// BZip2 の状態は folder が持つので、複数の bzip2 stream を連結しない。
+/// BZip2 のblock並列と単一streamへのspliceはfolder encoderが持つ。
 final class SevenZipChunkPipeline<Tag> {
     private enum Input: Sendable {
         case lzma2(Data)
