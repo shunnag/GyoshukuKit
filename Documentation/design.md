@@ -1,5 +1,7 @@
 # GyoshukuKit 設計書(2026-09-10 初版)
 
+導入は [README](../README.md)、利用時の API・保証は[使用ガイド](usage.md)、方式と制限は[形式リファレンス](formats.md)、設定とメモリは [WriterOptions](options.md)、検証手順は[開発ガイド](testing.md)を参照する。
+
 ## 1. 位置づけ
 
 解凍(KaitoKit)と凝縮(GyoshukuKit)を対にする。KaitoKit が読み取り専用で

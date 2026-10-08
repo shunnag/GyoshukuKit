@@ -86,8 +86,8 @@ PackPos は 48、header packed size は 144、平文 header size は 130。folde
 
 ## 追加した XCTest（実行待ち）
 
-[EncryptionTests.swift](../../Tests/GyoshukuKitTests/EncryptionTests.swift) と
-[EncryptionTestSupport.swift](../../Tests/GyoshukuKitTests/EncryptionTestSupport.swift) を追加した。
+[EncryptionTests.swift](../../Tests/GyoshukuKitTests/Writer/EncryptionTests.swift) と
+[EncryptionTestSupport.swift](../../Tests/GyoshukuKitTests/Support/EncryptionTestSupport.swift) を追加した。
 16 個の test method で、以下の条件を組み合わせる。oracle が欠けた場合は skip せず失敗する。
 
 - ZIP AES-256 / ZipCrypto: 0 / 5 / 19 / 20 / 21 byte、1 MiB deflate、1 MiB 超の jpg 名 stored、

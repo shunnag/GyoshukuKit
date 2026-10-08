@@ -45,8 +45,8 @@ jobs:
       - name: Build release tests
         run: swift build -c release --build-tests -Xswiftc -enable-testing
       - name: Large encoder tests (release)
-        # FullSize 14 件は debug suite では opt-in。Mac mini M4 では
-        # release build が約 2.5 分、14 件の実行が 127 秒だった。
+        # FullSize 16 件（BZip2追加後）は debug suite では opt-in。
+        # 追加前の14件では、Mac mini M4 の release build が約 2.5 分、実行が 127 秒だった。
         env:
           GYOSHUKU_LARGE_ENCODER_TESTS: '1'
         run: |
