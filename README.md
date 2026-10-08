@@ -9,19 +9,20 @@ GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワ�
 - 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
 - 単独ファイルの圧縮: `SingleStreamCompressor` で .gz / .bz2 / .xz / .zst / .lzma / .lz / .lz4 / .br / .Z を新規作成
 - 一括追加と進捗: `ArchiveAddition` と `add(_:events:)`、ディスク読取の byte 進捗、`finishAdditions(progress:)`、updater / rewriter の commit 進捗
-- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.12.x（0.12.0 以上、0.13.0 未満）。更新時の読取と往復検証に使用。`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.11.0")` に限定する。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照を選ぶ。SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させる（`.build` の削除では manifest cache が残る）
+- 依存: [KaitoKit](https://github.com/shunnag/KaitoKit) 0.12.x（0.12.0 以上、0.13.0 未満）。更新時の読取と往復検証に使用。`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.12.0")` に限定する。`Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照を選ぶ。SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させる（`.build` の削除では manifest cache が残る）
 - ライセンス: MIT
 
 ## インストール
 
-GyoshukuKit 0.7.0 を Swift Package Manager で追加します。
+GyoshukuKit 0.8.0 を Swift Package Manager で追加します。
 
 ```swift
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.7.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.8.0"))
 ```
 
 利用側の target の dependencies に `.product(name: "GyoshukuKit", package: "GyoshukuKit")` を追加してください。
-KaitoKit 0.12.0 → GyoshukuKit 0.7.0 → KaitoFinder 0.5.0 の順にリリースします。
+リリース順は KaitoKit 0.12.x → GyoshukuKit 0.8.0 → KaitoFinder 0.6.0 です。
+KaitoKit は既存の0.12.xを使い、製品ソースが v0.12.1 以降変わっていないため今回は再リリースしません。
 
 ## 使用例
 
@@ -129,14 +130,14 @@ MacLHA の `m` 印だけでは MacBinary と通常の本文を区別できず、
 | `ppmdMemoryMiB` | `nil` | preset のモデルメモリを MiB 単位で上書き。ZIP は `1...256`、7z は encoder が対応する `1...1024` |
 | `lzmaLevel` | `nil` | tar.xz / 7z LZMA2 / ZIP XZ は nil なら従来の Apple preset-6。`0...9` は自前 encoder。ZIP / 7z LZMA と tar.lzma / tar.lz は常に自前で nil は6。単独 XZ / LZMA / lzip も同じ解決 |
 | `lzmaExtreme` | `false` | 自前 LZMA の探索量を増やす。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使い、他はレベル指定時だけ |
-| `memoryLimit` | `nil` | 自前 LZMA / Zstandard の作業メモリ上限（byte）。nil は物理メモリの50%。並列数を抑え、一つも入らなければ `invalidOption("memoryLimit")`。Apple 経路と他の codec には適用しない |
+| `memoryLimit` | `nil` | 自前 LZMA / Zstandard と ZIP / 7z BZip2 の圧縮予約の予算（byte）。物理メモリの50%との小さい方を使い、nil は50%。自前 LZMA / Zstandard は一つも入らなければ `invalidOption("memoryLimit")`。BZip2 は逐次へ戻す。新しい LZMA / XZ 項目・folder窓は Apple codec の見積りも含めるが、2枠未満なら従来経路へ戻す。Apple の既存 block 経路と他の codec には適用しない |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
 | `preserveOwnerIDs` | `false` | true のときディスク由来の uid/gid を 0x7875 に保存 |
 | `preserveMacOSMetadata` | `false` | true はこの段階では `unsupportedOption` |
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
-| `compressionThreads` | `nil` | ZIP deflate（ZipCrypto を除く）/ ZIP XZ / tar.zst / tar.gz / tar.bz2 / tar.lz / tar.lz4 / 7z LZMA2・Deflate / tar.xz / LHA の並列数 `1...64`。自前 LZMA2 / lzip / Zstandard はメモリ予算で実際の並列数を制限。単独 gzip / bzip2 / XZ / Zstandard / lzip / LZ4 も同じ設定。ZIP Zstandard / ZIP・7z LZMA は同期。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `compressionThreads` | `nil` | ZIP / 7z / LHA の項目・folder・memberと、圧縮 tar / 単独 gzip・bzip2・XZ・Zstandard・lzip・LZ4 の並列数 `1...64`。項目窓は最大16枠、メモリ予算でも制限する。ZIP / 7z BZip2 は大項目内を単一 stream spliceで並列化する。LZMA1 / PPMd の一つの stream と LZMA_Alone / Brotli / compress は逐次。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
 
@@ -171,9 +172,11 @@ Copy / Deflate / BZip2 の coder に properties は置きません。7z は ZIP 
 指定方式を全ての非空 stream に適用します。updater の追加と solid folder の再圧縮、7z への rewriter も
 `sevenZipMethod` を使います。運ぶ既存 folder の coder と packed byte は保持し、AES の設定・変更・解除も再圧縮しません。
 Deflate は最大1 MiBの block を直前の末尾32 KiBの辞書で圧縮し、一つの raw deflate stream に連結します。
-LZMA / BZip2 / PPMd は folder ごとに一つの stream を同期で完結させ、Copy も同期出力します。
-`maximumPendingInputBytes(for: .sevenZip)` は LZMA2 が `解決した並列数 × 片サイズ`、
-Deflate が `compressionThreads × 1 MiB`、LZMA / BZip2 / PPMd / Copy が0です。BZip2 の codec state は最大約7.6 MBと I/O buffer です。
+LZMA / PPMd は folder ごとに一つの stream を保ち、複数 folder を並列圧縮します。Copy は filterなしなら同期出力です。
+BZip2 は小 folder を項目間、大 folder は内部 block を並列圧縮して単一 streamへspliceします。
+`maximumPendingInputBytes(for: .sevenZip)` は通常の LZMA2 が `解決した並列数 × 片サイズ`、Deflate が `compressionThreads × 1 MiB`、
+LZMA / PPMd が項目窓の入力上界、BZip2 が項目窓と内側 splice buffer の大きい方です。filterなしの Copy は0です。
+solid / filter の値は disk上の folder入力も数え、BZip2 は内側bufferも加えます。codec stateや圧縮出力を含むRSS上限ではありません。
 
 PPMd の preset は次の通りです。ZIP と7zで variant と order が異なります。
 
@@ -203,8 +206,10 @@ order 7・3 MiB の ZIP を書きます。7z は `sevenZipMethod: .ppmd` を使�
 Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は選択 level の辞書、PPMd は model memory を使います。
 ファイルは分割せず、上限を超えるものは単独の folder にします。全方式と AES・header 暗号化を併用できます。
 一つの block の入力を出力の隣の unlink 済み一時ファイルへ流し、確定したサイズで圧縮します。
-一時ディスク容量は最大 `max(blockSize, 最大ファイルサイズ)`、圧縮のメモリ上限は従来と同じです。
-solid の `maximumPendingInputBytes` はメモリ使用量ではなく、disk 上に待つ一つの block のサイズ上限です。
+一時ディスクには未出力folderの入力と、メモリの1 MiBを超えてspillした圧縮出力を保持します。
+folder窓は最大16枠で、blockSizeが256 MiBを超える場合とfilterなしCopyはfolder間を逐次処理します。
+ファイルを分割しないため、上限を超える単一入力のspool容量も必要です。
+solid の `maximumPendingInputBytes` はメモリ使用量ではなく、disk 上に待つ folder窓の入力上界です（BZip2 は内側bufferも含む）。
 
 `.auto` は先頭64 KiB内の magic / CPU を調べ、x86・x86_64 PE / 単一 Mach-O に BCJ、
 arm64 PE / 単一 Mach-O / ELF64 に ARM64 を使います。universal Mach-O と未判定の入力は変換しません。
@@ -266,14 +271,15 @@ EmptyStream として保存します。header 暗号化は名前も隠します�
 
 `WriterOptions(lzmaLevel: 9, lzmaExtreme: true)` は tar.xz / ZIP XZ / 7z LZMA2 の自前 encoder を選びます。
 片ごとに辞書を reset し、辞書が16 MiBを超えるレベル8・9では xz の block size 規則に合わせて3倍の片を使います。
-ZIP LZMA は entry ごと、7z LZMA は folder ごとに一つの stream を同期符号化し、片に分けません。
+ZIP LZMA は entry ごと、7z LZMA は folder ごとに一つの stream を符号化し、片に分けず項目・folder間を並列化します。
 ZIP 14 は EOS と general purpose bit 1 を付けます。7z は folder の既知サイズを使い EOS を省略します。
 
 自前 LZMA2 の実際の並列数 t は `t × (encoder memory + 2 × 片サイズ)` が
 `min(memoryLimit（nil は物理メモリの50%）, 物理メモリの50%)` 以下になる最大数に制限します。
 要求した並列数を上限とし、1個分も入らなければ書庫を作る前に `WriterError.invalidOption("memoryLimit")` を返します。
 メモリ不足で宣言辞書を縮小しません。自前 tar.xz は小さい block も t 個の枠に数えます。
-入力の上界は tar.xz が `t × 片 + 4 MiB`、7z が `t × 片`、ZIP XZ が `(t + 1) × 片` です。
+入力の上界は自前 tar.xz が `t × 片 + 4 MiB`、通常の7z LZMA2 が `t × 片`、
+ZIP XZ が `(t + 1) × 片` と項目窓の入力上界の大きい方です。solid / filterはfolder窓の上界を使います。
 
 | `lzmaLevel` | 辞書 MiB | LZMA2 encoder MiB | 片 MiB | LZMA2 1 thread の予算 MiB | raw LZMA1 の同期予算 MiB |
 |---|---:|---:|---:|---:|---:|
@@ -353,7 +359,7 @@ XZ は `lzmaLevel: 0...9` の自前経路、bzip2 は `bzip2Level: 1...9` を選
 
 ## 新しい圧縮 tar と単独ファイル
 
-`ArchiveFormat` の `.tarLZMA` / `.tarLzip` / `.tarLZ4` / `.tarBrotli` / `.tarCompress` は、
+`ArchiveFormat` の `.tarZstd` / `.tarLZMA` / `.tarLzip` / `.tarLZ4` / `.tarBrotli` / `.tarCompress` は、
 通常の `TarWriter` の出力を次の framing で包みます。拡張子はライブラリが決めず、呼出側が指定します。
 
 | 形式 | framing と分割 | レベル |
@@ -460,7 +466,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 > Apple Silicon, paired with the read-only KaitoKit. Building requires Xcode 27 / Swift 6.4 or later. It uses system
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
-> GyoshukuKit 0.7.0 depends on KaitoKit 0.12.x through `.upToNextMinor(from: "0.12.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
+> GyoshukuKit 0.8.0 depends on KaitoKit 0.12.x through `.upToNextMinor(from: "0.12.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
 > Creation and full rewriting also support tar, tar.gz, tar.bz2, tar.xz, 7z and LHA. 7z supports optional solid blocks and BCJ / ARM64 / Delta filters.
 > `TarUpdater`, `CompressedTarUpdater`, `LHAUpdater` and `SevenZipUpdater` edit existing archives while carrying unchanged members or compressed regions. Changed compressed-tar regions and partially deleted solid 7z folders are recompressed. ZIP and 7z updaters also support password changes without recompression.
 > `ArchiveAddition` batches use `add(_:events:)`; byte progress covers disk reads, `finishAdditions(progress:)` and updater/rewriter commits.

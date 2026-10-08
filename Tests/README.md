@@ -53,7 +53,7 @@
 
 | 鍵 | 開く試験 | 内容・条件 |
 |---|---|---|
-| `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 8 class の `…FullSize` 14 件 | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅を保持する。CI は Xcode 27 / Swift 6.4 で build した release test を macOS 27 と macOS 26 で実行する。既定の境界・復旧検査と実測は [検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) |
+| `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 10 class の `…FullSize` 16 件（BZip2追加後） | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅、BZip2 splice の16 MiB並列検査を保持する。CI は Xcode 27 / Swift 6.4 で build した release test を macOS 27 と macOS 26 で実行する。既定の境界・復旧検査と実測は [encoder検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) と [BZip2検証記録](../Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md) |
 | `GYOSHUKU_ENCODER_TIMING=1` | ✱ `EncoderWriterOverheadProbeTests`・工程の計測 | probe は Copy / file I/O の対照を測る。`ENCODER_PHASE`、工程名、秒、入力 byte、出力 byte を TSV で出す。encoder / writer、corpus、KaitoKit、oracle、CRC、Data append を分ける |
 | `GYOSHUKU_ENCODER_BENCHMARK_RUN=<label>` | skip しない。計測 process の分離 | 出力を `.build/verification/encoder-speed/<label>/` に置く。before / after の反復で一時 file を共有しない |
 | `GYOSHUKU_MULTICORE_BENCHMARK=1` | ✱ `MulticoreBenchmarkTests` / `ZipConcatenatedZstdProbeTests` | 256 MiB混合corpusのwriter wall / process CPU / サイズ / SHA-256と、MulticoreWriterTestsの13個の16 MiB直前項目のpending上界。大入力はreleaseで実行。`Benchmarks/multicore.py`と同日検証記録を参照。corpusとJSONL出力は`GYOSHUKU_MULTICORE_CORPUS` / `GYOSHUKU_MULTICORE_RESULTS`。 |
@@ -104,7 +104,7 @@ ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7
 - CI（`.github/workflows/ci.yml`）は `brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake` と
   固定commitの LHa for UNIX の一時ビルドで必須ツールを入れる。製品の依存には加えない。
   build は Xcode 27 / Swift 6.4 のみ。macOS 27 では既定の debug suite と、release の
-  `GYOSHUKU_LARGE_ENCODER_TESTS=1` / `--filter FullSize` による大入力14件を実行する。
+  `GYOSHUKU_LARGE_ENCODER_TESTS=1` / `--filter FullSize` による大入力16件（BZip2追加後）を実行する。
   macOS 26 には別の Xcode 27 job で build した test bundle・resource・依存 dylib と FullSize の識別子を運び、
   コンパイルせず artifact に同梱した Xcode 27 の xctest runner と framework / dylib で同じ試験を行う。
   Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
