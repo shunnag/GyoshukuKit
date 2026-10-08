@@ -1,5 +1,6 @@
 import Foundation
 import CGyoshukuBzip2
+import Synchronization
 import XCTest
 @testable import GyoshukuKit
 
@@ -48,6 +49,34 @@ final class Bzip2SpliceTests: XCTestCase {
         try encoder.write(manyBlocks, finish: true) { output.append($0) }
         XCTAssertEqual(output, try Bzip2StreamEncoder.encode(manyBlocks, level: 1))
         XCTAssertEqual(try decodeSingle(output), manyBlocks)
+    }
+
+    func testManyThreadsIncreaseChunkCountAndKeepIdentity() throws {
+        let block = 99_981
+        // level 1で約48 blockを用意し、通常の局所試験でも各threadへ3〜4片以上を配る。
+        let input = TestCorpus.random(48 * block + 137)
+        let size = UInt64(input.count)
+        let expected = try Bzip2StreamEncoder.encode(input, level: 1)
+        for threads in [2, 12, 16] {
+            let calls = Mutex(0)
+            let encoder = try ParallelBzip2StreamEncoder(level: 1, threads: threads, size: size, encoder: { bytes, level in
+                calls.withLock { $0 += 1 }
+                return try Bzip2StreamEncoder.encode(bytes, level: level)
+            })
+            var output = Data()
+            try encoder.write(input, finish: true) { output.append($0) }
+            let chunks = calls.withLock { $0 }
+            XCTAssertEqual(chunks, threads == 2 ? 10 : 49, "threads=\(threads)")
+            XCTAssertEqual(chunks, ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: 1, threads: threads))
+            if threads > 2 {
+                // 旧方針ではthreads 12は4 blockずつ13片、16は3 blockずつ17片だった。
+                XCTAssertGreaterThan(chunks, threads == 12 ? 13 : 17)
+                XCTAssertGreaterThanOrEqual(chunks, 3 * threads)
+            }
+            XCTAssertEqual(encoder.forcedCuts, 0)
+            XCTAssertEqual(output, expected, "threads=\(threads)")
+            XCTAssertEqual(try decodeSingle(output), input)
+        }
     }
 
     func testAllEightEOSPaddingCandidates() throws {
@@ -153,6 +182,22 @@ final class Bzip2SpliceTests: XCTestCase {
         let size: UInt64 = 16 << 20
         XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: size, threads: 12), 899_981)
         XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: 9, threads: 12), 19)
+        let block = 899_981
+        // 64 MiBは旧方針のthreads 12で5 blockずつ15片。新方針は1 blockまで細分化する。
+        XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: 64 << 20, threads: 2), 5 * block)
+        XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: 64 << 20, level: 9, threads: 2), 15)
+        XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: 64 << 20, threads: 7), 2 * block)
+        XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: 64 << 20, level: 9, threads: 7), 38)
+        for threads in [12, 16] {
+            XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: 64 << 20, threads: threads), block)
+            // 実際は約75片でも、予約に使う見積もりは従来の64枠上限を維持する。
+            XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: 64 << 20, level: 9, threads: threads), 64)
+        }
+        for size: UInt64 in [0, 1] {
+            XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: size, threads: 64), block)
+            XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: 9, threads: 64), 1)
+        }
+        XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: UInt64.max, threads: 64), 5 * block)
         XCTAssertEqual(ParallelBzip2StreamEncoder.memoryReservation(level: 9, threads: 1), 7_600_000)
         XCTAssertEqual(ParallelBzip2StreamEncoder.memoryReservation(level: 9, threads: 2), 66_224_910)
         let options = WriterOptions(compressionMethod: .bzip2, sevenZipMethod: .bzip2, bzip2Level: 9,
