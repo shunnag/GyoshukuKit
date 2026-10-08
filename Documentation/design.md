@@ -218,6 +218,8 @@ level 1では同じ入力がそれぞれW=3Bで35片、W=5Bで135片、W=5Bで21
 入力capは各chunk 8 MiB。長い同値runでcapに達したときは強制切断し、その位置からscannerを初期化する。
 並列数1の大入力も同じscanner・切断・spliceを使い、workerは inline 実行し、結果を直ちに出力する。
 cap未満の既知入力の1 thread処理と一block以下の入力は既存codecを使う。
+既知入力の逐次経路は最後の1 byteをfinishまで保持し、末尾の満杯blockをBZ_RUNで先に確定させない。
+入力とfinishを別writeで渡しても、片をBZ_FINISHで圧縮するsplice経路と同じblock境界を保つ。
 capちょうどの既知入力もspliceを使い、最後の入力とfinishを別writeで渡した場合の強制切断を揃える。
 強制切断の有無にかかわらず並列数1/2/7/12/36/64でbyte一致する。強制切断時のbyteは従来の逐次libbz2とは異なるが、標準の単一streamを維持する。
 1スレッドもspliceのbuffer予約に含め、公開の入力上界は `(t + 1) × 8 MiB`（最低16 MiB）にする。
@@ -234,9 +236,12 @@ rc=2・切詰め、Python zipfileはBad CRC-32、bsdtarも失敗したため、�
 tar.bz2の `ParallelBzip2Compressor` は従来の連結streamと固定幅 `5 × level × 100000` を保つ。
 単独.bz2は `SingleStreamWriter` が通常fileの既知サイズを `ParallelBzip2StreamEncoder` へ渡す。
 
-ZIP（一括disk追加も含む）と非solid/filterなし7zは推定2片以上の項目で
-項目窓をdrainし、内側threadsを使う。
-それ以下の複数項目は既存の項目窓で各workerをthreads=1にする。
+ZIP（一括disk追加も含む）と非solid/filterなし7zの項目窓上限は `5 × B` とし、levelだけで固定する。
+上限以下は項目窓で各workerをthreads=1にし、複数項目を並列に圧縮する。
+ZIPの一括disk追加も同じ上限で先読みし、先行項目を窓に保持する。
+上限を超える項目は項目窓をdrainし、入力サイズ別のchunk幅で内側threadsを使う。
+項目窓の上限は全levelで8 MiB cap未満なので強制切断されず、逐次libbz2とspliceのbyteは一致する。
+level 1 / 9の上限直前・ちょうど・直後でthreads 1 / 7 / 36の通常追加と一括追加のbyte一致を検査する。
 solid/filterの7zは推定片数を予約し、`assignedThreads` の合計を予算内に保つ。
 filter付きsolidに次folderがあるときは、内側の予約を `max(1, 予算threads / min(4, folder窓threads))`
 以下に分配する。filterはfolder内で逐次なので、先頭folderが全予約を取ると他folderのfilterも待たされる。

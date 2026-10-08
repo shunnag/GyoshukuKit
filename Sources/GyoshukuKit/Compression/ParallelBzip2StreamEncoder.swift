@@ -7,6 +7,9 @@ final class ParallelBzip2StreamEncoder: TarCompressor {
     @TaskLocal static var testingEncoder: Encoder?
     static let inputCap = 8 << 20
 
+    /// 項目窓の上限はlevelだけで固定する。内側spliceの入力サイズ別の片幅とは別に扱う。
+    static func entryWindowLimit(level: Int) -> Int { 5 * (100_000 * level - 19) }
+
     static func chunkSize(level: Int, size: UInt64) -> Int {
         let block = 100_000 * level - 19
         // 既知サイズは約32片以上を確保し、巨大入力でも一片を5 block幅までに抑える。
@@ -91,8 +94,17 @@ final class ParallelBzip2StreamEncoder: TarCompressor {
             try cancellation?.check()
             try Task.checkCancellation()
             if let sequential {
-                try sequential.write(data, finish: finish, emit: emit)
-                finished = finish
+                // BZ_RUNで末尾の満杯blockを先に確定させない。最後の1 byteをBZ_FINISHへ渡し、
+                // 入力とfinishが別writeでも、片をBZ_FINISHで圧縮するsplice経路と境界を揃える。
+                input.append(data)
+                if finish {
+                    try sequential.write(input, finish: true, emit: emit)
+                    input = Data(); finished = true
+                } else if !input.isEmpty {
+                    let last = input.removeLast()
+                    try sequential.write(input, finish: false, emit: emit)
+                    input = Data([last])
+                }
                 return
             }
             var offset = data.startIndex

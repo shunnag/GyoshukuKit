@@ -92,6 +92,25 @@ final class Bzip2SpliceTests: XCTestCase {
         }
     }
 
+    func testKnownSizeSeparateFinishMatchesWholeInputAtExactBlockTail() throws {
+        for level in [1, 9] {
+            // 満杯block直後に1 byte残る入力。BZ_RUNの後の空finishで境界が変わる場合を検査する。
+            let input = TestCorpus.random(5 * (100_000 * level - 19) + 1)
+            let expected = try Bzip2StreamEncoder.encode(input, level: level)
+            for threads in [1, 7, 36] {
+                let encoder = try ParallelBzip2StreamEncoder(level: level, threads: threads, size: UInt64(input.count))
+                var output = Data()
+                for offset in stride(from: 0, to: input.count, by: IOChunk.size) {
+                    try encoder.write(input.subdata(in: offset..<min(offset + IOChunk.size, input.count)), finish: false) { output.append($0) }
+                }
+                try encoder.write(Data(), finish: true) { output.append($0) }
+                XCTAssertEqual(encoder.forcedCuts, 0)
+                XCTAssertEqual(output, expected, "level=\(level), threads=\(threads)")
+                XCTAssertEqual(try decodeSingle(output), input)
+            }
+        }
+    }
+
     func testUnknownSizeStreamingIdentityAcrossThreadsAndReadSizes() throws {
         let mixed = alternating(899_981 + 137) + Data(repeating: 65, count: ParallelBzip2StreamEncoder.inputCap + 4096)
         for (input, level, forced): (Data, Int, Int) in [(TestCorpus.random(700_013), 1, 0), (mixed, 9, 1)] {
