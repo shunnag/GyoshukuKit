@@ -8,22 +8,26 @@ struct EntryCompressionConfiguration {
     // GCD の constrained thread 上限より十分小さくする。
     static let maximumEntryThreads = 16
     let threads: Int
+    let codecThreads: Int
 
     init(lhaThreads: Int, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
+        codecThreads = 1
         // 各memberの片並列にも最大の内部codec数を予約する。
         let state = UInt64(8 << 20) * UInt64(max(1, min(64, lhaThreads)))
         threads = Self.resolve(requested: lhaThreads, state: state,
                                budget: physicalMemory / 2)
     }
 
-    init(options: WriterOptions, method: SevenZipCompressionMethod, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory, innerParallelism: Bool = false) {
+    init(options: WriterOptions, method: SevenZipCompressionMethod, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory, innerParallelism: Bool = false, chunkSize: Int? = nil) {
         let state: UInt64
         let budget: UInt64
+        var pieceSize = 1
         switch method {
         case .lzma, .lzma2:
             let configuration = try? LZMAWriterConfiguration(options: options, raw: method == .lzma, physicalMemory: physicalMemory)
             state = configuration?.properties == nil ? 130 << 20 : configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
+            pieceSize = chunkSize ?? configuration?.pieceSize ?? ParallelXZCompressor.defaultBlockSize
         case .bzip2:
             state = ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level,
                 threads: innerParallelism ? ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: physicalMemory) : 1)
@@ -35,13 +39,21 @@ struct EntryCompressionConfiguration {
         case .deflate, .copy:
             state = 4 << 20
             budget = physicalMemory / 2
+            pieceSize = min(chunkSize ?? ParallelXZCompressor.defaultBlockSize, DeflateBlock.size)
         }
-        // folder 内の並列化を使う窓は、各枠に最大の内部 codec 数を予約する。
-        let (folderState, overflow) = state.multipliedReportingOverflow(by: UInt64(innerParallelism && method != .bzip2 ? max(1, min(64, options.resolvedCompressionThreads)) : 1))
+        let requested = max(1, min(64, options.resolvedCompressionThreads))
+        codecThreads = method == .bzip2 ? ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: physicalMemory)
+            : max(1, Int(min(UInt64(requested), min(budget, Self.testingMemoryBudget ?? budget) / state)))
+        // 単一 stream は一つ、片並列はfolder上限に入る片数だけcodec状態を予約する。
+        let size = options.sevenZipSolid == .off ? UInt64(Self.inputLimit) : options.resolvedSevenZipBlockSize
+        let pieces = innerParallelism && (method == .lzma2 || method == .deflate)
+            ? min(UInt64(requested), (max(1, size) - 1) / UInt64(pieceSize) + 1) : 1
+        let (folderState, overflow) = state.multipliedReportingOverflow(by: pieces)
         threads = Self.resolve(options: options, state: overflow ? UInt64.max : folderState, budget: budget)
     }
 
     init(options: WriterOptions, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
+        codecThreads = 1
         let state: UInt64
         let budget: UInt64
         switch options.compressionMethod {

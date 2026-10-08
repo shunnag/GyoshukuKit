@@ -14,7 +14,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let directory = try TestSupport.directory("parallel-7z-chunks")
         let items = [SevenZipTestSupport.Expected(name: "large.txt", data: ParallelLZMA2WriterTests.payload)]
         let expected = try serialArchive(items)
-        for (threads, drain) in [(1, false), (4, false), (8, false), (1, true), (8, true)] {
+        for (threads, drain) in [(1, false), (4, false), (8, false), (16, false), (1, true), (8, true), (16, true)] {
             let url = directory.appendingPathComponent("threads-\(threads)-\(drain).7z")
             let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
                                                  options: WriterOptions(compressionThreads: threads), lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize)
@@ -202,7 +202,7 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let directory = try TestSupport.directory("parallel-lzma-options")
         XCTAssertNil(WriterOptions().compressionThreads)
         XCTAssertEqual(WriterOptions().resolvedCompressionThreads,
-                       max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8,
+                       max(1, min(ProcessInfo.processInfo.activeProcessorCount, EntryCompressionConfiguration.maximumEntryThreads,
                                   Int(ProcessInfo.processInfo.physicalMemory / (1 << 30)))))
         for format: GyoshukuKit.ArchiveFormat in [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha] {
             for threads in [Int.min, 0, 65, Int.max] {

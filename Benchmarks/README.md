@@ -69,7 +69,7 @@ tar.xz は 4 MiB 以下の member を最大 4 MiB の block に詰め、4 MiB �
 `--threads` は `compressionThreads`（1...64）へ渡し、省略時は nil のまま library に委ねます。
 表示する `threads` は圧縮の並列数の設定です。tar.xzは2以上で64 KiB以下のblockを枠に数えず、
 未出力blockを合計 `2 × threads + 1` まで許すため、同時に動くencoderの総数とは一致しません。
-自動値の表示は library の現行規則（CPU 数・物理メモリ GiB・8 の最小値、最低1）と揃えています。
+自動値の表示は library の現行規則（CPU 数・物理メモリ GiB・16 の最小値、最低1）と揃えています。
 非圧縮 tar は常に1です。単独実行の `elapsed_s` は `ContinuousClock` で create から finish までを
 測り、runner の wall 秒はプロセス起動・終了も含みます。`--level` / `--threads` は reference には適用しません。
 

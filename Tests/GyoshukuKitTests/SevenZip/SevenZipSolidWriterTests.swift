@@ -136,6 +136,28 @@ final class SevenZipSolidWriterTests: XCTestCase {
         }
     }
 
+    func testFolderBytesStayIdenticalAcrossThreadsAndMemoryWindows() throws {
+        let root = try TestSupport.directory("7z-solid-window-identity")
+        let items = (0..<7).map { ExpectedEntry(name: "file-\($0)", data: Data(repeating: UInt8(65 + $0), count: 32 << 10)) }
+        let methods: [(SevenZipCompressionMethod, Int?)] = [(.lzma2, nil), (.lzma2, 1), (.lzma, 1),
+            (.ppmd, nil), (.deflate, nil), (.copy, nil)]
+        for (method, level) in methods {
+            var baseline: Data?
+            for (threads, budget) in [(1, UInt64(8 << 30)), (12, 8 << 30), (16, 8 << 30), (16, 444 << 20)] {
+                let url = root.appendingPathComponent("\(method)-\(level ?? -1)-\(threads)-\(budget).7z")
+                let options = WriterOptions(sevenZipMethod: method, sevenZipSolid: .on(blockSize: 64 << 10),
+                    sevenZipFilter: .delta(distance: 4), lzmaLevel: level, compressionThreads: threads)
+                try EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {
+                    try SevenZipMethodTestSupport.write(url, items: items, options: options)
+                }
+                let bytes = try Data(contentsOf: url)
+                if let baseline { XCTAssertEqual(bytes, baseline, "\(method), \(threads), \(budget)") }
+                else { baseline = bytes }
+                try SevenZipSolidFilterSupport.verify(url, items: items, options: options, blocks: 4, solid: true, filter: "Delta")
+            }
+        }
+    }
+
     func testThrowingBlockEmitCannotReturnThreadsTwice() throws {
         let root = try TestSupport.directory("7z-inner-worker-error")
         let data = Data(repeating: 0x61, count: 256 << 10)

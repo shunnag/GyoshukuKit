@@ -82,7 +82,7 @@ private func benchmark(_ arguments: [String]) throws {
     default:
         // 報告値だけ WriterOptions.resolvedCompressionThreads と揃え、nil はそのまま渡す。
         threads = options.compressionThreads ?? max(1, min(
-            ProcessInfo.processInfo.activeProcessorCount, 8,
+            ProcessInfo.processInfo.activeProcessorCount, 16,
             Int(ProcessInfo.processInfo.physicalMemory / (1 << 30))
         ))
     }

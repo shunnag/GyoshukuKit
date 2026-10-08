@@ -27,7 +27,7 @@
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
-| `compressionThreads` | `nil` | ZIP / 7z / LHA の項目・folder・memberと、圧縮 tar / 単独 gzip・bzip2・XZ・Zstandard・lzip・LZ4 の並列数 `1...64`。項目窓は最大16枠、メモリ予算でも制限する。ZIP / 7z BZip2 は大項目内を単一 stream spliceで並列化する。LZMA1 / PPMd の一つの stream と LZMA_Alone / Brotli / compress は逐次。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `compressionThreads` | `nil` | ZIP / 7z / LHA の項目・folder・memberと、圧縮 tar / 単独 gzip・bzip2・XZ・Zstandard・lzip・LZ4 の並列数 `1...64`。項目窓は最大16枠、メモリ予算でも制限する。ZIP / 7z BZip2 は大項目内を単一 stream spliceで並列化する。LZMA1 / PPMd の一つの stream と LZMA_Alone / Brotli / compress は逐次。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・16 の最小値（最低1） |
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
 
@@ -35,7 +35,7 @@
 
 ## 並列処理と出力の待機
 
-自動並列数は `max(1, min(CPU 数, 物理メモリ GiB, 8))` です。小〜中項目の窓は最大16枠で、メモリ予算によりさらに減らします。出力は追加順を保ちます。`compressionThreads: 1` は同期、2以上では後続の `add` / `finish` まで出力・エラー通知が遅れる場合があります。明示的に待つには `finishAdditions(progress:)` を使います。
+自動並列数は `max(1, min(CPU 数, 物理メモリ GiB, 16))` です。16-core / 128 GiBは16、10-core / 16 GiBは10になります。小〜中項目の窓は最大16枠で、メモリ予算によりさらに減らします。出力は追加順を保ちます。`compressionThreads: 1` は同期、2以上では後続の `add` / `finish` まで出力・エラー通知が遅れる場合があります。明示的に待つには `finishAdditions(progress:)` を使います。
 
 ZIP LZMA / XZ / Zstandard / PPMd と non-solid 7z LZMA / PPMd は16 MiB以下の項目を並列化します。ZIP / 7z BZip2 は約5 block分以下を項目間、それより大きい項目内は block を並列化し、完全な単一 stream に splice します。大項目と filter なしの 7z Copy は従来の stream 経路です。ZIP XZ と7z LZMA2 / Deflate は大項目内の block も並列化します。LHA は1 MiB超〜16 MiBの member も項目間で並列化し、内部の1 MiB境界と履歴を保持します。
 
@@ -84,7 +84,10 @@ thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB
 LZMA / PPMd が項目窓の入力上界、BZip2 が項目窓と内側 splice buffer の大きい方です。filterなしの Copy は0です。
 solid / filter の値は disk上の folder入力も数え、BZip2 は内側bufferも加えます。codec stateや圧縮出力を含むRSS上限ではありません。
 
-7z solid の窓は `枠数 × block 上限`、filter付き non-solid は `枠数 × 16 MiB` です。block 上限が256 MiBを超える solid と filterなしCopyは一枠の逐次経路を使います。分割しない単一ファイルが block 上限を超える場合、実 spool に必要な容量はそのファイルのサイズです。
+7z solid の窓は `枠数 × block 上限`、filter付き non-solid は `枠数 × 16 MiB` です。解決したblock上限が256 MiBを超える場合とfilterなしCopyは一枠の逐次経路を使います。分割しない単一ファイルが block 上限を超える場合、実 spool に必要な容量はそのファイルのサイズです。
+
+folder一枠の予約は `I/O + 最大片数 × codec状態` です。LZMA1 / PPMd / Copyは最大片数1、LZMA2 / Deflateは `min(要求並列数, ceil(folder上限 / 片サイズ))` です。I/Oは入力16 MiB・出力spool 1 MiB・4 × 256 KiBです。全folderの割当codec数も `min(要求並列数, floor(予算 / codec状態))` 以下に保ちます。BZip2の既存splice予約は維持します。
+入力上界の式は同じですが、folder枠数の増加により値が増える場合があります。物理16 GiB・要求12・既定level・予算8 GiBでは、64 MiB solidのLZMA2は320→768 MiB、LZMA1は384→768 MiB、PPMd level 9の明示64 MiB solidは192→768 MiBです。filter付きnon-solidのLZMA2は80→192、LZMA1は96→192 MiBです。PPMd level 9は既定block上限384 MiBによる同期経路を維持し、既定solidは384 MiB、filter付きnon-solidは16 MiBのままです。自動並列数も最大8→16となるため、他形式の既定入力上界も各経路のメモリ制限内で増えます。
 
 `maximumPendingInputBytes(for: .lha)` は圧縮並列数 `t > 1` のとき `max(項目窓の入力上界, t × (1 MiB + 辞書履歴))`、
 逐次またはstoredなら0です。出力・codec表はこの入力byte数に含みません。

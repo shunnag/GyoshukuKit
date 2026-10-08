@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### 変更
+
+- writerの自動圧縮並列数の上限を8→16に増やす。CPU数と物理メモリGiB、codecごとのメモリ制限は維持する。
+- 7z solid/filter窓のcodec状態を、各folderに入る最大片数分だけ予約する。LZMA1 / PPMd / Copyは一つ。
+  全folderの割当codec数も予算内に抑え、片サイズ・folder区切り・圧縮byteを維持する。
+- `maximumPendingInputBytes(for:)`の式は維持するが、自動並列数と7z folder枠数の増加で返り値が増える場合がある。
+  物理16 GiB・要求12・予算8 GiBの既定LZMA2 / LZMA1の64 MiB solidは320 / 384→768 MiB。
+  詳細とPPMd / filter付き非solidの値は[設定リファレンス](Documentation/options.md#pending-input-の意味)を参照する。
+
 ### ドキュメント
 
 - README を開発者向けの導入・使用例・対応表に整理し、依存解決、API の保証、形式・全設定、開発・検証の詳細を `Documentation/` に分離する。

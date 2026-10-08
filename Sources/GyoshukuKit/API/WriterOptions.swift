@@ -164,7 +164,7 @@ public struct WriterOptions: Sendable {
     /// LHAは1 MiB超〜16 MiBのmemberも項目間で並列化し、内部の1 MiB境界と履歴を保つ。
     /// PPMdは各entry/folderに独立した指定サイズのモデルを使う。モデルを片に分けない。
     /// ZIP updater の再暗号化では鍵導出の並列数にも使う。
-    /// nil は CPU 数・物理メモリ GiB・8 の最小値（最低1）。未出力 chunk は最大でこの数
+    /// nil は CPU 数・物理メモリ GiB・16 の最小値（最低1）。未出力 chunk は最大でこの数
     /// （Apple 経路の tar.xz は2以上のとき64 KiB以下を数えず、合計2 × この数 + 1まで）。
     /// deflate / tar.bz2 は thread ごとに約2 × chunk size + codec state、Apple LZMA2 は約130 MiB。
     /// 自前 LZMA2 の辞書が16 MiBを超えると片は3 × 辞書。実際の並列数は
@@ -238,8 +238,13 @@ public struct WriterOptions: Sendable {
     }
 
     var resolvedCompressionThreads: Int {
-        compressionThreads ?? max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8,
-                                        Int(ProcessInfo.processInfo.physicalMemory / (1 << 30))))
+        resolvedCompressionThreads(activeProcessorCount: ProcessInfo.processInfo.activeProcessorCount,
+                                   physicalMemory: ProcessInfo.processInfo.physicalMemory)
+    }
+
+    func resolvedCompressionThreads(activeProcessorCount: Int, physicalMemory: UInt64) -> Int {
+        compressionThreads ?? max(1, min(activeProcessorCount, EntryCompressionConfiguration.maximumEntryThreads,
+                                        Int(physicalMemory / (1 << 30))))
     }
 
     /// 検証済み options の writer / updater が finishAdditions で報告する入力 byte の上界。
@@ -253,7 +258,11 @@ public struct WriterOptions: Sendable {
     /// tar.zst はメモリ予算で解決した t × max(4 MiB, level の window)。組立中の frame も枠に含む。
     /// LHAは項目窓の t × 16 MiBと、既存の t 個の1 MiB入力＋履歴の大きい方。逐次とforced storeは0。
     /// codec state・出力と block 数に比例する XZ index はこの入力 byte に含まない。
-    /// 7z solidはdisk上の t 個のblock上限（blockSize > 256 MiBは同期の一つ）。filter付き非solidは t × 16 MiB。圧縮メモリとは独立する。
+    /// 7z solidはdisk上のfolder枠数 f × block上限、filter付き非solidは f × 16 MiB。
+    /// 解決したblock上限 > 256 MiBまたはfilterなしCopyは同期の一枠。組立中も一枠に数える。
+    /// rは要求並列数（自動解決後）。fは max(1, min(r, 16, floor(予算 / (I/O + p × codec状態))))。
+    /// I/Oは16 MiB + 1 MiB + 4 × 256 KiB。pはLZMA・PPMd・Copyが1、LZMA2・Deflateが min(r, ceil(folder上限 / 片サイズ))。
+    /// BZip2は既存splice予約を使う。codec状態とdisk入力byteの上界は別に数える。
     public func maximumPendingInputBytes(for format: ArchiveFormat) -> UInt64 {
         maximumPendingInputBytes(for: format, physicalMemory: ProcessInfo.processInfo.physicalMemory)
     }

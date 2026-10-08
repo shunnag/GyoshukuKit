@@ -129,7 +129,7 @@ ZIP の既定は互換性を重視した Deflate です。BZip2 / LZMA / Zstanda
 
 ## 性能とスレッド
 
-並列数の自動設定は CPU 数・物理メモリ GiB・8 の最小値（最低1）。codec・項目サイズ・メモリ予算によって実際の並列数を制限します。
+並列数の自動設定は CPU 数・物理メモリ GiB・16 の最小値（最低1）。codec・項目サイズ・メモリ予算によって実際の並列数を制限します。
 同じ writer は thread-safe / Sendable ではありません。`WriterOptions` は `Sendable` です。
 速度・サイズ・RSS の測定条件は [Benchmarks](Benchmarks/README.md) と[並列処理の検証記録](Documentation/verification/2026-10-07-writer-multicore.md)を参照してください。
 

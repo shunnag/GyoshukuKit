@@ -285,7 +285,7 @@ final class MulticoreWriterTests: XCTestCase {
                 let state: UInt64 = switch format {
                 case .zip: UInt64(400_000 + 8 * 100_000 * options.bzip2Level)
                 case .lha: UInt64(8 << 20) * 12
-                default: UInt64(4 << 20) * 12
+                default: UInt64(4 << 20) * 2
                 }
                 let budget = 2 * (state + UInt64(limit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size))
                 try EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {

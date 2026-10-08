@@ -19,6 +19,7 @@ final class SevenZipBlockWriter {
     private var blocks: [Block] = []
     private let pipeline: OrderedChunkPipeline<Job, EncodedBlock, BlockTag>?
     private let folderThreads: Int
+    private let codecThreads: Int
     private let cancellation = CompressionCancellation()
     private(set) var assignedThreads = 0
     // scratch と AES は worker に所有権を渡し、完了後は出力 spool だけを呼出側へ渡す。
@@ -44,8 +45,10 @@ final class SevenZipBlockWriter {
     init(options: WriterOptions, directory: URL, chunkSize: Int?, workerActivity: (@Sendable (Bool) -> Void)? = nil) {
         self.options = options; self.directory = directory; self.chunkSize = chunkSize
         encryptors = .init(password: options.password)
-        let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod, innerParallelism: true).threads
+        let configuration = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod, innerParallelism: true, chunkSize: chunkSize)
+        let threads = configuration.threads
         folderThreads = threads
+        codecThreads = configuration.codecThreads
         let cancellation = self.cancellation
         let bzip2Encoder = ParallelBzip2StreamEncoder.testingEncoder
 
@@ -150,8 +153,7 @@ final class SevenZipBlockWriter {
             : options.resolvedSevenZipBlockSize
         if let pipeline, size <= parallelLimit, !(final && pipeline.pendingCount == 0) {
             try pipeline.waitForCapacity(didEmit: didEmit) { tag, result in try self.emit(tag, result, position: position, write: write) }
-            while assignedThreads >= (options.sevenZipMethod == .bzip2
-                ? ParallelBzip2StreamEncoder.resolvedThreads(options: options) : options.resolvedCompressionThreads) {
+            while assignedThreads >= codecThreads {
                 try pipeline.emitNext({ tag, result in try self.emit(tag, result, position: position, write: write) }, didEmit: didEmit)
             }
             // 単一 stream の codec は一枠、片並列は実際の片数まで予約する。
@@ -165,16 +167,14 @@ final class SevenZipBlockWriter {
                 pieces = Int((size - 1) / UInt64(width) + 1)
             case .bzip2:
                 pieces = ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level,
-                    threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options))
+                    threads: codecThreads)
             case .lzma, .ppmd, .copy: pieces = 1
             }
-            let budgetThreads = options.sevenZipMethod == .bzip2
-                ? ParallelBzip2StreamEncoder.resolvedThreads(options: options) : options.resolvedCompressionThreads
-            var innerThreads = min(pieces, budgetThreads - assignedThreads,
+            var innerThreads = min(pieces, codecThreads - assignedThreads,
                 max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1)))
             if options.sevenZipMethod == .bzip2, options.sevenZipSolid != .off, currentFilter != .none, !final {
                 // filterはfolder内で逐次。次folderがあるときは予約を分け、複数filterを同時に進める。
-                innerThreads = min(innerThreads, max(1, budgetThreads / min(4, folderThreads)))
+                innerThreads = min(innerThreads, max(1, codecThreads / min(4, folderThreads)))
             }
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder")
             let job = Job(input: scratch, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,

@@ -435,7 +435,7 @@ bzip2 は運ぶ stream の元の level を維持する。CRC64 の xz、地図�
 進捗の total は橋の image byte、運ぶ圧縮 byte、自己照合の圧縮/framing 読取 byte の合計。
 圧縮長を先に求めて total を固定し、その後に出力を作る。並列数 × piece × 2 の
 cache に符号化結果を残し、収まらない fullEncode の chunk は書出し時に再符号化する。
-xz の cache 上限は8 threadsで256 MiBのまま。事前符号化と書出しの両方に下記の軽い block の枠を使う。
+xz の cache 上限は片が16 MiBなら8 threadsで256 MiB、既定の最大16 threadsで512 MiB。事前符号化と書出しの両方に下記の軽い block の枠を使う。
 追加の圧縮 spool は作らない。この事前符号化中も Task の取消しを確認するが、
 最初の進捗通知は total が確定した後になる。callback の throw・再入も失敗として扱う。
 
@@ -896,7 +896,7 @@ blockSizeが256 MiBを超える場合とfilterなしCopyはfolder間の並列化
 fileを分割しないため、組立中の単一fileが入力上限Lを超える場合だけ、入力disk上界にmax(0, fileSize - L)を加える。
 圧縮長に入力長の定数倍という仮定は置かない。同期経路の上限超過単一fileは入力spool一つと有界codec状態を使う。
 最終folderのflush時に他のfolderが無ければ同期経路で全threadsを使う。
-workerの内部並列数は実際の片数と未割当数でも制限し、未出力jobの割当合計を要求threads以下に保つ。出力開始時に予約を返す。各枠のcodec状態は引き続き要求threads分を保守的に予約する。
+workerの内部並列数は実際の片数と未割当数でも制限し、未出力jobの割当合計を要求threadsと予算内codec数の小さい方以下に保つ。出力開始時に予約を返す。各枠のcodec状態はfolder上限に入る最大片数分だけ予約する（単一stream codecは一つ、BZip2は既存splice予約）。
 上限を超える単一fileは前のfolderを出力し、既存の有界stream経路を使う。
 `pendingInputBytes` / `maximumPendingInputBytes`はdisk spoolの未圧縮byteも数える。
 `finishAdditions`は残るblockを閉じ、順に出力した入力byteを呼出側の進捗へ通知する。finishだけの場合と出力byteは同じ。
@@ -2251,7 +2251,7 @@ LHAの内部並列数は、1 MiBの実際の片数とmax(1, 要求threads / 投�
 先頭の出力までの割当上界はt×H(枠数)で、t=12なら約3t。先頭を出力して再投入する場合も、
 各jobは最大t、窓は最大16枠なので上界は枠数×t。各枠のcodec状態は元からt分予約し、入力窓も有界に保つ。
 7z folderは実際の片数、未割当threads、max(1, 要求threads / 投入後の未出力数)の最小値。
-こちらは計測で費用が出なかったため、未出力jobの合計を要求threads以下に保つ。
+こちらは未出力jobの合計を`min(要求threads, floor(予算 / codec状態))`以下に保つ。BZip2は既存spliceの解決した並列数を使う。
 先頭の出力開始時に予約を返し、予算待ちは先頭だけをemitする。出力失敗は窓をabandonし、二重返却しない。
 7z LZMA2/Deflateは既存chunk幅での片数まで、7zの単一stream codecは1とする。
 内部writerには項目窓を作らず再帰を防ぐ。ZIP一括追加も同じ項目窓を使い、
@@ -2265,7 +2265,9 @@ abortは項目・片の着手済みworkerを待ってspool descriptorを解放�
 LHAの片窓と7z folder内の窓も成功・失敗・取消しのすべてで終了を待ち、補助spoolを閉じる。
 
 一workerの予約は`S + 16 MiB + 1 MiB + 4 × IOChunk.size`（IOChunk=256 KiB）。
-LHA項目窓と7z solid/filter窓はSを要求threads分予約する。Sは以下。
+LHA項目窓はSを要求threads分予約する。7z solid/filter窓は一枠につき`I/O + 最大片数 × S`を予約する。
+LZMA1/PPMd/Copyの最大片数は1、LZMA2/Deflateは`min(要求threads, ceil(folder上限 / 片サイズ))`。
+folder上限はsolidのblockSize、filter付き非solidは16 MiB。既存の片サイズとfolder区切りは変えない。Sは以下。
 
 | codec | S |
 |---|---|
@@ -2283,6 +2285,15 @@ BZip2は単一stream spliceの導入後、項目/folder窓と内側codecの予�
 PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
 tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
 従来受理できた単一codecのmemoryLimitを拒否しない。モデル・辞書・片境界を縮めない。
+既定の要求threadsは`max(1, min(CPU数, 物理メモリGiB, EntryCompressionConfiguration.maximumEntryThreads（16）))`。
+7z並列窓の割当codec合計をa、folder枠数をf、最大片数をpとすると`a <= min(要求threads, floor(予算/S), f × p)`。
+従ってpeak予約は`a × S + f × I/O <= f × (p × S + I/O) <= 予算`。要求threads分のcodec状態を各folderへ重複予約しない。
+公開pending-inputの式`f × folder上限`は維持するが、fの増加により値が増える。
+物理16 GiB・予算8 GiB・要求12・既定level・64 MiB solidでLZMA2は5→12枠（320→768 MiB）、LZMA1は6→12枠（384→768 MiB）。
+PPMd level 9の明示64 MiB solidは3→12枠（192→768 MiB）、既定384 MiB solidは同期のまま。
+filter付き非solidのLZMA2 / LZMA1は80→192 / 96→192 MiB。PPMd level 9は既定block上限384 MiBによる同期経路を維持し、filter付き非solidは16 MiBのまま。
+BZip2の式・予約と明示並列数の他形式の上界は維持する。
+自動並列数の上限8→16に伴う他形式の既定上界は、それぞれのcodecメモリ制限に従って増える。
 入力上界は上の`maximumPendingInputBytes`表。spoolのfile cacheとallocator管理領域はcodecの予約に含めない。
 round 3はtree/single/single16r/small/LHA混在をthreads=1/12、corpus4方式をthreads=12で三版各5回測定した。
 810 sampleの出力size・SHA-256が一致し、54比較すべてnew/base <= 1.05、tree/smallの22比較もnew/round1 <= 1.05。
