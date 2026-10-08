@@ -1,6 +1,6 @@
 import Foundation
 
-/// 片に分けられない codec は小〜中項目を並列化する。大項目は従来の有界 stream 経路へ戻す。
+/// 小〜中項目の窓と、長い単一streamを重ねる一枠のcodec状態を予約する。
 struct EntryCompressionConfiguration {
     @TaskLocal static var testingInputLimit: Int?
     @TaskLocal static var testingMemoryBudget: UInt64?
@@ -9,9 +9,11 @@ struct EntryCompressionConfiguration {
     static var maximumEntryThreads: Int { testingEntryThreadLimit ?? CompressionWorkerPool.maximumEntryThreads }
     let threads: Int
     let codecThreads: Int
+    let longPoleThreads: Int
 
     init(lhaThreads: Int, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
         codecThreads = 1
+        longPoleThreads = 0
         // 各memberの片並列にも最大の内部codec数を予約する。
         let state = UInt64(8 << 20) * UInt64(max(1, min(WriterOptions.compressionThreadsRange.upperBound, lhaThreads)))
         threads = Self.resolve(requested: lhaThreads, state: state,
@@ -42,18 +44,30 @@ struct EntryCompressionConfiguration {
             pieceSize = min(chunkSize ?? ParallelXZCompressor.defaultBlockSize, DeflateBlock.size)
         }
         let requested = max(1, min(WriterOptions.compressionThreadsRange.upperBound, options.resolvedCompressionThreads))
-        codecThreads = method == .bzip2 ? ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: physicalMemory)
-            : max(1, Int(min(UInt64(requested), min(budget, Self.testingMemoryBudget ?? budget) / state)))
+        let available = min(budget, Self.testingMemoryBudget ?? budget)
+        let singleStream = method == .lzma || method == .ppmd || method == .copy
+        let io = UInt64(Self.inputLimit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size)
+        let (reservation, reserveOverflow) = state.addingReportingOverflow(io)
+        longPoleThreads = singleStream && requested > 1 && !reserveOverflow && reservation <= available / 2 ? 1 : 0
+        let normalBudget = available - (longPoleThreads == 1 ? reservation : 0)
         // 単一 stream は一つ、片並列はfolder上限に入る片数だけcodec状態を予約する。
         let size = options.sevenZipSolid == .off ? UInt64(Self.inputLimit) : options.resolvedSevenZipBlockSize
         let pieces = innerParallelism && (method == .lzma2 || method == .deflate)
             ? min(UInt64(requested), (max(1, size) - 1) / UInt64(pieceSize) + 1) : 1
         let (folderState, overflow) = state.multipliedReportingOverflow(by: pieces)
-        threads = Self.resolve(options: options, state: overflow ? UInt64.max : folderState, budget: budget)
+        threads = Self.resolve(options: options, state: overflow ? UInt64.max : folderState, budget: normalBudget)
+        // 通常窓のI/Oを先に差し引く。片並列の専用枠にもI/Oを一枠予約する。
+        // 単一streamの専用状態とI/Oは既に差し引き、通常codecへ貸さない。
+        let ioSlots = threads + (!singleStream && threads > 1 ? 1 : 0)
+        let overhead = min(normalBudget, UInt64(ioSlots) * io)
+        let codecState = method == .bzip2 ? ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level, threads: 1) : state
+        let normalCodecs = max(1, Int(min(UInt64(requested), (normalBudget - overhead) / max(1, codecState))))
+        codecThreads = normalCodecs + longPoleThreads
     }
 
     init(options: WriterOptions, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
         codecThreads = 1
+        longPoleThreads = 0
         let state: UInt64
         let budget: UInt64
         switch options.compressionMethod {
@@ -91,6 +105,10 @@ struct EntryCompressionConfiguration {
     }
 
     var maximumPendingInputBytes: UInt64 { threads > 1 ? UInt64(threads * Self.inputLimit) : 0 }
+    var sevenZipWindowCount: Int { threads > 1 || longPoleThreads > 0 ? threads + 1 : 1 }
+    var sevenZipMaximumPendingInputBytes: UInt64 {
+        threads > 1 || longPoleThreads > 0 ? UInt64(sevenZipWindowCount) * UInt64(Self.inputLimit) : 0
+    }
 }
 
 /// worker の stream 読取と出力でも呼出側の取消しを観測する。
@@ -111,20 +129,23 @@ final class OrderedEntrySpool: @unchecked Sendable {
     static let memoryLimit = 1 << 20
     private let directory: URL
     private let tag: String
+    private let maximumLength: UInt64
     private let reserve = ScratchFile.testingFreeSpaceReserve
     private let created = ScratchFile.testingCreated
     private var buffer = Data()
     private(set) var scratch: ScratchFile?
     private(set) var length: UInt64 = 0
 
-    init(directory: URL, tag: String, diskBacked: Bool = false) throws {
+    init(directory: URL, tag: String, diskBacked: Bool = false, maximumLength: UInt64 = .max) throws {
         self.directory = directory
         self.tag = tag
+        self.maximumLength = maximumLength
         if diskBacked { scratch = try ScratchFile(directory: directory, tag: tag, pathExtension: "spool") }
     }
 
     func append(_ bytes: Data) throws {
         guard !bytes.isEmpty else { return }
+        guard UInt64(bytes.count) <= maximumLength - length else { throw WriterError.sizeOverflow }
         if scratch == nil, bytes.count > Self.memoryLimit - buffer.count {
             scratch = try ScratchFile.$testingFreeSpaceReserve.withValue(reserve) {
                 try ScratchFile.$testingCreated.withValue(created) {
@@ -145,4 +166,12 @@ final class OrderedEntrySpool: @unchecked Sendable {
     }
 
     func close() { scratch?.close(); buffer = Data() }
+
+    // 空き容量には依存しない固定の膨張上限。PPMdの最大orderでのescapeとAES終端にも余裕を置く。
+    // 上限は確定入力長に比例し、巨大入力でも全体をメモリへ載せない。
+    static func sevenZipMaximumLength(size: UInt64) -> UInt64 {
+        let (body, overflow) = size.multipliedReportingOverflow(by: 256)
+        let (total, endOverflow) = body.addingReportingOverflow(UInt64(memoryLimit))
+        return overflow || endOverflow ? .max : total
+    }
 }

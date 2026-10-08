@@ -21,9 +21,9 @@ final class EntryCompressionConfigurationTests: XCTestCase {
                     let configuration = EntryCompressionConfiguration(options: options, method: method,
                         physicalMemory: 16 << 30, innerParallelism: true)
                     XCTAssertEqual(configuration.threads, 12, "\(method), \(solid)")
-                    XCTAssertEqual(configuration.codecThreads, 12)
-                    // PPMd level 9の既定block上限384 MiBはfilter付き非solidも既存の同期経路。
-                    let bound: UInt64 = solid != .off ? 768 << 20 : method == .ppmd ? 16 << 20 : 192 << 20
+                    XCTAssertEqual(configuration.codecThreads, method == .lzma || method == .ppmd || method == .copy ? 13 : 12)
+                    // 通常12枠と長いstreamの専用一枠。
+                    let bound: UInt64 = solid != .off ? 832 << 20 : 208 << 20
                     XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), bound)
                 }
             }
@@ -33,7 +33,7 @@ final class EntryCompressionConfigurationTests: XCTestCase {
                 let options = WriterOptions(sevenZipMethod: method, sevenZipSolid: .on(), lzmaLevel: level, compressionThreads: 12)
                 XCTAssertEqual(EntryCompressionConfiguration(options: options, method: method,
                     physicalMemory: 16 << 30, innerParallelism: true).threads, 12)
-                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 768 << 20)
+                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 832 << 20)
             }
         }
         // PPMd level 9は一folder一モデル。194 MiBの状態と18 MiBのI/Oで一枠212 MiB。
@@ -41,18 +41,36 @@ final class EntryCompressionConfigurationTests: XCTestCase {
             let options = WriterOptions(sevenZipMethod: .ppmd, sevenZipSolid: .on(blockSize: 64 << 20), ppmdLevel: 9, compressionThreads: 12)
             let configuration = EntryCompressionConfiguration(options: options, method: .ppmd,
                 physicalMemory: 16 << 30, innerParallelism: true)
-            XCTAssertEqual(configuration.threads, 4)
+            XCTAssertEqual(configuration.threads, 3)
             XCTAssertEqual(configuration.codecThreads, 4)
+            XCTAssertEqual(configuration.longPoleThreads, 1)
+            XCTAssertEqual(UInt64(configuration.threads + configuration.longPoleThreads) * (212 << 20), 848 << 20)
             XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 256 << 20)
+        }
+    }
+
+    func testLongPoleReservationFallsBackAtMemoryBoundary() {
+        let options = WriterOptions(sevenZipMethod: .ppmd, sevenZipSolid: .on(blockSize: 64 << 20), ppmdLevel: 9, compressionThreads: 12)
+        for (budget, reserved, codecs, bound): (UInt64, Int, Int, UInt64) in [
+            ((424 << 20) - 1, 0, 2, 64 << 20), (424 << 20, 1, 2, 128 << 20)
+        ] {
+            EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {
+                let configuration = EntryCompressionConfiguration(options: options, method: .ppmd,
+                    physicalMemory: 16 << 30, innerParallelism: true)
+                XCTAssertEqual(configuration.threads, 1)
+                XCTAssertEqual(configuration.longPoleThreads, reserved)
+                XCTAssertEqual(configuration.codecThreads, codecs)
+                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), bound)
+            }
         }
     }
 
     func testPieceCeilingThreadCapAndMemoryPeak() {
         // Appleの状態130 MiB、I/O18 MiB。最後の短い片も一つに数え、最大片数は要求threadsまで。
         for (size, requested, budget, slots, codecs, pieces) in [
-            (UInt64(16 << 20) + 1, 12, UInt64(834 << 20), 3, 6, 2),
+            (UInt64(16 << 20) + 1, 12, UInt64(834 << 20), 3, 5, 2),
             (256 << 20, 3, 816 << 20, 2, 3, 3),
-            (16 << 20, 12, 444 << 20, 3, 3, 1)
+            (16 << 20, 12, 444 << 20, 3, 2, 1)
         ] {
             EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {
                 let options = WriterOptions(sevenZipSolid: .on(blockSize: size), compressionThreads: requested)
@@ -61,7 +79,7 @@ final class EntryCompressionConfigurationTests: XCTestCase {
                 XCTAssertEqual(configuration.threads, slots)
                 XCTAssertEqual(configuration.codecThreads, codecs)
                 let live = min(codecs, slots * pieces)
-                XCTAssertLessThanOrEqual(UInt64(live) * (130 << 20) + UInt64(slots) * (18 << 20), budget)
+                XCTAssertLessThanOrEqual(UInt64(live) * (130 << 20) + UInt64(slots + 1) * (18 << 20), budget)
             }
         }
         // 注入したchunk幅も既存の片境界として予約する。出力の区切りは変えない。
