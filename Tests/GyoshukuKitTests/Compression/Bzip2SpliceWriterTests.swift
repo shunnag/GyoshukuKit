@@ -79,6 +79,61 @@ final class Bzip2SpliceWriterTests: XCTestCase {
         }
     }
 
+    func testFilteredSolidFoldersShareThreadReservations() throws {
+        let root = try TestSupport.directory("bzip2-splice-filtered-reservations")
+        let options = WriterOptions(sevenZipMethod: .bzip2,
+            sevenZipSolid: .on(blockSize: 1 << 20, filesPerBlock: 1), sevenZipFilter: .delta(distance: 4),
+            bzip2Level: 1, compressionThreads: 8)
+        let writer = SevenZipBlockWriter(options: options, directory: root, chunkSize: nil)
+        var output = Data()
+        let input = TestCorpus.random(400_013)
+        for index in 0..<3 {
+            var offset = 0
+            try writer.add(name: "folder-\(index)", mode: 0o100644, size: UInt64(input.count), date: TestSupport.date, read: { count in
+                let end = min(offset + count, input.count)
+                defer { offset = end }
+                return input.subdata(in: offset..<end)
+            }, position: { UInt64(output.count) }, write: { output.append($0) })
+            // 単独folderを早く予約せず、次folderが確定した後も前の予約をdrainしない。
+            XCTAssertEqual(writer.assignedThreads, 2 * index)
+        }
+        try writer.flush(position: { UInt64(output.count) }, write: { output.append($0) })
+        XCTAssertEqual(writer.assignedThreads, 0)
+        XCTAssertEqual(writer.pendingInputBytes, 0)
+        XCTAssertFalse(output.isEmpty)
+    }
+
+    func testSingleFilteredSolidFolderUsesAllFourCodecs() async throws {
+        let root = try TestSupport.directory("bzip2-splice-single-filtered-solid")
+        let url = root.appendingPathComponent("archive.7z")
+        let input = TestCorpus.random(400_013)
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let activity = Mutex((running: 0, peak: 0))
+        let task = Task.detached {
+            try ParallelBzip2StreamEncoder.$testingEncoder.withValue({ bytes, level in
+                activity.withLock { $0.running += 1; $0.peak = max($0.peak, $0.running) }
+                defer { activity.withLock { $0.running -= 1 } }
+                started.signal()
+                XCTAssertEqual(release.wait(timeout: .now() + 15), .success)
+                return try Bzip2StreamEncoder.encode(bytes, level: level)
+            }) {
+                let writer = try ArchiveWriter.create(url: url, format: .sevenZip,
+                    options: WriterOptions(sevenZipMethod: .bzip2, sevenZipSolid: .on(blockSize: UInt64(input.count)),
+                        sevenZipFilter: .delta(distance: 4), bzip2Level: 1, compressionThreads: 4))
+                try writer.add(data: input, as: "large", modificationDate: TestSupport.date)
+                try writer.finish()
+            }
+        }
+        defer { for _ in 0..<8 { release.signal() } }
+        for _ in 0..<4 { try await LZMA2ChunkPipelineTests.wait(started) }
+        XCTAssertEqual(activity.withLock { $0.peak }, 4)
+        for _ in 0..<8 { release.signal() }
+        try await task.value
+        XCTAssertEqual(activity.withLock { $0.running }, 0)
+        let reader = try ArchiveReader.open(url: url)
+        XCTAssertEqual(try reader.read(reader.entries[0]), input)
+    }
+
     func testCancellationOfZIPAndSevenZipDoesNotWaitForBzip2Codec() async throws {
         for duringAdd in [false, true] {
             let input = TestCorpus.random(duringAdd ? 1_700_013 : 600_013)

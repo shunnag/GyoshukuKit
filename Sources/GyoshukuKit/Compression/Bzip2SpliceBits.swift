@@ -1,6 +1,6 @@
 import Foundation
 
-/// MSB先行のsplice。payloadはbyte単位でずらし、EOSだけ最大8候補のbitを読む。
+/// MSB先行のsplice。payloadは一括copy / 64 bit単位でずらし、EOSだけ最大8候補のbitを読む。
 struct Bzip2SpliceBits {
     static let eosMagic: UInt64 = 0x177245385090
     private var bytes = Data()
@@ -43,20 +43,40 @@ struct Bzip2SpliceBits {
     }
 
     mutating func appendPayload(_ stream: Data, end: Int, emit: (Data) throws -> Void) throws {
+        if !bytes.isEmpty { try emit(bytes); bytes = Data() }
         try stream.withUnsafeBytes { raw in
             let source = raw.bindMemory(to: UInt8.self)
             let fullEnd = end >> 3
-            for index in 4..<fullEnd {
-                let byte = source[index]
-                if live == 0 { bytes.append(byte) }
-                else {
-                    bytes.append(pending | (byte >> live))
-                    pending = byte << (8 - live)
+            var index = 4
+            while index < fullEnd {
+                try Task.checkCancellation()
+                let count = min(IOChunk.size, fullEnd - index)
+                let output: Data
+                if live == 0 {
+                    output = Data(bytes: source.baseAddress! + index, count: count)
+                } else {
+                    var shifted = Data(count: count)
+                    shifted.withUnsafeMutableBytes { destination in
+                        var offset = 0
+                        while offset + 8 <= count {
+                            let word = UInt64(bigEndian: raw.loadUnaligned(fromByteOffset: index + offset, as: UInt64.self))
+                            let value = (UInt64(pending) << 56) | (word >> live)
+                            destination.storeBytes(of: value.bigEndian, toByteOffset: offset, as: UInt64.self)
+                            pending = UInt8(truncatingIfNeeded: word) << (8 - live)
+                            offset += 8
+                        }
+                        // 64 bit未満の末尾だけをbyte単位で処理する。
+                        while offset < count {
+                            let byte = source[index + offset]
+                            destination[offset] = pending | (byte >> live)
+                            pending = byte << (8 - live)
+                            offset += 1
+                        }
+                    }
+                    output = shifted
                 }
-                if bytes.count >= IOChunk.size {
-                    try Task.checkCancellation()
-                    try emit(bytes); bytes = Data()
-                }
+                try emit(output)
+                index += count
             }
             append(Self.read(source, at: fullEnd * 8, count: end & 7), count: end & 7)
         }

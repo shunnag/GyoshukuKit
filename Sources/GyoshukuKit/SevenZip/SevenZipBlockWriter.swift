@@ -18,6 +18,7 @@ final class SevenZipBlockWriter {
     }
     private var blocks: [Block] = []
     private let pipeline: OrderedChunkPipeline<Job, EncodedBlock, BlockTag>?
+    private let folderThreads: Int
     private let cancellation = CompressionCancellation()
     private(set) var assignedThreads = 0
     // scratch と AES は worker に所有権を渡し、完了後は出力 spool だけを呼出側へ渡す。
@@ -44,6 +45,7 @@ final class SevenZipBlockWriter {
         self.options = options; self.directory = directory; self.chunkSize = chunkSize
         encryptors = .init(password: options.password)
         let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod, innerParallelism: true).threads
+        folderThreads = threads
         let cancellation = self.cancellation
         let bzip2Encoder = ParallelBzip2StreamEncoder.testingEncoder
 
@@ -122,7 +124,8 @@ final class SevenZipBlockWriter {
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
         indices.append(records.count); records.append(record)
-        if options.sevenZipSolid == .off || scratch!.length >= limit || indices.count >= filesLimit {
+        // BZip2 solidは次の入力まで確定folderを保持する。単一folderならflushで全coreを使う。
+        if options.sevenZipSolid == .off || (options.sevenZipMethod != .bzip2 && (scratch!.length >= limit || indices.count >= filesLimit)) {
             try submitBlock(position: position, write: write)
         }
     }
@@ -167,8 +170,12 @@ final class SevenZipBlockWriter {
             }
             let budgetThreads = options.sevenZipMethod == .bzip2
                 ? ParallelBzip2StreamEncoder.resolvedThreads(options: options) : options.resolvedCompressionThreads
-            let innerThreads = min(pieces, budgetThreads - assignedThreads,
+            var innerThreads = min(pieces, budgetThreads - assignedThreads,
                 max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1)))
+            if options.sevenZipMethod == .bzip2, options.sevenZipSolid != .off, currentFilter != .none, !final {
+                // filterはfolder内で逐次。次folderがあるときは予約を分け、複数filterを同時に進める。
+                innerThreads = min(innerThreads, max(1, budgetThreads / min(4, folderThreads)))
+            }
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder")
             let job = Job(input: scratch, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,
                 threads: innerThreads)

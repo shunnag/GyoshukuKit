@@ -63,6 +63,45 @@ final class Bzip2SpliceTests: XCTestCase {
         }
     }
 
+    func testBulkPayloadAtEveryBitOffsetMatchesBitByBitReference() throws {
+        let stream = Data([0x42, 0x5a, 0x68, 0x31]) + TestCorpus.random(IOChunk.size + 18)
+        for offset in 0...7 {
+            // wordの端数、EOS直前の端数、I/O境界、次payloadへの持越しを別々に検査する。
+            for size in [0, 1, 7, 8, 9, 31, IOChunk.size + 17] {
+                let tails = size > 31 ? [3] : Array(0...7)
+                for tail in tails {
+                    var writer = Bzip2SpliceBits(), actual = Data()
+                    var reference: [UInt8] = [], pending: UInt8 = 0, live = 0
+                    func bit(_ value: UInt8) {
+                        pending |= value << (7 - live)
+                        live += 1
+                        if live == 8 { reference.append(pending); pending = 0; live = 0 }
+                    }
+                    func payload(_ end: Int) {
+                        stream.withUnsafeBytes { raw in
+                            let source = raw.bindMemory(to: UInt8.self)
+                            for position in 32..<end { bit((source[position >> 3] >> (7 - (position & 7))) & 1) }
+                        }
+                    }
+                    func emit(_ data: Data) {
+                        XCTAssertLessThanOrEqual(data.count, IOChunk.size)
+                        actual.append(data)
+                    }
+                    writer.append(0x55, count: offset)
+                    for position in (0..<offset).reversed() { bit(UInt8((0x55 >> position) & 1)) }
+                    let end = 32 + size * 8 + tail
+                    try writer.appendPayload(stream, end: end, emit: emit)
+                    payload(end)
+                    try writer.appendPayload(stream, end: 32 + 13 * 8 + 5, emit: emit)
+                    payload(32 + 13 * 8 + 5)
+                    try writer.finish(emit: emit)
+                    if live > 0 { reference.append(pending) }
+                    XCTAssertEqual(actual, Data(reference), "offset=\(offset), size=\(size), tail=\(tail)")
+                }
+            }
+        }
+    }
+
     func testScannerCarriesPendingRunAndCountsFinalBlock() {
         for level in [1, 5, 9] {
             let limit = 100_000 * level - 19

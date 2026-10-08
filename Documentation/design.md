@@ -212,6 +212,8 @@ capに達したときは強制切断し、その位置からscannerを初期化�
 並列数1は既存stream経路、一block以下の入力も既存codecで符号化する。
 
 `OrderedChunkPipeline` がchunkを並列符号化し、入力順にbitをspliceする。
+byte境界が揃うpayloadは一括copyし、揃わないpayloadは64 bit単位でshiftする。
+出力bufferは `IOChunk.size` 以下とし、端数bitだけを次のchunkへ持ち越す。
 各結果の32 bit headerを除き、末尾の `totalBits - 80 - pad`（pad 0〜7）の8候補から
 EOS magic `0x177245385090` と零paddingを満たす位置がちょうど一つであることを検査する。
 block数mのchunk CRCをCとして全体CRCを `rotl(crc, m) XOR C` で結合し、
@@ -224,6 +226,9 @@ ZIP（一括disk追加も含む）と非solid/filterなし7zは5 block上限を�
 項目窓をdrainし、内側threadsを使う。
 それ以下の複数項目は既存の項目窓で各workerをthreads=1にする。
 solid/filterの7zは推定片数を予約し、`assignedThreads` の合計を予算内に保つ。
+filter付きsolidに次folderがあるときは、内側の予約を `max(1, 予算threads / min(4, folder窓threads))`
+以下に分配する。filterはfolder内で逐次なので、先頭folderが全予約を取ると他folderのfilterも待たされる。
+BZip2 solidの確定folderは次入力またはflushまで保持し、単独folderのflushでは全予算を使う。
 filterの後に圧縮し、spliceしたbyteを従来のAES / ZipCrypto層へ渡す。
 取消しは `abandon()` で結果を捨て、chunk codecの終了を待たない。
 solidのworkerは共有取消しを内部の容量待ちでも観測し、source descriptorの回収だけを待つ。

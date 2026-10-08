@@ -10,6 +10,8 @@
   system libbz2のblock境界をSwiftで数え、圧縮結果のblockだけを単一streamへspliceする。
   通常は逐次出力とbyte一致し、長いrunで8 MiBの入力capに達した場合も同じ内容へ復号できる。
   スレッド・メモリの予約、filter、AES / ZipCrypto、取消しの非同期codec破棄に対応する。
+  filter付きsolidの複数folderに内側スレッドを分配し、逐次filterの待ち合わせを減らす。
+  spliceのpayloadを一括copy / 64 bit shiftで処理する。
   tar.bz2 / 単独.bz2の連結stream経路は従来どおり。
 
 ## [0.7.0] - 2026-09-29
