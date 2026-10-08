@@ -242,6 +242,11 @@ threadsは物理メモリの半分と `memoryLimit` の小さい方で絞る。�
 項目窓の逐次codec予約はEのままなので既存の固定期待値は変えず、
 solid窓は内側の全予約を各枠に数える。新しい固定表は `Bzip2SpliceTests` に置く。
 
+Mac mini M4でのbase 9d46fe2とda08ba6の交互比較は
+[BZip2 splice検証記録](verification/2026-10-08-bzip2-splice-mini-ab.md)に記載する。
+全26入力 / 方式・690 sampleで逐次経路と出力が一致し、単一10 MiBのZIP BZip2 / 7z BZip2はt=12で約5倍、
+256 MiB corpusの同2方式は約2.3倍。filter付きsolidのtree退行も解消した。
+
 ### LHA の方式・探索 level と並列圧縮（P4-G-a）
 
 `ArchiveWriter.create` は `options.lhaMethod`・`lhaLevel`・`resolvedCompressionThreads` を LHAWriter に渡す。

@@ -13,6 +13,8 @@
   filter付きsolidの複数folderに内側スレッドを分配し、逐次filterの待ち合わせを減らす。
   spliceのpayloadを一括copy / 64 bit shiftで処理する。
   tar.bz2 / 単独.bz2の連結stream経路は従来どおり。
+  [Mac mini交互比較の検証記録](Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md)に
+  26条件・690 sampleの出力一致、ZIP BZip2 / 7z BZip2の単一10 MiBで約5倍、256 MiB corpusで約2.3倍の計測を記載する。
 
 ## [0.7.0] - 2026-09-29
 
