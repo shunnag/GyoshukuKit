@@ -39,7 +39,8 @@ final class OrderedEntrySpoolTests: XCTestCase {
                         else { try writer.add(contentsOf: source, as: "stored.png") }
                         try writer.finish()
                     }
-                    XCTAssertEqual(created.withLock { $0 }, 0)
+                    // 項目窓の大きい stored は入力全体を保持せず、disk spool で先行項目と重ねる。
+                    XCTAssertEqual(created.withLock { $0 }, batch && threads > 1 ? 1 : 0)
                     let bytes = try Data(contentsOf: url)
                     if let expected { XCTAssertEqual(bytes, expected) } else { expected = bytes }
                     let reader = try ArchiveReader.open(url: url, options: ReaderOptions(password: encrypted ? "secret" : nil))

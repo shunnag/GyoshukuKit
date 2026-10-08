@@ -11,7 +11,7 @@ final class ZipEntryCompressor {
 
     func compress(name: String, size: UInt64, method: CompressionMethod,
                                read: (Int) throws -> Data, emit: (Data) throws -> Void) throws -> UInt32 {
-        // 項目窓のworkerはthreads=1、大項目は窓をdrainした後で内側coreを使う。
+        // 項目窓のworkerはthreads=1、fallbackの大項目は窓をdrainした後で内側coreを使う。
         let bzip2 = method == .bzip2 ? try ParallelBzip2StreamEncoder(level: options.bzip2Level,
             threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: size) : nil
         defer { bzip2?.abandon() }
