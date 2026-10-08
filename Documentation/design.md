@@ -31,7 +31,7 @@ GyoshukuKit ──依存──> KaitoKit
 既存書庫を読む必要がある。その堅い parser は KaitoKit が既に持っているので、
 二つ目の ZIP parser は書かない。開発中は `.package(path: "../KaitoKit")`、
 release では `.upToNextMinor(from: "0.12.0")` の tag 参照を使う。
-GyoshukuKit 0.7.0 は KaitoKit 0.12.x に依存する。`@_spi` は SemVer の保証外で、
+GyoshukuKit 0.8.0 は KaitoKit 0.12.x に依存する。`@_spi` は SemVer の保証外で、
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
@@ -43,7 +43,7 @@ Swift 6.3.3 の `-O` は Optional な関数型の `TaskLocal.withValue` を誤�
 Swift 6.4 で build した release binary は macOS 26 で動くため、Xcode 26 / Swift 6.3 での
 コンパイル差の検査は廃止し、古い compiler に合わせた source の回避策は加えない。
 
-CI の `build-and-test` は `xcode-27` で debug 全 suite と release FullSize 14件を実行する。
+CI の `build-and-test` は `xcode-27` で debug 全 suite と release FullSize 16件（BZip2追加後）を実行する。
 並行する `build-for-macos-26` も `xcode-27` で debug / release test を build し、test bundle と
 隣接 resource bundle、`otool` で調べた非 system の依存 dylib / framework、Xcode 27 の xctest を tar で運ぶ。
 `macos-26-runtime` は同じ checkout path に展開し、`#filePath` の fixture と `Bundle.module` の path を保つ。
@@ -740,7 +740,7 @@ String 辞書と entry 全体の等値比較を作らず、範囲 2 つと descr
 
 試験用 `@_spi(Testing)` は `ArchiveUpdater.CommitStrategy`（unchanged / appendOnly / inPlacePatch /
 rebuild / rebuildThenAppend / stagedRebuild）と `lastCommitStrategy` だけを公開する。
-KaitoKit 0.11.0 以降が SPI を提供するため、GyoshukuKit 0.7.0 の URL 依存は
+KaitoKit 0.11.0 以降が SPI を提供するため、GyoshukuKit 0.8.0 の URL 依存は
 `.upToNextMinor(from: "0.12.0")` とする。開発中は sibling の KaitoKit を使い、manifest の自動選択規則は変えない。
 
 従来の public rawRecord API（0.4.0）は引き続き利用できる。
@@ -874,7 +874,8 @@ nil レベルの LZMA2 の `SevenZipChunkPipeline.chunkSize` は **16 MiB**、I/
 自前 LZMA2 は選んだ辞書 property を保持し、辞書が16 MiBより大きいと片を3倍にする。
 encoder closure は片ごとに新しい encoder を作り、辞書 reset を残して連結する。
 並列数と memoryLimit は自前 encoder 節で解決し、`maximumPendingInputBytes` は t × 片。
-raw LZMA は256 KiBずつ同期入力するので pending input は0。
+raw LZMA の単一streamは256 KiBずつ同期入力する。非solidの項目窓を使う場合はその保持入力を数え、
+solid/filterでは下記のfolder窓のdisk入力を数える。単一stream内のchunk並列化は行わない。
 
 `sevenZipSolid: .off` と `sevenZipFilter: .none` は従来の writer 経路を保持する。
 それ以外は `SevenZipBlockWriter` が入力順に非空 file を集め、`ScratchFile` に256 KiBずつ流す。
@@ -1114,7 +1115,8 @@ open は P1-G の descriptor 起点の `ArchiveSourceSnapshot` を使い、Kaito
 非 0 の main packPosition、entry / file / folder / substream / pack の不一致を、変更前に
 `UpdaterRouteError.requiresRewrite` で返す。`assess(reader:)` は既存 reader の構造だけを判定する。
 KaitoKit 0.11.0 の P5-K SPI が必要。Package.swift の tag 依存は
-`.upToNextMinor(from: "0.12.0")` とし、KaitoKit 0.12.0 → GyoshukuKit 0.7.0 → KaitoFinder 0.5.0 の順にリリースする。
+`.upToNextMinor(from: "0.12.0")` とし、リリース順は KaitoKit 0.12.x → GyoshukuKit 0.8.0 → KaitoFinder 0.6.0 とする。
+KaitoKit は既存の0.12.xを使う。製品ソースは v0.12.1 以降変わっていないため、今回再リリースしない。
 
 生存 file は元の順、追加は呼出し順で末尾へ置く。運ぶ folder の圧縮 byte、coder と props、bind、
 packed input、unpack size、CRC、AES の IV を保ち、file の UTF-16LE の生の名前、FILETIME、属性、
@@ -2275,7 +2277,8 @@ LHA項目窓と7z solid/filter窓はSを要求threads分予約する。Sは以�
 
 LZMA/XZ/Zstandardの新規項目/folder窓は`min(memoryLimit（nilは物理メモリ50%）, 物理メモリ50%)`を予算にする。
 Appleも窓の見積りに含めるが、既存のblock経路の内部並列数・予約は変更しない。
-BZip2/PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
+BZip2は単一stream spliceの導入後、項目/folder窓と内側codecの予約にも同じmemoryLimit予算を使う（上のBZip2節）。
+PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
 tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
 従来受理できた単一codecのmemoryLimitを拒否しない。モデル・辞書・片境界を縮めない。
 入力上界は上の`maximumPendingInputBytes`表。spoolのfile cacheとallocator管理領域はcodecの予約に含めない。

@@ -4,17 +4,127 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-08
+
+書き込みの圧縮形式・方式・レベルを増やし、純 Swift encoder の高速化と ZIP / 7z / LHA の複数 core 化をまとめた release。
+PR #11 と #12 を含む `v0.7.0..main` の45コミットを反映する。KaitoKit の依存は引き続き0.12.x
+（`.upToNextMinor(from: "0.12.0")`）。KaitoKit の製品ソースは v0.12.1 以降変わっておらず、今回再リリースしない。
+
+### toolchain と実行環境
+
+- **ビルドには Xcode 27 / Swift 6.4 以上が必要。実行環境は引き続き macOS 26 以上・Apple Silicon。**
+  Swift 6.3.3 の `-O` が `TaskLocal<function?>.withValue` を誤コンパイルし、release で EXC_BAD_ACCESS になるため、
+  Xcode 26 / Swift 6.3 でのビルドはサポートしない（2026-10-08 確認）。
+- CI は Xcode 27 で debug 全 suite と release の `…FullSize` をビルド・実行する。
+  同じ toolchain でビルドしたテスト・resource・依存 dylib / framework と Xcode 27 の xctest runner を
+  macOS 26 に運び、再コンパイルせず実行する。実際の test failure と実行件数0は失敗にする。時間上限は240分。
+
+### 追加
+
+- ZIP の BZip2（method 12）・LZMA（14）・Zstandard（93）・XZ（95）・PPMd var.I rev.1（98）の書き込み。
+  stored（0）/ Deflate（8）と合わせて七方式。ZIP64、AES-256 / ZipCrypto、updater の追加、rewriter の出力でも使える。
+- 7z の Copy・Deflate・BZip2・LZMA・PPMd var.H の書き込み。既存の LZMA2 と合わせて六方式を
+  `sevenZipMethod` で選ぶ。全方式で AES-256 と header 暗号化を併用でき、updater が運ぶ既存 folder の coder / byte は保つ。
+- 7z の solid 圧縮（`sevenZipSolid: .on(blockSize:filesPerBlock:)`）と BCJ x86・ARM64・Delta filter。
+  `sevenZipFilter` は `.none` / `.auto` / `.bcjX86` / `.arm64` / `.delta(distance: 1...256)`。
+  `.auto` は PE / 単一 Mach-O の x86・x86_64、PE / 単一 Mach-O / ELF64 の arm64 を判別する。
+  solid は入力順を保ち、filter 種別の変化で block を区切り、同じ folder 内では file 境界を越えて filter 状態を続ける。
+  大入力は unlink 済み disk spool に保持する。updater の solid 一部削除では元の filter と開始位置を保つ。
+  既定の `.off` / `.none` は従来の出力 byte を保つ。
+- LHA の `lhaMethod: .lh6` / `.lh7` / `.stored`（`-lh6-` / `-lh7-` / `-lh0-`）。
+  既定の `-lh5-` と合わせて辞書は8 / 32 / 64 KiB、directory は `-lhd-`。縮まなければ `-lh0-` に戻す。
+  updater の追加・rewriter にも適用し、既定の LH5・level 6 の出力 byte は保つ。
+- 圧縮 tar の `tar.zst` / `tar.lzma` / `tar.lz` / `tar.lz4` / `tar.br` / `tar.Z`。
+  Zstandard は checksum 付き独立 frame、lzip v1 は独立 member を並列化して連結する。
+  LZ4 は4 MiB の独立 block を持つ単一 frame、LZMA_Alone / Brotli / UNIX compress は逐次単一 stream。
+  これらの編集は `ArchiveRewriter` による全体再符号化で行う。`CompressedTarUpdater` の区間更新は tar.gz / tar.bz2 / tar.xz に限る。
+- `SingleStreamCompressor.compress(file:to:format:options:progress:)` による通常ファイル一つの
+  `.gz` / `.bz2` / `.xz` / `.zst` / `.lzma` / `.lz` / `.lz4` / `.br` / `.Z` の新規作成。
+  byte 進捗、排他的な原子的公開、取消し・失敗時の cleanup に対応する。
+- 方式ごとの圧縮レベルと設定を追加・拡張する。
+  - `deflateLevel`: ZIP / 7z Deflate / gzip の `0...9`、既定6。`bzip2Level`: BZip2 の `1...9`、既定9。
+  - `lzmaLevel`: `0...9` と `lzmaExtreme`。tar.xz / 単独 XZ / ZIP XZ / 7z LZMA2 は nil なら従来の Apple preset-6、
+    指定時は自前 encoder。ZIP / 7z LZMA、tar.lzma / tar.lz、単独 LZMA / lzip は常に自前で、nil は6。
+    extreme は tar.lzma / tar.lz / 単独 LZMA・lzip では nil でも使い、他はレベル指定時だけ使う。
+  - `lhaLevel`: `1...9`、既定6。`zstdLevel`: `1...19`、既定3。Zstandard の同じ数値は CLI と同じ探索量・圧縮率を意味しない。
+  - `ppmdLevel`: `1...9`、既定6。`ppmdOrder` は ZIP `2...16` / 7z `2...32`、
+    `ppmdMemoryMiB` は ZIP `1...256` / 7z `1...1024` で preset を上書きする。
+    既定は ZIP order 8 / 7z order 6、共に16 MiB。モデルは entry / folder ごとに独立し、solid 内では file 境界を越えて保持する。
+  - LZ4 は単一レベル、Brotli は Apple の固定 level 2。UNIX compress は block mode LZW・maxbits 16で、公開レベル指定はない。
+- 純 Swift の LZMA1 / LZMA2、PPMd var.H / var.I rev.1、Zstandard frame（RFC 8878）、UNIX compress（LZW）の encoder。
+  LZMA_Alone と lzip の framing も自前。LZ4 frame は Apple の LZ4_RAW と自前 framing / XXH32、Brotli は Apple Compression を使う。
+  LZMA / PPMd / 7z filter は public-domain の SDK / C source を参考にし、Zstandard は RFC と xxHash の公開仕様から実装した。
+  C source や追加の codec library は同梱しない。
+
 ### 改善
 
-- ZIP method 12と7z BZip2の単一大項目・solid folder内を並列圧縮する。
-  system libbz2のblock境界をSwiftで数え、圧縮結果のblockだけを単一streamへspliceする。
-  通常は逐次出力とbyte一致し、長いrunで8 MiBの入力capに達した場合も同じ内容へ復号できる。
-  スレッド・メモリの予約、filter、AES / ZipCrypto、取消しの非同期codec破棄に対応する。
-  filter付きsolidの複数folderに内側スレッドを分配し、逐次filterの待ち合わせを減らす。
-  spliceのpayloadを一括copy / 64 bit shiftで処理する。
-  tar.bz2 / 単独.bz2の連結stream経路は従来どおり。
-  [Mac mini交互比較の検証記録](Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md)に
-  26条件・690 sampleの出力一致、ZIP BZip2 / 7z BZip2の単一10 MiBで約5倍、256 MiB corpusで約2.3倍の計測を記載する。
+- LZMA の match finder・parser・価格表とメモリ予約を整理する。M4 Max の同一 `-O -wmo` 交互計測では
+  基準 `f273d34` 比で level 1 約1.9〜2.4倍、level 3 約3〜4.1倍、level 6 / 9 約1.2倍。計測した出力 byte は一致する。
+- PPMd の model / arena / range coder を noncopyable struct とし、記号更新・suffix 探索・固定表の処理を減らす。
+  同じ flags の交互計測で level 6 は旧版比約2.0〜2.2倍、出力 byte は一致する。
+- Zstandard の低レベル探索・hash / SIMD row・解析領域・Huffman / FSE・bit 出力を高速化する。
+  level 1 は旧版比約2〜3倍。探索変更で出力 byte は変わるが、全19レベルのサイズと独立復号を検査する。
+  統合 writer の Mac mini 交互比較では ZIP Zstandard のサイズ増加は最大0.12%、thread 数によらず同じ byte を出す。
+- ZIP の BZip2 / LZMA / XZ / Zstandard / PPMd、7z の LZMA / BZip2 / PPMd と solid / filter folder、
+  LHA の member を有界に並列圧縮する。通常の項目窓は16 MiB以下・最大16枠、LHA は1 MiB超〜16 MiBの member も対象。
+  大項目では従来の stream / chunk 経路を使い、solid は block 上限まで disk spool に保持する。
+  ZIP / 7z の圧縮出力は1 MiBを超えると unlink 済み disk spool に移す。
+  同じ入力・設定の出力順・byte は1 thread と一致し（下記BZip2の強制切断を除く）、CRC・header・暗号化・進捗通知の順序も保つ。
+  [Mac mini 統合版の交互比較](Documentation/verification/2026-10-08-integrated-mini-ab.md)では、256 MiB混在入力・t=12で
+  ZIP Zstandard 11.2倍、ZIP PPMd 4.8倍、ZIP XZ 3.9倍、7z PPMd solid 4.0倍、LHA LH7 3.7倍、ZIP LZMA 3.5倍。
+  この比較の基準は `f273d34` で、Zstandard 以外の出力 byte は基準版とも一致する。
+- ZIP method 12 と7z BZip2 の単一大項目・solid folder 内を並列圧縮する。
+  system libbz2 の RLE1 / block 境界を Swift で数え、独立圧縮した chunk の header / EOS を除いた bit 列と CRC を
+  **標準の単一 bzip2 stream**へ splice する。通常は逐次 libbz2 と byte 一致し、長い run で8 MiBの入力 capに達した
+  強制切断時は圧縮byteが変わり得るが、同じ内容へ復号できる。小項目（約5 block以下）と t=1 は従来経路を使う。
+  通常・一括 disk 追加、non-solid / solid / filter、AES / ZipCrypto、取消しに対応する。
+  filter 付き solid の内側 threads を最大4 folderへ分配し、payload は一括 copy / 64 bit shift で結合する。
+  tar.bz2 / 単独 .bz2 の連結 stream 経路は従来どおり。
+  [BZip2 splice の Mac mini 交互比較](Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md)では、
+  基準 `9d46fe2` との26条件・690 sampleでサイズ・SHA-256が一致し、t=12の単一10 MiBで約5倍、16 MiB乱数で約4.7倍、
+  256 MiB corpusの ZIP / 7zで約2.3倍、7z solidで約2.1倍。
+- debug encoder 試験の重複符号化・reader / oracle生成を減らし、CRC / PRNG helper を高速化する。
+  PPMd の restart / cut-off、LZMA2 の境界・copy遷移、Zstandard の window 内外・末尾などの既定検査を保つ。
+  元サイズの `…FullSize` は `GYOSHUKU_LARGE_ENCODER_TESTS=1` で有効にし、CIでは release で実行する（BZip2追加後は16件）。
+  [debug 試験の検証記録](Documentation/verification/2026-10-07-encoder-debug-speed.md)に既定試験の短縮と再検証を記載する。
+  encoder単独・writer複数coreの計測 harness と sample / hash / 負荷を保存し、基準版・複製・新版・参照ツールの交互計測を再実行可能にする。
+
+### 修正とメモリ・取消しの契約
+
+- 7z の solid folder を空にしたときに、選んだ LZMA 辞書の coder property が残る不具合を修正する。
+- 並列 writer の単独項目・小中 member 混在・ZipCrypto の退行、ZIP窓の不要な drain / spool、
+  7z の内側 thread 予約と二重返却、失敗時の窓破棄を修正する。LHA の内側 thread 合計制限は退行のため撤回し、
+  有界な項目窓・保守的な codec 予約・worker の終了待ちは維持する。LZMA と BZip2 の予約変更に固定期待値も合わせる。
+- ZIP / 7z / tar.xz の通常 chunk 経路では、取消し時に入力 `Data` だけを所有する実行中 codec の完了を待たず、
+  結果を破棄して戻る。遅れて完了した worker が出力を復活させない。
+  項目・folder worker の read / write には共有 cancellation latch を伝え、source descriptor / spool を所有する worker の
+  終了待ちと解放は維持する。BZip2 solid の容量待ちにも取消しを伝える。対象試験で250 ms以内の復帰を検査する。
+- `memoryLimit` は byte 単位で、予算は `min(memoryLimit（nilは物理メモリの50%）, 物理メモリの50%)`。
+  自前 LZMA / LZMA2 / lzip / Zstandard は codec と入出力 buffer の予約で並列数を絞り、
+  一つも入らなければ出力作成前に `WriterError.invalidOption("memoryLimit")` を返す。辞書を黙って縮めない。
+  ZIP / 7z BZip2 の項目窓と単一 stream splice にも適用し、codec・8 MiB cap の入出力を予約する。
+  BZip2 と新しい LZMA / XZ 項目・folder窓は2枠未満なら従来経路へ戻し、既存の逐次経路を新たに拒否しない。
+  Apple の既存 block 経路には適用しないが、新しい項目・folder窓では Apple codec の見積りも含める。
+  PPMd / Deflate / Copy / LHA の窓は物理メモリの50%で並列数を制限し、PPMd のモデルは `memoryLimit` で縮めない。
+  `maximumPendingInputBytes(for:)` は保持する入力の上界で、codec state・圧縮出力・file cache・allocator管理領域を含むRSS上限ではない。
+
+### 範囲と制限
+
+- LHA の small-mixed（10 MiB 1個＋小 file 128個）は t ≥ 10で旧版比約3〜5%（約1.5 ms）の退行が残る。
+- Zstandard の単一 thread 書き込みは level 1で CLI の約40〜62%（M4 Maxで315〜355 MB/s）。全条件でCLIと同じ速度を達成してはいない。
+- ZIP method 12 / 14 / 93 / 95 / 98 は macOS Archive Utility で開けない。互換性のため既定は Deflate のまま。
+- BZip2 splice の small / 7z BZip2 filter では約2.2〜2.5%の時間増加を観測した。t=1は測定の揺れが混じる可能性が高いが、
+  t=12の超過は揺れだけと断定できない。詳細は上記のBZip2検証記録を参照。
+
+### 検証
+
+- PR #11 の統合版 `b93420f` は Mac mini M4で debug 785件・42 skip・失敗0、release FullSize 14件成功。
+  Xcode 27でビルドした同じテストは CI の macOS 26.6.2でも同件数・失敗0。
+- PR #12 の `da08ba6` は Mac mini M4で debug 804件・44 skip・失敗0、release FullSize 16件成功。
+  BZip2 level 1 / 5 / 9、run境界、threads 1 / 2 / 7の逐次出力一致、強制切断、EOS候補の一意性、
+  暗号化・solid・filterの往復、取消しを検査した。
+- KaitoKit と7zz / xz / bzip2 / lha-unix / lzip / lz4 / brotli / compress / zstd の独立復号で全 byte を照合する。
+  上記の件数・速度は各PRの検証時点の記録であり、環境に依存する。
 
 ## [0.7.0] - 2026-09-29
 
