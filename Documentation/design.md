@@ -47,8 +47,10 @@ CI の `build-and-test` は `xcode-27` で debug 全 suite と release FullSize 
 並行する `build-for-macos-26` も `xcode-27` で debug / release test を build し、test bundle と
 隣接 resource bundle、`otool` で調べた非 system の依存 dylib / framework、Xcode 27 の xctest を tar で運ぶ。
 `macos-26-runtime` は同じ checkout path に展開し、`#filePath` の fixture と `Bundle.module` の path を保つ。
-`macos-26` 上で Swift の build / test は行わず、system xctest で debug 全 suite と release FullSize を実行する。
-test 開始前の XCTest / runtime の load failure だけ、同梱した Xcode 27 runner と framework / dylib に切り替える。
+`macos-26` 上で Swift の build / test は行わず、artifact に同梱した Xcode 27 の xctest runner と
+framework / dylib で debug 全 suite と release FullSize を実行する。Xcode 26 の system xctest は
+XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
+製品コードは macOS 26 の OS Swift runtime 上で動かし、OS の差を検査する。
 実際の test failure と実行件数0は失敗にする。両実行 job に同じ必須 oracle を導入し、
 KaitoKit は利用側と同じ tag から解決する。
 

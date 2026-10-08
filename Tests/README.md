@@ -106,7 +106,9 @@ ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7
   build は Xcode 27 / Swift 6.4 のみ。macOS 27 では既定の debug suite と、release の
   `GYOSHUKU_LARGE_ENCODER_TESTS=1` / `--filter FullSize` による大入力14件を実行する。
   macOS 26 には別の Xcode 27 job で build した test bundle・resource・依存 dylib と FullSize の識別子を運び、
-  コンパイルせず xctest で同じ試験を行う。system xctest の load failure 時だけ同梱した Xcode 27 runner に切り替える。
+  コンパイルせず artifact に同梱した Xcode 27 の xctest runner と framework / dylib で同じ試験を行う。
+  Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
+  製品コードは macOS 26 の OS Swift runtime 上で動かし、OS の差を検査する。
   実際の test failure と実行件数0は失敗にする。Swift 6.3.3 の `-O` による `TaskLocal<function?>` の
   誤コンパイル（2026-10-08 確認）のため、Xcode 26 / Swift 6.3 での build はサポートしない。
 

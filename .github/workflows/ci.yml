@@ -4,10 +4,9 @@ name: CI
 # build は Xcode 27 / Swift 6.4 のみ。成果物を macOS 26 にも運び、OS の差を検出する。
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。2026-10-08 の probe で確認）。
-# push の diag/** は今回の診断用。PR ブランチへ移す際に外し、main と tag だけに戻す。
 on:
   push:
-    branches: [main, 'diag/**']
+    branches: [main]
     tags: ['*']
   pull_request:
 
@@ -262,49 +261,15 @@ jobs:
         run: |
           set -euo pipefail
           runtime="$PWD/.build/ci-runtime"
-          system_runner="$(xcrun -f xctest)"
-
-          run_once() {
-            local runner="$1" label="$2" bundle="$3"
-            shift 3
-            log="$RUNNER_TEMP/${label}-${runner}.log"
-            printf 'Runner (%s): %s\n' "$label" "$runner"
-            set +e
-            if [[ "$runner" == system ]]; then
-              # xcrun が選んだ system tool に、不足する dylib だけを補う。
-              env DYLD_LIBRARY_PATH="$runtime/lib" "$system_runner" "$@" "$bundle" 2>&1 | tee "$log"
-              statuses=("${PIPESTATUS[@]}")
-            else
-              env DYLD_FRAMEWORK_PATH="$runtime/Frameworks" DYLD_LIBRARY_PATH="$runtime/lib" \
-                "$runtime/bin/xctest" "$@" "$bundle" 2>&1 | tee "$log"
-              statuses=("${PIPESTATUS[@]}")
-            fi
-            set -e
-            test_status="${statuses[0]}"
-            if (( statuses[1] != 0 )); then
-              exit "${statuses[1]}"
-            fi
-          }
 
           run_tests() {
             local label="$1" bundle="$2"
             shift 2
-            run_once system "$label" "$bundle" "$@"
-            if (( test_status != 0 )); then
-              # test が始まっていたら、実際の failure / crash として止める。
-              if grep -Eq "Test Case .* started|Executed [1-9][0-9]* tests?" "$log"; then
-                return "$test_status"
-              fi
-              # bundle の load failure だけ、同梱した Xcode 27 runner で再試行する。
-              if ! grep -Eiq "could not (be )?load|couldn.t be loaded|failed to load|Library not loaded|Symbol not found|no suitable image found" "$log"; then
-                return "$test_status"
-              fi
-              echo "XCTest/runtime load mismatch; retrying with bundled Xcode 27"
-              run_once bundled "$label" "$bundle" "$@"
-            fi
-            if (( test_status != 0 )); then
-              return "$test_status"
-            fi
+            local log="$RUNNER_TEMP/${label}-bundled.log"
+            printf 'Runner (%s): %s\n' "$label" "$runtime/bin/xctest"
+            # Xcode 26 の system xctest は Xcode 27 の test bundle を load できないため、同梱 runner を使う。
+            env DYLD_FRAMEWORK_PATH="$runtime/Frameworks" DYLD_LIBRARY_PATH="$runtime/lib" \
+              "$runtime/bin/xctest" "$@" "$bundle" 2>&1 | tee "$log"
             # selector の不一致などで実行 0 件になっても成功にはしない。
             grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$log"
           }
