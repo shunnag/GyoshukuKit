@@ -222,12 +222,14 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let url = directory.appendingPathComponent("archive")
         let alias = directory.appendingPathComponent("alias")
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
         let task = Task.detached {
             let writer = try ArchiveWriter.create(url: url, format: format, options: WriterOptions(compressionThreads: 1),
                                                  lzmaChunkSize: ParallelLZMA2WriterTests.chunkSize) { input in
                 started.signal()
                 // 取消し処理が退行してもテストを永久に待たせない。
                 XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+                defer { completed.signal() }
                 return try LZMA2Compressor.encode(input)
             }
             try FileManager.default.linkItem(at: url, to: alias)
@@ -244,8 +246,12 @@ final class ParallelLZMA2WriterTests: XCTestCase {
         let latency = start.duration(to: .now)
         // 計測ではなく、取消しが止めてある encoder（最長 5 秒待つ）の完了を待たずに返ることを、余裕のある上限で確かめる。
         XCTAssertLessThan(latency, .milliseconds(250))
+        XCTAssertEqual(completed.wait(timeout: .now()), .timedOut)
         TestSupport.report("PARALLEL CANCELLATION \(format): \(latency)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertEqual(try Data(contentsOf: alias).count, 0)
+        release.signal()
+        try await LZMA2ChunkPipelineTests.wait(completed)
         XCTAssertEqual(try Data(contentsOf: alias).count, 0)
     }
 

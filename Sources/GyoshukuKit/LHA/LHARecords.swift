@@ -1,10 +1,12 @@
 import Foundation
 
 enum LHARecords {
-    /// 書庫に書く method 名。writer は -lh5- と、縮まないときの -lh0-、directory の -lhd- だけを作る。
+    /// 書庫に書く method 名。圧縮は -lh5- / -lh6- / -lh7-、無圧縮は -lh0-、directory は -lhd-。
     enum Method {
         static let lh0 = "-lh0-"
         static let lh5 = "-lh5-"
+        static let lh6 = "-lh6-"
+        static let lh7 = "-lh7-"
         static let lhd = "-lhd-"
     }
 

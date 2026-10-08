@@ -100,8 +100,9 @@ final class SevenZipFolderWorkset {
             let input = SevenZipSolidInput(reader: reader, files: filesByFolder[index], surviving: files, advance: advance)
             let sizes = files.map { model.substreams[model.files[$0].substreamIndex!].size }
             let size = try sizes.reduce(UInt64(0)) { try checkedAdd($0, $1) }
-            let encoder = try SevenZipFolderEncoder.encode(size: size, threads: options.resolvedCompressionThreads,
-                aes: aes, read: input.read, write: { _ = try scratch.append($0) })
+            let encoder = try SevenZipFolderEncoder.encode(size: size, options: options,
+                aes: aes, filter: SevenZipWriteFilter.preserved(in: model.folders[index]),
+                read: input.read, write: { _ = try scratch.append($0) })
             var offset: UInt64 = 0
             let streams: [SevenZipEditModel.Substream] = zip(files, sizes).map { file, size in
                 defer { offset += size }
@@ -201,10 +202,16 @@ final class SevenZipFolderWorkset {
                     let encrypted = reencrypt ? options.password != nil : folder.isEncrypted
                     var replacement = folder
                     replacement.coders = (encrypted ? [.aes(properties: Array(repeating: 0, count: SevenZipAESEncryptor.propertiesLength))] : [])
-                        + [.lzma2(properties: 0)]
+                        + [.compression(options.sevenZipMethod)]
                     replacement.bindPairs = encrypted ? [.init(input: 1, output: 0)] : []
                     replacement.packedInputs = [0]; replacement.unpackSizes = encrypted ? [bound, size] : [size]
                     replacement.finalOutput = encrypted ? 1 : 0; replacement.crc32 = nil
+                    if let filter = try SevenZipWriteFilter.preserved(in: folder).coder {
+                        replacement.coders.append(filter)
+                        replacement.bindPairs.append(.init(input: replacement.coders.count - 1, output: replacement.coders.count - 2))
+                        replacement.unpackSizes.append(size)
+                        replacement.finalOutput += 1
+                    }
                     var offset: UInt64 = 0
                     let streams: [SevenZipEditModel.Substream] = files.map { file in
                         let size = model.substreams[model.files[file].substreamIndex!].size

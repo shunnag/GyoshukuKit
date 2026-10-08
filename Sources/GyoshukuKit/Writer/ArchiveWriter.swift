@@ -1,7 +1,7 @@
 import Foundation
 private import Darwin
 
-/// ZIP / ZIP64、tar（gzip / bzip2 / XZ 圧縮を含む）、7z、LHA を新規作成する。既存の出力先は上書きしない。
+/// ZIP / ZIP64、tar（9種の stream 圧縮を含む）、7z、LHA を新規作成する。既存の出力先は上書きしない。
 ///
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
@@ -75,8 +75,9 @@ public final class ArchiveWriter {
     public static func create(
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
     ) throws -> ArchiveWriter {
-        try create(url: url, format: format, options: options,
-                   lzmaChunkSize: format == .tarXZ ? ParallelXZCompressor.defaultBlockSize : LZMA2ChunkPipeline<Void>.chunkSize)
+        let piece = format == .tarXZ || (format == .sevenZip && options.sevenZipMethod == .lzma2)
+            ? try LZMAWriterConfiguration(options: options).pieceSize : LZMA2ChunkPipeline<Void>.chunkSize
+        return try create(url: url, format: format, options: options, lzmaChunkSize: piece)
     }
 
     // 小さい入力でも複数 chunk と待機中の失敗を検証できるようにする。
@@ -88,8 +89,8 @@ public final class ArchiveWriter {
         zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) },
         lzmaChunkSize: Int,
         xzPackingSize: Int? = nil,
-        lzmaEncoder: @escaping LZMA2ChunkPipeline<Void>.Encoder = LZMA2Compressor.encode,
-        lh5Encoder: @escaping @Sendable (Data) throws -> Data = LH5Encoder.encode
+        lzmaEncoder: LZMA2ChunkPipeline<Void>.Encoder? = nil,
+        lh5Encoder: (@Sendable (Data) throws -> Data)? = nil
     ) throws -> ArchiveWriter {
         try FileRead.validateFileURL(url)
         try options.validate(for: format)
@@ -103,8 +104,12 @@ public final class ArchiveWriter {
             compressor = try ParallelBzip2Compressor(level: options.bzip2Level, threads: options.resolvedCompressionThreads,
                                                      encoder: bzip2Encoder)
         case .tarXZ:
-            compressor = try ParallelXZCompressor(threads: options.resolvedCompressionThreads,
-                                                  chunkSize: lzmaChunkSize, packingSize: xzPackingSize, encoder: lzmaEncoder)
+            let configuration = try LZMAWriterConfiguration(options: options)
+            compressor = try ParallelXZCompressor(threads: configuration.threads,
+                chunkSize: lzmaChunkSize, packingSize: xzPackingSize, allowsLightChunks: configuration.properties == nil,
+                encoder: lzmaEncoder ?? configuration.encoder)
+        case .tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress:
+            compressor = try StreamCompressor.make(format: format, options: options)
         default: compressor = nil
         }
         let fd = url.withUnsafeFileSystemRepresentation { path in
@@ -115,10 +120,11 @@ public final class ArchiveWriter {
         let tar = format.isTar
             ? TarWriter(output: handle, url: url, compressor: compressor) : nil
         let sevenZip = format == .sevenZip
-            ? SevenZipWriter(output: handle, url: url, options: options,
+            ? try SevenZipWriter(output: handle, url: url, options: options,
                              chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
         let lha = format == .lha ? LHAWriter(output: handle, url: url,
-                                            threads: options.resolvedCompressionThreads, encoder: lh5Encoder) : nil
+                                            threads: options.resolvedCompressionThreads,
+                                            method: options.lhaMethod, level: options.lhaLevel, encoder: lh5Encoder) : nil
         return ArchiveWriter(output: handle, url: url, format: format, options: options,
                              tarWriter: tar, sevenZipWriter: sevenZip, lhaWriter: lha,
                              deflateBlockSize: deflateBlockSize, deflateEncoder: deflateEncoder, zipSalt: zipSalt)
@@ -301,8 +307,9 @@ public final class ArchiveWriter {
 
     static func lhaAppend(output: FileHandle, url: URL, at offset: UInt64, options: WriterOptions,
                           existingPaths: [(String, Bool)],
-                          encoder: @escaping @Sendable (Data) throws -> Data) throws -> ArchiveWriter {
+                          encoder: (@Sendable (Data) throws -> Data)?) throws -> ArchiveWriter {
         let lha = LHAWriter(output: output, url: url, threads: options.resolvedCompressionThreads,
+                            method: options.lhaMethod, level: options.lhaLevel,
                             recordsMembers: true, encoder: encoder)
         let writer = ArchiveWriter(output: output, url: url, format: .lha, options: options, lhaWriter: lha)
         try writer.prepareAppend(at: offset, existingPaths: existingPaths)
@@ -311,7 +318,7 @@ public final class ArchiveWriter {
 
     static func sevenZipAppend(output: FileHandle, url: URL, at offset: UInt64,
                                options: WriterOptions, existingPaths: [(String, Bool)]) throws -> ArchiveWriter {
-        let sevenZip = SevenZipWriter(output: output, url: url, options: options, startPosition: offset)
+        let sevenZip = try SevenZipWriter(output: output, url: url, options: options, startPosition: offset)
         let writer = ArchiveWriter(output: output, url: url, format: .sevenZip,
                                    options: options, sevenZipWriter: sevenZip)
         try writer.prepareAppend(at: offset, existingPaths: existingPaths)
@@ -702,7 +709,7 @@ extension ArchiveWriter {
                                   emit: (ZipWriter.Tag, Prefetched?) throws -> Void,
                                   receive: (BatchEntry, Prefetched?) throws -> Void) throws {
         if let zipWriter {
-            try zipWriter.submit(job, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
+            try zipWriter.submit(job, method: entry.zip!.method, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
         } else if sevenZipWriter != nil {
             // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
             try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
@@ -736,7 +743,11 @@ extension ArchiveWriter {
                 guard state == .writing, !additionsClosed else { throw WriterError.invalidState }
                 let data = result?.data ?? entry.inline
                 if let zip = entry.zip, let zipWriter {
-                    try zipWriter.emitComplete(zip, data: data, crc: result?.crc ?? updateCRC(0, data), attribution: entry.attribution)
+                    if let spool = result?.spool {
+                        try zipWriter.emitComplete(zip, spool: spool, crc: result!.crc, attribution: entry.attribution)
+                    } else {
+                        try zipWriter.emitComplete(zip, data: data, crc: result?.crc ?? updateCRC(0, data), attribution: entry.attribution)
+                    }
                     appendedPaths.append((entry.name, entry.mode.isDirectoryMode))
                 } else if let sevenZipWriter {
                     try sevenZipWriter.add(name: entry.name, mode: entry.mode, date: entry.date,

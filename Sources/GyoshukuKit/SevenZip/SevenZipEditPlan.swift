@@ -101,12 +101,25 @@ struct SevenZipEditPlan {
         }
         let firstAdded = model.folders.count
         let storesAttributes = original.storesAttributesForAdditions
+        var addedStreamStart = model.substreams.count
         for appended in additions {
             let record = appended.record
-            let streamIndex: Int? = record.size > 0 ? model.substreams.count : nil
-            if record.size > 0 {
+            let streamIndex: Int?
+            if let stream = appended.folderSubstreamIndex {
+                if let replacement = appended.folder {
+                    guard appended.packRange.byteLength == replacement.packs.reduce(0, { $0 + $1.length }) else {
+                        throw failure("V0 appended solid pack")
+                    }
+                    addedStreamStart = model.substreams.count
+                    try Self.append(replacement, to: &model)
+                }
+                streamIndex = addedStreamStart + stream
+            } else {
+                streamIndex = record.size > 0 ? model.substreams.count : nil
+            }
+            if record.size > 0, appended.folderSubstreamIndex == nil {
                 let aes = record.aesProperties.map(Array.init)
-                let coders: [Model.Coder] = (aes.map { [.aes(properties: $0)] } ?? []) + [.lzma2(properties: record.properties)]
+                let coders: [Model.Coder] = (aes.map { [.aes(properties: $0)] } ?? []) + [record.coder]
                 let folder = Model.Folder(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)],
                     packedInputs: [0], unpackSizes: aes == nil ? [record.size] : [record.compressedSize, record.size],
                     finalOutput: aes == nil ? 0 : 1, packIndices: 0..<1, substreamIndices: 0..<1)

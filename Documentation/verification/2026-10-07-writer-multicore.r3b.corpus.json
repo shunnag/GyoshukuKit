@@ -1,0 +1,51 @@
+{
+  "path": ".build/multicore/corpus.noindex",
+  "timestamp": 1700000000,
+  "manifest": {
+    "bytes": 268435456,
+    "files": 97,
+    "medium": "96 x 2 MiB",
+    "large": "1 x 64 MiB",
+    "composition": "50% repository Swift text, 25% repeated binary bytes, 25% seeded random",
+    "seed": "0x47594f5348554b55",
+    "sha256": "473b4f17c3c378e80a0a4be156cb0e80480258ba787e7f6b3ca97c2d2e2f9f51"
+  },
+  "workloads": {
+    "corpus": {
+      "bytes": 268435456,
+      "files": 97,
+      "directories": 0,
+      "sha256": "7a12384436a0ef73347482ed024794de5f6d78dd5dec033e76bb516a3a46dc65"
+    },
+    "lha-mixed": {
+      "bytes": 10800731,
+      "files": 129,
+      "directories": 0,
+      "sha256": "649c701634e44b9ad30711e097582630909f8018c1bb8f56e51988a974f8f168"
+    },
+    "single": {
+      "bytes": 10485760,
+      "files": 1,
+      "directories": 0,
+      "sha256": "24380a18cf33549385bd7cf06cc6b9c53479a3a1527a25f480f8a029003762f0"
+    },
+    "tree": {
+      "bytes": 96446400,
+      "files": 700,
+      "directories": 200,
+      "sha256": "caac1973515b3c866879d87c5c4bd347f12c8ee0000e5bf5dd5382121631ea78"
+    },
+    "small": {
+      "bytes": 12819316,
+      "files": 5000,
+      "directories": 0,
+      "sha256": "0226758fa7ee978d9d583cfd6408925e44dad653915b1d8cd5ee1f518afe372a"
+    },
+    "zipcrypto": {
+      "bytes": 25165824,
+      "files": 12,
+      "directories": 0,
+      "sha256": "8628516e5e613d69f25e8d97f537f53b269ffa92b43b8e42448cd19ad58234cc"
+    }
+  }
+}

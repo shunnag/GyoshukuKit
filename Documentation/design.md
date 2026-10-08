@@ -35,6 +35,25 @@ GyoshukuKit 0.7.0 は KaitoKit 0.12.x に依存する。`@_spi` は SemVer の�
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
+### CI と toolchain（2026-10-08）
+
+ビルドには Xcode 27 / Swift 6.4 以上を使い、成果物の実行環境は macOS 26 以上を維持する。
+Swift 6.3.3 の `-O` は Optional な関数型の `TaskLocal.withValue` を誤コンパイルする。
+独立 probe で全 Optional 関数型について valueType metadata が nil になり、EXC_BAD_ACCESS を確認した。
+Swift 6.4 で build した release binary は macOS 26 で動くため、Xcode 26 / Swift 6.3 での
+コンパイル差の検査は廃止し、古い compiler に合わせた source の回避策は加えない。
+
+CI の `build-and-test` は `xcode-27` で debug 全 suite と release FullSize 14件を実行する。
+並行する `build-for-macos-26` も `xcode-27` で debug / release test を build し、test bundle と
+隣接 resource bundle、`otool` で調べた非 system の依存 dylib / framework、Xcode 27 の xctest を tar で運ぶ。
+`macos-26-runtime` は同じ checkout path に展開し、`#filePath` の fixture と `Bundle.module` の path を保つ。
+`macos-26` 上で Swift の build / test は行わず、artifact に同梱した Xcode 27 の xctest runner と
+framework / dylib で debug 全 suite と release FullSize を実行する。Xcode 26 の system xctest は
+XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
+製品コードは macOS 26 の OS Swift runtime 上で動かし、OS の差を検査する。
+実際の test failure と実行件数0は失敗にする。両実行 job に同じ必須 oracle を導入し、
+KaitoKit は利用側と同じ tag から解決する。
+
 ### 2.1 ソースの配置(2026-09-28)
 
 `Sources/GyoshukuKit/` は役割ごとの階層にする。SwiftPM は階層を見ないので `Package.swift` は変えない。
@@ -43,8 +62,8 @@ file 名は中の主な型の名前に合わせ、`Records` / `Layout` / `EditPl
 
 | directory | 内容 |
 | --- | --- |
-| `API/` | 公開の形式・設定・error(`ArchiveEditing`、`ArchiveFormat`、`WriterOptions`、`WriterError`、`UpdaterError`、`UpdaterRouteError`) |
-| `Writer/` | 新規作成の facade `ArchiveWriter`(形式ごとの writer への振り分け)と、ディスク側の先読み・署名 |
+| `API/` | 公開の形式・設定・error(`ArchiveEditing`、`ArchiveFormat`、`SingleStreamFormat`、`SingleStreamCompressor`、`WriterOptions`、`WriterError`、`UpdaterError`、`UpdaterRouteError`) |
+| `Writer/` | 新規作成の facade `ArchiveWriter`(形式ごとの writer への振り分け)、`SingleStreamWriter`の原子的公開と、ディスク側の先読み・署名 |
 | `Editing/` | 全 updater と rewriter が共有する層(`ArchiveRewriter`、`ArchiveRepresentability`、`EntryEditLedger`、`EditPathReservations`、`ArchiveFileSource`、`CommitProgressMeter`、`EntryStream` の読取) |
 | `SegmentedOutput/` | 形式中立の出力 engine(`SegmentedArchiveOutput`、`SegmentCommitPlan` / `OutputSegment`、`ScratchFile`、`OwnedOutputFile`、`ArchiveSourceSnapshot`、`ArchiveOwnedFile` / `FileIdentity`)。圧縮 tar の splice(`CompressedTarSpliceOutput`)は別の engine なので語を分ける |
 | `Zip/`、`Zip/Update/` | ZIP の record 表・`ZipWriter`・暗号化と、`ArchiveUpdater` の編集経路(layout の門番、中央 directory、rebuild、再暗号化、copy engine、自己照合) |
@@ -111,8 +130,10 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 | 1 | ZIP / ZIP64 | ○ | ○(旧 CD の byte をそのまま運ぶ) | ○(段階 3、KaitoKit 0.4.0 の rawRecord を使用) |
 | 2 | tar | ○ | ○(TarUpdater、終端の手前へ) | ○(TarUpdater、変更 header と位置の動く範囲だけ) |
 | 2 | tar.gz / .bz2 / .xz | ○ | ○(CompressedTarUpdater) | ○(変更を含む区切りだけ再符号化) |
-| 3 | 7z | ○(non-solid・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
-| 4 | LHA / LZH | ○(`-lh5-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
+| 2 | tar.zst / .lzma / .lz / .lz4 / .br / .Z | ○ | ○(ArchiveRewriter) | ○(全体再符号化) |
+| 2 | 単独 gzip / bzip2 / XZ / Zstandard / LZMA / lzip / LZ4 / Brotli / compress | ○(SingleStreamCompressor) | 対象外 | 対象外 |
+| 3 | 7z | ○(solid・BCJ / ARM64 / Delta・AES-256 / header 暗号化を選択可能) | ○(SevenZipUpdater、末尾へ) | ○(header・移動 pack、solid の一部削除はその folder だけ再圧縮) |
+| 4 | LHA / LZH | ○(`-lh5-` / `-lh6-` / `-lh7-` / `-lh0-`) | ○(LHAUpdater、末尾へ) | ○(header と位置の動く member だけ) |
 | — | RAR | × license が禁じる | × | × |
 | — | CAB / RPM / ISO / xar | × | × | × |
 
@@ -121,24 +142,126 @@ directory の子孫は commit で探索する。`.beginning` は従来の add �
 従来の追加位置・所有者設定と open 時に拒否される入力は ArchiveRewriter を使う。
 UI 側は進捗と取り消しを必ず出す。
 
-### LHA の並列 LH5（P4-G-a）
+### ZIP の圧縮方式
 
-`ArchiveWriter.create` は `options.resolvedCompressionThreads` を LHAWriter に渡す。
+`CompressionMethod` は stored（0）、Deflate（8）、BZip2（12）、LZMA（14）、Zstandard（93）、XZ（95）、PPMd（98）を持ち、既定は Deflate。
+writer と updater の新規追加、ZIP への ArchiveRewriter は同じ ZipWriter を使う。
+method 93 の Zstandard は下の「Zstandard の writer 接続」節に framing・version・メモリの規則を記す。
+updater の既存 local record・圧縮 byte・central directory は追加時にそのまま運ぶ。
+空ファイル・directory・symlink と、heuristic が選ぶ圧縮済み拡張子は stored。
+
+method 12 は `Bzip2StreamEncoder` を項目ごとに一つ作り、`bzip2Level` で同期圧縮する。
+tar.bz2 の chunk stream の連結は使わない。最大の codec state は level 9 で約7.6 MBと I/O buffer。
+method 14 は自前 `LZMAEncoder` を entry ごとに一つ作り、同期符号化する。
+[APPNOTE §5.8](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) に従い、
+SDK version `[26, 3]`、properties size `[5, 0]`、lc/lp/pb byte と辞書 LE32 の5 byte、
+raw LZMA1 stream の順に置く。EOS を書き、両 header の general purpose bit 1 を立てる。
+展開要求 version は6.3。`lzmaLevel == nil` は6、extreme はレベル指定時だけ有効。
+AES / ZipCrypto は properties header を含む圧縮結果全体を暗号化し、ZIP64 の予約と updater / rewriter は既存経路を使う。
+7-Zip 26.03 の ZIP listing は辞書を省略し `LZMA:eos` と表示するので、辞書は properties byte でも検査する。
+
+method 98 は `PPMd8StreamEncoder` の PPMd var.I rev.1 を entry ごとに一つ作る。
+[APPNOTE §5.10](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の2 byte parameter word を
+little endian で stream の直前に置く。下位4 bitは order−1、続く8 bitはメモリ MiB−1、上位4 bitは restoration。
+writer は restoration 0（restart）を選び、EOF と4 byte flush を一度だけ書く。
+order は2...16、メモリは1...256 MiB。両 header の展開要求 version は6.3、LZMA 用 bit 1 は立てない。
+parameter word も AES / ZipCrypto の暗号化対象で、AES の0x9901には実 method 98を記録する。
+ZIP64 は最大 order の suffix escape と range 正規化を覆う保守的な出力上界で local の余白を予約する。
+updater の追加・rewriter も同じ経路を使う。7zz の ZIP 一覧は order / memory を省略するため parameter word を直接検査する。
+
+method 95 は `ParallelXZCompressor` と `XZFraming` を使い、既定は最大16 MiBの block を
+`compressionThreads` で並列化する。hint の無い固定幅を使い、stream header・blocks・index・footer を
+一組だけ書く。レベル指定時は自前 `LZMA2Encoder` の結果を `XZLZMA2` として同じ framing に渡す。
+block header の filter properties も preset の辞書から作る。片サイズと並列数は自前 encoder 節の予算を使う。
+通常枠 t 個と組立中1個の入力は `(t + 1) × 片サイズ` 以下で、Apple の codec と出力は
+thread ごとに約130 MiB。index は block 数に比例する。
+16 MiB以下の項目は下の項目窓で並列化し、一括disk追加も同じ窓を使う。
+大きい項目は従来のblock pipelineを使い、addの終了時に出力を完了する。
+全ての並列数と AES / ZipCrypto を併用でき、追加の unsupportedOption はない。
+
+[APPNOTE 6.3.10](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) §4.4.3・§4.4.5 は
+BZip2 の展開要求 version を4.6とする。XZ の要求 version は明記されていないので、
+[7-Zip 26.03 の公開定義](https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHeader.h) と
+生成した ZIP の2.0を使う。LZMA（method 14）の6.3は流用しない。
+method 95 の file data が完全な .xz stream であることは、7zz が作った ZIP の stream 単独復号と
+KaitoKit の往復で確認する。圧縮方式、ZIP64、暗号化の要求 version の最大値を両 header に書く。
+CRC32・確定サイズ・ZIP64 の事前予約・seek による local header patch は既存の経路を使い、descriptor は書かない。
+XZ の予約長は選択した片サイズで Apple encoder の容量上限と framing の上界を使い、自前 LZMA2 の raw chunk 膨張も覆う。
+LZMA1 は最悪 literal 膨張の上界として16 × 入力長 + 1,024 byteを予約する。
+
+macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 / 98 を展開できない。
+Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 7-Zip を使う場合の opt-in とする。
+
+### LHA の方式・探索 level と並列圧縮（P4-G-a）
+
+`ArchiveWriter.create` は `options.lhaMethod`・`lhaLevel`・`resolvedCompressionThreads` を LHAWriter に渡す。
+既定は `.lh5`・level6。既存の `LH5Encoder` は `Configuration` で辞書と位置木を選び、Huffman の
+serializer を共有する。最大一致長は256 byte、blockは32,768 commandのままにする。
+
+| 方式 | 辞書 bit / 履歴 | position symbol数（NP） | pt-count欄 |
+|---|---|---|---|
+| `.lh5` | 13 / 8 KiB | 14 | 4 bit |
+| `.lh6` | 15 / 32 KiB | 16 | 5 bit |
+| `.lh7` | 16 / 64 KiB | 17 | 5 bit |
+| `.stored` | なし | なし | なし |
+
+辞書と最大一致長の一次資料は [LHa for UNIX header.doc](https://github.com/jca02266/lha/blob/master/header.doc.md)。
+[Lhasa 利用者文書](https://github.com/fragglet/lhasa/blob/master/doc/lha.1) は各methodが同じstatic-Huffman系列であること、
+`t`・`xw=<dir>`・`p` の使い方を確認する。Lhasa文書の窓表示（16 / 64 / 128 KiB）はheader.docの値の2倍なので、
+writerの辞書値にはheader.docを採用する。NP = 辞書bit + 1 とpt-count欄はtaskの指定と、read-onlyの
+KaitoKit `Codecs/LHA/LHAStaticHuffmanDecoder.swift` のparameter表を照合した。Lhasa・LHa for UNIX・7zzの
+黒箱でCRC・method表示・展開byteを確認し、LHa for UNIX `-ao62` / `-ao72` の逆方向も読む。
+7zz 26.03の `l -slt` はmethodを `LH5` 等でなく `-lh5-` / `-lh6-` / `-lh7-` と表示するため、その表記を照合する。
+
+| level | chainの最大候補数 | 一致の選択 |
+|---|---|---|
+| 1 / 2 / 3 | 8 / 16 / 32 | 貪欲 |
+| 4 / 5 / 6（既定） | 64 / 128 / 256 | 貪欲 |
+| 7 | 512 | 貪欲 |
+| 8 / 9 | 1024 / 2048 | 次の1 byteで長い一致を見つけたときliteralを先に出すlazy matching |
+
+level6の候補順・同長一致の選び方・block境界・bit列は従来と同じ。既存入力の凍結byteを
+`Tests/Fixtures/lha-methods`、大きいmemberの凍結hashを `LHAWriterStreamedMemberIdentityTests` で固定する。
+`lhaLevel` は他のlevelと同じく出力作成前に1...9を検証する。storedでも不正なlevelは拒否する。
+`.stored` はspool・encoder・parallel pipelineを作らず、I/O chunkで本文とCRCを進めてheaderを確定する。
+通常の圧縮もmember全体が縮まなければ `-lh0-` に落とし、directoryは常に `-lhd-` にする。
+
 rewriter もこの経路を使う。1 は従来の同期処理、2 以上では 1 MiB 以下の member を
 `OrderedChunkPipeline` に渡し、CRC と入力の読み切りは呼出側で行う。directory も投入順を保つ。
+1 MiB超〜16 MiBのmemberも別の有界項目窓へ渡し、worker内の既存writerで一つの完成recordをdisk spoolへ作る。
+worker内は1 threadにし、既存の1 MiB区切り・履歴・bit列・raw fallbackを保つ。完成header/bodyとmember記録は投入順に運ぶ。
 入力を確保する前に容量を待ち、同時に保持する入力を並列数までに抑える。
 
-大きい member は従来と同じ 1 MiB と直前 8 KiB の履歴に分ける。各 worker が返す完全な byte と
-端数 bit を投入順に padding なしで継ぐ。LH5 の辞書・Huffman block の区切りは従来どおりで、
+大きい member は 1 MiB と方式ごとの直前8 / 32 / 64 KiBの履歴に分ける。各 worker が返す完全な byte と
+端数 bit を投入順に padding なしで継ぐ。各方式の辞書・Huffman block の区切りは一定で、
 どの並列数でも直列時の byte と一致する。raw を先に出力し、縮めば spool から置き換える。
 完成 byte の累計が原本サイズ以上になった区切りで残りの符号化を破棄し、raw の保存を続ける。
 
 `add` の後に符号化が残る場合、失敗・取消しは後続の add / finish / internal の endMembers で通知し、
-従来の abort で出力を削除する。大きい member の前と終了時に member の pipeline を drain する。
+従来の abort で出力を削除する。小項目窓と中項目窓の切替、16 MiB超のmemberの前にpendingをdrainする。
+16 MiB超のmember内は従来の片並列。中項目の取消しはreadごとのlatchで伝え、abortでworkerを待つ。
 internal の `endAppendedMembers()`（tar と共通）は終端・fsync・close なしで追加の終わりを返す。
 init の `recordsMembers` を有効にしたとき（updater が使う `ArchiveWriter.lhaAppend` は常に有効）だけ、実際の出力時点の header 絶対位置・header/data 長・method と
 canonical な名前の byte（directory の 0xFF を `/` に変換し filename を連結）を保存する。
 LHAUpdater はこの追加 writer を既存の `SegmentedArchiveOutput` と組み合わせる。
+新規追加には選んだmethod・levelを適用し、運ぶmemberの圧縮byteとmethodは変えない。
+LHAへのrewriterでは既存memberも再符号化するので、追加と同じmethod・levelを使う。
+
+64-bit Int環境のthreadごとの主要buffer（Huffmanの一時領域・Foundationのコピーを除く）:
+
+| 方式 | 入力 + 履歴 | hash表 | chain表 | command表 | 圧縮出力の目安 | 合計の目安 |
+|---|---|---|---|---|---|---|
+| LH5 | 1 MiB + 8 KiB | 512 KiB | 64 KiB | 512 KiB | 約1.1 MiB | 約3.2 MiB |
+| LH6 | 1 MiB + 32 KiB | 512 KiB | 256 KiB | 512 KiB | 約1.1 MiB | 約3.4 MiB |
+| LH7 | 1 MiB + 64 KiB | 512 KiB | 512 KiB | 512 KiB | 約1.1 MiB | 約3.7 MiB |
+
+storedはI/O bufferだけを使う。levelは探索時間を変え、これらの表の大きさは変えない。
+この合計はpeak RSSの保証ではなく、圧縮出力のbyte配列とDataが一時的に同時に存在する場合もある。
+
+2026-10-06の参照incident: 形式文書の確認中にLhasaの `lib/lh_new_decoder.c` と
+`lib/lh5_decoder.c`・`lh6_decoder.c`・`lh7_decoder.c` を誤って開いた。
+以後は上記の許可された形式・利用者文書に限定し、追加実装は既存LH5、taskのparameter、KaitoKitの
+既存parameter表から導いた。Lhasaのコードは転記・vendoringせず、互換性は実行ファイルの黒箱出力で検証する。
 
 ### LHA の更新（P4-G-b）
 
@@ -286,18 +409,21 @@ GK の自己照合だけでは、書いた後の運ぶ payload の破損を検�
 
 ### tar.xz の並列圧縮（P14-G）
 
-writer と updater は同じ二つの上限で区切る。hint の無い入力は16 MiBの固定幅のまま、
-組立の予約も16 MiBの片のままとする。hint の無い経路に packing を使うと固定幅へ届かず停止する。
+writer と updater は同じ二つの上限で区切る。packing は4 MiB、片は nil レベルなら16 MiB、
+自前 encoder では辞書が16 MiBを超えると3 × 辞書にする。hint の無い入力と組立の予約は片サイズの固定幅を使う。
+hint の無い経路に packing を使うと固定幅へ届かず停止する。
 `OrderedChunkPipeline` の `weight` は入力 byte 数。`lightWeightLimit > 0` かつ
 `0 < weight <= lightWeightLimit` の item だけを軽いものとする。
 未出力の重い item が threads 以上、または全 item が `2 × threads + 1` 以上の間、
 先頭を順に書き出してから次を投入する。次の item の重みは待機条件に使わない。
 既定の limit と weight は0で、従来の枠を保つ。取消し・失敗・abandon の扱いも共通。
 
-tar.xz だけが threads > 1 のとき `lightChunkLimit`（64 KiB）を指定する。
+Apple 経路の tar.xz だけが threads > 1 のとき `lightChunkLimit`（64 KiB）を指定する。
 writer は block の入力長、updater の事前符号化と書出しは part の image 長を weight にする。
 運ぶ part と cache 済みの part は入力が無いので weight 0。threads == 1 は同時に一つだけを符号化する。
 待機中の入力と組立中の入力の上界は `(threads + 1) × (piece + lightChunkLimit)`。
+自前経路は小さい block も並列枠に数え、解決した並列数 t に対する入力上界は `t × 片 + 4 MiB`。
+`CompressedTarSplicePlan` / `CompressedTarSpliceOutput` も同じ片・encoder・並列数を使い、運ぶ block は変えない。
 codec state と圧縮出力は別で、P9 の `30 + 135 × t` MiB は実測に合わせた見積りであり上界ではない。
 試験と計測の引継ぎは [P14 検証記録](verification/2026-09-26-p14-xz-packing.md) に記す。
 
@@ -468,6 +594,7 @@ throw は元の error のまま失敗し、既存の cleanup 契約に従う（�
 
 窓は `resolvedCompressionThreads` 件以下。open から close の並列数は Step 0-P7 で採った
 `min(threads, 4)` とし、ZIP deflate は `deflateBlockSize`、他は 1 MiB 以下だけを先読みする。
+ZIP bzip2 / XZ の通常ファイルは大きさにかかわらず項目別の streaming 経路を使う。
 worker は O_NOFOLLOW の open、dev/ino/mode/size/mtime の fstat 照合、厳密な長さと EOF、
 読後の fstat を経てから内容を返す。hook は仕事の作成時に capture する。取消し・失敗では
 未着手の仕事を放棄し、着手済みの仕事が descriptor を閉じるまで合流してから戻る。
@@ -496,13 +623,22 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 
 | 形式 | 上界（byte） |
 |---|---|
-| ZIP | `t × DeflateBlock.size`（stored または ZipCrypto は 0） |
+| ZIP stored | 0 |
+| ZIP BZip2 / LZMA / Zstandard / PPMd | `t > 1 ? t × 16 MiB : 0`（tは項目窓の予算で解決） |
+| ZIP Deflate | `t × DeflateBlock.size`（ZipCrypto は 0） |
+| ZIP XZ | `max((t + 1) × 片, 項目窓の上界)`（大項目は終了時にblockを全て出力） |
 | tar | 0 |
 | tar.gz | `(t + 1) × DeflateBlock.size` |
 | tar.bz2 | `(t + 1) × (5 × bzip2Level × 100,000)` |
+| tar.zst | `t × max(4 MiB, level の window)`（t はメモリ予算で解決） |
 | tar.xz | `t × 16 MiB + 4 MiB + (t > 1 ? (t + 1) × 64 KiB : 0)` |
-| 7z | `t × 16 MiB` |
-| LHA | `t > 1 ? t × 1 MiB : 0` |
+| 7z LZMA2 | `t × 16 MiB` |
+| 7z Deflate | `t × 1 MiB` |
+| 非solid/filterなし7z LZMA / BZip2 / PPMd | `t > 1 ? t × 16 MiB : 0` |
+| 非solid/filterなし7z Copy | 0 |
+| 7z solid / filter | `t × (solidならblockSize、非solidなら16 MiB)`（disk上の入力を含む） |
+| LHA LH5 / LH6 / LH7 | `t > 1 ? max(項目窓の上界, t × (1 MiB + 8 / 32 / 64 KiB)) : 0` |
+| LHA stored | 0（同期処理） |
 
 tar.xz は通常 block が最大 t 個、軽量 block と合わせて最大 `2t + 1` 個。最大 byte は通常 t 個と
 軽量 `t + 1` 個で得られる。add から戻ると大きな member の header 群と本文は既に送信済みで、
@@ -584,8 +720,8 @@ writer / updater / rewriter は同じ検証関数を使い、出力作成前に�
 ### ZIP WinZip AES-256
 
 通常ファイルだけ（空ファイルを含む）を暗号化する。directory / symlink は平文の stored。
-圧縮方式は既存の拡張子 heuristic と stored / deflate 設定を使い、両 header の method を 99、
-version needed を 51、flag を bit 0 + bit 11 にする。0x9901 の 7 byte 本体は、vendor version、
+圧縮方式は既存の拡張子 heuristic と stored / deflate / bzip2 / lzma / zstd / xz / ppmd 設定を使い、両 header の method を 99、
+version needed は方式との最大値（LZMA / Zstandard / PPMd は63、それ以外は51）、flag は bit 0 + bit 11（LZMA はさらに bit 1）にする。0x9901 の 7 byte 本体は、vendor version、
 `AE`、strength 3、実際の圧縮 method。20 byte 未満を AE-1 と実 CRC、以上を AE-2 と CRC 0 にする。
 これはこの writer の選択方針で、AE-1 / AE-2 の wire format は公開仕様に従う。
 
@@ -609,12 +745,63 @@ compressed size は spool + 12 byte。deinit による失敗時の削除と、�
 両 ZIP 方式とも **data descriptor は書かない**。既存の seek / patch と updater の layout 契約を
 維持するためで、ZipCrypto の spool はそのために必要になる。AES は spool を使わない。
 
-### 7z AES-256 と header
+### 7z の圧縮方式・AES-256 と header
 
-非空 stream ごとに non-solid folder を作る。実測した `7zz a -p... -mhe=off -mhc=off` と
-同じ decoder 順で AES（06 F1 07 01）を coder 0、LZMA2（21）を coder 1 に置く。
+既定は非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
+LZMA2（既定）/ LZMA / Deflate / BZip2 / PPMd / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
+
+| 方式 | method ID | properties | level と stream |
+|---|---|---|---|
+| LZMA2 | `21` | dictionary size の1 byte | nil は従来の Apple、レベル指定時は自前 encoder |
+| LZMA | `03 01 01` | lc/lp/pb + 辞書 LE32 の5 byte | 自前 raw LZMA1、一つの同期 stream、EOS 無し |
+| Deflate | `04 01 08` | 無し | `deflateLevel`（0...9）、一つの raw deflate stream |
+| BZip2 | `04 02 02` | 無し | `bzip2Level`（1...9）、folder ごとに単一 bzip2 stream |
+| PPMd | `03 04 01` | order byte + memory LE32 の5 byte | `ppmdLevel`（1...9）、自前 var.H、folder ごとに単一 stream |
+| Copy | `00` | 無し | 入力をそのまま保存。無圧縮 level 用 |
+
+method ID と coder の flags は `inbox/lzma-sdk-26.03/DOC/Methods.txt` と `DOC/7zFormat.txt` で照合する。
+`SevenZipEditModel.Coder` は method ID の byte 列・任意の properties・入出力数を持ち、writer と updater は
+`SevenZipHeaderSerializer.coder` で共通に直列化する。LZMA・PPMd・BCJ / ARM64 / Delta も同じ表現で記録する。
+`SevenZipChunkPipeline` は既存の `OrderedChunkPipeline` 上で LZMA2 と Deflate を並列化する。
+Deflate は `DeflateBlock` の最大1 MiB入力と直前の末尾32 KiBを辞書に使い、最後だけ Z_FINISH、
+中間は Z_SYNC_FLUSH で一つの byte-aligned raw stream に連結する。7zz の検査・展開で受理を確認する。
+LZMA は `LZMAEncoder` を folder ごとに保持し、size を expectedSize に渡して EOS 無しで一度だけ finish する。
+solid folder の再圧縮と追加も WriterOptions 全体を FolderEncoder に渡すので方式・level・extreme が揃う。
+header の再圧縮は従来の Apple LZMA2 の設定を保つ。
+BZip2 は `Bzip2StreamEncoder` の状態を folder ごとに持ち、I/O ごとの入力を同期処理して一度だけ終端を書く。
+PPMd は `PPMd7StreamEncoder` の状態を folder ごとに持つ。properties は stream の外側の coder に書き、
+folder の展開サイズで終端を知るため EOF を書かず5 byte flush を一度だけ出力する。
+order は2...32、encoder の対応メモリは1...1024 MiB。solid は block 全体を一つのモデルで符号化する。
+BCJ / ARM64 / Delta の出力を PPMd に渡し、その圧縮 byte に AES を適用する。header 暗号化は従来の経路を使う。
+updater の新規追加と solid の一部削除の再圧縮、rewriter は同じ properties を渡す。
+7zz は `PPMD:o6:mem24`（16 MiB）、`PPMD:o16:mem192m`（192 MiB）のように表示する。
+Copy は同じ I/O 境界で同期出力する。LZMA2 の既定 byte 列は凍結済み hash と既存試験で固定する。
+
+`ppmdLevel` の preset は GyoshukuKit の定義で、既定の6は encoder の既定 order / memory と一致する。
+`ppmdOrder` / `ppmdMemoryMiB` はそれぞれ独立に preset を上書きし、出力を作る前に形式ごとの範囲を検証する。
+
+| level | ZIP var.I order | 7z var.H order | model memory（MiB） |
+|---|---|---|---|
+| 1 | 3 | 3 | 1 |
+| 2 | 4 | 4 | 2 |
+| 3 | 5 | 4 | 4 |
+| 4 | 6 | 5 | 8 |
+| 5 | 8 | 6 | 16 |
+| 6（既定） | 8 | 6 | 16 |
+| 7 | 10 | 8 | 32 |
+| 8 | 12 | 12 | 64 |
+| 9 | 16 | 16 | 192 |
+
+モデルは ZIP の entry / 7z の folder につき一つ。指定 model memory と固定の頻度表・64 KiB出力 buffer・
+256 KiB I/O buffer を使い、入力全体を保持しない。メモリ不足時はモデルを restart する。
+一つのモデル内では片を並列化せず、`compressionThreads` / LZMA用`memoryLimit`はモデルサイズに作用しない。
+16 MiB以下の非solid項目とsolid/filter folderは独立モデルで並列化する。モデルのメモリはpending inputに含めない。
+同時モデル数はモデルメモリと項目入力の予約で物理メモリの50%以下に抑える。
+
+実測した `7zz a -p... -mhe=off -mhc=off` と
+同じ decoder 順で AES（06 F1 07 01）を coder 0、選択方式を coder 1 に置く。Copy も同じ chain を使う。
 bind pair は input 1 ← output 0、packed input は暗黙の 0。unpack sizes は AES 出力である
-圧縮結果の真の長さ、LZMA2 出力であるファイル長の順で、substream CRC は元ファイルの CRC。
+圧縮結果の真の長さ、選択方式の出力であるファイル長の順で、substream CRC は元ファイルの CRC。
 
 AES property は `53 0F` + 16 byte IV（NumCyclesPower 19、salt なし）。UTF-16LE パスワードと
 8 byte little-endian counter を 0 から 2^19 - 1 まで連結して SHA-256 へ入力し、鍵を得る。
@@ -622,11 +809,69 @@ AES property は `53 0F` + 16 byte IV（NumCyclesPower 19、salt なし）。UTF
 最後の block の不足だけを zero pad する。真の圧縮長を AES の unpack size に記録する。
 空ファイル・directory は従来の EmptyStream / EmptyFile 表現を使う。
 
-`SevenZipWriter.lzmaChunkSize` は **16 MiB**、I/O 用の `chunkSize` は **256 KiB** と分離する。
+nil レベルの LZMA2 の `SevenZipChunkPipeline.chunkSize` は **16 MiB**、I/O 用の `IOChunk.size` は **256 KiB** と分離する。
 短い read が返っても最大 16 MiB まで入力を集めてから Apple の LZMA buffer API を一度呼ぶ。
 各片の LZMA2 辞書 reset を残して終端 byte だけを取り除き、最後に一度だけ終端を書く。
 圧縮出力も 256 KiB ごとに分割して暗号化・書込を行う。一つの folder 内で decoder が reset する
-正当な stream であり、平文・暗号出力とも spool は不要。
+正当な stream であり、既定の non-solid・filter 無しの平文・暗号出力は spool 不要。
+
+自前 LZMA2 は選んだ辞書 property を保持し、辞書が16 MiBより大きいと片を3倍にする。
+encoder closure は片ごとに新しい encoder を作り、辞書 reset を残して連結する。
+並列数と memoryLimit は自前 encoder 節で解決し、`maximumPendingInputBytes` は t × 片。
+raw LZMA は256 KiBずつ同期入力するので pending input は0。
+
+`sevenZipSolid: .off` と `sevenZipFilter: .none` は従来の writer 経路を保持する。
+それ以外は `SevenZipBlockWriter` が入力順に非空 file を集め、`ScratchFile` に256 KiBずつ流す。
+solid の上限は `blockSize` と `filesPerBlock`。nil のサイズは
+`min(4 GiB, max(64 MiB, dictionary × 2))`、件数は1,000,000とする。
+Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指定 level の辞書、PPMd は model memory。
+次の file が上限を越える前に folder を閉じ、file 自体は分割しない。上限超過 file は単独にする。
+空 file / directory は EmptyStream のままで、件数とサイズには数えない。拡張子による並べ替えは行わない。
+folder の全サイズ確定後に `SevenZipFolderEncoder` を使うので raw LZMA の expectedSize も既知となる。
+圧縮前と圧縮後のfolderをunlink済みspoolで保持し、投入順に出力する。
+未出力folderと組立中folderを合わせt枠以下（t <= 16）。並列投入する各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
+blockSizeが256 MiBを超える場合とfilterなしCopyはfolder間の並列化を使わず、従来の同期経路へ戻す。
+従って並列入力spoolの一時disk上界はt × blockSize <= 4 GiB（非solid/filterはt × 16 MiB <= 256 MiB）。
+圧縮出力は各folderの最初の1 MiBをメモリに保持し、超過時だけspoolへ移す。
+通常の作業disk合計はこの入力上界と、未出力folderの圧縮長の合計（AESのpaddingを含む）。
+fileを分割しないため、組立中の単一fileが入力上限Lを超える場合だけ、入力disk上界にmax(0, fileSize - L)を加える。
+圧縮長に入力長の定数倍という仮定は置かない。同期経路の上限超過単一fileは入力spool一つと有界codec状態を使う。
+最終folderのflush時に他のfolderが無ければ同期経路で全threadsを使う。
+workerの内部並列数は実際の片数と未割当数でも制限し、未出力jobの割当合計を要求threads以下に保つ。出力開始時に予約を返す。各枠のcodec状態は引き続き要求threads分を保守的に予約する。
+上限を超える単一fileは前のfolderを出力し、既存の有界stream経路を使う。
+`pendingInputBytes` / `maximumPendingInputBytes`はdisk spoolの未圧縮byteも数える。
+`finishAdditions`は残るblockを閉じ、順に出力した入力byteを呼出側の進捗へ通知する。finishだけの場合と出力byteは同じ。
+
+folder 一つに pack 一つ、非空 file ごとに substream 一つを対応させる。
+`SevenZipHeaderSerializer` は `NumUnpackStream (0D)` と、各 folder の最後以外の substream size (09)、
+元 file の CRC (0A) を `SubStreamsInfo` に書く。folder CRC は省略する。
+updater の追加帳簿にも folder 定義と folder 内の substream 添字を渡し、元 folder には結合しない。
+
+`SevenZipFilterEncoder` は public domain SDK 26.03 の `C/Bra86.c`・`C/Bra.c`・`C/Delta.c` と
+KaitoKit `Codecs/SevenZipFilters` の逆変換を基準に、Swift で前向き変換する。
+BCJ x86 は `03 03 01 03`、ARM64 は新しい `DOC/Methods.txt` の `0A`、Delta は `03`。
+x86 は E8/E9 候補 mask と25 bit符号拡張を持ち、ARM64 は BL と範囲を限定した ADRP を変換する。
+Delta は元 byte の履歴から距離1〜256の差分を取る。properties は距離−1の1 byte。
+branch filter の開始位置が0なら properties を省略し、既存の4 byte開始位置は再圧縮でも保つ。
+7zz の BCJ coder は properties を受け付けないため、新規 BCJ は開始位置0とし、開始位置保持の実ツール試験は ARM64 で行う。
+命令の端数は次の I/O へ持ち越し、folder 末尾だけ無変換で出す。状態・位置は file 境界で reset しない。
+decoder 順は packed → [AES] → method → filter → file、単入力・単出力の coder をこの順に置く。
+bind は `input i ← output i−1`、packed input は暗黙の0。
+unpack sizes は [圧縮結果の真の長さ]・folder サイズ・filter 出力の folder サイズ。
+AES は folder に一つで、header の暗号化経路は本文の filter から独立する。
+
+`.auto` は先頭64 KiB内の PE header / 単一 Mach-O / ELF64 の CPU を読む。
+x86・x86_64 PE / Mach-O は BCJ、arm64 PE / Mach-O / ELF は ARM64、universal Mach-O と未判定は none。
+non-solid は file ごと、solid は filter class が変わったら block を閉じる。
+削除による solid の再圧縮は元の filter と開始位置を使い、指定方式だけを変更する。carry の coder・pack は保持する。
+新規作成、updater の追加、7z への rewriter は同じ options と block writer を使う。
+
+試験は全方式、Apple / 自前 LZMA2、AES / header 暗号化、複数のサイズ・件数上限、空 file / directory、
+10,000小ファイル、短い read、filter をまたぐ auto block、BCJ / ARM64 / Delta の固有状態と開始位置を扱う。
+必須の7zz `t / l -slt / x` と KaitoKit の byte 照合、7zz `-ms=on -mf=BCJ/ARM64/Delta:4` の逆方向、
+filter + Copy の packed byte の7zzとの直接比較、実在 arm64 binary corpus の圧縮サイズ比較、既定の凍結済みhashを用いる。
+2026-10-06 の `/usr/lib/dyld`・`/usr/bin/ditto`・`/usr/bin/git` の arm64 slice を入力順にまとめた
+Apple LZMA2 の packed サイズは、filter 無し348,699 byte、ARM64付き329,089 byteだった。
 
 Apple の encoder は 8 MiB の辞書を使う。16 MiB 以下のファイルは従来の whole-file buffer API と
 同じ一回の圧縮なので、圧縮 payload と圧縮率は変わらない。16 MiB を超えるファイルだけ境界で
@@ -775,7 +1020,7 @@ total は計画時に固定し、完了時の一致を確認してから公開�
 > arithmetic done on KaitoKit's side so writer and reader cannot disagree. Stage
 > one does not need it. GyoshukuKit does not change KaitoKit's source.
 >
-> Password output supports ZIP WinZip AES-256 or ZipCrypto, plus non-solid 7z
+> Password output supports ZIP WinZip AES-256 or ZipCrypto, plus 7z
 > AES-256-CBC and optional encrypted headers. ZIP still writes no descriptors;
 > ZipCrypto spools compressed bytes to learn the CRC first, while AES streams.
 > 7z bounds its LZMA2 input to 16 MiB while I/O and encryption stay at 256 KiB.
@@ -821,14 +1066,15 @@ empty / anti / StartPos も保つ。改名だけは NFC と directory の末尾 
 改名は元の byte のままにする。予約と衝突判定は既存の共通部品を使う。
 
 全部を削除した folder は落とし、solid の一部だけを削除した場合は、その folder 全体を順に復号して
-CRC を照合し、生存 file を元の順の一つの LZMA2 folder に作り直す。他の folder は復号しない。
+CRC を照合し、生存 file を元の順の一つの `options.sevenZipMethod` の folder に作り直す。他の folder は復号しない。
 AES の folder は暗号化の予約が無ければ AES のまま。作り直しの出力は `makeScratch` に先に書いて長さを
 確定し、S24-c1 の `.scratch` で写す。後続 pack は新しい位置へ写す。生存 stream が 0 byte だけの場合も
-LZMA2 の `00` と各 substream の CRC を持つ folder を書く。
+選択方式の空 stream と各 substream の CRC を持つ folder を書く（LZMA2 は `00`、Copy の packed size は0）。
 folder ごとの作り直し・AES 変換・password 検証の状態と encryptor は `SevenZipFolderWorkset` が持ち、`SevenZipUpdater` は
 追加・commit・自己照合のライフサイクルと出力だけを担う（2026-09-29）。
-`SevenZipFolderEncoder` は既存 writer の連結規則を共用し、本文 16 MiB / header 1 MiB の片を
-`resolvedCompressionThreads` で並列化する。通常の writer の出力 byte は変えない。
+`SevenZipFolderEncoder` は writer と同じ方式・level・AES の出力規則を使う。新規追加と 7z への rewriter も
+`options.sevenZipMethod` に従う。圧縮 header は従来の LZMA2 の1 MiBの片を使い、本文の選択方式から独立させる。
+既定 LZMA2 の writer の出力 byte は変えない。
 
 最初の add は共有部品の `beginAppend` の dup descriptor へ直接書く。追加専用 writer は
 `endEntries` で記録を返し、header を書いたり output を閉じたりしない。sequential の場合は先に prefix を
@@ -881,3 +1127,1122 @@ bsdtar の展開、7zz t を検査する。該当 entry の削除後は 7zz x �
 （大きな offset の probe は Copy の sparse folder）、SFX stub の保持、BCJ2 の暗号化変換、古い 7-Zip と
 Archive Utility による LZMA2 header。試験と計測、sandbox で実行できなかった項目は
 [検証記録](verification/2026-09-26-p5g-sevenzip-updater.md) に記載する。
+
+### 自前 LZMA encoder（2026-10-07）
+
+`Compression/LZMA/` は internal の raw LZMA1 encoder と、その上の LZMA2 chunker。
+`LZMAEncoderProperties`、`LZMAEncoder`、`LZMA2Encoder` は ZIP method 14 / 7z LZMA と
+tar.xz / 7z LZMA2 / ZIP XZ のレベル選択を共有する。`lzmaLevel: Int?` は nil なら従来の Apple preset-6、
+0...9 なら自前の `preset(level, extreme:)`。`lzmaExtreme` は既定 false、レベル指定時だけ有効。
+ZIP / 7z LZMA は常に自前で、nil は6。nil の既存三形式は片16 MiB・圧縮 byte を変えない。
+`Tests/Fixtures/lzma-writers` は接続前の出力を凍結し、並列数1・4で byte 比較する。
+`push(Data)` の戻り値を順に出力し、`finish()` の戻り値を最後に出力する。instance は直列に使い、設定だけを
+`Sendable` にする。LZMA1 は EOS の有無と既知サイズを独立に指定でき、`alone(_:properties:knownSize:)` は
+13 byte header（未知サイズは all-ones と EOS）を付ける。
+
+range coder は low / range / cache の carry 処理、確率 bit、direct bit、逆順 bit tree を持つ。
+HC4 は hash chain、BT4 は binary tree と短い一致用の 2 / 3 byte hash を使う。normal parser は SDK の
+GetOptimum の価格最小化を Swift の predecessor と到達 state / rep distance に置き換え、literal、short rep、
+match / rep の各長さ、literal + rep0、match / rep + literal + rep0 の複合遷移を比較する。
+fast parser は GetOptimumFast の rep 優先と次位置の一致による遅延選択を使う。
+window、hash、tree / chain、確率、価格、parser node は unsafe buffer で確保し、入力全体を別途保持しない。
+window は辞書と先読み、入力 staging 分で、空きが足りなくなったときにだけ履歴を移す。
+位置参照は UInt32 で正規化して 4 GiB を越える stream でも wrap しない。
+一致長の延長と rep の比較は limit 内の未整列 UInt64 比較を使う。HC4 の skip は hash と chain の
+リンクだけを更新し、候補を走査しない。長さ価格は niceLen 以下の葉を親の価格から展開し、
+posState 共通の high tree を再利用する。node / action / match は32 / 8 / 8 byteに収め、
+以前の88 / 16 / 16 byteから探索 buffer を縮めた。rep 距離は UInt32、state と tail は一つの UInt16 に保持する。
+normal parser は posState の価格行と長さ5以上の距離価格を再利用し、複合遷移は長さの loop の後で一度だけ調べる。
+BT4 の2 / 3 byte hash は SDK と同じ選択で延長を一度にまとめ、HC4 は二候補から best を先に得て chain を除外する。
+通常の advance は inline 化し、大きな表の正規化だけを別関数に分ける。bit 価格は0 / 1 の各2048確率を UInt8 の4 KiB表に展開し、
+lookup の shift / xor を省いた。symbol の入力位置・state・rep は pointer の書込みにまたがる local 値で保持する。
+`memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減った。
+LZMA2のMiB切上げの予算表は変わらないが、raw level 0の同期予算は20から19 MiBになり、
+byte単位で解決する並列数と入力上界は予算境界で増える（下の統合時照合表を参照）。
+
+LZMA2 は最大 2 MiB の入力、64 KiB 以下の圧縮 byte に区切る。range coder を chunk ごとに flush し、
+辞書と確率 state は継続する。先頭 compressed chunk は辞書 / state / property を reset する。
+縮まない chunk は最大 64 KiB の raw chunk に分け、次の compressed chunk で state を reset する。
+先頭 raw chunk は辞書 reset を指定し、property は最初の compressed chunk で送る。最後は `0x00`。
+2 MiB の staging と parser の復元余地を含む pack limit の予約により、chunk の形式上限を越えない。
+LZMA2 では `lc + lp <= 4` を検査する。
+
+翻訳の出自は Igor Pavlov が public domain に置いた LZMA SDK 26.03 の `C/LzmaEnc.c`、`C/LzFind.c`、
+`C/LzHash.h`、`C/Lzma2Enc.c` と `lzma-specification.txt`。`DOC/lzma-sdk.txt` の public domain の宣言を確認した。
+各追加 Swift file の冒頭にも出自を書く。C の同梱・compile はせず、純 Swift と OS library の規則を維持する。
+preset の数値は [xz の lzma_encoder_presets.c](https://github.com/tukaani-project/xz/blob/v5.8.1/src/liblzma/lzma/lzma_encoder_presets.c)
+と照合した（この版の source 表示は 0BSD）。xz の level 0 は HC3 だが、本 API は指定された HC4 を使う。
+それ以外の通常 preset の辞書、mode、nice length、depth と extreme の値は同表に合わせる。
+
+| level | 辞書 MiB | finder / mode | niceLen | depth（自動値解決後） | hash MiB | tree / chain MiB | 辞書 + 表 MiB |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.25 | HC4 / fast | 128 | 4 | 0.754 | 1 | 2.004 |
+| 1 | 1 | HC4 / fast | 128 | 8 | 2.254 | 4 | 7.254 |
+| 2 | 2 | HC4 / fast | 273 | 24 | 4.254 | 8 | 14.254 |
+| 3 | 4 | HC4 / fast | 273 | 48 | 8.254 | 16 | 28.254 |
+| 4 | 4 | BT4 / normal | 16 | 24 | 8.254 | 32 | 44.254 |
+| 5 | 8 | BT4 / normal | 32 | 32 | 16.254 | 64 | 88.254 |
+| 6 | 8 | BT4 / normal | 64 | 48 | 16.254 | 64 | 88.254 |
+| 7 | 16 | BT4 / normal | 64 | 48 | 32.254 | 128 | 176.254 |
+| 8 | 32 | BT4 / normal | 64 | 48 | 64.254 | 256 | 352.254 |
+| 9 | 64 | BT4 / normal | 64 | 48 | 64.254 | 512 | 640.254 |
+
+表は入力サイズ未知のときの確保量。これに probability / price / optimum / range buffer と raw LZMA1 の staging が
+約 0.5 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
+match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが、確保前に総量と `memoryLimit` を照合する。
+既定の上限は 768 MiB で、上限超過や allocation 失敗は error にする。黙って小さい辞書へ変更しない。
+range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
+extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、それ以外は niceLen 273・depth 512。
+
+`LZMAWriterConfiguration` は encoder closure とメモリ解決を writer / updater 間で共有する。
+自前 encoder を `LZMA2ChunkPipeline` / `ParallelXZCompressor` / `SevenZipChunkPipeline` の
+`(Data) throws -> XZLZMA2` に接続する。片ごとの encoder は独立で、property は宣言辞書から作る。
+辞書が16 MiBを超えたときの片は `max(16 MiB, 3 × 辞書)`（xz の既定 block size 規則）。
+レベル8は96 MiB、9は192 MiB、それ以下は16 MiB。
+
+自前 LZMA2 の実際の並列数 t は `t × (encoder memory + 2 × 片サイズ)` が
+`min(memoryLimit（nil は物理メモリの50%）, 物理メモリの50%)` 以下になる最大数に制限します。
+要求した並列数を上限とし、1個分も入らなければ書庫を作る前に `WriterError.invalidOption("memoryLimit")` を返します。
+メモリ不足で宣言辞書を縮小しません。自前 tar.xz は小さい block も t 個の枠に数えます。
+入力の上界は tar.xz が `t × 片 + 4 MiB`、7z が `t × 片`、ZIP XZ が `(t + 1) × 片` です。
+
+| `lzmaLevel` | 辞書 MiB | LZMA2 encoder MiB | 片 MiB | LZMA2 1 thread の予算 MiB | raw LZMA1 の同期予算 MiB |
+|---|---:|---:|---:|---:|---:|
+| 0 | 0.25 | 5 | 16 | 37 | 19 |
+| 1 | 1 | 10 | 16 | 42 | 25 |
+| 2 | 2 | 17 | 16 | 49 | 32 |
+| 3 | 4 | 31 | 16 | 63 | 46 |
+| 4 | 4 | 47 | 16 | 79 | 62 |
+| 5 / 6 | 8 | 91 | 16 | 123 | 106 |
+| 7 | 16 | 179 | 16 | 211 | 194 |
+| 8 | 32 | 355 | 96 | 547 | 370 |
+| 9 | 64 | 643 | 192 | 1027 | 658 |
+
+64-bit の通常 preset を MiB 単位で切り上げた値です。extreme のレベル0〜3は BT4 に替わり、
+それぞれ1 / 4 / 8 / 16 MiB増えます。raw LZMA1 の予算は range buffer の最大16 MiBと I/O を含みます。
+短い入力では encoder の実確保が減りますが、検証・並列数解決は表の完全な辞書で行います。
+Appleのnilレベルの既存block経路は従来のbyteと16 MiB境界を維持し、この予算で内部並列数を変えません。
+新規のwriter項目/folder窓は、下の見積りと予算で別に並列数を解決します。
+
+2026-10-08の`speed/integrate`統合時に、base `f273d34`とHEAD `4d327a5`の式と64-bitの
+`MemoryLayout.stride`を照合した。通常preset、入力サイズ未知、LZMA2（`chunked: true`）、
+`memoryLimit = 3 GiB`、物理メモリ8 GiB、要求64 threadの結果は次のとおり。
+Eは`LZMAEncodingEngine.memorySize`、Mは`memoryPerThread = E + 2 × 片`（いずれもbyte）。
+tは`min(64, floor(3 GiB / M))`。右二列はHEADのZIP XZ / 非solid・filterなし7z LZMA2の入力上界。
+
+| level | E: base → HEAD byte | M: base → HEAD byte | t: base → HEAD | ZIP MiB | 7z MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 4,923,681 → 4,662,417 | 38,478,113 → 38,216,849 | 64 → 64 | 1040 | 1024 |
+| 1 | 10,428,705 → 10,167,441 | 43,983,137 → 43,721,873 | 64 → 64 | 1040 | 1024 |
+| 2 | 17,768,737 → 17,507,473 | 51,323,169 → 51,061,905 | 62 → 63 | 1024 | 1008 |
+| 3 | 32,448,801 → 32,187,537 | 66,003,233 → 65,741,969 | 48 → 48 | 784 | 768 |
+| 4 | 49,226,021 → 48,964,757 | 82,780,453 → 82,519,189 | 38 → 39 | 640 | 624 |
+| 5 | 95,363,365 → 95,102,101 | 128,917,797 → 128,656,533 | 24 → 25 | 416 | 400 |
+| 6 | 95,363,365 → 95,102,101 | 128,917,797 → 128,656,533 | 24 → 25 | 416 | 400 |
+| 7 | 187,638,053 → 187,376,789 | 221,192,485 → 220,931,221 | 14 → 14 | 240 | 224 |
+| 8 | 372,187,429 → 371,926,165 | 573,514,021 → 573,252,757 | 5 → 5 | 576 | 480 |
+| 9 | 674,177,317 → 673,916,053 | 1,076,830,501 → 1,076,569,237 | 2 → 2 | 576 | 384 |
+
+減少の内訳はoptimum / actionが`4096 × ((88 + 16) - (32 + 8)) = 262,144 byte`、
+matchが`274 × (16 - 8) = 2,192 byte`、bit価格表の増加が`4096 - 128 × 8 = 3,072 byte`。
+合計は`262,144 + 2,192 - 3,072 = 261,264 byte`。
+`LZMAMatchFinder.memorySize`のhash / son / CRCの式はbaseと同じで、match候補の縮小はengine側に計上する。
+辞書、片サイズ、probability、その他の価格表、range出力の初期容量も変わらない。
+
+HEADの`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
+Dは実効辞書、Hは`mask(for: D)`、lc / lpはproperties。各項は確保byte数と一致し、過少計上はない。
+
+| buffer | `memorySize`の項と確保byte数 |
+| --- | ---: |
+| window | `D + (chunked ? 2 MiB : 64 KiB) + 4369 + 64 KiB` |
+| finder.hash | `(H + 1 + 1024 + 65536) × 4` |
+| finder.son | `(D + 1) × (BT4 ? 8 : 4)` |
+| finder.crc | `256 × 4 = 1024` |
+| probs | `(1846 + (768 << (lc + lp))) × 2` |
+| bitPrices | `4096 × 1` |
+| lengthPrices / repLengthPrices | `2 × 16 × 272 × 8` |
+| distancePrices / slotPrices / alignPrices | `(4 × 128 + 4 × 64 + 16) × 8` |
+| matches | `274 × 8` |
+| opt / actions | `4096 × (32 + 8)` |
+| rc.outputの初期容量 | `131072` |
+
+range出力の伸長は`memoryLimit - required + 131072`以下（最大16 MiB）に制限する。
+writerのraw予約は初期容量との差`16 MiB - 131072`を追加し、LZMA2は64 KiBのpack limitで区切る。
+小さい`expectedSize`による実効辞書の縮小も、完全な辞書で算出したwriter予約の範囲内。
+ここで数えるのはcodec bufferのbyte数であり、allocatorの管理領域やプロセス全体のRSSではない。
+`EntryCompressionConfiguration`はMに入力16 MiB・spool 1 MiB・I/O 1 MiBを追加し、最大16項目に制限する。
+この条件ではZIP XZのblock上界`(t + 1) × 片`が項目窓の上界以上になる。
+`Tests/`のraw / lzip / level-9の並列数、`MulticoreWriterTests`の項目窓の期待値、
+`WriterOptions`の式とその他の固定上界も照合し、更新が必要なのは上の固定表とraw level 0の切上げ値だった。
+
+試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
+独立 oracle を使う。writer は tar.xz の xz / tar 展開、7z と ZIP の `7zz t / l -slt / x`、
+暗号化、updater の追加・solid 再圧縮、既定4 MiB + 512 byte入力の level-9 並列数制限も照合する。
+元の128 MiB入力は `TarXZLZMALevelTests` の `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+encoder は既定の random / text 各65,537 byte、mixed 2.625 MiB + 17 byteをlevel 0 / 1 / 3 / 5 / 6 / 9で照合する。
+元の1 / 4 / 20 MiB入力と2 MiB + 777 byteの全分割幅は `LZMAEncoderTests` の `…FullSize` に残す。
+7z の listing は LZMA2:18/20/23/26 と LZMA:18/20/23/26、ZIP 14 は LZMA:eos。
+外部ツール不在は Tests/README.md の規則どおり失敗する。
+benchmark は通常の試験で skip し、固定 seed の 4 MiB 辞書単語 text と `/usr/lib/dyld` から始める
+Framework の実在 Mach-O（path 順、最大 32 MiB）を使う。corpus の path と長さも表示する。
+単一 thread の Swift raw LZMA2、`xz -<level> -T1 --format=raw -c`、現行 Apple 経路の raw LZMA2 size と MB/s を出す。
+Apple に level 指定はなく、各行は同じ OS encoder の比較値。MB/s は 1,000,000 byte/s。
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build -c release --disable-sandbox --build-system native
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --build-system native --filter LZMAEncoder
+GYOSHUKU_LZMA_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test -c release --disable-sandbox --build-system native --filter LZMAEncoderBenchmarkTests
+```
+
+Xcode build system の dSYM 生成が制限される環境では `--build-system native` を指定する。
+benchmark の速度閾値は通常の test failure にせず、size gap、対 xz 速度、level 1 / 6 比を実測して報告する。
+
+2026-10-06 の開発機計測（arm64、Swift 6.4、xz / liblzma 5.8.4、release XCTest / `-enable-testing`、単一 thread）での実測。
+text は 4,194,304 byte、binary は dyld 4,129,088 byte と CreateML 16,559,504 byte の連結（合計 20,688,592 byte）。
+比較の size は全て raw LZMA2 で、container overhead を含まない。速度には encoder の確保と終了処理を含み、
+xz は process 起動と file I/O も含む。入力生成と Swift 出力の検証は計測区間外で行う。
+Apple の値は現行 `LZMA2Compressor.encode` 呼出し全体なので framing 抽出も含む。
+
+| corpus | level | Swift byte | xz byte | Apple byte | Swift MB/s | xz MB/s | Apple MB/s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 1,024,529 | 1,024,519 | 695,024 | 21.825 | 30.578 | 3.262 |
+| text | 6 | 694,823 | 695,024 | 695,024 | 3.077 | 3.307 | 3.318 |
+| text | 9 | 694,823 | 695,024 | 695,024 | 2.824 | 3.147 | 3.359 |
+| binary | 1 | 6,453,276 | 6,451,638 | 4,623,756 | 18.137 | 28.015 | 5.582 |
+| binary | 6 | 4,615,940 | 4,623,756 | 4,623,756 | 4.677 | 5.965 | 5.624 |
+| binary | 9 | 4,612,054 | 4,620,542 | 4,623,756 | 4.749 | 5.540 | 5.617 |
+
+level 6 / 9 の size 差は text が各 -0.029%、binary が -0.169% / -0.184% で、1.5% 以内。
+text の level 6 速度は xz の 93.1%（目標 40% 以上）、level 1 / 6 は 7.093 倍（目標 2 倍以上）。
+この時点の目標を満たした。2026-10-07 の速度改善は同じ corpus を使い、以下の別計測で比較する。
+
+release build、release の 7 tests（131 秒）、debug の通常 suite 5 tests と追加 2 tests、release benchmark を検証済み。
+通常の debug suite は約 18 分、同じ大入力の release suite は約 2 分だった。KaitoKit の往復と全 level の xz / 7zz oracle は全て成功。
+再検証は上の `LZMAEncoder` filter を使い、元の大入力には `GYOSHUKU_LARGE_ENCODER_TESTS=1` を指定する。
+oracle の書庫と log は試験が生成する（保存先は Tests/README.md を参照）。
+
+2026-10-07 の単一thread速度改善を非XCTestハーネスで再計測した（Apple M4 Max / 128 GB、Swift 6.4、xz / liblzma 5.8.4）。
+基準版 `f273d34` と改善版 `926d828` の source をそれぞれ取り出し、同じ
+`swiftc -O -wmo -swift-version 6 -module-cache-path "$PWD/.build/clang-module-cache"` でコンパイルした。
+`-enable-testing` は使わない。上と同じtext / binaryの保存済みcorpusを使い、level 1 / 3 / 6 / 9を
+同じloop内で基準版・改善版・xzの順序を6通りに入れ替えて7巡し、各条件の最速（best-of-7）を選んだ。
+各sampleは別processで実行し、追加のwarmupはしない。Swiftはraw LZMA2の確保・符号化・解放を計時し、入力読込と出力保存は除く。
+xzは `xz -k -T1 -<level> --format=xz <input>` のwall timeで、process起動・file I/O・XZ framingとchecksumを含む。
+Swift は process 内の計時、xz は process 全体の wall timeなので、ほぼ同等の行ではこの差がSwiftに数%有利に働く。
+表の速度は MB/s（1,000,000 byte/s）、Swift byteはraw、xz byteはXZ container全体なのでsizeの直接比較には使わない。
+負荷平均（1 / 5 / 15分）は開始3.99 / 3.79 / 4.50、終了4.59 / 4.29 / 4.54、sample前の範囲は
+3.55〜5.64 / 3.78〜4.46 / 4.48〜4.63だった。共有機の負荷による揺れを含む。
+
+| corpus | level | 基準 MB/s | 改善 MB/s | xz MB/s | Swift raw byte（両版） | xz container byte |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 23.216 | 56.104 | 45.394 | 1,024,529 | 1,024,580 |
+| text | 3 | 4.850 | 19.900 | 19.956 | 939,624 | 939,672 |
+| text | 6 | 3.304 | 4.116 | 3.898 | 694,823 | 695,084 |
+| text | 9 | 3.416 | 4.146 | 4.045 | 694,823 | 695,084 |
+| binary | 1 | 19.863 | 37.680 | 33.689 | 6,453,276 | 6,451,700 |
+| binary | 3 | 6.585 | 19.817 | 18.685 | 5,995,056 | 5,993,544 |
+| binary | 6 | 5.413 | 6.548 | 6.647 | 4,615,940 | 4,623,816 |
+| binary | 9 | 5.384 | 6.403 | 6.256 | 4,612,054 | 4,620,604 |
+
+level 9の基準版比は最速値でtext 1.214倍 / binary 1.189倍、中央値ではtext 1.171倍 / binary 1.211倍。
+両corpusとも約1.2倍で、1.2倍以上という達成判定は負荷と採用する統計量に依存する。
+対xzの速度超過はlevel 1の両corpus（1.236倍 / 1.118倍）で達成し、level 3はbinaryの今回の最速値で1.061倍（小差で負荷依存）だった。
+level 3のtextはxzの99.7%でほぼ同等・負荷依存。level 2は今回未計測で、levels 1〜3全体の達成とはしない。
+level 6の対xzはtext 105.6% / binary 98.5%、level 9は102.5% / 102.3%。約5%の小差はほぼ同等・負荷依存と扱う。
+測定した8条件のSwift出力は両版・全7回でbyte一致し、基準版からのsize増加0%を達成した。
+計測後に両版のrawとxzの計24出力を独立xzで復号し、corpusの全byteに一致した。
+現行版の計測・oracle 照合は上の `GYOSHUKU_LZMA_BENCHMARK=1` で再実行できる。
+表と同じ非XCTest比較を再生成するには、両commitの `Compression/LZMA/` のSwift sourceを別々に上記commandでビルドし、
+`LZMAEncoderCorpus.text` と同じtext・記載したMach-O連結を保存して、`LZMA2Encoder.encode` の計時とxzを上記の順序で7巡する。
+全sample・source / corpusのSHA-256・負荷を記録し、最速値と中央値を分けて集計する。
+速度比較はこの同一 `-O -wmo` 条件を使い、round 1のrelease XCTest / `-enable-testing`計測とは混ぜない。
+
+2026-10-07 の LZMA1 並列 finder 試作は public-domain の `C/LzFindMt.c` の block 受渡しを参考に、
+`Thread` と semaphore、4096位置の二つの block で実装した。65536 byte の追加入力と window 移動にまたがる
+pause / resume、終端273 byte、memory budget、cancel / abandon を検証し、thread数1 / 2 / 4の出力が一致した。
+しかし実際の raw LZMA1 streaming の level 6、best-of-5 では text が3.424 → 4.494 MB/s（1.312倍）、
+binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満たさなかった。
+固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
+採用条件を満たさず並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
+raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
+
+2026-10-07（round 3、改善版 `926d828`）の release targeted suite は52 tests / 0 failures、115.680秒。debug の短い通常試験は
+14 tests / 0 failures、2.836秒。両方 `--disable-sandbox --build-system native -debug-info-format none` を指定した。
+価格表、bit価格の量子化、未整列の一致長、position正規化、独立xz / 7zz oracle、
+writer / updater、並列LZMA2、nilレベルの凍結出力を検証した。全suiteは実行していない。
+現行版の再検証は `LZMA|TarXZ|TarLZMA|Lzip|SevenZip.*LZMA|Zip.*LZMA|XZPackingLayout` をfilterにし、
+大入力を含める場合は `GYOSHUKU_LARGE_ENCODER_TESTS=1` とreleaseを指定する。過去版の件数・秒数は当時の試験構成による。
+
+### LZ4 frame encoder（2026-10-06）
+
+`LZ4FrameEncoder` は [LZ4 Frame Format v1.6.4](https://github.com/lz4/lz4/blob/dev/doc/lz4_Frame_format.md)
+から独立に実装した internal codec。magic `0x184D2204`、version 01、独立 block、BD=7（4 MiB）、
+content checksum 有効の一つの frame を書く。既知の `contentSize` は header に載せ、入力長も照合する。
+block checksum は既定 off で指定可能。header / block / content の XXH32 は
+[公開 xxHash 仕様](https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md)から自前実装し、末尾は最大 15 byte。
+block 本体だけを Apple の `compression_encode_buffer(..., COMPRESSION_LZ4_RAW)` に委ねる。
+SDK `usr/include/compression.h` は RAW を buffer API 専用と記載する。`COMPRESSION_LZ4` の
+Apple 独自 wrapper は使わない。縮まない block は長さの最上位 bit を立ててそのまま格納する。
+
+frame の連結ではなく、`OrderedChunkPipeline` で同じ frame の独立 block を並列化し順序どおり出す。
+組立中を含め最大 `threads` block の枠、各 block は入力 4 MiB、圧縮試行 4 MiB 未満、framing 済み結果
+4 MiB + 8 byte 以下なので、Swift 側の上限は概ね `threads × 12 MiB`（呼出元の入力・emit の保持分を除く）。
+これに各 native 呼出しの固定 scratch が加わる。stream 全体の index / 入力を保持しない。
+空、1 byte、64 KiB zeros、9 MiB random の stored block、4 MiB 境界を越える 12 MiB text を
+content size / block checksum の全組み合わせで試験し、KaitoKit と `lz4 -t` / `lz4 -dc` で検証する。
+
+### Brotli stream encoder（2026-10-06）
+
+`BrotliStreamEncoder` は [RFC 7932](https://www.rfc-editor.org/rfc/rfc7932) の stream を、Apple の
+`compression_stream_init(..., COMPRESSION_STREAM_ENCODE, COMPRESSION_BROTLI)` と
+`compression_stream_process` / `COMPRESSION_STREAM_FINALIZE` で書く。圧縮本体・framing は OS が提供し、
+Swift は入力供給・出力排出・native state の寿命と失敗を管理する。stream は連結できないので、全 write を
+一つの逐次 stream に渡す。Apple は固定 level 2 の encoder を提供するため、level 設定は公開しない。
+[Apple の API 文書](https://developer.apple.com/documentation/compression/compression_brotli)と、検証した
+MacOSX27.0.sdk の `usr/include/compression.h:114-126` に固定 level 2 と macOS 12.0 以降の記載がある。
+stream API 自体は同 header の macOS 10.11 以降。Package.swift の最低 macOS 26.0 は双方を満たす。
+
+Swift が保持するのは 256 KiB の出力 buffer と空入力用 1 byte、native state だけで、入力を全量収集しない。
+native の辞書・作業領域は固定 encoder の window に従う（具体的な確保量は Apple API の保証にない）。
+LZ4 と同じ五つの入力を不揃いな chunk に分け、別呼出しの finish、byte ごとの write、入力付き finish も試験する。
+KaitoKit と `brotli -t` / `brotli -dc` が同じ内容を復元することを確認する。
+
+### UNIX compress / LZW stream encoder（2026-10-06）
+
+`LZWStreamEncoder` は [公開 LZC 形式説明](https://ciderpress2.com/formatdoc/LZC-notes.html)と
+[compress(1) の辞書規則](https://man.openbsd.org/compress.1)からの独立した純 Swift 実装。Apple の圧縮 API は
+使わない。header は `1F 9D` と block mode `0x80 | maxbits`、maxbits は 12...16（既定 16）。
+形式の範囲は 9...16 だが、macOS の gzip / uncompress が 12 未満を拒否するため 9...11 は
+`WriterError.invalidOption("compressMaxbits")` とする。tool 固有の CLEAR 回避策は入れない。
+prefix code と次の byte の辞書を使い、9 bit から最大幅まで LSB first の 8-code group に詰める。
+幅を増やすのは旧幅の code を出した直後、次の辞書 entry を登録する前。幅変更と CLEAR=256 の後は
+旧幅の group を `width` byte まで埋め、EOF だけは byte 境界まで詰める。CLEAR 後は 9 bit literal から再開する。
+KaitoKit の `LZWDecoder` が幅変更 / CLEAR 時に旧 group の残りを破棄することも読み、実ツールで互換性を検査する。
+
+辞書が満杯になった後、10,000 入力 byte ごと（次の code 出力時）に累積圧縮率を比較する。
+悪化したら CLEAR を出し辞書と最高比を reset する。評価時点の違いで `compress(1)` との byte 一致は要求しない。
+保持量は最大 `2^maxbits - 257` 辞書 entry（16 bit で 65,279）、256 KiB + 最大 15 byte の出力、
+16 byte の group、現在の prefix とカウンター。入力長に比例する保存領域はない。
+maxbits 12 / 16の既定は小入力とtext 128 KiB → random 256 KiB → text 128 KiBを扱い、CLEAR count > 0も検査する。
+元の7 MiB混合入力・9 MiB random・12 MiB textは `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+KaitoKit と `/usr/bin/uncompress -c`、OS の `/usr/bin/gzip -dc`、`/opt/homebrew/bin/7zz x -so` で byte を照合し、
+`/usr/bin/compress -c -b <maxbits>` のサイズから 25% を越えて離れないことを確認する。
+空の `.Z` は EOF code がなく header のみで、BSD gzip / uncompress は拒否するため、
+その特定の終了値・診断と空の出力も試験に明記する。KaitoKit と 7zz は空を正常に復元する。
+制限付き環境で `compress -c` が `/dev/stdout` の再 open を拒否された場合だけ、同じ OS codec を
+`compress -f -b <maxbits> <一時入力>` の file 出力で呼ぶ。`uncompress -c` も同じ再 open を行うため、
+`uncompress -c` が同じ診断を返した場合だけ `uncompress -f <一時コピー.Z>` で全 byte を照合する。
+gzip と 7zz の stdout 復号も常に試験する。必須の実ツール照合は維持する。
+
+新 codec の外部ツール不在は Tests/README.md の規則どおり失敗とする。製品の外部依存には加えない。
+検証コマンド（CLI 復号 byte の照合は XCTest 内で行う）:
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter "LZ4|Brotli|LZW|Compress|XXH32"
+/opt/homebrew/bin/lz4 -t output.lz4
+/opt/homebrew/bin/lz4 -dc output.lz4 > restored
+/opt/homebrew/bin/brotli -t output.br
+/opt/homebrew/bin/brotli -dc output.br > restored
+/usr/bin/uncompress -c output.Z > restored
+/usr/bin/compress -c -b 16 input > reference.Z
+/opt/homebrew/bin/7zz x -so output.Z > restored
+git diff --stat
+```
+
+
+### 新しい圧縮 tar と lzip framing（2026-10-06）
+
+`ArchiveFormat.tarLZMA / tarLzip / tarLZ4 / tarBrotli / tarCompress` は `isTar` に含め、
+名前・日時・所有者・リンク・record は既存の `TarWriter` を共有する。拡張子は呼出側が決める。
+`StreamCompressor` が tar と単独 file の sink を作る。既存 gzip / bzip2 / XZ の writer 接続・区切り・byte は維持する。
+
+LZMA_Alone は自前 LZMA1 の逐次単一 stream。properties 1 byte、dictionary LE32、
+未知サイズ `UInt64.max` の13 byte headerを出し、EOSで閉じる。`lzmaLevel` の nil は6で、
+extreme は nil にも適用する。従来の ZIP / 7z の nil と extreme の解決は変えない。
+LZ4 は content checksum 付き単一 frame、4 MiBの独立blockを並列化する。レベルは一つ。
+`finishAdditions` は組立中blockを区切ってdrainし、frameは `finish` まで閉じない。
+Brotli は Apple の固定level 2、逐次単一stream。compressはblock modeのLZW、maxbits 16で逐次処理する。
+
+lzip は [manual の File format](https://www.nongnu.org/lzip/manual/lzip_manual.html#File-format)
+に従う独立framingで、lzip / lzlib / tarlzのGPL sourceを参照・移植しない。
+各memberは `LZIP` + VN=1 + DSの6 byte header、自前LZMA1（lc=3 / lp=0 / pb=2、EOSあり）、
+CRC32 LE32 + data size LE64 + member size LE64の20 byte trailerを持つ。
+DSの下位5 bitをn、上位3 bitをfとして辞書は `2^n - (2^n / 16) × f`。
+encoder presetの辞書は2の冪なのでf=0を使う。辞書を入力長やメモリ不足に合わせて宣言上縮めない。
+
+`ParallelLzipCompressor` は `TarChunkCutter` と `OrderedChunkPipeline` を使い、member境界を優先する。
+上限は `max(16 MiB, 3 × 辞書)`。大きいtar memberはheader群と本文を分け、それぞれ上限で分割する。
+終端は独立member。level 0 / 6 / 9の上限は16 / 24 / 192 MiB。
+入力全体を集めず、組立中を含め未出力はt個の枠に収め、独立memberを並列符号化して順序どおり出す。
+`finishAdditions` は残りの入力をmemberとして出してdrainする。
+
+`LZMAWriterConfiguration` の raw予算に入力・出力二片を加え、
+`t × (encoder memory + 2 × member上限) <= min(memoryLimit, 物理メモリの50%)` を満たすよう並列数を制限する。
+nilのmemoryLimitは物理メモリの50%、一つも入らなければ出力作成前に `invalidOption("memoryLimit")`。
+raw encoderの予算は完全な辞書とrange buffer最大16 MiBを含む。pushは256 KiBずつdrainする。
+入力byteの上界はlzipが `t × member上限`、LZ4が `t × 4 MiB`、逐次3形式が0。
+codecの内部buffer・辞書・出力はpending inputの集計に含めない。
+
+KaitoKitのsplice地図がある形式は引き続きgzip / bzip2 / XZだけ。
+新しい5形式の `CompressedTarUpdater.assess` はnil、`open` は `UpdaterRouteError.requiresRewrite`。
+`ArchiveRewriter` は各形式を出力でき、既存項目の削除・改名と追加はTarWriter経由の全体再符号化に戻す。
+入力が別形式でも同じ経路を使い、KaitoKitは変更しない。
+
+### 単独ファイルの圧縮 API（2026-10-06）
+
+`SingleStreamFormat: Sendable, CaseIterable` はgzip / bzip2 / xz / zstd / lzma / lzip / lz4 / brotli / compress。
+`SingleStreamCompressor.compress(file:to:format:options:progress:)` は通常ファイル一つから圧縮ファイル一つを新規作成する。
+編集・複数source・メタデータ保存は扱わず、複数sourceは呼出側がtar.Xを作る。
+公開の型は `API/SingleStreamCompressor.swift`、fileの寿命と公開は `Writer/SingleStreamWriter.swift`。
+
+sourceをlstatし、通常ファイル以外（directory / symlinkを含む）は `WriterError.unsupportedFileType`。
+`O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC` で開いてdevice / inode / mode / size / mtimeを照合し、
+既知サイズを256 KiBずつ読む。EOFと終了時のfd・pathのstatを照合し、変更時は `sourceChanged`。
+`Progress` は入力長をtotal、実際に読んだbyteをcompletedへ設定する。圧縮の終了とは独立する。
+
+出力の隣にUUID名の `.gyoshuku-stream-*.tmp` を `O_CREAT | O_EXCL` で作り、
+圧縮終了・synchronize・取消し検査・pathとfdの所有照合後に `renamex_np(..., RENAME_EXCL)` で公開する。
+先に出力存在を検査するが、最終renameも排他的なので読取中に現れたfileを上書きしない。
+失敗・Task cancellation・Progress.cancelでは `ArchiveOwnedFile` のpath/fd照合で自分のinodeだけを削除する。
+
+gzipは決定的header（FNAMEなし、MTIME 0、OS=3）と1 MiBの並列deflate block。
+bzip2はtarと同じ独立streamの連結、XZは単一stream内の独立blockで、nilはApple、指定levelは自前LZMA2。
+LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、BrotliはApple固定level 2、compressはmaxbits 16。
+既存の `WriterOptions` のvalidationとLZMAメモリ予算を出力作成前に適用する。
+
+試験は `CompressedTarNewFormatTests` / `ArchiveRewriterNewTarFormatTests` / `SingleStreamCompressorTests`。
+新tarはfile・空file・directory・symlink・日本語名・20 MiB混合入力を各独立decoderからbsdtarへpipeして
+一覧・抽出・全byteを照合し、KaitoKitでも照合する。lzip level 0 / 6 / 9と複数memberはtrailerから数え `lzip -t` も使う。
+ZIPとの相互変換とtar.lz4 / tar.lzの編集、単独9形式の既定の空・1 byte・128 KiB text・1 MiB + 17 byte乱数の全byte復号、
+読取進捗・種別拒否・既存出力とrename競合・取消しcleanupを検査する。
+乱数はbzip2 level 9の二つのblockを越える。元の1 MiB text・9 MiB乱数は `…FullSize` に残し、
+`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+空.Zと制限されたstdout再openは上記LZW節の実ツール方針を共有する。
+
+### PPMd var.H / var.I encoder（2026-10-07）
+
+`Compression/PPMd/` の internal `PPMd7StreamEncoder` は 7z method `03 04 01` の var.H、
+`PPMd8StreamEncoder` は ZIP method 98 の var.I revision 1 を純 Swift で書く。
+ZIP / 7z の writer と `WriterOptions.ppmdLevel` に接続し、updater の追加・7z solid 再圧縮・rewriter でも使う。
+方式・framing・preset とメモリの契約は上の ZIP / 7z 節を参照する。
+同期 API は `write(_:finish:emit:)`。呼出しをまたいで同じ model と range coder を更新し、入力全体を保存しない。
+finish でない空 write は何も出さず、入力付き finish と別呼出しの finish をともに扱う。
+finish、emit の失敗、キャンセルの後は instance を再使用できない。
+
+出自は inbox の LZMA SDK 26.03 `C/Ppmd.h`、`Ppmd7.h`、`Ppmd7.c`、`Ppmd7Enc.c` と、
+7-Zip 26.03 から同じ inbox に置いた `Ppmd8.h`、`Ppmd8.c`、`Ppmd8Enc.c`。
+各原典は Igor Pavlov の公開ドメイン宣言を持ち、Dmitry Shkarin の公開ドメイン PPMd var.H（2001）/
+var.I（2002）、Dmitry Subbotin の公開ドメイン carryless range coder（1999）に基づく。
+SDK の `DOC/lzma-sdk.txt` と `inbox/7zip-License.txt` の明示された公開ドメイン条項を確認した。
+Swift へ移植したもので、C を同梱・コンパイルしない。7-Zip の LGPL C++ encoder / ZIP wrapper は参照しない。
+ZIP の parameter word は [PKWARE APPNOTE §5.10](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+による。KaitoKit の decoder は終了条件と公開 reader 経由の往復を確認するために読んだ。
+
+heap は一つの allocation に置き、6 byte STATE と 12 byte CONTEXT / free unit を SDK と同じ配置で管理する。
+永続 successor / suffix / stats は UInt32 offset。model 内の byte を文脈に昇格する処理、頻度の rescale、
+free block の結合も Swift が行う。heap のサイズは指定の memorySize + 最大 3 byte の整列領域。
+これに固定の確率表・mask・order 最大 32 の successor stack と 64 KiB 出力 buffer が加わる。
+emit 用 Data のコピーも最大 64 KiB で、追加保持量は概ね 192 KiB 以下。呼出元が保持する入力・出力は含めない。
+7z の carry 保留は byte 列ではなく UInt64 件数として保持し、排出時にも固定 buffer を使う。
+
+2026-10-07 の高速化では model / arena / range coder を所有権付きの noncopyable struct にし、
+入力 block の `withUnsafeBytes` 内で一度だけ `inout` を借りる。記号ごとの class 排他アクセスと
+参照更新を減らし、固定の allocator / NS 表を pointer、SEE を SDK と同じ 4 byte にした。
+SDK の first-state fast path、suffix の一回探索と 2 state ずつの mask 合計、rescale の安定な state 移動、
+H の最大 2 回の正規化（binary success は 1 回）を反映した。round 2 では H / I を block の入口で
+固定し、記号選択・binary 表・range coder を定数で特殊化した。single-state の symbol / freq は
+明示した LE UInt16 で一度だけ読み、確率表と頻度更新で使い回す。H の UpdateModel で見つけた
+suffix state を CreateSuccessors に渡して再探索を省き、更新・allocator の hot な加減乗算は
+既存の範囲に基づく wrapping 算術にした。SDK の exponential escape 表は二つの UInt64 に詰め、
+Array の bounds check を除いた。heap offset は最大 1 GiB 内、頻度は 16 bit、中間の積は 2^25 未満。
+取消しを 4096 byte ごとの内側 loop の入口で確認し、記号ごとの判定を省く。
+model の計算式・復元方法・framing は変えない。
+追加保持量の 192 KiB 上限、per-worker reservation、4096 byte ごとのキャンセル確認、64 KiB の排出は維持する。
+記号 loop 内の retain と class の動的な排他アクセスの範囲は、
+`-O -wmo` の特殊化された encode 関数の SIL では未検証。
+
+7z の order は 2...32、memorySize は 1 MiB...1 GiB（byte 単位）。5 byte coder properties は
+order byte と memorySize の LE32。raw stream に properties や EOF marker は入れず、7z range coder を
+5 byte flush する。展開サイズは folder に持たせる。メモリ不足時は model を restart する。
+ZIP の order は 2...16、memorySize は整数 MiB の 1...256 MiB。
+payload の先頭に `(order - 1) | ((memoryMiB - 1) << 4) | (restoration << 12)` の LE16 を置く。
+restoration は restart=0 と cut-off=1。freeze は rev.1 / rev.2 の非互換のため実装しない。
+Subbotin coder は各 escape の後と最終区間で正規化し、最後に root escape（symbol=-1）と 4 byte flush を書く。
+cut-off は失敗までの部分更新を戻し、高次文脈を削り、使用量が heap の 3/4 以下になるまで解放する。
+
+以下は GyoshukuKit 独自の level 1...9 表で、7-Zip C++ の default 計算からは導出していない。
+level 5 / 6 は 16 MiB を基準にし、高 level は文脈と heap を増やす。明示 properties で表以外の値も指定できる。
+ZIP の preset は既定 restart、指定した restoration も保持する。
+
+| level | 7z order | 7z heap | ZIP order | ZIP heap |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 3 | 1 MiB | 3 | 1 MiB |
+| 2 | 4 | 2 MiB | 4 | 2 MiB |
+| 3 | 4 | 4 MiB | 5 | 4 MiB |
+| 4 | 5 | 8 MiB | 6 | 8 MiB |
+| 5 | 6 | 16 MiB | 8 | 16 MiB |
+| 6 | 6 | 16 MiB | 8 | 16 MiB |
+| 7 | 8 | 32 MiB | 10 | 32 MiB |
+| 8 | 12 | 64 MiB | 12 | 64 MiB |
+| 9 | 16 | 192 MiB | 16 | 192 MiB |
+
+encoder 単独試験は製品の serializer に頼らず、PPMd coder 一つの folder を持つ最小 7z と method 98 の最小 ZIP を作る。
+KaitoKit の PPMd decoder は internal なので、公開 `ArchiveReader` の stream で全 byte を照合する。
+独立 oracle は必須の `7zz t`、`7zz x -so`、`7zz l -slt`。
+7zz 26.03 の表示は 7z が `PPMD:o6:mem24`（16 MiB は log2=24）、ZIP が `PPMd`。
+既定は空、1 byte、64 KiB zeros、128 KiB text、256 KiB randomを扱う。
+1 MiB heap の256 KiB + 17 byte textと256 KiBの全256値乱数（各byteを二度置く）で、H / I restartとI cut-offのcount > 0、
+復旧後の7z / ZIP oracleとKaitoKit全byte復号を検査する。元の1 MiB text・8 MiB random・20 MiB textは
+`…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+byte ごと、不揃い chunk、非ゼロ startIndex の Data slice、終了後と emit 失敗後の拒否を検査する。
+固定 seed の英文風 corpus では order 6 / 16 MiB の両 variant が `xz -6` より小さいことを要求する。
+1 MiB の corpus の実測は H が 41,930 byte、I が 41,967 byte、xz -6 が 72,628 byte。
+round 2 の対象 XCTest は release（`-Xswiftc -enable-testing`、debug 情報なし）で、
+encoder 6 件 46.862 秒、writer options 1 件 0.001 秒、7z writer 5 件 24.715 秒、ZIP writer 5 件 16.674 秒が成功した。
+凍結 fixture の `LZMAWriterDefaultOutputTests` / `LHADefaultOutputTests` /
+`SevenZipHeaderSerializerTests` / `ZipModernMethodEditingTests` も 6 件成功。
+全体は 23 件成功 + benchmark の門 1 件 skip、89.408 秒、build 81.00 秒。full suite は実行していない。
+この XCTest の秒数は検証所要時間で、encoder の旧比を算出する計測ではない。
+旧 encoder は f273d34 の PPMd source を Git から読出し、製品 tree 外の比較用 build に置く。
+round 1 の比較は試験 corpus の 84 出力と benchmark の 12 出力、計 96 組で全 byte が一致した。
+round 2 の再実行可能な比較は `Benchmarks/PPMd/run.py` に置き、製品 target / XCTest に旧版を依存させない。
+最終版は dyld / zsh / 8 MiB mixed / 小入力、H order 2 / 4 / 8 / 16 / 32、
+I order 2 / 4 / 8 / 16、heap 1 / 3 / 64 MiB、両 restoration の全組合せを比較した。
+I の order 32 は形式・properties の契約外なので扱わない。text / dyld の全 level 1...9（I は両 restoration）と
+分割 write も含めて **300 組全てで全 byte が一致**し、比較は178.139秒。全 level の自前サイズ増加は0%。
+比較 payload、build command、全試行、load average、hash と oracle の書庫は指定した出力 directory に記録する。
+
+encoder の旧比は非 XCTest の `Benchmarks/PPMd/run.py` で測る。
+f273d34 と作業 tree の source を **両方 `swiftc -O -wmo -swift-version 6`** でビルドし、
+`-enable-testing` を使わない。固定 seed の英文風 text 8,388,608 byte と `/usr/lib/dyld` 4,129,088 byte を使う。
+round 3 の再計測は2026-10-07、Apple M4 Max / Swift 6.4、導入済みの 7zz は **26.04**。
+旧→新→7zz の順で各11回を交互実行する best-of-11。参照書庫は各反復の前に削除し、
+`7zz t` / `7zz x -so` / properties の確認は loop 後に一度だけ行う。MB/s は 1,000,000 byte/s。
+測定中にこの作業の build / test は重ねていないが、Mac の他の負荷はある。
+load average（1 / 5 / 15 分）は開始 3.99 / 3.79 / 4.50 → 終了 4.94 / 4.15 / 4.57。
+12条件の計測・照合は82.146秒。build・全試行・参照propertiesの記録は、下の `Benchmarks/PPMd/run.py --runs 11` で再生成できる。
+Swift は model allocation / payload 生成 / finish、7zz は起動 / file I/O / archive 作成を含む wall time。
+Swift は process 内、7zz は process 全体の計時なので、ほぼ同等の行では起動・file I/Oの差がSwiftに数%有利に働く。
+入力準備、CRC / container の組立、復号 oracle は計測外。SDK の内部 loop だけの速度比較ではない。
+round 1 の XCTest `-enable-testing` baseline は旧版を不均等に遅くしたため、その速度表と倍率を撤回した。
+`GYOSHUKU_PPMD_BENCHMARK=1` の XCTest は参照との照合用として残すが、旧版との倍率には使わない。
+
+参照は H が `7zz a -t7z -m0=PPMd:o=<order>:mem=<MiB>m -mmt=1`、
+I が `7zz a -tzip -mm=PPMd:o=<order>:mem=<MiB>m:a=0 -mx=<level> -mmt=1`。
+H の order は 3 / 6 / 16、I は 3 / 8 / 16、heap は両方 1 / 16 / 192 MiB、I は restart を指定する。
+`a=0` が無い高 level の ZIP は cut-off になる。7zz は入力サイズで heap を減らすため、
+**level 9 の参照実値は text 128 MiB / binary 64 MiB**（Swift は 192 MiB）。
+7z の `l -slt` / ZIP の parameter word で order / heap / restoration を確認し、JSON に実値も出す。
+表の byte は payload サイズ（ZIP は 2 byte parameter word 込み）。level 9 の binary サイズ差は heap 条件が異なる。
+
+| corpus | var. | level | 旧 MB/s | 新 MB/s | 7zz MB/s | 旧=新 byte | 7zz byte |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | H | 1 | 77.88 | 142.18 | 125.09 | 703,855 | 703,855 |
+| text | H | 6 | 95.69 | 195.54 | 162.02 | 328,737 | 328,737 |
+| text | H | 9 | 89.21 | 135.30 | 115.66 | 293,408 | 293,408 |
+| text | I | 1 | 70.60 | 128.57 | 113.79 | 704,541 | 704,541 |
+| text | I | 6 | 81.36 | 176.49 | 141.15 | 297,284 | 297,284 |
+| text | I | 9 | 77.59 | 126.88 | 107.21 | 294,144 | 294,144 |
+| binary | H | 1 | 10.95 | 23.54 | 23.38 | 1,286,117 | 1,286,117 |
+| binary | H | 6 | 9.17 | 18.68 | 18.47 | 1,110,799 | 1,110,799 |
+| binary | H | 9 | 8.58 | 15.74 | 15.13 | 903,351 | 1,057,380 |
+| binary | I | 1 | 10.52 | 22.95 | 22.90 | 1,282,687 | 1,282,687 |
+| binary | I | 6 | 8.14 | 17.19 | 17.44 | 1,134,452 | 1,134,452 |
+| binary | I | 9 | 8.35 | 15.57 | 14.87 | 900,741 | 1,053,497 |
+
+level 6 の旧比は H が text 2.044 倍 / binary 2.038 倍、
+I が text 2.169 倍 / binary 2.113 倍。
+H level 6 の新 / 7zz 比は text **120.7%** / binary **101.1%**（丸める前の速度から算出）。
+binary は 7zz とほぼ同等で負荷に依存する。
+I level 6 の binary 比は98.6%。他の環境での速度の下限を保証する値ではない。
+表の出力は全て旧版と同一。参照と同じ heap の level 1 / 6 は 7zz のサイズにも一致した。
+
+残る時間は診断用の別 build で 1024 回ごとの `mach_absolute_time` を20回分集計した。
+計測 overhead・sampling の偏りがあるため概算で、上の速度表には使わない。
+binary の model update は H 2,051,159 回 / I 2,387,554 回、suffix escape は H 827,690 回 / I 895,793 回。
+記号処理内の model update は H 約49% / I 約39%、CreateSuccessors は約17% / 約15%、rescale は約5% / 約3%。
+suffix escape 全体は約77% / 約59% で、探索・mask 合計・range coder・選択後の update を含む。
+CreateSuccessors は update の内数、update の一部は suffix の内数なので、これらの割合は加算しない。
+text の model update は H 5,279 回 / I 7,812 回（約0.2% / 約0.4%）に留まり、binary / first-state の経路が中心。
+
+導入時のrelease 6件は55.7秒で成功し、元の大入力と両復元方法を全て照合した。
+導入時のdebug大入力2件も成功した（約26分）。大きなcorpusの照合にはreleaseを推奨する。
+encoder 高速化の round 1 の debug 記録は **前後の実行が重なり、他の oracle も同時実行された参考値**。
+逐次実行の速度比較として扱わない。encoder 単体（`-Onone` harness、8 MiB random、order 6 / 16 MiB、1 回）は
+H 239.118 → 43.602 秒、I 250.084 → 57.227 秒、出力はそれぞれ 8,580,567 / 8,591,123 byte で一致した。
+`PPMdEncoderTests` は旧版 6 件成功 1941.041 秒 → round 1 の 6 件成功 1586.002 秒。
+`testLargeTextAndRandom` は 1243.960 → 983.561 秒、20 MiB restoration 試験は 681.143 → 590.132 秒だった。
+KaitoKit の復号・CRC / container の準備を含み、同時負荷も異なるため改善率は算出しない。
+この debug の 36 書庫も旧版と全 byte 一致した。前後の生成書庫は別 directory に保存して照合した。
+encoder 高速化の round 2 の debug は旧版との速度比較を行わず、properties / 小入力・order 上下限 / 分割 write・失敗後の拒否 /
+writer options の4件を逐次実行し、7.227秒で全件成功した（`-Onone`、`-enable-testing`、debug情報なし）。
+
+別の試験側の高速化は、encoder sourceを基準版のまま保ち、既定入力の縮小とoracle処理の共有を行った。
+そのround 1のDEBUG実測は、PPMd以外も含む対象classのbest-of-5合計5,421.581 s → 974.804 s（82.0%短縮、5.56倍）。
+5並列のXCTest class時間の合計で、全suiteの壁時計やPPMd単独のthroughputではない。
+既定coverage・試験側のround 2 / 3の再検証・再計測用runnerは [検証記録](verification/2026-10-07-encoder-debug-speed.md) を参照する。
+PPMd のoracle書庫とlogは下のfilterで再生成する。8 classのFullSize 14件はCIでもXcode 27でbuildし、macOS 27 / 26でrelease実行する。
+
+```sh
+swift build
+swift test --filter PPMd
+git diff --stat
+# cache が sandbox 外になる環境の検証用。製品の実行条件ではない。
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter PPMd
+# 元の大きな corpus を照合する場合
+GYOSHUKU_LARGE_ENCODER_TESTS=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release --filter PPMd
+# Swift 6.4 の swiftbuild が dSYM 作成を禁止される環境では debug 情報を省略できる。
+GYOSHUKU_LARGE_ENCODER_TESTS=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release -debug-info-format none --filter PPMd
+# XCTest の参照比較（-enable-testing。旧版との速度倍率には使わない）
+GYOSHUKU_PPMD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none \
+  --filter PPMdEncoderBenchmarkTests
+# 非 XCTest、同一 -O -wmo の release。build / bench / identity を逐次実行する。
+python3 Benchmarks/PPMd/run.py --runs 11
+# overhead を含む stage 診断（速度の表には使わない）
+python3 Benchmarks/PPMd/run.py --mode profile
+```
+
+### 自前 Zstandard frame encoder（2026-10-07）
+
+`Compression/Zstd/ZstdFrameEncoder.swift` の internal `ZstdFrameEncoder` は、RFC 8878 の frame を純 Swift で書く。
+同期 API は `write(_:finish:emit:)`、独立 frame を作る helper は `encode(_:level:)`。
+`contentSize` が既知なら header に保存し、受取長の過不足を `sourceChanged` として拒否する。
+空の非 finish write は出力しない。finish、emit の失敗、取消しの後は `invalidState` で再利用を拒否する。
+writer 接続と独立 frame の並列化は下の節を参照する。
+
+frame は magic、dictionary ID なしの header、最大 128 KiB の block、XXH64(seed=0) の下位 32 bit checksum。
+checksum flag は常に有効。既知サイズが window 以下なら single segment、それ以外は window descriptor を書く。
+既知サイズの 1 / 2 / 4 / 8 byte 表現（2 byte の +256 を含む）、未知サイズ、空 frame、連結 frame に対応する。
+raw / RLE / compressed block を選び、圧縮して縮まらない block は raw に戻す。
+literals は raw / RLE / Huffman の完全な section サイズで選択し、Huffman は小入力で 1 stream、大入力で 4 streams。
+Huffman の深さは最大 11 bit。重みは最大 symbol が 128 以下なら直接 nibble、それ以外は 2 状態 FSE で記述する。
+sequence は LL / OF / ML の predefined / RLE / 独自に正規化した FSE table を、header と推定遷移 bit 数の費用で選ぶ。
+FSE log は LL / ML が 5...9、OF が 5...8。RFC の復号 table の各遷移区間を反転して符号化 table を得る。
+repeat offset の初期値 1 / 4 / 8、LL=0 の規則、rep1-1、compressed block 間の引継ぎを扱う。
+raw / RLE block は repeat offset を変更しない。treeless Huffman、sequence Repeat_Mode、dictionary、ultra は生成しない。
+
+以下は GyoshukuKit 独自の level 表で、参照実装の preset を転記していない。
+fast は8 byte loadから5 byteをhashする主表とprefix tag、直近のrepeatを調べる専用解析。
+double hash は unaligned 8 byte load の主 hash と4 byteの補助 hash を一回ずつ調べる greedy 解析。
+不一致区間は適応サンプリングし、一致内の辞書更新は低 level ほど間引く。
+lazy / lazy2 は8 byte / 4 byteの循環 row table と1 / 2 byte先読みを使う。
+row は16 / 32 / 64 / 128候補、tag は `SIMD16<UInt8>` / `SIMD32<UInt8>` で比較し、新しい候補から調べる。
+4 byte row は8 byte以上の候補がない場合に短い一致を補う。深さ96以上では一致内も全位置を挿入する。
+lazy2 は1 byte先で nice / 8以上の改善一致を得た場合、2 byte先を辞書挿入だけにして探索を省く。
+一致内のサンプリング位置は従来の先読み2と同じに保つ。
+optimal は 3 / 4 byte hash と binary tree を使い、
+byte ごとの最小推定費用・literal run・repeat 履歴を保持する近似最短路解析。
+各位置で一つの履歴に併合し、短い match の全長、長さ code 境界と最長 match を比較する。
+nice 長以上の一致は終端へ進むため、完全な最適解析ではない。前 block の sequence 頻度で費用を更新する。
+block 末尾の短い key は木の子を引き継がず、未知の後続 byte に依存した順序を持ち越さない。
+
+| level | strategy | window | hash log | depth | nice length | 概算 memory 上限 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | fast | 1 MiB | 17 | 1 | 32 | 7.75 MiB |
+| 2 | fast | 1 MiB | 18 | 1 | 48 | 8.25 MiB |
+| 3 | double hash | 2 MiB | 18 | 2 | 64 | 10.25 MiB |
+| 4 | double hash | 2 MiB | 19 | 2 | 80 | 11.25 MiB |
+| 5 | double hash | 2 MiB | 19 | 2 | 96 | 11.25 MiB |
+| 6 | lazy | 2 MiB | 19 | 16 | 64 | 19.25 MiB |
+| 7 | lazy | 2 MiB | 19 | 24 | 80 | 19.25 MiB |
+| 8 | lazy | 4 MiB | 19 | 32 | 96 | 31.25 MiB |
+| 9 | lazy2 | 4 MiB | 20 | 48 | 128 | 33.25 MiB |
+| 10 | lazy2 | 4 MiB | 20 | 64 | 160 | 33.25 MiB |
+| 11 | lazy2 | 4 MiB | 20 | 96 | 192 | 33.25 MiB |
+| 12 | lazy2 | 4 MiB | 20 | 128 | 256 | 33.25 MiB |
+| 13 | optimal | 8 MiB | 20 | 64 | 128 | 100.25 MiB |
+| 14 | optimal | 8 MiB | 20 | 96 | 160 | 100.25 MiB |
+| 15 | optimal | 8 MiB | 20 | 128 | 192 | 100.25 MiB |
+| 16 | optimal | 8 MiB | 21 | 192 | 256 | 104.25 MiB |
+| 17 | optimal | 8 MiB | 21 | 256 | 384 | 104.25 MiB |
+| 18 | optimal | 8 MiB | 21 | 384 | 512 | 104.25 MiB |
+| 19 | optimal | 8 MiB | 21 | 512 | 768 | 104.25 MiB |
+
+memory は `estimatedMemoryBytes` の保守的な見積り。二つ分の window、UInt32 hash head、chain または tree のリンク、
+block / entropy / parser scratch の予算を含み、呼出元が保持する入力・出力と allocator の管理領域は含めない。
+level 6...12の上表は、従来からコードが予約していた値に訂正した（以前の表は UInt32 link の byte 数を過少記載）。
+row table の実確保は従来の chain 予算以下。optimal の永続 node と長さ別価格表は既存16 MiB scratch 内に収める。
+round 3の level 1 / 2は4 byte補助 headを省き、1 byteのtag表（128 / 256 KiB）に置き換える。
+見積りは従来の256 KiB補助 head予算を残すため保守的な上界を保つ。window・pending input・worker予約は変わらない。
+連続 buffer は window ごとに compact し、入力全体を保存しない。未処理入力は 128 KiB 以下。
+長い stream の table position は 2 GiB ごとに番号を縮め、live window を保つ。
+比較・table 反転・符号化の hot loop は検証済み範囲の unsafe buffer を使い、unaligned load は初期化済み入力だけを読む。
+
+出自は [RFC 8878](https://www.rfc-editor.org/rfc/rfc8878) と
+[公開 xxHash specification の XXH64](https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md) からの独立実装。
+各新規 Swift file の先頭に `Independent implementation from RFC 8878; no zstd source consulted` を記す。
+facebook/zstd の `lib/*` その他の参照実装 source は読んでおらず、移植・翻訳・vendor code はない。
+KaitoKit の MIT decoder の frame / Huffman / FSE / sequence の復号規則を相互運用の確認に読んだ。
+match finder も独自に実装し、LZMA SDK 由来の既存 finder の code を取り込まない。製品に外部 codec library を加えない。
+
+試験は `Tests/GyoshukuKitTests/Compression/Zstd/`。必須の `/opt/homebrew/bin/zstd` で `-t` と `-dc`、
+公開 KaitoKit readerで全byteを照合する。level 1 / 3 / 9 / 19の既定は空・1 byte・64 KiB zeros・
+128 KiB + 17 byte text・256 KiB + 17 byte randomと、不揃いchunk、非ゼロData startIndex、未知content size、連結frame。
+混合入力は各levelの2 × window + blockSizeを越え、window + 4096 byte先の乱数とcompact後のwindow内text再出現、
+raw / RLE / compressedを検査する。元の1 / 8 MiBと20 MiB text/binaryは `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+全 19 level の短い周期列、Huffman の 1 / 4 streams と両 tree 表現、sequence 長さ code の境界と repeat 規則も扱う。
+木のblock末尾は既定256 KiB + 17 byte text、元の4 MiBは `…FullSize` に残す。
+XXH64は既知vector、stripeをまたぐchunk、seedと非破壊digestを検査する。
+外部ツールが無い場合は Tests/README.md の方針どおり失敗する。
+
+benchmark は `GYOSHUKU_ZSTD_BENCHMARK=1` の release 限定。
+text は `LZMAEncoderCorpus.text` の固定 seed の英文風単語列 4,194,304 byte。
+binary は `/usr/lib/dyld` 4,129,088 byte と実在する
+`/System/Library/Frameworks/CreateML.framework/Versions/A/CreateML` 16,559,504 byte の連結、計 20,688,592 byte。
+Swift は instance 確保・checksum を含む `encode` の最良時間（最低5回、累積0.3秒以上、最大20回）を使う。
+`GYOSHUKU_ZSTD_ALL_LEVELS=1` は全19 levelを測る。
+サイズは `zstd -<level> -T1 -c` の出力、参照速度は同じ corpus の `zstd -b<level> -e<level> -i1 -T1` の内部計測。
+後者は process 起動と file I/O の時間を除く。MB/s は 1,000,000 byte/秒。
+目標未達は `ZSTD-BENCH-MISS` に記録し、計測試験の失敗条件にせず、実測値と profile をここに報告する。
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --disable-sandbox -c release
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift test --disable-sandbox --filter Zstd
+GYOSHUKU_ZSTD_BENCHMARK=1 CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" \
+  swift test --disable-sandbox -c release -debug-info-format none --filter ZstdEncoderBenchmarkTests
+git diff --stat
+```
+
+#### Zstandard 高速化 round 1（2026-10-07）
+
+実測（Apple M4 Max / 128 GB、macOS 27.2、Apple Swift 6.4、Zstandard CLI 1.5.7）。
+基準は `f273d34` の変更前 source。最初に既存 `ZstdEncoderBenchmarkTests` を基準版の release で計測し、
+最低5回のベンチマーク、変更版の targeted test と連続比較も行った。並行 workstream の負荷で CLI の値も変動するため、
+下表は追加の同一 process 計測を使う。基準版は型名だけを `BaselineZstd...` に変更して同じ program に組み込み、
+両 source を `swiftc -O -whole-module-optimization` で build。入力を一度読み、条件ごとに両 encoder を交互に5回実行した最良値。
+CLI は同じ corpus の `-b<level> -e<level> -i1 -T1` を5回実行した最良値。bytes は checksum 込みの完全な frame。
+追加 program の16 frameも `zstd -t` に成功し、製品版の benchmark は zstd と KaitoKit の全 byte 照合に成功した。
+
+| corpus | level | 基準 MB/s | 変更 MB/s | CLI MB/s | 基準 bytes | 変更 bytes | CLI bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 151.059 | 283.704 | 561.100 | 1,008,821 | 974,556 | 1,022,409 |
+| text | 3 | 163.713 | 223.468 | 520.000 | 933,816 | 933,781 | 970,449 |
+| text | 9 | 15.881 | 37.587 | 83.200 | 916,309 | 786,451 | 944,619 |
+| text | 19 | 2.072 | 3.685 | 4.020 | 704,190 | 704,190 | 692,480 |
+| binary | 1 | 95.909 | 152.702 | 734.500 | 7,997,811 | 7,880,014 | 9,037,641 |
+| binary | 3 | 97.473 | 143.753 | 458.300 | 7,371,581 | 7,369,211 | 7,570,180 |
+| binary | 9 | 13.523 | 31.918 | 111.800 | 6,920,557 | 6,935,984 | 6,898,131 |
+| binary | 19 | 3.258 | 5.794 | 6.310 | 5,339,170 | 5,339,170 | 5,204,544 |
+
+text: level 9は基準の2.367倍、level 19は1.778倍。各2倍 / 1.3倍の目標を達成。
+
+binary: level 9は基準の2.360倍、level 19は1.778倍。各2倍 / 1.3倍の目標を達成。
+
+level 1 / 3の CLI 速度比は次の通り。両 corpus で50%という目標は未達で、70%の stretch も未達。
+level 1: text は負荷により約50%±1〜2ポイント、binary 20.8%。
+level 3: text 43.0%、binary 31.4%。
+
+全19 level・両 corpusの38条件で、変更後のサイズ増加は最大 +0.222916%（binary level 9）。
+level 3の CLI サイズ +10%以内、level 19の +8%以内も達成。level 13...19の frame サイズは基準と同じ。
+サイズ・速度は、両commitのSwift sourceを上記の同一programに組み込み、全19 levelを交互に実行して再生成する。
+
+最適化は fast の8 / 4 byte hash 専用経路、repeat の3 byte一括判定、row の SIMD tag 比較と lazy2 の探索省略、
+optimal の node / 長さ価格表の再利用と候補ごとの配列生成廃止。sequence code は確保済み buffer に書き、
+FSE遷移とextra bitをまとめて64 bit accumulatorへ追加する。Huffmanの4 streamを交互に進め、
+literal集約は確保済み Dataへの一括copyに変えた。window・checksum・frame/blockの仕様は維持する。
+
+以下の公開 writer の並列測定は XCTest release（`-enable-testing`）で、level 3、4 MiB text + 上記Mach-Oを繰り返した268,435,456 byte。
+`.zst` は `SingleStreamCompressor.compress`、`tar.zst` は一つのfileを `ArchiveWriter` に追加してfinish。
+file I/O・checksum・frame組立・公開処理を含む5回の最良値を、基準版→変更版の順に連続測定した。
+出力は各実装・各形式内で1 / 4 / 8 / 12 thread間のbyte一致、全出力のzstd検査に成功。
+
+| format | threads | 基準 MB/s | 変更 MB/s | 基準 bytes | 変更 bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| .zst | 1 | 99.453 | 143.923 | 91,115,521 | 91,127,531 |
+| .zst | 4 | 368.017 | 547.302 | 91,115,521 | 91,127,531 |
+| .zst | 8 | 460.064 | 832.759 | 91,115,521 | 91,127,531 |
+| .zst | 12 | 652.075 | 942.108 | 91,115,521 | 91,127,531 |
+| tar.zst | 1 | 99.347 | 142.500 | 91,115,621 | 91,127,631 |
+| tar.zst | 4 | 331.825 | 537.067 | 91,115,621 | 91,127,631 |
+| tar.zst | 8 | 500.033 | 819.919 | 91,115,621 | 91,127,631 |
+| tar.zst | 12 | 610.604 | 913.015 | 91,115,621 | 91,127,631 |
+
+変更版の12 threadは1 thread比で `.zst` 6.546倍、`tar.zst` 6.407倍。線形ではないが並列数で伸びる。
+XXH64とencoder内の入力copyは元からworkerで実行される。producerには片の組立copyがあるが、
+今回明らかなserial checksumは見つからず、`ParallelZstdCompressor` / 共通pipelineは変更していない。
+並列測定は `GYOSHUKU_ZSTD_PARALLEL_BENCHMARK=1` とreleaseの `ZstdParallelBenchmarkTests` filterで再実行する。
+tarのsource timestampは各runで生成されるfileのmtimeを使う。
+
+round 1 の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+`CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdEncoderBenchmarkTests` / `ZstdParallelBenchmarkTests` の
+26件成功・失敗0・117.727秒。debugの高速testは13件成功・失敗0・13.947秒。
+その後の並列benchmarkは基準1件50.144秒、変更1件33.007秒で成功。
+再検証は上記classのfilterを使い、大入力を含める場合は `GYOSHUKU_LARGE_ENCODER_TESTS=1` を指定する。全test suiteは走らせていない。
+fixtureは再生成・変更せず、public APIと取消し・進捗・error処理の経路を変えていない。
+測定はこのMacの二つのcorpusのみで、別入力の速度・比率、Intel Macは未測定。並行負荷による揺れは残る。
+当時の `git diff --check` は成功。
+
+#### Zstandard 高速化 round 2（2026-10-07）
+
+基準 `f273d34`、round 1 `74492a9`、round 2 を一つの非 XCTest harness に組み込み、
+全て同一の `swiftc -O -wmo` で buildした。`-enable-testing` は使わない。
+過去版は型名と helper 名だけを変更し、元の commit と照合した。corpus は上記と同じで入力を一度だけ読む。
+各条件で基準→round 1→round 2→CLI、次回は逆順に交互実行し、各7回の最良値を採る。
+CLI は `-b<level> -e<level> -i1 -T1`、Swift は instance・checksum・frame 組立を含む。
+Apple M4 Max、macOS 27.2（26B5101f）、Apple Swift 6.4、CLI 1.5.7。
+測定中の1分 load average は5.78〜7.40。負荷による変動を含み、CLI 比は各最良値の比である。
+
+| corpus | level | 基準 MB/s | round 1 MB/s | round 2 MB/s | CLI MB/s | round 2 / CLI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 155.478 | 288.009 | 339.775 | 575.300 | 59.1% |
+| text | 3 | 165.820 | 232.413 | 287.624 | 531.600 | 54.1% |
+| binary | 1 | 98.662 | 158.110 | 233.704 | 752.300 | 31.1% |
+| binary | 3 | 99.695 | 149.228 | 192.111 | 475.500 | 40.4% |
+
+text の50%と binary level 3の40%は達成。binary level 1の40%は未達で、あと約29%の速度向上が必要。
+60%の stretch は全条件で未達。round 1比では text 1 / 3が1.180 / 1.238倍、binary 1 / 3が1.478 / 1.287倍。
+binary level 3の達成幅は小さく、別の負荷・corpus で40%を保証する値ではない。
+同じ比較は基準・round 1・round 2のsourceを上記の非XCTest条件でビルドし、全sampleと負荷を記録して再生成する。
+
+| corpus | level | 基準 bytes | round 1 bytes | round 2 bytes | CLI bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 1,008,821 | 974,556 | 993,183 | 1,022,409 |
+| text | 3 | 933,816 | 933,781 | 933,779 | 970,449 |
+| text | 19 | 704,190 | 704,190 | 704,190 | 692,480 |
+| binary | 1 | 7,997,811 | 7,880,014 | 8,001,664 | 9,037,641 |
+| binary | 3 | 7,371,581 | 7,369,211 | 7,372,748 | 7,570,180 |
+| binary | 19 | 5,339,170 | 5,339,170 | 5,339,170 | 5,204,544 |
+
+全19 level・両 corpus の38条件で基準比 +0.3%以内。最大は binary level 9の +0.222916%。
+level 3の CLI サイズ +10%以内、level 19の +8%以内も保つ。
+level 1の出力は round 1より大きいが、基準比は text −1.550126%、binary +0.048176%。
+全サイズは全19 levelの各版とCLIのframe byte数から再生成する。サイズ確認用の1回実行の速度は性能値に使わない。
+
+level 1 / 2は8 byte load から5 byteを hash し、二位置の head 読取・更新を先行させる。
+fast / double hash の表を loop 全体で借り、一致内の挿入をまとめる。短い周期は最後の一周期と境界の挿入だけで同じ表を保つ。
+repeat は8 byte XORから一致長を求め、重複した距離を調べない。入口で block・position・repeat の範囲を検証し、
+有界な fast loop 内の重複する整数幅判定を省く。末尾は初期化済み範囲を読む従来の短い比較を使う。
+sequence 配列、prepared command、literal 集約 buffer を block 間で再利用する。
+sequence の code・extra・四レーンの頻度表を一度で作り、FSE選択で同じ histogram を走査し直さない。
+Huffman も四レーンで頻度を数え、256 symbolの頻度差が2倍以内なら最適な8 bit固定木より raw が小さいため木の構築を省く。
+code は2 byteに詰め、tree の leaf sortと再帰書込を軽くし、rawを選ぶ前の Data copy を省く。
+
+sequence 予約は最大 offset codeを求め、releaseでも `precondition(maxOf <= 30)` を通してから `n * 11 + 16` を確保する。
+56 bitを超える extraは二回に分割し、bit writerの既存assertを維持する。`windowLog <= 23` に依存する予約ではない。
+sequence 数も `128 KiB / 3` 以下を検証する。固定 prepared領域は約0.667 MiB、literal領域は128 KiB、頻度領域は3 KiB。
+保持する sequence配列を含め、fast / lazy の既存5 MiB scratch、optimal の16 MiB scratch予算内に収める。
+window・pending input・worker予約・checksum・並列pipelineの契約は変えない。
+
+6 byte hash、強い miss 間引き、短い一致の疎な挿入はサイズ上限を越えたため戻した。
+repeatを一つだけにする案も binaryサイズを約2.6%悪化させた。lazy先読みはサイズを改善したが速度を落とした。
+FSE表の再利用、sequence配列の一括初期化、repeatの不一致mask化も十分な改善がなく戻した。
+binary level 1には引き続き match+parseが最大の時間を占め、XXH64は約1 ms / 20 MiBなので変更していない。
+段階profileは `collectProfile: true` の別encodeで再生成し、計時callbackなしの速度計測と分ける。
+
+最終 source の段階 profile（同じ非 XCTest build、各1回、binary 全体の経過 ms）。
+計時用 callback を有効にした値で、7回測定の性能表とは区別する。
+
+| level | stage | round 1 ms | round 2 ms |
+| --- | --- | ---: | ---: |
+| 1 | match+parse | 78.630 | 53.448 |
+| 1 | literals（集約を含む） | 19.985 | 15.830 |
+| 1 | sequences | 35.140 | 20.882 |
+| 3 | match+parse | 86.324 | 70.641 |
+| 3 | literals（集約を含む） | 18.933 | 13.405 |
+| 3 | sequences | 33.063 | 22.058 |
+
+round 2 の release は `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+`CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdParallelBenchmarkTests` の28件成功・失敗0・53.823秒。
+`--disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none` を使う。
+この XCTest の速度値は上の非 XCTest 性能表に使わない。`.zst` / `tar.zst` の256 MiB入力で
+1 / 4 / 8 / 12 thread間の出力がbyte一致し、CLI検査にも成功した。
+debugの対象10件は成功・失敗0・14.145秒。新規試験は二位置loopの0...15 byte末尾・非圧縮性区間後の短い周期、
+一様literalのraw選択、offset code 30と61 bit extraの予約済み出力を含む。
+全19 level・両 corpus・基準 / round 1 / round 2の114 frameをCLIで全 byte復号照合し、
+交互測定で保存した12 frameも同じ出力と照合した（CLIサイズ確認を含め7.712秒）。
+同じclassとopt-inで試験・oracle出力を再生成できる。過去版の件数・秒数は当時の試験構成による。
+fixtureは変更せず、全suiteは走らせていない。
+
+#### Zstandard 高速化 round 3（2026-10-07）
+
+基準 `f273d34`、round 2 `914f6c0`、round 3を同じ非 XCTest harness に組み込み、
+型名・helper名だけを変えた過去 source を元commitと照合した。
+全版とも `swiftc -O -wmo -module-cache-path .build/clang-module-cache`、`-enable-testing` なし。
+入力は一度だけ読み、instance確保・checksum・frame組立を含む encode を測る。
+基準→round 2→round 3→CLI と逆順を交互に各7回実行し、最良値同士を比較する。
+CLI 1.5.7は `-b<level> -e<level> -i1 -T1` の内部計測、MB/sは1,000,000 byte/秒。
+Apple M4 Max / macOS 27.2（26B5101f）/ Apple Swift 6.4。
+この計測中の1分load averageは3.26〜6.82。サイズ確認・XCTestは速度計測と別に実行した。
+
+| corpus | level | 基準 MB/s | round 2 MB/s | round 3 MB/s | CLI MB/s | round 3 / CLI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 154.427 | 340.820 | 355.215 | 575.900 | 61.7% |
+| text | 2 | 154.446 | 340.105 | 355.804 | 561.700 | 63.3% |
+| text | 3 | 162.913 | 287.981 | 289.526 | 534.000 | 54.2% |
+| binary | 1 | 98.862 | 231.887 | 315.152 | 753.300 | 41.8% |
+| binary | 2 | 97.123 | 214.951 | 312.138 | 593.300 | 52.6% |
+| binary | 3 | 101.221 | 195.438 | 207.364 | 478.500 | 43.3% |
+| mixed | 1 | 220.669 | 462.567 | 618.842 | 1192.700 | 51.9% |
+| mixed | 2 | 222.458 | 462.134 | 613.266 | 1032.400 | 59.4% |
+| mixed | 3 | 126.347 | 386.194 | 397.444 | 799.800 | 49.7% |
+
+binary L1のCLI比はこの計測で41.8%、独立再計測では39.4%だった。約40%の目標境界にあり、達成判定は負荷に依存する。
+binary L3の40%、text L1/L3の50%はこの計測で満たした。
+binary L1の50% stretchは未達。値はこのMac・三つのcorpus・測定時の負荷に限る。
+L1/L2の予算は各corpusで基準比 +2.0%以内かつ同levelのCLI以下、L3以上は基準比 +0.3%以内。
+全19 level × 3 corpusの57条件で成立した。L1/L2の最大増はbinary L1の +1.740389%、
+L3以上の最大増はbinary L9の +0.222916%。L3のCLI比 +10%、L19の +8%以内も保つ。
+サイズは各一回のencodeと `zstd -<level> -T1 -c` のframe全体（checksumあり）のbyte数。
+この確認の実行時間は上の速度値に使わない。
+
+| corpus | level | 基準 bytes | round 2 bytes | round 3 bytes | CLI bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| text | 1 | 1,008,821 | 993,183 | 1,007,734 | 1,022,409 |
+| text | 2 | 1,008,787 | 993,073 | 1,007,669 | 1,019,676 |
+| text | 3 | 933,816 | 933,779 | 933,779 | 970,449 |
+| text | 19 | 704,190 | 704,190 | 704,190 | 692,480 |
+| binary | 1 | 7,997,811 | 8,001,664 | 8,137,004 | 9,037,641 |
+| binary | 2 | 7,985,150 | 7,940,706 | 8,068,679 | 8,319,767 |
+| binary | 3 | 7,371,581 | 7,372,748 | 7,372,748 | 7,570,180 |
+| binary | 19 | 5,339,170 | 5,339,170 | 5,339,170 | 5,204,544 |
+
+追加したmixed corpusは16,777,216 bytes。`ZstdEncoderCorpus.mixed` で64個の256 KiB区間を作り、
+各区間の先頭512 byteは固定のustar風header、その後は乱数・text・Mach-O・乱数の順に配置する。
+乱数はxorshift64（左13・右7・左17）、初期値 `0x726F756E64330001`、各更新の下位byteを使う。
+圧縮済み風の高entropy部分は実際のJPEG/zstd/xzではなく乱数。text/binaryは上記の同じ入力で、
+区間番号/4 × 261,632 byteを開始位置として末尾で循環する。日時・uid/gidは0、modeは0644。
+SHA-256は `c173284311befae01e348b2d953d039d5a3493dd7f1e4de5ea79ee6631af7cf9`。
+textは4,194,304 bytes、binaryはdyld 4,129,088 + CreateML 16,559,504 = 20,688,592 bytes。
+再計測時は `ZstdEncoderCorpus.mixed` と同じ入力を保存し、text / binaryも含めてSHA-256を記録する。
+
+| mixed level | 基準 bytes | round 2 bytes | round 3 bytes | CLI bytes | 基準比 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 10,751,883 | 10,753,769 | 10,796,603 | 10,929,529 | +0.415927% |
+| 2 | 10,751,622 | 10,750,390 | 10,791,686 | 10,843,327 | +0.372632% |
+| 3 | 10,658,740 | 10,648,507 | 10,648,507 | 10,723,527 | -0.096006% |
+| 4 | 10,646,099 | 10,641,061 | 10,641,061 | 10,710,788 | -0.047322% |
+| 5 | 10,646,099 | 10,641,061 | 10,641,061 | 10,698,145 | -0.047322% |
+| 6 | 10,653,735 | 10,512,076 | 10,512,076 | 10,652,061 | -1.329665% |
+| 7 | 10,637,429 | 10,493,379 | 10,493,379 | 10,639,591 | -1.354181% |
+| 8 | 10,613,585 | 10,484,516 | 10,484,516 | 10,615,580 | -1.216074% |
+| 9 | 10,568,202 | 10,470,978 | 10,470,978 | 10,608,354 | -0.919967% |
+| 10 | 10,541,523 | 10,469,476 | 10,469,476 | 10,582,011 | -0.683459% |
+| 11 | 10,507,653 | 10,459,454 | 10,459,454 | 10,538,263 | -0.458704% |
+| 12 | 10,483,644 | 10,458,444 | 10,458,444 | 10,538,063 | -0.240374% |
+| 13 | 10,076,329 | 10,076,329 | 10,076,329 | 10,462,598 | +0.000000% |
+| 14 | 10,079,410 | 10,079,410 | 10,079,410 | 10,451,591 | +0.000000% |
+| 15 | 10,079,084 | 10,079,084 | 10,079,084 | 10,444,466 | +0.000000% |
+| 16 | 10,078,747 | 10,078,747 | 10,078,747 | 10,367,059 | +0.000000% |
+| 17 | 10,076,688 | 10,076,688 | 10,076,688 | 10,019,107 | +0.000000% |
+| 18 | 10,076,227 | 10,076,227 | 10,076,227 | 9,972,525 | +0.000000% |
+| 19 | 10,077,623 | 10,077,623 | 10,077,623 | 9,958,324 | +0.000000% |
+
+L1/L2は一つ先の位置でrep0を先に調べ、現在位置の5-byte hash候補をtagで絞る専用loopにした。
+探索用のrepeatは直近距離だけを保持し、RFCの三つのrepeatの更新はsequence encoderで行う。
+tagは4-byte prefixから作る1 byteで、採用時には実入力と履歴距離を検証する。
+fastで使わない256 KiBの短いheadを省き、tag表はL1が128 KiB、L2が256 KiB。
+見積り・window・pending input・worker予約の契約を変えず、頻度表10 KiBは従来の5 MiB scratch内に収める。
+Huffmanの1024 laneと256 countはframe所有のworkspaceに移し、blockごとの確保を省いた。
+literalの広いcopyを行うsequence loopには `assert(s.length >= 3)` を加えた。
+
+予約済みbit writerは各appendで完了byteを吐き、残りを0...7 bitに保つ。
+入力幅<=56 bit・残り<=7 bit・非負値・予約内storeのassertを維持/追加し、hot loopの幅分岐を省く。
+全てのL3以上のframeはround 2とbyte一致し、bit出力の変更で圧縮率は変わらない。
+L1/L2のFSEだけは最大log 7（128 state）で一候補を評価し、表の構築・参照量を減らす。
+大きい表の二候補を評価する版よりbinaryのsequence table時間が減り、サイズの緩和分で収まった。
+6-byte hash、強いmiss間引き、rep0だけを同位置で調べる案はサイズ超過、
+一致内を常に4 byte間隔で挿入する案やhashの二位置更新は十分な速度増がなく採用していない。
+段階ごとの比較は各案を同じ非XCTest条件で7回交互に測定し、profileは別encodeで再生成する。
+
+最終sourceの段階profileは同じ非 XCTest buildで、計時callbackありの各level一回、binary全体の経過ms。
+7回の最良値による速度表とは区別する。
+
+| level | stage | round 2 ms | round 3 ms |
+| --- | --- | ---: | ---: |
+| 1 | match+parse | 51.829 | 38.535 |
+| 1 | literals（集約を含む） | 15.033 | 11.931 |
+| 1 | sequences | 19.448 | 13.139 |
+| 1 | sequence tables | 4.734 | 1.927 |
+| 1 | literal bits | 5.366 | 2.266 |
+| 2 | match+parse | 60.674 | 40.185 |
+| 2 | literals（集約を含む） | 14.898 | 11.735 |
+| 2 | sequences | 19.819 | 13.468 |
+| 2 | sequence tables | 4.770 | 1.924 |
+| 2 | literal bits | 5.252 | 2.191 |
+| 3 | match+parse | 69.952 | 69.362 |
+| 3 | literals（集約を含む） | 13.280 | 10.958 |
+| 3 | sequences | 22.032 | 20.233 |
+| 3 | sequence tables | 4.626 | 5.671 |
+| 3 | literal bits | 4.174 | 1.690 |
+
+L3のsequence tablesの4.626 → 5.671 msは単回計測の揺れとして扱う。
+L3のtable codeは変更しておらず、frameもround 2とbyte一致しているため、この値だけで処理の退行とはしない。
+
+最終検証はreleaseの `ZstdEncoderTests` / `ZstdXXH64Tests` / `ZstdWriterConfigurationTests` /
+`CompressedTarZstdTests` / `ZipZstdWriterTests` / `ZstdParallelBenchmarkTests` が30件成功・失敗0・54.703秒（build 86.35秒）。
+`--disable-sandbox -c release -Xswiftc -enable-testing -debug-info-format none` と並列benchmarkのopt-inを使う。
+このXCTestの速度値は性能表に使わない。debugは並列benchmarkを除く同じ5 classを
+`--disable-sandbox -c debug -debug-info-format none` で実行し、29件成功・失敗0・123.103秒（build 9.41秒）。
+頻度workspaceのraw/RLE/Huffman遷移、二位置loop末尾、bit境界と予約、L1/L2を含むrebaseを検証した。
+L1/L2の64 MiB・16 frameとL3の256 MiB `.zst` / `tar.zst` で、1 / 4 / 8 / 12 thread間のbyte一致が成立する。
+基準・round 2・round 3・CLIの全levelの228 frameをCLI `-t` / `-dc` で全byte照合し、
+最終交互測定の27 frameも同じ出力と照合した（計255 frame、CLIサイズ生成込み36.572秒）。
+fixtureは変更せず、全suiteは実行していない。
+
+現行版の全levelのサイズ・速度・段階profile・必須oracle照合は、
+`GYOSHUKU_ZSTD_BENCHMARK=1 GYOSHUKU_ZSTD_ALL_LEVELS=1` とreleaseの `ZstdEncoderBenchmarkTests` filterで再生成する。
+XCTestには `-Xswiftc -enable-testing` を指定し、上の非XCTest表との数値を混ぜない。
+表と同じ旧版比較には、`f273d34`・`914f6c0`・`4011086` の `Compression/Zstd/` のSwift sourceを取り出し、
+型名・helper名だけを変えて上記commandで一つのprogramに組み込む。三つのcorpusを固定し、
+全19 levelのframeを保存・CLI復号照合し、速度の7回交互測定とprofileの単回encodeを別々に行う。
+全sample・負荷・source / corpusのSHA-256を記録し、最速値とframe byte数を集計する。
+
+### Zstandard の writer 接続（2026-10-06）
+
+公開 API は `ArchiveFormat.tarZstd`、`SingleStreamFormat.zstd`、`CompressionMethod.zstd = 93`。
+`WriterOptions.zstdLevel` は1...19、既定3。参照 encoder の parameter と同一ではない自前 preset を使う。
+範囲外は `invalidOption("zstdLevel")`。既定の書庫形式・ZIP Deflate・既存 codec の framing は変えない。
+
+`ZstdWriterConfiguration` は片を `C = max(4 MiB, properties.windowSize)` にする。
+現行 preset はレベル1...12で4 MiB、13...19で8 MiB。`ParallelZstdCompressor` は
+`TarChunkCutter` と `OrderedChunkPipeline` を使い、片ごとに独立した `ZstdFrameEncoder` を作る。
+frame は既知の content size と content checksum を必ず持ち、辞書 ID は使わない。
+[RFC 8878 §3.1](https://www.rfc-editor.org/rfc/rfc8878.html#section-3.1) の frame 連結で
+入力順を保つ。連結先に依存した履歴や entropy table は持たない。
+
+tar.zst は小さい member 群を上限 C まで詰める。次の member 全体が入らなければその前で区切る。
+C を越える member は header 群と本文を分け、それぞれを C 以下に分割する。
+tar の終端二 block と blocking factor 20 の padding は、一つの独立した最後の frame にする。
+単独 .zst は hint を使わず固定 C の片にし、空入力でも空 frame を一つ書く。
+`compressionThreads` を上限とし、組立中の入力も未出力 frame の枠に含める。
+`maximumPendingInputBytes(for: .tarZstd)` は解決した並列数 t × C。
+finishAdditions は残りの片を出力し、入力 byte の進捗を通知する。終端は finish が書く。
+
+`memoryLimit` は自前 LZMA に加えて Zstandard にも適用する。予算 B は
+`min(memoryLimit（nil は物理メモリの50%）, 物理メモリの50%)`。
+encoder の見積り E と入力・出力二片、framing の余白を数え、
+一 worker の予約 M を `E + 2C + 3 × (C / 128 KiB + 1) + 1024` byte にする。
+t は要求並列数と64、`B / M` の最小値。一つも入らなければ出力作成前に `invalidOption("memoryLimit")`。
+window は縮めない。allocator の管理領域は見積りに含めない。
+
+ZIP method 93はentryごとに一つのframeを符号化し、16 MiB以下のentryは独立workerで並列化する。
+ZIP内のframe連結は使わず、entry内の並列化は行わない。
+既知サイズのheader、128 KiB blockとchecksumを共通sinkに逐次渡す。
+一codecのMは上のCを128 KiBに置き換えたもの。項目窓の追加予約とpending inputは下のwriter並列化節を参照。
+[APPNOTE 6.3.10 §4.4.5](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の
+Zstandard の現行 ID は93（20は非推奨）。§4.4.3の要求 version 表には Zstandard の明記がないため、
+writer は6.3を選び、local / central の両 header に63を記録する。
+AES は外側の method 99と0x9901内の実 method 93、ZipCrypto は spool 後の CRC付き header を使う。
+全 frame が暗号化対象。ZIP64 / updater の一括追加 / rewriter は共通の ZipWriter 経路で扱う。
+予約長は `入力長 + 3 × (入力長 / 128 KiB + 1) + 18` byteとし、AES の28 byteを加える。
+圧縮して縮まらない block の raw fallback と frame overhead を覆い、local header の patch 長を保つ。
+macOS Archive Utility / ditto / unzip は method 93 を展開できない。
+
+隣接 KaitoKit の `FormatReaderFactory` が圧縮地図を記録するのは gzip / bzip2 / XZ のみ。
+Zstandard は `TarContainer.other(.zstd)` で、tar member の配置を持つ場合も splice 用 chunkMap はない。
+`CompressedTarUpdater.assess` はnil、`open` は requiresRewriteで拒否し、出力を作らない。
+tar.zst の削除・改名・追加・形式変換は `ArchiveRewriter` が全体を再符号化する。
+
+実ツールは Zstandard CLI 1.5.7と7-Zip 26.03。`7zz i` と method 93の実書庫で対応を確認した。
+`CompressedTarZstdTests` は level 1 / 3 / 19の `zstd -t`、`zstd -dc | bsdtar -xf -` と
+KaitoKitの全 byte 往復、20 MiB入力の4 thread・frame境界・逐次とのbyte一致、rewriter編集を扱う。
+`SingleStreamCompressorTests` の9形式に .zstを含め、既定は空・1 byte・128 KiB text・1 MiB + 17 byte乱数を両readerで復元する。
+元の1 MiB text・9 MiB乱数は `…FullSize` に残し、`GYOSHUKU_LARGE_ENCODER_TESTS=1` で実行する。
+`ZipZstdWriterTests` は上記3 levelの非暗号・AES・ZipCryptoを `7zz t / l -slt / x` とKaitoKitで照合し、
+非暗号 entry の raw dataを `zstd -dc` でも独立に照合する。9 MiB超のentryが単一frameであること、
+ZIP64予約・updater追加・rewriterの削除・改名・追加も検査する。
+`ZstdWriterConfigurationTests` はメモリ拒否・並列数制限と実際のpending input上界、固定片のthread間byte一致を扱う。
+
+検証は下のコマンドで成功。sandbox が user cache への書込を拒否するため、module cacheを作業ツリー内に置く。
+
+```sh
+export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
+export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
+swift build --disable-sandbox
+swift test --disable-sandbox --filter 'Zstd|CompressedTar|SingleStream|Zip'
+swift test --disable-sandbox --filter DefaultOutput
+git diff --check
+git diff --stat
+```
+
+指定 filter は352件、既定のopt-in / 環境条件によるskipが16件、失敗0件（約42分）。
+frozen出力の `LHADefaultOutputTests` / `LZMAWriterDefaultOutputTests` は2件成功。
+`SevenZipWriterByteIdentityTests` も指定filter内で成功。fixtureは再生成せず、KaitoKitの変更とcommitは行わない。
+
+### writerの項目・folder並列化（2026-10-07）
+
+codec内部は変更しない。`EntryCompressionConfiguration`、`OrderedChunkPipeline`とunlink済みspoolで
+ZIP 12/14/95/93/98と非solid 7z LZMA/BZip2/PPMdの16 MiB以下の項目を並列圧縮する。
+LHAは1 MiB超〜16 MiBのmemberに同じ項目窓を使い、既存writerで完成recordをspoolへ作る。
+読み取りの容量待ちは入力確保より前。ZIP/LHAのCRC計算はworker、7zの元入力CRCは呼出側。
+ZIP/7zのheader確定、ZIP暗号化、7z IVの生成とpackの順序は呼出側で保つ。
+LHAはworkerでheaderを含むrecordを完成させ、呼出側で投入順に出力する。
+ZIP/7zの圧縮結果は最初の1 MiBをメモリに保持し、超えたときだけunlink済みdisk spoolへ移す。
+空項目・directory・symlink・1 MiB以下のstored項目は同じZIP窓へinlineで投入し、圧縮spoolを作らない。
+これらの前で窓全体をdrainしない。1 MiB超のStoredとZipCryptoのStored・空の通常fileは従来のstream経路を使う。
+圧縮するZipCryptoの通常fileはspool付きの項目窓を使い、CRC確定後の暗号化はcallerが行う。
+directory・symlinkは暗号化しないため、ZipCrypto指定でもinlineの窓を使える。
+ZIP Zstdの64 KiB未満は呼出側で符号化し、投入順に出力する。
+項目別APIでは空のZIP窓の64 KiB以上の圧縮項目（ZipCrypto以外）を一つ保留する。後続が来ればworkerへ渡し、
+単独でfinish/finishAdditions/drainを迎えればcallerが従来のstream encoderで直接書く。
+保留入力も窓の一枠に数え、圧縮出力のdisk spoolと再読取を省く。
+一括追加APIの単独圧縮項目にはこの保留を使わず、worker一つとspoolを通る。Mac miniのreviewer計測ではnew/base=1.038で1.05以内。
+LHAのseekを使う中memberの完成recordはdiskへ保持し、小memberはheaderとpayloadをメモリspoolへ置く。中memberを窓の始点で一つ保留し、次のmemberが来れば投入する。
+単独のままfinish/endMembers/finishAdditionsに至るか16 MiB超のmemberが来れば、既存のaddStreamedParallelを全threadsで使う。
+項目窓が非空なら小memberも同じ窓へ投入し、小・中の切替でdrainしない。
+LHAの内部並列数は、1 MiBの実際の片数とmax(1, 要求threads / 投入後の未出力数)の最小値。
+未出力jobの合計を要求threadsで制限しない。round 3の合計上限はcorpus LH7/t=12をround 1比32.3%遅くしたため撤回する。
+先頭の出力までの割当上界はt×H(枠数)で、t=12なら約3t。先頭を出力して再投入する場合も、
+各jobは最大t、窓は最大16枠なので上界は枠数×t。各枠のcodec状態は元からt分予約し、入力窓も有界に保つ。
+7z folderは実際の片数、未割当threads、max(1, 要求threads / 投入後の未出力数)の最小値。
+こちらは計測で費用が出なかったため、未出力jobの合計を要求threads以下に保つ。
+先頭の出力開始時に予約を返し、予算待ちは先頭だけをemitする。出力失敗は窓をabandonし、二重返却しない。
+7z LZMA2/Deflateは既存chunk幅での片数まで、7zの単一stream codecは1とする。
+内部writerには項目窓を作らず再帰を防ぐ。ZIP一括追加も同じ項目窓を使い、
+source descriptorの最大4本、失敗の項目帰属、caller threadでの進捗・didFinish順を保持する。
+Stored batchの先読み上限は従来の1 MiBへ戻し、大きいStored項目はstreamで出力する。
+16 MiBを超えるZIP/非solid項目は従来のstream経路。ZIP XZと7z LZMA2/Deflateの内部blockは並列化を保つ。
+worker内部のOrderedChunkPipelineが1 threadならworker自身で符号化し、待機するGCD threadを増やさない。
+外側の1 thread窓は従来の非同期を保ち、入力読取と圧縮を重ねる。
+solid/filter folderの窓は上のsolid節のとおり。取消しは共有latchでworkerのread/writeにも伝え、
+abortは項目・片の着手済みworkerを待ってspool descriptorを解放する。
+LHAの片窓と7z folder内の窓も成功・失敗・取消しのすべてで終了を待ち、補助spoolを閉じる。
+
+一workerの予約は`S + 16 MiB + 1 MiB + 4 × IOChunk.size`（IOChunk=256 KiB）。
+LHA項目窓と7z solid/filter窓はSを要求threads分予約する。Sは以下。
+
+| codec | S |
+|---|---|
+| 自前LZMA1 / XZ / 7z LZMA2 | 既存`LZMAWriterConfiguration.memoryPerThread` |
+| Apple XZ / LZMA2 | 130 MiB |
+| Zstandard | 既存streaming用`ZstdWriterConfiguration.memoryPerThread` |
+| BZip2 | `400,000 + 8 × level × 100,000` byte |
+| PPMd | 指定model memory + 2 MiB |
+| Deflate / Copyのfilter folder | 4 MiB |
+| LHA中member | 8 MiB（LH7の約3.7 MiB＋符号列の一時コピー・Huffman領域） |
+
+LZMA/XZ/Zstandardの新規項目/folder窓は`min(memoryLimit（nilは物理メモリ50%）, 物理メモリ50%)`を予算にする。
+Appleも窓の見積りに含めるが、既存のblock経路の内部並列数・予約は変更しない。
+BZip2/PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
+tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
+従来受理できた単一codecのmemoryLimitを拒否しない。モデル・辞書・片境界を縮めない。
+入力上界は上の`maximumPendingInputBytes`表。spoolのfile cacheとallocator管理領域はcodecの予約に含めない。
+round 3はtree/single/single16r/small/LHA混在をthreads=1/12、corpus4方式をthreads=12で三版各5回測定した。
+810 sampleの出力size・SHA-256が一致し、54比較すべてnew/base <= 1.05、tree/smallの22比較もnew/round1 <= 1.05。
+round 3のLHA corpus LH7は内部thread合計上限でround 1比+32.3%（0.7092→0.9385秒）となった。
+baseの3.9569秒より速くてもround 1への回帰を残すため、round 3bでLHAの合計上限を撤回した。7zの上限は維持する。
+ZIP treeのZstd/BZip2はround 1の0.1675/0.5689秒から0.1303/0.5466秒へ改善した。
+round 2の最終release executable（enable-testing無し）で、単一10 MiB・5,000小file・LHA混在・同じ256 MiB corpusの47条件を
+threads=1/12、f273d34と交互に各5回測定した。940 sampleの出力size・SHA-256が一致し、94比較すべてnew/base <= 1.05。
+最大は単一ZIP Zstd/t=12の+4.35%。256 MiB/t=12の改善はZIP BZip2/LZMA/XZ/Zstd/PPMdが
+2.87/3.23/5.65/3.97/3.05倍、7z LZMA2 solidが5.04倍、LHA LH5/6/7が3.96/4.83/5.41倍。
+5,000小fileのZIP BZip2は6.80倍、7z LZMAは5.79倍。全sampleの1分loadは1.51〜8.48。
+以下はround 1時点の記録。
+
+round 1（f9d5178）の256 MiB混合corpus（96×2 MiB＋64 MiB）、既定level、threads=12でf273d34と交互に各5回測定した。
+最短wallのthroughputはZIP XZが12.31→62.42 MB/s（5.07倍、CPU/wall=7.46）、
+ZIP BZip2は9.95→25.08、LZMAは9.00→25.64、Zstdは168.55→526.55、PPMdは6.03→17.66 MB/s。
+7z LZMA2 solid16 MiBは14.95→76.66 MB/s（5.13倍、8.13core）、非solid Delta4は12.63→65.07 MB/s（5.15倍、7.08core）。
+LHA LH5/6/7は150.20→605.74 / 97.06→474.26 / 66.62→373.19 MB/s、CPU/wallは7.53 / 8.92 / 9.85。
+全53経路で基準版と変更版、threads=1/12の出力size・SHA-256が一致した。
+大きい単一LZMA1/PPMd/ZIP BZip2/Zstdは逐次区間が残り、並列化可能な全対象で6coreを使う目標は未達。
+ZIP93の64 MiB memberを4 MiB frameへ分けるprobeは7zz26.04とKaitoKitが受理したが、
+全ZIPのbody差し替えによる計算上のサイズ増加は3.583%（単一16,990,650→連結20,122,354 byte）で、
+0.3%上限を超えるため採用しない。7zz26.03そのものと候補全ZIPの速度は未検証。
+wall/CPU・参照tool・全sample・対象testの詳細は[実測記録](verification/2026-10-07-writer-multicore.md)を参照。

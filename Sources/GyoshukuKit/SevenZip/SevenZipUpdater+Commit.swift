@@ -120,7 +120,7 @@ extension SevenZipUpdater {
             let folder: SevenZipEditModel.Folder
             if policy.compressed {
                 var position = 0
-                let encoder = try SevenZipFolderEncoder.encode(size: UInt64(plain.count), threads: options.resolvedCompressionThreads,
+                let encoder = try SevenZipFolderEncoder.encode(size: UInt64(plain.count), options: WriterOptions(compressionThreads: options.resolvedCompressionThreads),
                     chunkSize: 1024 * 1024, aes: aes, read: { count in
                         let end = min(position + count, plain.count)
                         defer { position = end }

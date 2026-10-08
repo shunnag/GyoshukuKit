@@ -27,7 +27,8 @@ struct CompressedTarSplicePlan {
         switch format {
         case .tarGzip: .init(uniform: DeflateBlock.size)
         case .tarBzip2: .init(uniform: ParallelBzip2Compressor.chunkSize(level: options.bzip2Level))
-        default: .init(packing: ParallelXZCompressor.memberPackingSize, piece: ParallelXZCompressor.defaultBlockSize)
+        default: .init(packing: ParallelXZCompressor.memberPackingSize,
+            piece: (try? LZMAWriterConfiguration(options: options).pieceSize) ?? ParallelXZCompressor.defaultBlockSize)
         }
     }
 

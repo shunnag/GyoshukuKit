@@ -1,0 +1,13 @@
+Class	HEAD_seconds	R2_seconds	HEAD_pass	HEAD_skip	R2_pass	R2_skip	Failures	Gate
+EncoderWriterOverheadProbeTests	7.550	8.284	1	0	1	0	0	LARGE=1,TIMING=1
+LZMAEncoderTests	110.408	111.292	8	3	8	3	0	default
+PPMdEncoderTests	59.207	90.723	6	2	6	2	0	default
+SevenZipCompressionMethodTests	45.611	49.264	4	0	4	0	0	default
+SevenZipCompressionRewriterTests	16.512	18.120	2	0	2	0	0	default
+SevenZipCompressionUpdaterTests	112.184	113.272	4	0	4	0	0	default
+SevenZipFilterWriterTests	25.612	32.497	7	0	7	0	0	default
+SevenZipPPMdWriterTests	59.317	63.294	5	2	5	2	0	default
+SevenZipSolidFilterUpdaterTests	16.446	19.558	2	0	2	0	0	default
+SevenZipSolidWriterTests	18.367	21.372	6	0	6	0	0	default
+SingleStreamCompressorTests	10.601	13.455	6	1	6	1	0	default
+ZstdEncoderTests	18.710	19.537	11	3	11	3	0	default

@@ -10,18 +10,21 @@ final class LZMA2ChunkPipeline<Tag> {
     }
 
     private let pipeline: OrderedChunkPipeline<Data, Output, Tag>
+    private let pieceSize: Int
     var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
-    init(threads: Int, checksum: Bool = false, lightWeightLimit: UInt64 = 0,
-         encoder: @escaping Encoder = LZMA2Compressor.encode) {
-        pipeline = OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit) { input in
+    init(threads: Int, checksum: Bool = false, lightWeightLimit: UInt64 = 0, pieceSize: Int = LZMA2ChunkPipeline.chunkSize,
+         inlineSingleThread: Bool = false, encoder: @escaping Encoder = LZMA2Compressor.encode) {
+        precondition(pieceSize > 0)
+        self.pieceSize = pieceSize
+        pipeline = OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit, inlineSingleThread: inlineSingleThread) { input in
             Output(compressed: try encoder(input), crc: checksum ? updateCRC(0, input) : 0)
         }
     }
 
     func submit(_ input: Data?, tag: Tag, weight: UInt64 = 0,
                 didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
-        if let input { precondition(!input.isEmpty && input.count <= Self.chunkSize) }
+        if let input { precondition(!input.isEmpty && input.count <= pieceSize) }
         try pipeline.submit(input, tag: tag, weight: weight, didEmit: didEmit, emit: emit)
     }
 

@@ -48,7 +48,8 @@ enum ArchiveRepresentability {
                 case .zip: _ = try ZipRecords.timestamp(date)
                 case .sevenZip: _ = try SevenZipRecords.timestamp(date)
                 case .lha: _ = try LHARecords.timestamp(date)
-                case .tar, .tarGzip, .tarBzip2, .tarXZ: _ = try TarRecords.timestamp(date)
+                case .tar, .tarGzip, .tarBzip2, .tarXZ, .tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress:
+                    _ = try TarRecords.timestamp(date)
                 }
             } catch { throw refuse("更新日時が出力形式の表現範囲外です") }
             if format == .lha {

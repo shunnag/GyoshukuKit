@@ -37,6 +37,8 @@ enum AdditionProgressTestSupport {
         case .tar: return try TarUpdater.open(url: source, output: output, options: options)
         case .tarGzip, .tarBzip2, .tarXZ:
             return try CompressedTarUpdater.open(reader: CompressedTarTestSupport.open(source), output: output, format: format, options: options)
+        case .tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress:
+            return try ArchiveRewriter.open(url: source, output: output, format: format, options: options)
         case .sevenZip: return try SevenZipUpdater.open(url: source, output: output, options: options)
         case .lha: return try LHAUpdater.open(url: source, output: output, options: options)
         }

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Synchronization
 import XCTest
 @testable import GyoshukuKit
@@ -6,6 +7,47 @@ import XCTest
 final class OrderedChunkPipelineWindowTests: XCTestCase {
     private struct Activity {
         var heavy = 0, light = 0, maximumHeavy = 0, maximumTotal = 0
+    }
+
+    func testSingleThreadEncodesOnCallerAndPreservesDeferredError() throws {
+        let caller = pthread_mach_thread_np(pthread_self())
+        let pipeline = OrderedChunkPipeline<Int, UInt32, Int>(threads: 1, inlineSingleThread: true) { value in
+            if value == 1 { throw WriterError.compression(-77) }
+            return pthread_mach_thread_np(pthread_self())
+        }
+        var emitted: [Int] = []
+        let emit: (Int, UInt32?) throws -> Void = { tag, thread in
+            XCTAssertEqual(thread, caller)
+            emitted.append(tag)
+        }
+        try pipeline.submit(0, tag: 0, weight: 7, emit: emit)
+        XCTAssertEqual(pipeline.pendingInputBytes, 7)
+        try pipeline.submit(1, tag: 1, weight: 11, emit: emit)
+        XCTAssertEqual(emitted, [0])
+        XCTAssertThrowsError(try pipeline.drain(emit: emit)) {
+            XCTAssertEqual($0 as? WriterError, .compression(-77))
+        }
+        XCTAssertEqual(pipeline.pendingInputBytes, 0)
+    }
+
+    func testDirectEmitFailureAbandonsWindowAndCannotEmitTwice() throws {
+        for failAfterEmit in [false, true] {
+            let pipeline = OrderedChunkPipeline<Int, Int, Int>(threads: 2) { $0 }
+            for index in 0..<2 { try pipeline.submit(index, tag: index, weight: 7) { _, _ in XCTFail("early emit") } }
+            var emitted = 0
+            XCTAssertThrowsError(try pipeline.emitNext({ _, _ in
+                emitted += 1
+                if !failAfterEmit { throw WriterError.compression(-77) }
+            }, didEmit: { _ in throw WriterError.compression(-77) })) {
+                XCTAssertEqual($0 as? WriterError, .compression(-77))
+            }
+            XCTAssertEqual(pipeline.pendingCount, 0)
+            XCTAssertEqual(pipeline.pendingInputBytes, 0)
+            XCTAssertThrowsError(try pipeline.emitNext { _, _ in emitted += 1 })
+            XCTAssertThrowsError(try pipeline.drain { _, _ in emitted += 1 })
+            XCTAssertEqual(emitted, 1)
+            pipeline.abandonAndWait()
+        }
     }
 
     func testAlternatingWeightsUseHeavyWindowAndPreserveOrder() async throws {

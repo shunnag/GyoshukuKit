@@ -1,9 +1,9 @@
 name: CI
 
 # 利用側と同じ tag 参照（隣に KaitoKit の checkout がない）で build と試験を行う。
-# 手元は最新の Xcode だけのことが多いので、macos-26（Xcode 26 / Swift 6.3）で
-# コンパイルの差と macOS 26 の Foundation の差を検出する（2026-09-27 に両方が実際に起きた）。
-# PR ブランチへの push でも起動すると pull_request と合わせて同じ commit に 2 回走るため、push は main と tag だけにする。
+# build は Xcode 27 / Swift 6.4 のみ。成果物を macOS 26 にも運び、OS の差を検出する。
+# Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
+# （valueType metadata が nil、EXC_BAD_ACCESS。2026-10-08 の probe で確認）。
 on:
   push:
     branches: [main]
@@ -12,22 +12,270 @@ on:
 
 jobs:
   build-and-test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-26, xcode-27]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    runs-on: xcode-27
+    # debug suite と release の大入力試験に余裕を持たせる。
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
-        run: brew install sevenzip xz lhasa gnu-tar
+        run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+      - name: Install LHa for UNIX oracle
+        # Lhasa は展開専用。逆方向の -o6 / -o7 試験には別の実行ファイルを置く。
+        # source は runner の一時領域でビルドするだけで、製品・fixture へ取り込まない。
+        run: |
+          git clone https://github.com/jca02266/lha.git "$RUNNER_TEMP/lha-unix-source"
+          git -C "$RUNNER_TEMP/lha-unix-source" checkout 16619b066b189ef289bb8b07b37d1c38d550da99
+          cd "$RUNNER_TEMP/lha-unix-source"
+          autoreconf -fi
+          ./configure --prefix="$RUNNER_TEMP/lha-unix-install"
+          make -j2
+          make install
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$RUNNER_TEMP/lha-unix-install/bin/lha" "$HOME/.local/bin/lha-unix"
       - name: Show toolchain versions
         run: |
           sw_vers
+          xcodebuild -version
           swift --version
       - name: Build
         run: swift build --build-tests
       - name: Test
         run: swift test --skip-build
+      - name: Build release tests
+        run: swift build -c release --build-tests -Xswiftc -enable-testing
+      - name: Large encoder tests (release)
+        # FullSize 14 件は debug suite では opt-in。Mac mini M4 では
+        # release build が約 2.5 分、14 件の実行が 127 秒だった。
+        env:
+          GYOSHUKU_LARGE_ENCODER_TESTS: '1'
+        run: |
+          set -o pipefail
+          swift test -c release --skip-build -Xswiftc -enable-testing --filter FullSize 2>&1 | tee "$RUNNER_TEMP/large.log"
+          grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/large.log" || exit 1
+
+  build-for-macos-26:
+    runs-on: xcode-27
+    timeout-minutes: 240
+    steps:
+      # 全 job で同じ checkout path。fixture と Bundle.module の絶対 path を保つ。
+      - uses: actions/checkout@v5
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Build debug tests
+        run: swift build --build-tests
+      - name: Build release tests
+        run: swift build -c release --build-tests -Xswiftc -enable-testing
+      - name: Package runtime tests and Xcode 27 dependencies
+        run: |
+          set -euo pipefail
+          swift test list -c release --skip-build -Xswiftc -enable-testing > "$RUNNER_TEMP/release-test-list.txt"
+          grep FullSize "$RUNNER_TEMP/release-test-list.txt" | LC_ALL=C sort -u > "$RUNNER_TEMP/fullsize-tests.txt"
+          test -s "$RUNNER_TEMP/fullsize-tests.txt"
+          export DEBUG_BIN RELEASE_BIN PACKAGE_STAGE FULLSIZE_LIST
+          DEBUG_BIN="$(swift build --show-bin-path)"
+          RELEASE_BIN="$(swift build -c release --show-bin-path -Xswiftc -enable-testing)"
+          PACKAGE_STAGE="$RUNNER_TEMP/macos-26-tests"
+          FULLSIZE_LIST="$RUNNER_TEMP/fullsize-tests.txt"
+          python3 <<'PY'
+          import os
+          import platform
+          import plistlib
+          import re
+          import shutil
+          import subprocess
+          from collections import deque
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          stage = Path(os.environ["PACKAGE_STAGE"])
+          runtime = stage / ".build/ci-runtime"
+          for directory in (runtime / "bin", runtime / "lib", runtime / "Frameworks"):
+              directory.mkdir(parents=True, exist_ok=True)
+          (runtime / "checkout-path.txt").write_text(str(root) + "\n")
+          identifiers = Path(os.environ["FULLSIZE_LIST"]).read_text().splitlines()
+          if not identifiers or any(not re.fullmatch(r"[\w.]+/\w*FullSize\w*", name) for name in identifiers):
+              raise RuntimeError("Invalid or empty FullSize test identifiers")
+          (runtime / "fullsize-tests.txt").write_text("\n".join(identifiers) + "\n")
+          print("FullSize selectors:\n" + "\n".join(identifiers), flush=True)
+
+          developer = Path(subprocess.check_output(["xcode-select", "-p"], text=True).strip())
+          macos = developer / "Platforms/MacOSX.platform/Developer"
+          runner = Path(subprocess.check_output(["xcrun", "-f", "xctest"], text=True).strip()).resolve()
+          shutil.copy2(runner, runtime / "bin/xctest")
+          search_paths = [
+              macos / "Library/Frameworks", macos / "Library/PrivateFrameworks",
+              macos / "usr/lib", macos / "usr/lib/swift/macosx",
+              developer / "Library/Frameworks", developer / "Library/PrivateFrameworks",
+              developer.parent / "SharedFrameworks",
+              developer / "Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx",
+          ]
+          queue = deque([(runner, runner, [])])
+          for config in ("debug", "release"):
+              products = Path(os.environ[config.upper() + "_BIN"]).resolve()
+              products.relative_to(root / ".build")
+              # native / Xcode build system のどちらの bundle 名も扱う。
+              bundles = [products / name for name in (
+                  "GyoshukuKitPackageTests.xctest", "GyoshukuKitTests.xctest"
+              ) if (products / name).is_dir()]
+              if len(bundles) != 1:
+                  raise RuntimeError(f"Expected one {config} test bundle: {bundles}")
+              bundle = bundles[0]
+              for item in [bundle, *products.glob("*.bundle")]:
+                  relative = item.relative_to(root)
+                  target = stage / relative
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copytree(item, target, symlinks=True)
+                  print(f"Package: {relative}", flush=True)
+              (runtime / f"{config}-bundle.txt").write_text(str(bundle.relative_to(root)) + "\n")
+              with (bundle / "Contents/Info.plist").open("rb") as info:
+                  executable = plistlib.load(info)["CFBundleExecutable"]
+              queue.append((bundle / "Contents/MacOS" / executable, runner, []))
+
+          def system_path(path):
+              return str(path).startswith(("/usr/lib/", "/System/Library/", "/Library/Apple/System/Library/"))
+
+          def expand(path, binary, executable):
+              return Path(path.replace("@loader_path", str(binary.parent)).replace(
+                  "@executable_path", str(executable.parent)
+              )).resolve()
+
+          resolved_rpaths = {}
+          def resolve_dependency(name, binary, executable, rpaths):
+              if name.startswith("@rpath/"):
+                  # 同じ install name は最初の解決先を使う（platform / SharedFrameworks の重複）。
+                  if name in resolved_rpaths:
+                      return resolved_rpaths[name]
+                  suffix = name.removeprefix("@rpath/")
+                  candidates = [directory / suffix for directory in [*rpaths, *search_paths]]
+              else:
+                  candidates = [expand(name, binary, executable)]
+              for candidate in candidates:
+                  if candidate.is_file():
+                      dependency = candidate.resolve()
+                      if name.startswith("@rpath/"):
+                          resolved_rpaths[name] = dependency
+                      return dependency
+              # shared cache 内の system dylib は file として存在しない。
+              if not name.startswith("@") and system_path(Path(name)):
+                  return None
+              raise RuntimeError(f"Cannot resolve {name} from {binary}")
+
+          visited = set()
+          copied = {}
+          while queue:
+              binary, executable, inherited_rpaths = queue.popleft()
+              binary = binary.resolve()
+              if binary in visited or system_path(binary):
+                  continue
+              visited.add(binary)
+              architectures = subprocess.check_output(["lipo", "-archs", str(binary)], text=True).split()
+              architecture = platform.machine()
+              if architecture not in architectures:
+                  if architecture == "arm64" and "arm64e" in architectures:
+                      architecture = "arm64e"
+                  else:
+                      raise RuntimeError(f"Unsupported architectures in {binary}: {architectures}")
+              dependencies = subprocess.check_output([
+                  "otool", "-arch", architecture, "-L", str(binary)
+              ], text=True)
+              loads = subprocess.check_output([
+                  "otool", "-arch", architecture, "-l", str(binary)
+              ], text=True)
+              print(dependencies, end="", flush=True)
+              rpaths = []
+              for match in re.finditer(r"cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (.*?) \(offset \d+\)", loads):
+                  print(match.group(0), flush=True)
+                  rpaths.append(expand(match.group(1), binary, executable))
+              rpaths = list(dict.fromkeys([*rpaths, *inherited_rpaths]))
+              for name in re.findall(r"^\s+(.+?) \(compatibility version", dependencies, re.MULTILINE):
+                  if not name.startswith("@") and system_path(Path(name)):
+                      continue
+                  dependency = resolve_dependency(name, binary, executable, rpaths)
+                  if dependency is None or dependency == binary or system_path(dependency):
+                      continue
+                  framework = next((p for p in dependency.parents if p.suffix == ".framework"), None)
+                  if framework:
+                      source, target = framework, runtime / "Frameworks" / framework.name
+                  else:
+                      source, target = dependency, runtime / "lib" / Path(name).name
+                  if target in copied and copied[target] != source:
+                      raise RuntimeError(f"Conflicting dependencies: {target}: {copied[target]} vs {source}")
+                  if target not in copied:
+                      copied[target] = source
+                      if framework:
+                          shutil.copytree(source, target, symlinks=True)
+                      else:
+                          shutil.copy2(source, target)
+                      print(f"Dependency: {source} -> {target.relative_to(stage)}", flush=True)
+                  queue.append((dependency, executable, rpaths))
+          PY
+          # tar で bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
+          tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-26-tests
+          path: ${{ runner.temp }}/macos-26-tests.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  macos-26-runtime:
+    runs-on: macos-26
+    needs: build-for-macos-26
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install differential-test oracles
+        # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
+        run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+      - name: Install LHa for UNIX oracle
+        # Lhasa は展開専用。逆方向の -o6 / -o7 試験には別の実行ファイルを置く。
+        # source は runner の一時領域でビルドするだけで、製品・fixture へ取り込まない。
+        run: |
+          git clone https://github.com/jca02266/lha.git "$RUNNER_TEMP/lha-unix-source"
+          git -C "$RUNNER_TEMP/lha-unix-source" checkout 16619b066b189ef289bb8b07b37d1c38d550da99
+          cd "$RUNNER_TEMP/lha-unix-source"
+          autoreconf -fi
+          ./configure --prefix="$RUNNER_TEMP/lha-unix-install"
+          make -j2
+          make install
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$RUNNER_TEMP/lha-unix-install/bin/lha" "$HOME/.local/bin/lha-unix"
+      - name: Show runtime versions
+        run: |
+          sw_vers
+          xcodebuild -version
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-26-tests
+          path: ${{ runner.temp }}/macos-26-artifact
+      - name: Extract test bundles
+        run: |
+          tar -xzf "$RUNNER_TEMP/macos-26-artifact/macos-26-tests.tar.gz" -C "$GITHUB_WORKSPACE"
+          # #filePath / Bundle.module の build 時 path と一致することも検査する。
+          test "$(cat .build/ci-runtime/checkout-path.txt)" = "$(pwd -P)"
+      - name: Run debug suite and release FullSize without compiling
+        run: |
+          set -euo pipefail
+          runtime="$PWD/.build/ci-runtime"
+
+          run_tests() {
+            local label="$1" bundle="$2"
+            shift 2
+            local log="$RUNNER_TEMP/${label}-bundled.log"
+            printf 'Runner (%s): %s\n' "$label" "$runtime/bin/xctest"
+            # Xcode 26 の system xctest は Xcode 27 の test bundle を load できないため、同梱 runner を使う。
+            env DYLD_FRAMEWORK_PATH="$runtime/Frameworks" DYLD_LIBRARY_PATH="$runtime/lib" \
+              "$runtime/bin/xctest" "$@" "$bundle" 2>&1 | tee "$log"
+            # selector の不一致などで実行 0 件になっても成功にはしない。
+            grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$log"
+          }
+
+          run_tests debug "$PWD/$(cat "$runtime/debug-bundle.txt")"
+          selectors="$(paste -sd, "$runtime/fullsize-tests.txt")"
+          test -n "$selectors"
+          export GYOSHUKU_LARGE_ENCODER_TESTS=1
+          run_tests release "$PWD/$(cat "$runtime/release-bundle.txt")" -XCTest "$selectors"

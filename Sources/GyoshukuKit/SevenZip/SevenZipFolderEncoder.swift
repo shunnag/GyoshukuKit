@@ -1,24 +1,93 @@
 import Foundation
 internal import KaitoKit
 
-// writer・solid の作り直し・header で同じ LZMA2 の連結規則を使う。
+// writer・solid の作り直しで圧縮方式と AES の framing を共有する。header の既定は LZMA2。
 final class SevenZipFolderEncoder {
     let aes: SevenZipAESEncryptor?
+    private let method: SevenZipCompressionMethod
+    private let deflateLevel: Int
+    private let bzip2Level: Int
+    private var bzip2: Bzip2StreamEncoder?
+    private var rawLZMA: LZMAEncoder?
+    private var ppmd: PPMd7StreamEncoder?
+    private let ppmdConfiguration: PPMd7EncoderProperties?
+    private let lzma: LZMAWriterConfiguration?
+    private let size: UInt64
+    private let filter: SevenZipWriteFilter
+    var lzmaProperties: Data { lzma?.properties?.bytes ?? LZMAEncoderProperties.preset(6).bytes }
+    var ppmdProperties: Data { ppmdConfiguration?.coderProperties ?? Data([6, 0, 0, 0, 1]) }
     private(set) var properties: UInt8 = 0
     private(set) var compressedSize: UInt64 = 0
     private(set) var packedSize: UInt64 = 0
 
-    init(aes: SevenZipAESEncryptor?) { self.aes = aes }
+    init(aes: SevenZipAESEncryptor?, method: SevenZipCompressionMethod = .lzma2, deflateLevel: Int = 6, bzip2Level: Int = 9,
+         lzma: LZMAWriterConfiguration? = nil, ppmd: PPMd7EncoderProperties? = nil,
+         size: UInt64 = 0, filter: SevenZipWriteFilter = .none) {
+        self.aes = aes; self.method = method; self.deflateLevel = deflateLevel; self.bzip2Level = bzip2Level
+        self.lzma = lzma; self.size = size; self.filter = filter
+        ppmdConfiguration = ppmd
+        // 空の solid folder でも選択した辞書を宣言する。Apple 経路の既定値は変えない。
+        if method == .lzma2, let properties = lzma?.properties {
+            self.properties = LZMA2Encoder.dictionaryProperty(for: properties.dictSize)
+        }
+    }
 
-    func consume(_ compressed: XZLZMA2, write: (Data) throws -> Void) throws {
-        guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
-              compressed.payload.last == 0 else { throw WriterError.compression(-1) }
-        properties = max(properties, compressed.properties)
-        try emit(compressed.payload.dropLast(), write: write)
+    func consume(_ result: SevenZipChunkOutput, write: (Data) throws -> Void) throws {
+        switch result {
+        case .lzma2(let compressed):
+            guard let control = compressed.payload.first, control == 1 || control >= 0xE0,
+                  compressed.payload.last == 0 else { throw WriterError.compression(-1) }
+            properties = max(properties, compressed.properties)
+            try emit(compressed.payload.dropLast(), write: write)
+        case .packed(let bytes): try emit(bytes, write: write)
+        case .input(let bytes):
+            if method == .lzma {
+                try beginRawLZMA()
+                try emit(lzmaWriterOperation { try rawLZMA!.push(bytes) }, write: write)
+            } else if method == .bzip2 {
+                if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
+                try bzip2!.write(bytes, finish: false) { try emit($0, write: write) }
+            } else if method == .ppmd {
+                try beginPPMd()
+                try ppmd!.write(bytes, finish: false) { try emit($0, write: write) }
+            } else { try emit(bytes, write: write) }
+        }
     }
     func finish(write: (Data) throws -> Void) throws {
-        try emit(Data([0]), write: write)
+        switch method {
+        case .lzma2: try emit(Data([0]), write: write)
+        case .lzma:
+            try beginRawLZMA()
+            try emit(lzmaWriterOperation { try rawLZMA!.finish() }, write: write)
+            rawLZMA = nil
+        case .bzip2:
+            if bzip2 == nil { bzip2 = try Bzip2StreamEncoder(level: bzip2Level) }
+            try bzip2!.write(Data(), finish: true) { try emit($0, write: write) }
+            bzip2 = nil
+        case .ppmd:
+            try beginPPMd()
+            try ppmd!.write(Data(), finish: true) { try emit($0, write: write) }
+            ppmd = nil
+        case .deflate:
+            // 生存する substream が全て空でも、Deflate の終端を持つ一つの stream にする。
+            if compressedSize == 0 {
+                try emit(DeflateBlock.encode(.init(input: Data(), dictionary: Data(), final: true), level: deflateLevel), write: write)
+            }
+        case .copy: break
+        }
         if let aes { try output(aes.finish(), write: write) }
+    }
+    private func beginRawLZMA() throws {
+        if rawLZMA == nil {
+            guard let lzma else { throw WriterError.invalidState }
+            rawLZMA = try lzma.rawEncoder(size: size, endMarker: false)
+        }
+    }
+    private func beginPPMd() throws {
+        if ppmd == nil {
+            guard let ppmdConfiguration else { throw WriterError.invalidState }
+            ppmd = try PPMd7StreamEncoder(properties: ppmdConfiguration)
+        }
     }
     private func emit(_ data: Data, write: (Data) throws -> Void) throws {
         compressedSize = try checkedAdd(compressedSize, UInt64(data.count))
@@ -35,37 +104,48 @@ final class SevenZipFolderEncoder {
     }
 
     func folder(size: UInt64, crc: UInt32? = nil, substreamCount: Int = 1) -> SevenZipEditModel.Folder {
-        let lzma = SevenZipEditModel.Coder.lzma2(properties: properties)
-        let coders: [SevenZipEditModel.Coder]
-        if let aes { coders = [.aes(properties: Array(aes.properties)), lzma] }
-        else { coders = [lzma] }
-        return .init(coders: coders, bindPairs: aes == nil ? [] : [.init(input: 1, output: 0)], packedInputs: [0],
-                     unpackSizes: aes == nil ? [size] : [compressedSize, size], finalOutput: aes == nil ? 0 : 1,
+        let methodCoder = SevenZipEditModel.Coder.compression(method, properties: properties,
+            lzmaProperties: lzmaProperties, ppmdProperties: ppmdProperties)
+        var coders: [SevenZipEditModel.Coder] = aes.map { [.aes(properties: Array($0.properties))] } ?? []
+        coders.append(methodCoder)
+        if let coder = filter.coder { coders.append(coder) }
+        var sizes: [UInt64] = aes == nil ? [] : [compressedSize]
+        sizes.append(size)
+        if filter.coder != nil { sizes.append(size) }
+        return .init(coders: coders, bindPairs: (1..<coders.count).map { .init(input: $0, output: $0 - 1) }, packedInputs: [0],
+                     unpackSizes: sizes, finalOutput: coders.count - 1,
                      crc32: crc, packIndices: 0..<1, substreamIndices: 0..<substreamCount)
     }
 
-    static func encode(size: UInt64, threads: Int, chunkSize: Int = LZMA2ChunkPipeline<Void>.chunkSize,
-                       aes: SevenZipAESEncryptor?, read: (Int) throws -> Data,
+    static func encode(size: UInt64, options: WriterOptions, chunkSize: Int? = nil, inlineSingleThread: Bool = false,
+                       aes: SevenZipAESEncryptor?, filter: SevenZipWriteFilter = .none,
+                       workerActivity: (@Sendable (Bool) -> Void)? = nil, read: (Int) throws -> Data,
                        write: (Data) throws -> Void) throws -> SevenZipFolderEncoder {
-        let encoder = SevenZipFolderEncoder(aes: aes)
-        let pipeline = LZMA2ChunkPipeline<Void>(threads: threads)
-        defer { pipeline.abandon() }
-        func emit(_: Void, _ result: LZMA2ChunkPipeline<Void>.Output?) throws {
-            if let result { try encoder.consume(result.compressed, write: write) }
+        let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
+            deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
+            lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
+                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
+            ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil, size: size, filter: filter)
+        let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize, inlineSingleThread: inlineSingleThread, workerActivity: workerActivity)
+        let filtered = filter == .none ? nil : SevenZipFilteredInput(filter: filter, size: size)
+        defer { pipeline.abandonAndWait() }
+        func emit(_: Void, _ result: SevenZipChunkOutput?) throws {
+            if let result { try encoder.consume(result, write: write) }
         }
         var remaining = size
         while remaining > 0 {
             try Task.checkCancellation()
-            let count = Int(min(UInt64(chunkSize), remaining))
+            let count = Int(min(UInt64(pipeline.chunkSize), remaining))
             var data = Data()
             data.reserveCapacity(count)
             while data.count < count {
-                let chunk = try read(min(IOChunk.size, count - data.count))
+                let requested = min(IOChunk.size, count - data.count)
+                let chunk = try filtered.map { try $0.read(requested, source: read) } ?? read(requested)
                 guard !chunk.isEmpty, chunk.count <= count - data.count else { throw WriterError.sourceChanged("7z folder") }
                 data.append(chunk)
             }
             remaining -= UInt64(data.count)
-            try pipeline.submit(data, tag: (), emit: emit)
+            try pipeline.submit(data, tag: (), isLast: remaining == 0, emit: emit)
         }
         guard try read(1).isEmpty else { throw WriterError.sourceChanged("7z folder") }
         try pipeline.finish(emit: emit)

@@ -13,7 +13,12 @@ enum TestPaths {
         .deletingLastPathComponent()
     static let fixtures = package.appendingPathComponent("Tests/Fixtures")
     /// 検証の出力を置く root。Xcode が再帰的に同期する package の group の外に置く。
-    static let verification = package.appendingPathComponent(".build/verification")
+    static let verification: URL = {
+        let base = package.appendingPathComponent(".build/verification")
+        guard let run = OptInGate.value("GYOSHUKU_ENCODER_BENCHMARK_RUN"), !run.isEmpty else { return base }
+        // 同じ class を複数 process で計測しても、一時 file を共有しない。
+        return base.appendingPathComponent("encoder-speed").appendingPathComponent(URL(fileURLWithPath: run).lastPathComponent)
+    }()
 
     /// `Tests/Fixtures/<set>/<name>`。
     static func fixture(_ set: String, _ name: String) -> URL {

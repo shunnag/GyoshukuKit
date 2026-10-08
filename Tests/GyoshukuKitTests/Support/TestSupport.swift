@@ -56,6 +56,8 @@ enum TestSupport {
     static func assertKaitoKitRoundTrip(_ url: URL, expected: [ExpectedEntry], password: String? = nil,
                                         comparesMetadata: Bool = true,
                                         extra: (ArchiveEntry, ExpectedEntry) throws -> Void = { _, _ in }) throws -> ArchiveReader {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("decode.kaito-archive+compare", phaseStart, input: expected.reduce(0) { $0 + $1.data.count }) }
         let reader = try ArchiveReader.open(url: url, options: ReaderOptions(password: password))
         XCTAssertEqual(reader.entries.map(\.name), expected.map(\.name))
         guard reader.entries.count == expected.count else { return reader }

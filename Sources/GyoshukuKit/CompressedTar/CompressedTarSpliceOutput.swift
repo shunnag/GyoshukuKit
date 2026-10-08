@@ -53,7 +53,7 @@ final class CompressedTarSpliceOutput {
 
     init(output: URL, snapshot: TarEditingSnapshot, format: ArchiveFormat, options: WriterOptions) {
         self.output = output; self.snapshot = snapshot; self.format = format; self.options = options
-        threads = options.resolvedCompressionThreads
+        threads = format == .tarXZ ? (try? LZMAWriterConfiguration(options: options).threads) ?? 1 : options.resolvedCompressionThreads
         file = OwnedOutputFile(url: output)
     }
     deinit { if !retained { discard() } }
@@ -74,7 +74,7 @@ final class CompressedTarSpliceOutput {
             bytes = try DeflateBlock.encode(.init(input: input.bytes, dictionary: input.dictionary, final: input.final), level: options.deflateLevel)
         case .tarBzip2: bytes = try Bzip2StreamEncoder.encode(input.bytes, level: options.bzip2Level)
         case .tarXZ:
-            let compressed = try LZMA2Compressor.encode(input.bytes)
+            let compressed = try LZMAWriterConfiguration(options: options).encoder(input.bytes)
             var result = Data()
             _ = try XZFraming.emitBlock(compressed, crc: crc) { result.append($0) }
             bytes = result
@@ -129,7 +129,7 @@ final class CompressedTarSpliceOutput {
     /// 事前符号化と書出しで同じ並列数と軽い block の枠を使う。
     private func makePipeline() -> OrderedChunkPipeline<Input, Encoded, Int> {
         let format = self.format, options = self.options, threads = self.threads
-        let lightWeightLimit = format == .tarXZ && threads > 1 ? UInt64(ParallelXZCompressor.lightChunkLimit) : 0
+        let lightWeightLimit = format == .tarXZ && options.lzmaLevel == nil && threads > 1 ? UInt64(ParallelXZCompressor.lightChunkLimit) : 0
         return OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit) {
             try Self.encode($0, format: format, options: options)
         }

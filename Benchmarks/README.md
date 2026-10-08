@@ -1,5 +1,7 @@
 # Write-throughput benchmark
 
+PPMd の encoder 単独で旧 commit と同一 flags を比較する手順は [PPMd/README.md](PPMd/README.md) を参照。
+
 macOS 26+、Swift 6、Python 3 が必要です。独立した SwiftPM package なので、root の
 products / targets / `swift test` は変えません。repository root から実行します。
 `../` の GyoshukuKit に依存する実行 package なので `Tests/` の外に置きます（KaitoKit の
@@ -78,3 +80,63 @@ tar.xz は 4 MiB 以下の member を最大 4 MiB の block に詰め、4 MiB �
 親 commit と交互に作った受入比較）、
 [batch 追加](../Documentation/verification/2026-09-27-p7g-batch.md)（2026-09-27、三階層の固定 small corpus での
 mode 間の受入計測）。
+
+
+round 1のwriter全経路比較は`MulticoreBenchmarkTests`のrelease XCTest bundleを使いました。
+当時の計測手順・参照CLI・全53経路の結果は
+[2026-10-07 writer multicore](../Documentation/verification/2026-10-07-writer-multicore.md)のround 1節に保存しています。
+現在の`multicore.py measure`は下の独立executableを使います。`references`は同じ256 MiB本文での従来のCLI比較です。
+通常のswift testではbenchmark probeはskipされます。
+
+## writer multicore round 2
+
+`multicore.py` の既定は単一10 MiB（7z solidは既定blockSize）、5,000個の1〜4 KiB、従来256 MiB、およびLHA用の10 MiBと128小ファイルの混在。
+`GyoshukuMulticore` は公開APIだけを使う独立executableで、timing buildに`-enable-testing`を付けない。
+両版を次の同じflagsでbuildする。基準sourceは`git archive f273d34`で作ったものを使い、
+新しいBenchmarks/Package.swiftとSources/GyoshukuMulticore/main.swiftだけを同じ場所へコピーする。
+他のworktreeには書かない。native buildのexecutableはscratch-path/out/Products/Releaseに出る。
+
+```sh
+mkdir -p .build-base/source
+git archive f273d34 | tar -x -C .build-base/source
+ln -s /Users/nagash/Github/KaitoKit .build-base/KaitoKit
+cp Benchmarks/Package.swift .build-base/source/Benchmarks/Package.swift
+mkdir -p .build-base/source/Benchmarks/Sources/GyoshukuMulticore
+cp Benchmarks/Sources/GyoshukuMulticore/main.swift .build-base/source/Benchmarks/Sources/GyoshukuMulticore/main.swift
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path Benchmarks --scratch-path .build/multicore-release --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" swift build --package-path .build-base/source/Benchmarks --scratch-path .build-base/multicore-release --disable-sandbox -debug-info-format none -c release --product gyoshuku-multicore
+python3 Benchmarks/multicore.py corpus
+python3 Benchmarks/multicore.py measure --results .build/multicore/round2.jsonl
+python3 Benchmarks/multicore.py report --results .build/multicore/round2.jsonl
+```
+
+threads=1/12、それぞれbase/newを交互に各5回。pairの先行版も反転し、各群の最短wallを使う。
+SHA-256は両版・両threadsで一致を要求し、load average（1/5/15分）は各sampleに記録する。
+`report`は必要sample数、hash、new/base <= 1.05を検査し、一つでも不一致なら非ゼロ終了する。
+`--workloads single,small`や`--cases zip-zstd`で範囲を指定する。corpusは既存manifestがあれば再生成しない。
+`references`は従来どおり256 MiBのCLI計測用。最終結果は同日のverification記録のround 2節を参照。
+
+## writer multicore round 3
+
+`--profile round3 --round1 <executable>`はbase / round1 / newの三版を交互に各5回比較する。
+既定はtree、single、single16r、small、lha-mixedをt=1/12、corpusの4方式だけをt=12で測る（810 sample）。
+`tree`はseed20261008のSwift本文、100 folder ×（64〜256 KiB text 6 file＋空file＋空subdirectory）。
+`single16r`は同じseedの16 MiB乱数file。modeはfile0644 / directory0755、日時は1700000000。
+`report`は全版・threadsのSHA-256とsize、全条件new/base <= 1.05、tree/smallのnew/round1 <= 1.05を検査する。
+`--threads 12`で追加測定のthread数を絞れる。round 2の既定とraw記録は維持する。
+
+```sh
+python3 Benchmarks/multicore.py corpus --profile round3
+python3 Benchmarks/multicore.py measure --profile round3 \
+  --base .build/r3-builds/base/build/out/Products/Release/gyoshuku-multicore \
+  --round1 .build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore \
+  --new .build/r3-builds/new/build/out/Products/Release/gyoshuku-multicore \
+  --results .build/multicore/round3.r3.jsonl
+python3 Benchmarks/multicore.py report --profile round3 \
+  --round1 .build/r3-builds/round1/build/out/Products/Release/gyoshuku-multicore \
+  --results .build/multicore/round3.r3.jsonl
+```
+
+三版ともround 2と同じrelease flagsを使い、timingには`-enable-testing`を付けない。
+base / round1 sourceはworktree内の`git archive f273d34` / `git archive f9d5178`から作り、同じharnessをコピーする。
+結果は[検証記録](../Documentation/verification/2026-10-07-writer-multicore.md)のround 3節と`.r3.*`を参照。

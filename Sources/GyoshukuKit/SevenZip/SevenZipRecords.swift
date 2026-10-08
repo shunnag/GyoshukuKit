@@ -11,10 +11,16 @@ enum SevenZipRecords {
         var packedSize: UInt64 = 0
         var compressedSize: UInt64 = 0
         var properties: UInt8 = 0
+        var lzmaProperties = LZMAEncoderProperties.preset(6).bytes
+        var ppmdProperties = Data([6, 0, 0, 0, 1])
+        var method: SevenZipCompressionMethod = .lzma2
         var crc: UInt32 = 0
         var aesProperties: Data?
 
         var isDirectory: Bool { mode.isDirectoryMode }
+        var coder: SevenZipEditModel.Coder {
+            .compression(method, properties: properties, lzmaProperties: lzmaProperties, ppmdProperties: ppmdProperties)
+        }
     }
 
     static func timestamp(_ date: Date) throws -> UInt64 {
@@ -55,13 +61,15 @@ enum SevenZipRecords {
             for entry in streams {
                 try Task.checkCancellation()
                 if let properties = entry.aesProperties {
-                    // 7zz と同じ decoder 順: packed → AES (0) → LZMA2 (1) → file。
+                    // 7zz と同じ decoder 順: packed → AES (0) → 圧縮方式 (1) → file。
                     result.append(2)
                     result.append(aesCoder(properties))
-                    result.append(contentsOf: [0x21, 0x21, 1, entry.properties, 1, 0])
+                    SevenZipHeaderSerializer.coder(entry.coder, to: &result)
+                    result.append(contentsOf: [1, 0])
                     // bind pair は input 1 ← output 0。唯一の packed input 0 は暗黙。
                 } else {
-                    result.append(contentsOf: [1, 0x21, 0x21, 1, entry.properties])
+                    result.append(1)
+                    SevenZipHeaderSerializer.coder(entry.coder, to: &result)
                 }
             }
             result.append(0x0C)
@@ -126,10 +134,8 @@ enum SevenZipRecords {
     }
 
     private static func aesCoder(_ properties: Data) -> Data {
-        var result = Data([0x24]) // method ID 長 4 | properties あり (0x20)
-        result.append(contentsOf: SevenZipEditModel.Coder.aesMethodID)
-        result.append(number(UInt64(properties.count)))
-        result.append(properties)
+        var result = Data()
+        SevenZipHeaderSerializer.coder(.aes(properties: Array(properties)), to: &result)
         return result
     }
 

@@ -108,7 +108,11 @@ final class SevenZipUpdaterSolidTests: XCTestCase {
                         XCTAssertEqual(try SevenZipEditSupport.items(actual), expected, "\(name) seq=\(sequential) add=\(add) threads=\(threads)")
                         let new = try XCTUnwrap(SevenZipEditModel.read(actual))
                         XCTAssertEqual(new.folders[target].packedInputs.count, 1)
-                        XCTAssertEqual(new.folders[target].coders.last?.methodID, [0x21])
+                        XCTAssertEqual(new.folders[target].coders.filter { $0.methodID == [0x21] }.count, 1)
+                        // 圧縮 coder の後ろに元の filter を残す。method ID は Methods.txt の表を固定する。
+                        let filterIDs: [[UInt8]] = [[3, 3, 1, 3], [0x0A], [3]]
+                        XCTAssertEqual(new.folders[target].coders.filter { filterIDs.contains($0.methodID) },
+                                       model.folders[target].coders.filter { filterIDs.contains($0.methodID) })
                         XCTAssertEqual(new.folders[target].substreamIndices.count, model.folders[target].substreamIndices.count - 1)
                         try SevenZipEditSupport.assertCarried(source, output, originalModel: model, outputModel: new,
                             pairs: model.folders.indices.filter { $0 != target }.map { ($0, $0) })

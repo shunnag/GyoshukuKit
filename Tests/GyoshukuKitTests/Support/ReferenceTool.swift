@@ -3,12 +3,14 @@ import XCTest
 
 /// 書いた書庫を製品の実装とは別に読み直す外部ツールの path と、その起動。
 /// ツールが無ければ失敗する。名前に `WhenAvailable` を含む試験だけ `optional` で skip を許す。
-/// Homebrew の三つは CI が `brew install sevenzip xz lhasa gnu-tar` で入れ、残りは macOS に同梱のものを使う。
+/// Homebrew の参照ツールは CI で導入し、OS の参照ツールは macOS 同梱のものを使う。
 /// 形式ごとの出力の検査（7-Zip の "Everything is Ok"、Lhasa の "Tested" など）は各 `*TestSupport` の wrapper に置く。
 enum ReferenceTool {
     static let sevenZip = "/opt/homebrew/bin/7zz"
     static let lhasa = "/opt/homebrew/bin/lha"
     static let xz = "/opt/homebrew/bin/xz"
+    static let zstd = "/opt/homebrew/bin/zstd"
+    static let lzip = "/opt/homebrew/bin/lzip"
 
     static let bsdtar = "/usr/bin/bsdtar"
     /// `bsdtar` への symlink。argv[0] で診断の接頭辞（`tar:` / `bsdtar:`）が変わるので、別の名前として残す。
@@ -60,6 +62,8 @@ enum ReferenceTool {
                     expect: ExitExpectation = .success, stdin: FileHandle? = nil,
                     environment extra: [String: String] = englishUTF8,
                     workingDirectory: URL? = nil, standardOutput: String? = nil) throws -> Output {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("oracle.process+files", phaseStart, input: 0) }
         guard FileManager.default.isExecutableFile(atPath: tool) else {
             XCTFail("Required reference tool missing: \(tool)")
             throw CocoaError(.fileNoSuchFile)

@@ -24,7 +24,7 @@ public final class LHAUpdater: ArchiveEditing {
     private let layout: LHALayout
     private let ledger: EntryEditLedger
     private let destination: SegmentedArchiveOutput
-    private let encoder: @Sendable (Data) throws -> Data
+    private let encoder: (@Sendable (Data) throws -> Data)?
     private var renamedHeaders: [Int: Data] = [:]
     private var writerPathsNeedRefresh = false
     private var writer: ArchiveWriter?
@@ -37,7 +37,7 @@ public final class LHAUpdater: ArchiveEditing {
     public var entryNames: [String] { reader.entries.map(\.name) }
 
     private init(snapshot: ArchiveSourceSnapshot, output: URL, options: WriterOptions, reader: ArchiveReader,
-                 layout: LHALayout, names: [String], encoder: @escaping @Sendable (Data) throws -> Data) {
+                 layout: LHALayout, names: [String], encoder: (@Sendable (Data) throws -> Data)?) {
         self.snapshot = snapshot; self.output = output; self.options = options
         self.reader = reader; self.layout = layout; self.encoder = encoder
         ledger = EntryEditLedger(names: names, entries: reader.entries)
@@ -49,11 +49,11 @@ public final class LHAUpdater: ArchiveEditing {
     /// output は存在しない file URL。親 directory は呼出側で用意する。
     /// .beginning と編集できない構造は open でだけ requiresRewrite を返す。
     public static func open(url: URL, output: URL, options: WriterOptions = WriterOptions()) throws -> LHAUpdater {
-        try open(url: url, output: output, options: options, encoder: LH5Encoder.encode)
+        try open(url: url, output: output, options: options, encoder: nil)
     }
 
     static func open(url: URL, output: URL, options: WriterOptions,
-                     encoder: @escaping @Sendable (Data) throws -> Data) throws -> LHAUpdater {
+                     encoder: (@Sendable (Data) throws -> Data)?) throws -> LHAUpdater {
         try options.validate(for: .lha)
         guard options.additionPlacement == .end else { throw UpdaterRouteError.requiresRewrite(reason: "additionPlacement") }
         guard ArchiveVolumeSet.parse(fileName: url.lastPathComponent) == nil else {

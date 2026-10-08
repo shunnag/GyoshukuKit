@@ -11,6 +11,8 @@ private import Darwin
 /// session reader の復号済み tar と地図を使い、変更を含む区切りだけを符号化する。
 /// 原本のパスは開かない。追加は末尾、運ぶ member は所有者と名前の byte を保つ。
 /// 従来の設定（.beginning / .reset）は open で requiresRewrite を返す。
+/// splice は tar.gz / tar.bz2 / tar.xz のみ。tar.lzma / tar.lz / tar.lz4 / tar.br / tar.Z は
+/// assess が nil、open が requiresRewrite を返すので ArchiveRewriter で全体を再符号化する。
 /// 公開前に KaitoKit.openSplicedCompressedTar で検証すること。
 /// 全体の open による検証へ戻してよいのは K5 が baseNotSpliceable を返した場合だけ。
 /// thread-safe ではない。失敗後は再利用できず、deinit は未完了の出力を削除する。
@@ -69,6 +71,9 @@ public final class CompressedTarUpdater: ArchiveEditing {
     public static func open(reader: sending ArchiveReader, output: URL, format: ArchiveFormat,
                             options: WriterOptions = WriterOptions()) throws -> CompressedTarUpdater {
         try options.validate(for: format)
+        if [.tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress].contains(format) {
+            throw TarLayout.refuse("container has no splice layout; use ArchiveRewriter")
+        }
         guard [.tarGzip, .tarBzip2, .tarXZ].contains(format) else { throw WriterError.unsupportedOption("format") }
         guard options.additionPlacement == .end else { throw TarLayout.refuse("additionPlacement") }
         guard options.carriedTarOwnerIDs == .keep else { throw TarLayout.refuse("carriedTarOwnerIDs") }

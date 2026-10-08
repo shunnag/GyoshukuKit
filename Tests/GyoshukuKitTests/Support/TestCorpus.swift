@@ -6,21 +6,27 @@ import Foundation
 enum TestCorpus {
     /// xorshift64* の上位 8 bit を `alphabetMask` で絞った byte 列。常に同じ seed から始める。
     static func random(_ count: Int, alphabetMask: UInt8 = 255) -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("corpus.random", phaseStart, input: count) }
         var state: UInt64 = 0xD137_923A_6E25_9B41
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(count)
-        for _ in 0..<count {
-            state ^= state >> 12
-            state ^= state << 25
-            state ^= state >> 27
-            bytes.append(UInt8(truncatingIfNeeded: (state &* 0x2545_F491_4F6C_DD1D) >> 56) & alphabetMask)
+        // seed と各 byte は従来どおり。Array の append と最後のコピーを省く。
+        var bytes = Data(count: count)
+        bytes.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            for offset in 0..<count {
+                state ^= state >> 12
+                state ^= state << 25
+                state ^= state >> 27
+                buffer[offset] = UInt8(truncatingIfNeeded: (state &* 0x2545_F491_4F6C_DD1D) >> 56) & alphabetMask
+            }
         }
-        return Data(bytes)
+        return bytes
     }
 
     /// 固定 seed の擬似ソースコード。512 KiB ごとの独立した内容を一度繰り返し、
     /// 256 KiB reset では失われる距離の一致を含める。16 MiB 境界は module の間に置く。
     static func pseudoSource(mebibytes: Int) -> Data {
+        let phaseStart = EncoderTestTiming.start()
+        defer { EncoderTestTiming.end("corpus.source", phaseStart, input: mebibytes << 20) }
         var state: UInt64 = 0x4D59_5DF4_D0F3_3173
         func next() -> UInt64 {
             state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
@@ -40,6 +46,29 @@ enum TestCorpus {
             result.append(block)
         }
         return result
+    }
+
+    /// PPMd の英文風 prose。固定 seed で語順を選び、同一 block の繰返しを作らない。
+    static func englishLike(size: Int) -> Data {
+        let subjects = ["The reader", "A writer", "Our neighbor", "The teacher", "A traveller", "The scientist",
+                        "A young student", "The gardener", "An artist", "The librarian", "A careful observer"]
+        let verbs = ["noticed", "described", "remembered", "considered", "examined", "discovered", "discussed",
+                     "explained", "admired", "understood", "questioned", "studied"]
+        let adjectives = ["quiet", "small", "distant", "familiar", "beautiful", "strange", "ancient", "ordinary",
+                          "bright", "unusual", "delicate", "remarkable", "interesting", "unexpected"]
+        let nouns = ["garden", "river", "story", "painting", "village", "house", "forest", "library", "mountain",
+                     "letter", "window", "journey", "bridge", "question", "book", "conversation", "city"]
+        let endings = ["in the early morning", "during the long winter", "before the rain began", "after the meeting",
+                       "near the old station", "on a warm summer evening", "while the others waited", "at the end of the day"]
+        var random = TestCorpus.XorShift64(state: 0x349A_7392_2190_7DB1)
+        func choose(_ words: [String]) -> String { words[Int(random.next() % UInt64(words.count))] }
+        var input = Data()
+        while input.count < size {
+            let sentence = "\(choose(subjects)) \(choose(verbs)) the \(choose(adjectives)) \(choose(nouns)) \(choose(endings)). "
+            let bytes = Data(sentence.utf8)
+            input.append(bytes.prefix(size - input.count))
+        }
+        return input
     }
 
     /// Marsaglia の xorshift64（13, 7, 17）。呼び出し側が seed を選ぶ。
