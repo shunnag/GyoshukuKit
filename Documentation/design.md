@@ -35,6 +35,23 @@ GyoshukuKit 0.7.0 は KaitoKit 0.12.x に依存する。`@_spi` は SemVer の�
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
+### CI と toolchain（2026-10-08）
+
+ビルドには Xcode 27 / Swift 6.4 以上を使い、成果物の実行環境は macOS 26 以上を維持する。
+Swift 6.3.3 の `-O` は Optional な関数型の `TaskLocal.withValue` を誤コンパイルする。
+独立 probe で全 Optional 関数型について valueType metadata が nil になり、EXC_BAD_ACCESS を確認した。
+Swift 6.4 で build した release binary は macOS 26 で動くため、Xcode 26 / Swift 6.3 での
+コンパイル差の検査は廃止し、古い compiler に合わせた source の回避策は加えない。
+
+CI の `build-and-test` は `xcode-27` で debug 全 suite と release FullSize 14件を実行する。
+並行する `build-for-macos-26` も `xcode-27` で debug / release test を build し、test bundle と
+隣接 resource bundle、`otool` で調べた非 system の依存 dylib / framework、Xcode 27 の xctest を tar で運ぶ。
+`macos-26-runtime` は同じ checkout path に展開し、`#filePath` の fixture と `Bundle.module` の path を保つ。
+`macos-26` 上で Swift の build / test は行わず、system xctest で debug 全 suite と release FullSize を実行する。
+test 開始前の XCTest / runtime の load failure だけ、同梱した Xcode 27 runner と framework / dylib に切り替える。
+実際の test failure と実行件数0は失敗にする。両実行 job に同じ必須 oracle を導入し、
+KaitoKit は利用側と同じ tag から解決する。
+
 ### 2.1 ソースの配置(2026-09-28)
 
 `Sources/GyoshukuKit/` は役割ごとの階層にする。SwiftPM は階層を見ないので `Package.swift` は変えない。
@@ -1664,7 +1681,7 @@ writer options の4件を逐次実行し、7.227秒で全件成功した（`-Ono
 そのround 1のDEBUG実測は、PPMd以外も含む対象classのbest-of-5合計5,421.581 s → 974.804 s（82.0%短縮、5.56倍）。
 5並列のXCTest class時間の合計で、全suiteの壁時計やPPMd単独のthroughputではない。
 既定coverage・試験側のround 2 / 3の再検証・再計測用runnerは [検証記録](verification/2026-10-07-encoder-debug-speed.md) を参照する。
-PPMd のoracle書庫とlogは下のfilterで再生成する。8 classのFullSize 14件はCIの両runnerでもrelease実行する。
+PPMd のoracle書庫とlogは下のfilterで再生成する。8 classのFullSize 14件はCIでもXcode 27でbuildし、macOS 27 / 26でrelease実行する。
 
 ```sh
 swift build

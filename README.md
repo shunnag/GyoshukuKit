@@ -3,7 +3,7 @@
 GyoshukuKit は macOS 向けの純 Swift 書庫**書き込み**フレームワークです。
 読み取り専用の [KaitoKit](https://github.com/shunnag/KaitoKit)(解凍Kit)と対をなします。
 
-- 対象: macOS 26 以上、Swift 6、Apple Silicon
+- 実行環境: macOS 26 以上、Apple Silicon。ビルドには Xcode 27 / Swift 6.4 以上が必要
 - 対応: ZIP / ZIP64 の新規作成・追加・削除・改名、stored / raw deflate (system zlib) / BZip2 (system libbz2) / LZMA (自前) / Zstandard (自前、method 93) / XZ (Apple Compression または自前) / PPMd var.I rev.1 (自前)
 - 作成・全体再構築: tar / tar.gz / tar.bz2 / tar.xz / tar.zst / tar.lzma / tar.lz / tar.lz4 / tar.br / tar.Z / 7z（solid・BCJ / ARM64 / Delta を選択可能）/ LHA。暗号化出力: ZIP AES-256 / ZipCrypto、7z AES-256
 - 更新: `TarUpdater` / `CompressedTarUpdater` / `LHAUpdater` / `SevenZipUpdater` で追加・削除・改名。未変更の member・圧縮区間を運び、圧縮 tar の変更区間と 7z solid の一部削除だけを再圧縮する。ZIP / 7z は再圧縮なしのパスワード設定・変更・解除にも対応
@@ -457,7 +457,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 直接検証は未完了です。
 
 > **GyoshukuKit (凝縮Kit)** is a pure-Swift archive writer for macOS 26+,
-> Swift 6 and Apple Silicon, paired with the read-only KaitoKit. It uses system
+> Apple Silicon, paired with the read-only KaitoKit. Building requires Xcode 27 / Swift 6.4 or later. It uses system
 > zlib, Apple Compression, CommonCrypto, CryptoKit and Security, with no C shim
 > or linked system libarchive.
 > GyoshukuKit 0.7.0 depends on KaitoKit 0.12.x through `.upToNextMinor(from: "0.12.0")` for update reading and round-trip verification. Its SPI use falls outside SemVer guarantees, and `public import KaitoKit` exposes KaitoKit types in the public API. `Package.swift` uses the sibling `../KaitoKit` checkout by path when one exists (development) and the tag reference otherwise, always the tag inside a SwiftPM / Xcode `checkouts/` directory. Run `swift package purge-cache` (Xcode: Reset Package Caches) after the mode changes; deleting `.build` keeps the cached manifest.
