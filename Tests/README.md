@@ -35,6 +35,11 @@
 | `SingleStreamTestSupport` | 単独 stream の実ツール復号、decoder と bsdtar の pipe、lzip trailer の独立検査 |
 | その他 | `SevenZipExternalOracles`・`CompressedTarCompatibility`・`SevenZipProbePayload`・`BatchAdditionTestSupport`・`AdditionProgressTestSupport` |
 | `SevenZipSolidFilterSupport` | 小さい Mach-O 相当の入力、solid / filter の必須7zz t / l / x と KaitoKit 往復、folder 数・substream CRC の照合 |
+| `FilterSpeedReference` | speed2 最適化前の Delta / BCJ、LHA CRC-16、LH5 bit結合、LZWを残した差分試験の参照。製品側の高速経路を再利用せず、出力互換性を守る |
+
+`swift test --filter FilterSpeedDifferentialTests` は Delta の全距離1〜256と1〜4 byteを含む分割、
+BCJ の密な E8/E9・BL/ADRP と奇数開始位置、CRC の長さ・整列・初期値、LH5 の全端数1〜7 bit、
+LZW の maxbits 12〜16・幅変更・CLEAR・EOF を参照と byte 比較する。外部ツールなしで実行できる。
 
 ## Fixtures
 
@@ -56,6 +61,7 @@
 |---|---|---|
 | `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 10 class の `…FullSize` 16 件（BZip2追加後） | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅、BZip2 splice の16 MiB並列検査を保持する。CI は Xcode 27 / Swift 6.4 で build した release test を macOS 27 と macOS 26 で実行する。既定の境界・復旧検査と実測は [encoder検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) と [BZip2検証記録](../Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md) |
 | `GYOSHUKU_ENCODER_TIMING=1` | ✱ `EncoderWriterOverheadProbeTests`・工程の計測 | probe は Copy / file I/O の対照を測る。`ENCODER_PHASE`、工程名、秒、入力 byte、出力 byte を TSV で出す。encoder / writer、corpus、KaitoKit、oracle、CRC、Data append を分ける |
+| `GYOSHUKU_FILTER_SPEED_PROBE=1` | ✱ `FilterSpeedProbeTests` | Delta（距離1・4・256）、LHA CRC-16、LZW16、LH5 bit結合を最適化前の参照と局所比較する。4 MiB入力（LZWは1 MiB）、3回の最良MB/s。`-c release -Xswiftc -enable-testing --filter FilterSpeedProbeTests` |
 | `GYOSHUKU_ENCODER_BENCHMARK_RUN=<label>` | skip しない。計測 process の分離 | 出力を `.build/verification/encoder-speed/<label>/` に置く。before / after の反復で一時 file を共有しない |
 | `GYOSHUKU_MULTICORE_BENCHMARK=1` | ✱ `MulticoreBenchmarkTests` / `ZipConcatenatedZstdProbeTests` | 256 MiB混合corpusのwriter wall / process CPU / サイズ / SHA-256と、MulticoreWriterTestsの13個の16 MiB直前項目のpending上界。大入力はreleaseで実行。`Benchmarks/multicore.py`と同日検証記録を参照。corpusとJSONL出力は`GYOSHUKU_MULTICORE_CORPUS` / `GYOSHUKU_MULTICORE_RESULTS`。 |
 | `GYOSHUKU_LZMA_BENCHMARK=1` | ✱ `LZMAEncoderBenchmarkTests` | 自前 LZMA2 / xz / Apple の level 1・6・9、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須。design.md の自前 LZMA encoder 節 |

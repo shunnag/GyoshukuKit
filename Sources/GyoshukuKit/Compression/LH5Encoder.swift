@@ -259,16 +259,38 @@ enum LH5Encoder {
 
         mutating func append(_ completeBytes: Data, remainder: Remainder) {
             precondition((0..<8).contains(remainder.count) && remainder.value < (1 << remainder.count))
-            bytes.reserveCapacity(bytes.count + completeBytes.count + 1)
             if available == 0 {
                 bytes.append(contentsOf: completeBytes)
-            } else {
-                // 境界に padding を入れず、前の端数 bit と次の byte を順に継ぐ。
-                let shift = 8 - available, mask = UInt64((1 << available) - 1)
-                for byte in completeBytes {
-                    bytes.append(UInt8(truncatingIfNeeded: (pending << shift) | UInt64(byte >> available)))
-                    pending = UInt64(byte) & mask
+            } else if !completeBytes.isEmpty {
+                let start = bytes.count, count = completeBytes.count
+                bytes.reserveCapacity(start + count + 1)
+                bytes.append(contentsOf: repeatElement(UInt8(0), count: count))
+                let available = self.available
+                var pending = self.pending
+                completeBytes.withUnsafeBytes { input in
+                    bytes.withUnsafeMutableBufferPointer { output in
+                        let source = input.baseAddress!, destination = UnsafeMutableRawPointer(output.baseAddress!.advanced(by: start))
+                        // MSB first の64 bitをまとめて継ぐ。先頭の端数だけを上位へ差し込む。
+                        let mask = UInt64((1 << available) - 1)
+                        var offset = 0
+                        while count - offset >= 8 {
+                            let word = UInt64(bigEndian: source.loadUnaligned(fromByteOffset: offset, as: UInt64.self))
+                            let merged = (pending << (64 - available)) | (word >> available)
+                            destination.storeBytes(of: merged.bigEndian, toByteOffset: offset, as: UInt64.self)
+                            pending = word & mask
+                            offset += 8
+                        }
+                        let inputBytes = source.assumingMemoryBound(to: UInt8.self)
+                        let outputBytes = destination.assumingMemoryBound(to: UInt8.self)
+                        while offset < count {
+                            let byte = inputBytes[offset]
+                            outputBytes[offset] = UInt8(truncatingIfNeeded: (pending << (8 - available)) | UInt64(byte >> available))
+                            pending = UInt64(byte) & mask
+                            offset += 1
+                        }
+                    }
                 }
+                self.pending = pending
             }
             write(Int(remainder.value), count: remainder.count)
         }
