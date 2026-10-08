@@ -194,7 +194,7 @@ LZMA1 は最悪 literal 膨張の上界として16 × 入力長 + 1,024 byteを�
 macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 / 98 を展開できない。
 Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 7-Zip を使う場合の opt-in とする。
 
-### ZIP / 7z BZip2 の単一stream並列圧縮
+### ZIP / 7z BZip2 / 単独.bz2 の単一stream並列圧縮
 
 `Bzip2BlockScanner` はsystem libbz2のRLE1入力段をSwiftでO(n)走査する。
 照合元はbzip2 1.0.8のBSD形式ライセンスの
@@ -206,12 +206,20 @@ Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 
 独立した `BZ2_bzCompressInit(level, 0, 30)` でも同じblock内容・block CRCになる。
 `BZ_FINISH` は残り入力0の処理を満杯判定より優先するので、末尾のrunは最後のblockに数える。
 
-chunk は5 block相当の固定目標幅で完全なblock境界まで走査し、並列数・topologyに依存させない。RLEによって一片の実block数は変わる。
-予約用の片数見積もりは同じ固定幅を使い、公開範囲 `compressionThreadsRange` の1024まで数える。
+chunkの目標幅はlevelと入力サイズだけで決め、並列数・CPU topology・メモリ予算には依存させない。
+`B = 100000 × level - 19`、既知サイズS>0の推定block数を `N = ceil(S / B)` とし、
+目標幅を `W = B × min(5, max(1, floor(N / 32)))` とする。
+2 block以上は推定で `min(N, 32)` 片以上を確保し、巨大入力では5 block幅を上限にする。
+level 9の10 MiBはW=Bで12片、64 MiBはW=2Bで38片、1 GiBはW=5Bで239片。
+level 1では同じ入力がそれぞれW=3Bで35片、W=5Bで135片、W=5Bで2148片になる。
+サイズ不明（S=0）のstreamingは固定W=Bとし、中程度の入力も早く並列codecへ渡す。
+完全なblock境界まで走査するため、RLEによって一片の実block数・入力長・実片数は変わる。
+予約用の `estimatedChunkCount` は同じWによる `ceil(S / W)` を公開範囲 `compressionThreadsRange` の1024まで数え、S=0は1とする。
 入力capは各chunk 8 MiB。長い同値runでcapに達したときは強制切断し、その位置からscannerを初期化する。
 並列数1の大入力も同じscanner・切断・spliceを使い、workerは inline 実行し、結果を直ちに出力する。
-cap以下の既知入力の逐次処理と一block以下の入力は既存codecを使う。
-強制切断の有無にかかわらず並列数1/8/36/64でbyte一致する。強制切断時のbyteは従来の逐次libbz2とは異なるが、標準の単一streamを維持する。
+cap未満の既知入力の1 thread処理と一block以下の入力は既存codecを使う。
+capちょうどの既知入力もspliceを使い、最後の入力とfinishを別writeで渡した場合の強制切断を揃える。
+強制切断の有無にかかわらず並列数1/2/7/12/36/64でbyte一致する。強制切断時のbyteは従来の逐次libbz2とは異なるが、標準の単一streamを維持する。
 1スレッドもspliceのbuffer予約に含め、公開の入力上界は `(t + 1) × 8 MiB`（最低16 MiB）にする。
 
 `OrderedChunkPipeline` がchunkを並列符号化し、入力順にbitをspliceする。
@@ -223,9 +231,10 @@ block数mのchunk CRCをCとして全体CRCを `rotl(crc, m) XOR C` で結合し
 最後にEOS・全体CRC・零paddingを一度だけ書く。block数はscannerで数え、byte一致試験で照合する。
 Mac miniの事前probeでは連結streamをZIP / 7zに入れると7zzが最初のstreamだけを展開し
 rc=2・切詰め、Python zipfileはBad CRC-32、bsdtarも失敗したため、このspliceを採る。
-tar.bz2 / 単独.bz2の `ParallelBzip2Compressor` は従来の連結streamを保つ。
+tar.bz2の `ParallelBzip2Compressor` は従来の連結streamと固定幅 `5 × level × 100000` を保つ。
+単独.bz2は `SingleStreamWriter` が通常fileの既知サイズを `ParallelBzip2StreamEncoder` へ渡す。
 
-ZIP（一括disk追加も含む）と非solid/filterなし7zは5 block上限を超える項目で
+ZIP（一括disk追加も含む）と非solid/filterなし7zは推定2片以上の項目で
 項目窓をdrainし、内側threadsを使う。
 それ以下の複数項目は既存の項目窓で各workerをthreads=1にする。
 solid/filterの7zは推定片数を予約し、`assignedThreads` の合計を予算内に保つ。
@@ -242,7 +251,7 @@ C=8 MiB、O=C+floor(C/100)+601、E=400000+800000×level、I=256 KiBとすると�
 の出力上界を使い、結果bufferを先に予約して成長時の余剰容量を抑える。
 threadsは物理メモリの半分と `memoryLimit` の小さい方で絞る。一枠も入らない指定では
 従来どおりthreads=1へ戻し、既存のoptionを拒否しない。
-項目窓の逐次codec予約も上のt=1の予約を使い、solid窓は内側の全予約を各枠に数える。新しい固定表は `Bzip2SpliceTests` に置く。
+項目窓の逐次codec予約も上のt=1の予約を使い、solid窓は内側の全予約を各枠に数える。幅・片数・メモリ予約の固定表は `Bzip2SpliceTests` に置く。
 
 Mac mini M4でのbase 9d46fe2とda08ba6の交互比較は
 [BZip2 splice検証記録](verification/2026-10-08-bzip2-splice-mini-ab.md)に記載する。
@@ -1543,7 +1552,8 @@ git diff --stat
 
 `ArchiveFormat.tarLZMA / tarLzip / tarLZ4 / tarBrotli / tarCompress` は `isTar` に含め、
 名前・日時・所有者・リンク・record は既存の `TarWriter` を共有する。拡張子は呼出側が決める。
-`StreamCompressor` が tar と単独 file の sink を作る。既存 gzip / bzip2 / XZ の writer 接続・区切り・byte は維持する。
+`StreamCompressor` が tar と単独 file の共通sinkを作る。既存tarのgzip / bzip2 / XZの区切り・byteは維持する。
+単独.bz2は `SingleStreamWriter` から入力サイズを渡し、上の単一stream splice経路を使う。
 
 LZMA_Alone は自前 LZMA1 の逐次単一 stream。properties 1 byte、dictionary LE32、
 未知サイズ `UInt64.max` の13 byte headerを出し、EOSで閉じる。`lzmaLevel` の nil は6で、
@@ -1595,7 +1605,8 @@ sourceをlstatし、通常ファイル以外（directory / symlinkを含む）�
 失敗・Task cancellation・Progress.cancelでは `ArchiveOwnedFile` のpath/fd照合で自分のinodeだけを削除する。
 
 gzipは決定的header（FNAMEなし、MTIME 0、OS=3）と1 MiBの並列deflate block。
-bzip2はtarと同じ独立streamの連結、XZは単一stream内の独立blockで、nilはApple、指定levelは自前LZMA2。
+bzip2は上の入力サイズ別chunk幅でblockを並列圧縮し、単一streamへspliceする。tar.bz2の独立stream連結とは経路を分ける。
+XZは単一stream内の独立blockで、nilはApple、指定levelは自前LZMA2。
 LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、BrotliはApple固定level 2、compressはmaxbits 16。
 既存の `WriterOptions` のvalidationとLZMAメモリ予算を出力作成前に適用する。
 

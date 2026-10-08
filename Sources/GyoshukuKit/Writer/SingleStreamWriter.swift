@@ -27,7 +27,14 @@ enum SingleStreamWriter {
         var existing = stat()
         guard lstat(output.path, &existing) != 0 else { throw WriterError.io(operation: "create", code: EEXIST) }
         guard errno == ENOENT else { throw WriterError.io(operation: "lstat output", code: errno) }
-        let compressor = try StreamCompressor.make(format: format.archiveFormat, options: options)
+        let compressor: any TarCompressor
+        if format == .bzip2 {
+            // 単独.bz2は既知サイズで単一streamへspliceし、tar.bz2の連結streamと区別する。
+            compressor = try ParallelBzip2StreamEncoder(level: options.bzip2Level,
+                threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: UInt64(info.st_size))
+        } else {
+            compressor = try StreamCompressor.make(format: format.archiveFormat, options: options)
+        }
         defer { compressor.abandon() }
         let temporary = output.deletingLastPathComponent().appendingPathComponent(".gyoshuku-stream-\(UUID().uuidString).tmp")
         let destination = try createTemporary(temporary)

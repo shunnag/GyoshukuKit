@@ -1,21 +1,24 @@
 import Foundation
 
-/// ZIP / 7z 用。libbz2 の完全な block を並列圧縮し、header と EOS が一組の stream に繋ぐ。
+/// ZIP / 7z / 単独.bz2 用。完全な block を並列圧縮し、header と EOS が一組の stream に繋ぐ。
 /// tar.bz2 の連結 stream は ParallelBzip2Compressor が従来どおり担当する。
-final class ParallelBzip2StreamEncoder {
+final class ParallelBzip2StreamEncoder: TarCompressor {
     typealias Encoder = ParallelBzip2Compressor.Encoder
     @TaskLocal static var testingEncoder: Encoder?
     static let inputCap = 8 << 20
 
-    static func chunkSize(level: Int) -> Int {
+    static func chunkSize(level: Int, size: UInt64) -> Int {
         let block = 100_000 * level - 19
-        // 5 block相当の固定目標幅を使い、完全なblock境界まで走査する。並列数には依存しない。
-        return 5 * block
+        // 既知サイズは約32片以上を確保し、巨大入力でも一片を5 block幅までに抑える。
+        // サイズ不明は固定1 block幅。並列数・CPU・メモリ予算は切断位置に影響させない。
+        guard size > 0 else { return block }
+        let blocks = (size - 1) / UInt64(block) + 1
+        return Int(min(5, max(1, blocks / 32))) * block
     }
 
     static func estimatedChunkCount(size: UInt64, level: Int) -> Int {
         guard size > 0 else { return 1 }
-        let width = UInt64(chunkSize(level: level))
+        let width = UInt64(chunkSize(level: level, size: size))
         return Int(min(UInt64(WriterOptions.compressionThreadsRange.upperBound), (size - 1) / width + 1))
     }
 
@@ -64,10 +67,10 @@ final class ParallelBzip2StreamEncoder {
         precondition(inputCap > 0 && (chunkSize ?? 1) > 0)
         self.level = level; cap = inputCap
         self.cancellation = cancellation
-        target = min(inputCap, chunkSize ?? Self.chunkSize(level: level))
+        target = min(inputCap, chunkSize ?? Self.chunkSize(level: level, size: size))
         scanner = Bzip2BlockScanner(level: level)
-        // cap 以下の既知入力は強制切断されない。大入力は1 threadでも同じ境界でspliceする。
-        sequential = threads == 1 && size > 0 && size <= inputCap && chunkSize == nil
+        // cap 未満の既知入力は強制切断されない。capちょうどでも途中writeの切断を揃える。
+        sequential = threads == 1 && size > 0 && size < inputCap && chunkSize == nil
             ? try Bzip2StreamEncoder(level: level) : nil
         inline = threads == 1
         let encode = encoder ?? Self.testingEncoder ?? Self.encodeChunk
@@ -79,6 +82,8 @@ final class ParallelBzip2StreamEncoder {
     }
 
     deinit { abandon() }
+
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {}
 
     func write(_ data: Data, finish: Bool, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }

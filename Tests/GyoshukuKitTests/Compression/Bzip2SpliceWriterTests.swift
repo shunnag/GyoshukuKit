@@ -31,7 +31,8 @@ final class Bzip2SpliceWriterTests: XCTestCase {
     func testZIPBatchDiskAdditionUsesInnerBzip2Parallelism() throws {
         let root = try TestSupport.directory("bzip2-splice-zip-batch")
         let source = root.appendingPathComponent("source")
-        let input = TestCorpus.random(700_013)
+        // 旧5 block幅より小さい項目も、サイズから求めた3片を内側codecへ渡す。
+        let input = TestCorpus.random(2 * 99_981 + 137)
         try input.write(to: source)
         let calls = Mutex(0)
         let url = root.appendingPathComponent("archive.zip")
@@ -44,7 +45,7 @@ final class Bzip2SpliceWriterTests: XCTestCase {
             try writer.add([ArchiveAddition(path: "large", source: .contents(of: source))], events: nil)
             try writer.finish()
         }
-        XCTAssertGreaterThan(calls.withLock { $0 }, 1)
+        XCTAssertEqual(calls.withLock { $0 }, 3)
         let reader = try ArchiveReader.open(url: url)
         XCTAssertEqual(try reader.read(reader.entries[0]), input)
     }
@@ -86,7 +87,8 @@ final class Bzip2SpliceWriterTests: XCTestCase {
             bzip2Level: 1, compressionThreads: 8)
         let writer = SevenZipBlockWriter(options: options, directory: root, chunkSize: nil)
         var output = Data()
-        let input = TestCorpus.random(400_013)
+        // 固定1 block幅の3片を使い、folderごとの予約は従来どおり2 codecに分配する。
+        let input = TestCorpus.random(2 * 99_981 + 137)
         for index in 0..<3 {
             var offset = 0
             try writer.add(name: "folder-\(index)", mode: 0o100644, size: UInt64(input.count), date: TestSupport.date, read: { count in
@@ -106,7 +108,8 @@ final class Bzip2SpliceWriterTests: XCTestCase {
     func testSingleFilteredSolidFolderUsesAllFourCodecs() async throws {
         let root = try TestSupport.directory("bzip2-splice-single-filtered-solid")
         let url = root.appendingPathComponent("archive.7z")
-        let input = TestCorpus.random(400_013)
+        // サイズだけで決まる1 block幅の5片が、4 codecを同時に開始できる。
+        let input = TestCorpus.random(4 * 99_981 + 137)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
         let activity = Mutex((running: 0, peak: 0))
         let task = Task.detached {
@@ -136,7 +139,8 @@ final class Bzip2SpliceWriterTests: XCTestCase {
 
     func testCancellationOfZIPAndSevenZipDoesNotWaitForBzip2Codec() async throws {
         for duringAdd in [false, true] {
-            let input = TestCorpus.random(duringAdd ? 1_700_013 : 600_013)
+            // 2片ならfinishで待ち、4片ならadd中に2 codecの容量待ちへ入る。
+            let input = TestCorpus.random((duringAdd ? 3 : 1) * 99_981 + 137)
             for format: GyoshukuKit.ArchiveFormat in [.zip, .sevenZip] {
                 let root = try TestSupport.directory("bzip2-splice-cancel-\(format)-\(duringAdd)")
                 let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), completed = DispatchSemaphore(value: 0)
@@ -173,7 +177,8 @@ final class Bzip2SpliceWriterTests: XCTestCase {
 
     func testSolidFolderCancellationReleasesSourceWithoutWaitingForCodecs() async throws {
         let root = try TestSupport.directory("bzip2-splice-solid-cancel")
-        let input = TestCorpus.random(700_013)
+        // 7片は4 codecの枠を超え、sourceを保持した容量待ちで取消しを観測する。
+        let input = TestCorpus.random(6 * 99_981 + 137)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), completed = DispatchSemaphore(value: 0)
         let task = Task.detached {
             try ParallelBzip2StreamEncoder.$testingEncoder.withValue({ bytes, level in

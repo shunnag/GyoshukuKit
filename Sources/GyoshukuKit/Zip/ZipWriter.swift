@@ -198,7 +198,7 @@ final class ZipWriter {
         let method = compression(name: name, mode: mode, size: size)
         if let entryPipeline, !(encryptsWithZipCrypto && mode.isRegularFileMode && (method == .stored || size == 0)),
            size <= (method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit),
-           !(method == .bzip2 && size > UInt64(5 * (100_000 * options.bzip2Level - 19))) {
+           !(method == .bzip2 && ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level) > 1) {
             try submitWaitingEntry()
             try entryPipeline.waitForCapacity(emit: emitEntry)
             let entry = try makeEntry(name: name, mode: mode, size: size, date: date, atime: atime, owners: owners, method: method)
@@ -553,7 +553,8 @@ final class ZipWriter {
         switch options.compressionMethod {
         case .bzip2:
             // 大項目の一括disk追加も、項目workerを経ず内側のblock並列へ渡す。
-            return entryPipeline == nil ? 0 : min(EntryCompressionConfiguration.inputLimit, 5 * (100_000 * options.bzip2Level - 19))
+            return entryPipeline == nil ? 0 : min(EntryCompressionConfiguration.inputLimit,
+                ParallelBzip2StreamEncoder.chunkSize(level: options.bzip2Level, size: 0))
         case .lzma, .xz, .zstd, .ppmd:
             return entryPipeline == nil ? 0 : EntryCompressionConfiguration.inputLimit
         case .stored, .deflate: break

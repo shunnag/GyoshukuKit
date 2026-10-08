@@ -46,7 +46,7 @@ final class CompressionThreadByteIdentityTests: XCTestCase {
         let payload = Data(repeating: 65, count: ParallelBzip2StreamEncoder.inputCap + 4096)
         for format: ArchiveFormat in [.zip, .sevenZip] {
             var baseline: Data?
-            for threads in [1, 8, 36, 64] {
+            for threads in [1, 2, 7, 12, 36, 64] {
                 let options = WriterOptions(compressionMethod: .bzip2, sevenZipMethod: .bzip2,
                     useCompressionHeuristic: false, compressionThreads: threads)
                 let url = root.appendingPathComponent("\(format)-\(threads)")

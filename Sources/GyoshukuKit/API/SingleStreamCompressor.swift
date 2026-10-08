@@ -4,7 +4,7 @@ import Foundation
 public enum SingleStreamFormat: Sendable, CaseIterable {
     /// 時刻0、OS=Unix、ファイル名なし。1 MiB の deflate block を並列化する。
     case gzip
-    /// bzip2Level の独立 stream を最大5 × level × 100,000 byteで並列化する。
+    /// bzip2Level と入力サイズだけで片幅を決め、blockを並列圧縮して単一streamへ繋ぐ。
     case bzip2
     /// 単一 XZ stream。lzmaLevel の nil は Apple、指定時は自前 LZMA2。
     case xz

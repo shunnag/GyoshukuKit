@@ -123,7 +123,7 @@ final class SevenZipWriter {
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
         if let entryPipeline, size <= EntryCompressionConfiguration.inputLimit,
-           !(options.sevenZipMethod == .bzip2 && size > UInt64(5 * (100_000 * options.bzip2Level - 19))) {
+           !(options.sevenZipMethod == .bzip2 && ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level) > 1) {
             try entryPipeline.waitForCapacity(emit: emitEntry)
             var input = Data()
             input.reserveCapacity(Int(size))
