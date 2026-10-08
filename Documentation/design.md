@@ -1207,6 +1207,10 @@ match / rep の各長さ、literal + rep0、match / rep + literal + rep0 の複�
 fast parser は GetOptimumFast の rep 優先と次位置の一致による遅延選択を使う。
 window、hash、tree / chain、確率、価格、parser node は unsafe buffer で確保し、入力全体を別途保持しない。
 window は辞書と先読み、入力 staging 分で、空きが足りなくなったときにだけ履歴を移す。
+raw の slack は実効辞書 D に対して `min(4 MiB, max(64 KiB, D / 2))`。
+旧64 KiBから増やし、8 MiB辞書では約8 MiBの履歴移動を数 MiBごとにまとめる。
+`push` の64 KiBごとの追加入力と `process(limit:)` の分割は維持するので、圧縮byteは変わらない。
+LZMA2 の slack は従来の2 MiBのまま。`memorySize` と writer の予約は実際の window 容量を共有する。
 位置参照は UInt32 で正規化して 4 GiB を越える stream でも wrap しない。
 一致長の延長と rep の比較は limit 内の未整列 UInt64 比較を使う。HC4 の skip は hash と chain の
 リンクだけを更新し、候補を走査しない。長さ価格は niceLen 以下の葉を親の価格から展開し、
@@ -1247,8 +1251,9 @@ preset の数値は [xz の lzma_encoder_presets.c](https://github.com/tukaani-p
 | 8 | 32 | BT4 / normal | 64 | 48 | 64.254 | 256 | 352.254 |
 | 9 | 64 | BT4 / normal | 64 | 48 | 64.254 | 512 | 640.254 |
 
-表は入力サイズ未知のときの確保量。これに probability / price / optimum / range buffer と raw LZMA1 の staging が
-約 0.5 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
+表は入力サイズ未知のときの確保量。これに probability / price / optimum / 初期 range buffer などの
+約0.5 MiBと、raw LZMA1 の slack 64 KiB〜4 MiB、または LZMA2 の slack 2 MiBを加える。
+`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
 match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが、確保前に総量と `memoryLimit` を照合する。
 既定の上限は 768 MiB で、上限超過や allocation 失敗は error にする。黙って小さい辞書へ変更しない。
 range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
@@ -1270,13 +1275,13 @@ extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、そ�
 |---|---:|---:|---:|---:|---:|
 | 0 | 0.25 | 5 | 16 | 37 | 19 |
 | 1 | 1 | 10 | 16 | 42 | 25 |
-| 2 | 2 | 17 | 16 | 49 | 32 |
-| 3 | 4 | 31 | 16 | 63 | 46 |
-| 4 | 4 | 47 | 16 | 79 | 62 |
-| 5 / 6 | 8 | 91 | 16 | 123 | 106 |
-| 7 | 16 | 179 | 16 | 211 | 194 |
-| 8 | 32 | 355 | 96 | 547 | 370 |
-| 9 | 64 | 643 | 192 | 1027 | 658 |
+| 2 | 2 | 17 | 16 | 49 | 33 |
+| 3 | 4 | 31 | 16 | 63 | 48 |
+| 4 | 4 | 47 | 16 | 79 | 64 |
+| 5 / 6 | 8 | 91 | 16 | 123 | 110 |
+| 7 | 16 | 179 | 16 | 211 | 198 |
+| 8 | 32 | 355 | 96 | 547 | 374 |
+| 9 | 64 | 643 | 192 | 1027 | 662 |
 
 64-bit の通常 preset を MiB 単位で切り上げた値です。extreme のレベル0〜3は BT4 に替わり、
 それぞれ1 / 4 / 8 / 16 MiB増えます。raw LZMA1 の予算は range buffer の最大16 MiBと I/O を含みます。
@@ -1309,12 +1314,13 @@ matchが`274 × (16 - 8) = 2,192 byte`、bit価格表の増加が`4096 - 128 × 
 `LZMAMatchFinder.memorySize`のhash / son / CRCの式はbaseと同じで、match候補の縮小はengine側に計上する。
 辞書、片サイズ、probability、その他の価格表、range出力の初期容量も変わらない。
 
-HEADの`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
-Dは実効辞書、Hは`mask(for: D)`、lc / lpはproperties。各項は確保byte数と一致し、過少計上はない。
+現行の`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
+Dは実効辞書、Hは`mask(for: D)`、Sは`min(4 MiB, max(64 KiB, D / 2))`、lc / lpはproperties。
+各項は確保byte数と一致し、過少計上はない。
 
 | buffer | `memorySize`の項と確保byte数 |
 | --- | ---: |
-| window | `D + (chunked ? 2 MiB : 64 KiB) + 4369 + 64 KiB` |
+| window | `D + (chunked ? 2 MiB : S) + 4369 + 64 KiB` |
 | finder.hash | `(H + 1 + 1024 + 65536) × 4` |
 | finder.son | `(D + 1) × (BT4 ? 8 : 4)` |
 | finder.crc | `256 × 4 = 1024` |
@@ -1334,6 +1340,13 @@ writerのraw予約は初期容量との差`16 MiB - 131072`を追加し、LZMA2�
 この条件ではZIP XZのblock上界`(t + 1) × 片`が項目窓の上界以上になる。
 `Tests/`のraw / lzip / level-9の並列数、`MulticoreWriterTests`の項目窓の期待値、
 `WriterOptions`の式とその他の固定上界も照合し、更新が必要なのは上の固定表とraw level 0の切上げ値だった。
+
+2026-10-09のraw slack拡大では、`encoderMemory`、`memoryPerThread`を通じてlzipのmember数と
+ZIP / 7zの項目窓・pending入力上界にも新しい予約量を反映する。各解決側の式は共有計算を参照するため変更しない。
+`LZMAWriterConfigurationTests`は全levelのraw予約byte数とlzipの並列数・入力上界を固定値で検査し、
+level 6の新予約の三枠に1 byte足りない予算ではZIP / 7zの入力上界が32 MiBになることを確認する。
+`LZMAEncoderTests`は旧64 KiB slackをTaskLocalの試験用hookで強制し、256 KiB辞書より2倍以上大きい入力を
+幅1 / 7 / 65537 / 262144でpushしてHC4 / BT4の出力をbyte比較する。大辞書のlevel 4 / 6 / 9もサイズ未知で照合する。
 
 試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
 独立 oracle を使う。writer は tar.xz の xz / tar 展開、7z と ZIP の `7zz t / l -slt / x`、
@@ -1426,6 +1439,20 @@ binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満�
 固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
 採用条件を満たさず並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
 raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
+
+`LZMAMatchFinderProbeTests`は並列finderを再検討するためのrelease専用probe。
+`GYOSHUKU_LZMA_FINDER_PROBE=1 swift test -c release -Xswiftc -enable-testing --filter LZMAMatchFinderProbeTests`
+で、既存の4 MiB text corpus、実在するMach-O（試験bundleの実行fileを優先）、固定seedの16 MiB randomを測る。
+`GYOSHUKU_LZMA_FINDER_PROBE_FILE`で任意の読み取り用fileを追加する。
+levelは既定6、`GYOSHUKU_LZMA_FINDER_PROBE_LEVELS=4,6,9`で増やせる。
+`GYOSHUKU_LZMA_FINDER_PROBE_REPEATS`は既定3、各計測の最良値を使う。
+`GYOSHUKU_LZMA_FINDER_PROBE_MAX_BYTES`は各入力を短くする起動確認専用で、通常の性能判断では未設定にする。
+corpus / levelごとに `LZMA-FINDER-PROBE` + tab + JSONの一行を出し、
+入力・実効辞書・出力byte数、秒、`f = finder_seconds / full_seconds`、候補数・checksum・縮小の有無を記録する。
+入力準備・checksumの報告・反復間の出力照合は計測外。finderとraw encoderの初期化はそれぞれの時間に含める。
+finderは全入力を一つのwindowで与え、各位置で `matches(..., record: true)`を呼ぶ。
+encoderの `record: false` skipや64 KiB入力境界とは異なるため、fは並列候補生成の費用を調べる目安であり、
+実際のencode時間の厳密な割合ではない。小さいfならfinder以外の改善を優先し、大きいfなら同期・候補受渡し込みの試作で再検証する。
 
 2026-10-07（round 3、改善版 `926d828`）の release targeted suite は52 tests / 0 failures、115.680秒。debug の短い通常試験は
 14 tests / 0 failures、2.836秒。両方 `--disable-sandbox --build-system native -debug-info-format none` を指定した。

@@ -7,6 +7,81 @@ import XCTest
 final class LZMAEncoderTests: XCTestCase {
     private let levels = [0, 1, 3, 5, 6, 9]
 
+    func testWindowSlackCapacityAndMemoryAccounting() throws {
+        for (dictionary, slack) in [(4096, 65536), (65536, 65536), (256 << 10, 128 << 10),
+                                    (1 << 20, 512 << 10), (8 << 20, 4 << 20), (64 << 20, 4 << 20)] {
+            var p = LZMAEncoderProperties.preset(6)
+            p.dictSize = dictionary
+            let current = LZMAEncodingEngine.memorySize(properties: p, dictionary: dictionary)
+            let legacy = LZMAEncodingEngine.$testingLegacyRawWindowSlack.withValue(true) {
+                LZMAEncodingEngine.memorySize(properties: p, dictionary: dictionary)
+            }
+            XCTAssertEqual(LZMAEncodingEngine.windowSlack(dictionary: dictionary), slack)
+            XCTAssertEqual(current - legacy, slack - 65536)
+            // chunked の旧固定容量と全見積りは test hook にも左右されない。
+            let chunked = LZMAEncodingEngine.memorySize(properties: p, dictionary: dictionary, chunked: true)
+            XCTAssertEqual(LZMAEncodingEngine.$testingLegacyRawWindowSlack.withValue(true) {
+                LZMAEncodingEngine.memorySize(properties: p, dictionary: dictionary, chunked: true)
+            }, chunked)
+        }
+        var p = LZMAEncoderProperties.preset(6)
+        p.dictSize = 256 << 10
+        let required = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize)
+        for chunked in [false, true] {
+            let memory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: chunked)
+            let engine = try LZMAEncodingEngine(properties: p, sizeHint: nil, memoryLimit: memory, chunked: chunked)
+            defer { engine.release() }
+            XCTAssertEqual(engine.capacity, p.dictSize + (chunked ? 2 << 20 : 128 << 10) + 4369 + 65536)
+            XCTAssertEqual(engine.rc.bufferLimit, 131072)
+        }
+        XCTAssertThrowsError(try LZMAEncoder(properties: p, memoryLimit: required - 1))
+    }
+
+    func testRawWindowSlackPreservesBytesAcrossCompactions() throws {
+        let dictionary = 256 << 10
+        // 辞書距離の再出現と圧縮しにくい末尾を含め、新旧とも複数回 compact する。
+        let block = TestCorpus.random(dictionary / 2) + LZMAEncoderCorpus.text(size: dictionary / 2)
+        let input = block + block + block + TestCorpus.random(65537)
+        XCTAssertGreaterThan(input.count, 2 * dictionary)
+        for level in [1, 6] {
+            var p = LZMAEncoderProperties.preset(level)
+            p.dictSize = dictionary
+            for width in [1, 7, 65537, 262144] {
+                let legacy = try LZMAEncodingEngine.$testingLegacyRawWindowSlack.withValue(true) {
+                    try encodePieces(input, properties: p, width: width)
+                }
+                XCTAssertEqual(try encodePieces(input, properties: p, width: width), legacy,
+                               "level \(level), width \(width)")
+            }
+        }
+    }
+
+    func testRawWindowSlackPreservesBytesWithLargeDictionaries() throws {
+        let input = LZMAEncoderCorpus.text(size: (768 << 10) + 17)
+        for level in [4, 6, 9] {
+            let p = LZMAEncoderProperties.preset(level)
+            for width in [65537, 262144] {
+                // サイズ未知にして preset の完全な辞書と slack 上限も使う。
+                let legacy = try LZMAEncodingEngine.$testingLegacyRawWindowSlack.withValue(true) {
+                    try encodePieces(input, properties: p, width: width, knownSize: false)
+                }
+                XCTAssertEqual(try encodePieces(input, properties: p, width: width, knownSize: false), legacy,
+                               "level \(level), width \(width)")
+            }
+        }
+    }
+
+    private func encodePieces(_ input: Data, properties: LZMAEncoderProperties, width: Int,
+                              knownSize: Bool = true) throws -> Data {
+        let encoder = try LZMAEncoder(properties: properties, expectedSize: knownSize ? UInt64(input.count) : nil)
+        var output = Data()
+        for start in stride(from: 0, to: input.count, by: width) {
+            output.append(try encoder.push(input[start..<min(start + width, input.count)]))
+        }
+        output.append(try encoder.finish())
+        return output
+    }
+
     func testWordMatchLengthAtUnalignedBoundaries() {
         var bytes = [UInt8](repeating: 0xA7, count: 640)
         for mismatch in [0, 1, 7, 8, 15, 16, 63, 127, 272, 273] {
