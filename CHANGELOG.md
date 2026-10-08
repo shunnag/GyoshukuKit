@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### 改善
+
+- ZIP method 12と7z BZip2の単一大項目・solid folder内を並列圧縮する。
+  system libbz2のblock境界をSwiftで数え、圧縮結果のblockだけを単一streamへspliceする。
+  通常は逐次出力とbyte一致し、長いrunで8 MiBの入力capに達した場合も同じ内容へ復号できる。
+  スレッド・メモリの予約、filter、AES / ZipCrypto、取消しの非同期codec破棄に対応する。
+  tar.bz2 / 単独.bz2の連結stream経路は従来どおり。
+
 ## [0.7.0] - 2026-09-29
 
 コード品質レビュー（2026-09-28）とその後回し項目の処理をまとめた release。公開 API の名前と書庫の出力 byte は変えていない。

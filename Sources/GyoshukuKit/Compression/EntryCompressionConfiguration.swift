@@ -25,8 +25,9 @@ struct EntryCompressionConfiguration {
             state = configuration?.properties == nil ? 130 << 20 : configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
         case .bzip2:
-            state = UInt64(400_000 + 8 * 100_000 * options.bzip2Level)
-            budget = physicalMemory / 2
+            state = ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level,
+                threads: innerParallelism ? ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: physicalMemory) : 1)
+            budget = min(physicalMemory / 2, options.memoryLimit ?? UInt64.max)
         case .ppmd:
             // モデルを縮小せず、同時モデル数だけを物理メモリの半分に収める。
             state = UInt64((try? options.ppmd7Properties().memorySize) ?? (16 << 20)) + (2 << 20)
@@ -36,7 +37,7 @@ struct EntryCompressionConfiguration {
             budget = physicalMemory / 2
         }
         // folder 内の並列化を使う窓は、各枠に最大の内部 codec 数を予約する。
-        let (folderState, overflow) = state.multipliedReportingOverflow(by: UInt64(innerParallelism ? max(1, min(64, options.resolvedCompressionThreads)) : 1))
+        let (folderState, overflow) = state.multipliedReportingOverflow(by: UInt64(innerParallelism && method != .bzip2 ? max(1, min(64, options.resolvedCompressionThreads)) : 1))
         threads = Self.resolve(options: options, state: overflow ? UInt64.max : folderState, budget: budget)
     }
 
@@ -56,8 +57,8 @@ struct EntryCompressionConfiguration {
             state = UInt64((try? options.ppmd8Properties().memorySize) ?? (16 << 20)) + (2 << 20)
             budget = physicalMemory / 2
         case .bzip2:
-            state = UInt64(400_000 + 8 * 100_000 * options.bzip2Level)
-            budget = physicalMemory / 2
+            state = ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level, threads: 1)
+            budget = min(physicalMemory / 2, options.memoryLimit ?? UInt64.max)
         case .deflate, .stored:
             state = 4 << 20
             budget = physicalMemory / 2

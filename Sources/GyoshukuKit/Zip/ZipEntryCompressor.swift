@@ -11,8 +11,10 @@ final class ZipEntryCompressor {
 
     func compress(name: String, size: UInt64, method: CompressionMethod,
                                read: (Int) throws -> Data, emit: (Data) throws -> Void) throws -> UInt32 {
-        // ZIP method 12 は一つの encoder を最後まで使い、tar.bz2 の連結 stream 経路は使わない。
-        let bzip2 = method == .bzip2 ? try Bzip2StreamEncoder(level: options.bzip2Level) : nil
+        // 項目窓のworkerはthreads=1、大項目は窓をdrainした後で内側coreを使う。
+        let bzip2 = method == .bzip2 ? try ParallelBzip2StreamEncoder(level: options.bzip2Level,
+            threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: size) : nil
+        defer { bzip2?.abandon() }
         // parameter word は encoder が一度だけ出力し、ZIP 暗号化の内側に含める。
         let ppmd = method == .ppmd ? try PPMd8StreamEncoder(properties: options.ppmd8Properties()) : nil
         // method 93 は一 entry に一 frame。AES / ZipCrypto の共通 sink の内側へ逐次出力する。

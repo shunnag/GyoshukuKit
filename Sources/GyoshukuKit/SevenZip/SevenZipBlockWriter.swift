@@ -45,6 +45,7 @@ final class SevenZipBlockWriter {
         encryptors = .init(password: options.password)
         let threads = EntryCompressionConfiguration(options: options, method: options.sevenZipMethod, innerParallelism: true).threads
         let cancellation = self.cancellation
+        let bzip2Encoder = ParallelBzip2StreamEncoder.testingEncoder
 
         pipeline = threads > 1 && options.resolvedSevenZipBlockSize <= 256 << 20
             && !(options.sevenZipMethod == .copy && options.sevenZipFilter == .none) ? OrderedChunkPipeline(threads: threads) { job in
@@ -53,14 +54,16 @@ final class SevenZipBlockWriter {
             let size = job.input.length
             var workerOptions = options
             workerOptions.compressionThreads = job.threads
-            let encoder = try SevenZipFolderEncoder.encode(size: size, options: workerOptions, chunkSize: chunkSize, inlineSingleThread: true,
-                aes: job.aes, filter: job.filter, workerActivity: workerActivity, read: { count in
-                    try cancellation.check()
-                    return try FileRead.readChunk(job.input.handle.fileDescriptor, upTo: count)
-                }, write: { bytes in
-                    try cancellation.check()
-                    try job.output.append(bytes)
-                })
+            let encoder = try ParallelBzip2StreamEncoder.$testingEncoder.withValue(bzip2Encoder) {
+                try SevenZipFolderEncoder.encode(size: size, options: workerOptions, chunkSize: chunkSize, inlineSingleThread: true,
+                    aes: job.aes, filter: job.filter, workerActivity: workerActivity, cancellation: cancellation, read: { count in
+                        try cancellation.check()
+                        return try FileRead.readChunk(job.input.handle.fileDescriptor, upTo: count)
+                    }, write: { bytes in
+                        try cancellation.check()
+                        try job.output.append(bytes)
+                    })
+            }
             return EncodedBlock(output: job.output, folder: encoder.folder(size: size, substreamCount: job.files))
         } : nil
     }
@@ -144,7 +147,8 @@ final class SevenZipBlockWriter {
             : options.resolvedSevenZipBlockSize
         if let pipeline, size <= parallelLimit, !(final && pipeline.pendingCount == 0) {
             try pipeline.waitForCapacity(didEmit: didEmit) { tag, result in try self.emit(tag, result, position: position, write: write) }
-            while assignedThreads >= options.resolvedCompressionThreads {
+            while assignedThreads >= (options.sevenZipMethod == .bzip2
+                ? ParallelBzip2StreamEncoder.resolvedThreads(options: options) : options.resolvedCompressionThreads) {
                 try pipeline.emitNext({ tag, result in try self.emit(tag, result, position: position, write: write) }, didEmit: didEmit)
             }
             // 単一 stream の codec は一枠、片並列は実際の片数まで予約する。
@@ -156,9 +160,14 @@ final class SevenZipBlockWriter {
             case .deflate:
                 let width = try min(chunkSize ?? LZMAWriterConfiguration(options: WriterOptions(compressionThreads: options.compressionThreads)).pieceSize, DeflateBlock.size)
                 pieces = Int((size - 1) / UInt64(width) + 1)
-            case .lzma, .bzip2, .ppmd, .copy: pieces = 1
+            case .bzip2:
+                pieces = ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level,
+                    threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options))
+            case .lzma, .ppmd, .copy: pieces = 1
             }
-            let innerThreads = min(pieces, options.resolvedCompressionThreads - assignedThreads,
+            let budgetThreads = options.sevenZipMethod == .bzip2
+                ? ParallelBzip2StreamEncoder.resolvedThreads(options: options) : options.resolvedCompressionThreads
+            let innerThreads = min(pieces, budgetThreads - assignedThreads,
                 max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1)))
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder")
             let job = Job(input: scratch, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,
