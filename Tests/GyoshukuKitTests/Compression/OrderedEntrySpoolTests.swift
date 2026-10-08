@@ -15,7 +15,9 @@ final class OrderedEntrySpoolTests: XCTestCase {
                 deflateBlockSize: DeflateBlock.size, deflateEncoder: DeflateBlock.encode,
                 salt: { Data(repeating: 0x37, count: 16) })
             XCTAssertEqual(writer.singleBlockLimit(name: "stored.png", mode: 0o100644, size: 2_097_152), 1_048_576)
-            XCTAssertEqual(writer.singleBlockLimit(name: "compressed.txt", mode: 0o100644, size: 2_097_152), 16_777_216)
+            // BZip2の項目窓は既定level 9の5 block分まで。それ以上は内側のspliceへ渡す。
+            let compressedLimit = method == .bzip2 ? min(16_777_216, 5 * (100_000 * 9 - 19)) : 16_777_216
+            XCTAssertEqual(writer.singleBlockLimit(name: "compressed.txt", mode: 0o100644, size: 2_097_152), compressedLimit)
             writer.abort()
         }
         let source = root.appendingPathComponent("source")

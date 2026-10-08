@@ -120,6 +120,12 @@ final class SevenZipCompressionMethodTests: XCTestCase {
                 case .lzma2: expected = threads == 1 ? 16 << 20 : threads == 4 ? 64 << 20 : 1024 << 20
                 case .deflate: expected = threads == 1 ? 1 << 20 : threads == 4 ? 4 << 20 : 64 << 20
                 case .copy: expected = 0
+                case .bzip2:
+                    let entryWindow: UInt64 = threads == 1 ? 0 : threads == 4 ? 64 << 20 : 256 << 20
+                    // 物理メモリ8 GiBではinner=threads。並列spliceは(inner + 1) × 8 MiBを保持する。
+                    let inner = threads
+                    let spliceBuffers: UInt64 = inner == 1 ? 0 : UInt64(inner + 1) * (8 << 20)
+                    expected = max(entryWindow, spliceBuffers)
                 default: expected = threads == 1 ? 0 : threads == 4 ? 64 << 20 : 256 << 20
                 }
                 XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 8 << 30), expected)
