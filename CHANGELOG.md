@@ -5,28 +5,102 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-09
+
+一括追加の大項目による待機を減らし、CPU topology・電力方針に応じた自動並列数と速さ優先を追加する release。
+PR #15 の `origin/main`（0de2cd6）以降を反映する。KaitoKit の依存は引き続き0.12.x。
+ビルド要件は Xcode 27 / Swift 6.4以上、実行環境は macOS 26以上・Apple Siliconのまま。
+
+### 追加
+
+- `WriterOptions.prefersSpeed`（速さ優先、既定false）を追加する。
+  既知サイズの ZIP XZ / 7z LZMA2 / 単独XZとlzipをサイズから決まる小片へ分け、
+  7z solidの未指定上限を16 MiBにする。XZ / LZMA2は最小2 MiBで約16片を目標とし、lzipは辞書幅も下限にする。
+  ZIP Zstandardの大項目は `max(4 MiB, window幅)` の独立frameを並列符号化して連結する。
+  通常の片・folder境界はthread数・CPU・電力・メモリに依存せず、明示solid上限を尊重する。
+  総入力不明のtar.xz / tar.lzは従来幅を保持する。圧縮率との引換えは[設定リファレンス](Documentation/options.md#速さ優先)を参照する。
+- 公開 `CompressionPowerPolicy` と `WriterOptions.powerPolicy` を追加する。
+  既定の `.reduceInLowPowerMode`、温度も考慮する `.reduceInLowPowerModeOrThermalPressure`、
+  電力・温度による削減をしない `.alwaysUseAllCores` を選べる。
+  `WriterOptions.automaticCompressionThreads(powerPolicy:)` を表示用に公開し、
+  明示値の公開範囲 `WriterOptions.compressionThreadsRange` を1...64から1...1024へ拡張する。
+
 ### 変更
 
-- opt-in の `WriterOptions.prefersSpeed`（速さ優先、既定false）を追加する。既定出力は維持する。
-  既知サイズの ZIP XZ / 7z LZMA2 / 単独XZとlzipを約16片へ分け、7z solidの未指定上限を16 MiBにする。
-  ZIP Zstandardの大項目は4 MiBまたはwindow幅の独立frameを並列符号化して連結する。
-  片・folder境界はthread数・CPU・電力・メモリに依存せず、明示solid上限を尊重する。
-  総入力不明のtar.xz / tar.lzは従来幅を保持する。
-
-- 自動圧縮並列数を全active logical CPUへ拡張し、perflevel番号順のtopologyと公開 `CompressionPowerPolicy` を導入する。
-  既定はLow Power Modeで削減。thermal pressureも考慮する方針と常時全coreの方針を選べ、各ジョブの開始時に一度解決する。
-  `WriterOptions.automaticCompressionThreads(powerPolicy:)` を表示用に公開し、明示値の公開範囲 `compressionThreadsRange` を1...1024に拡張する。
-  GiBとcodecメモリ制限は維持し、項目 / folder窓の固定16上限をGCD constrained poolの1/4へ置き換える。
+- 自動圧縮並列数の固定8上限を撤廃し、全active logical CPUと物理メモリGiBの小さい方（最低1）を使う。
+  perflevel番号順（0が最高性能）のtopologyと電力方針を、writer / updater / rewriter / 単独圧縮の開始時に一度解決する。
+  明示thread数には電力方針を適用しない。codecメモリ制限は維持し、項目 / folder窓の固定16上限をGCD constrained poolの1/4へ置き換える。
 - 7z solid/filter窓のcodec状態を、各folderに入る最大片数分だけ予約する。LZMA1 / PPMd / Copyは一つ。
-  全folderの割当codec数も予算内に抑え、片サイズ・folder区切り・圧縮byteを維持する。
-- BZip2の片幅を並列数と独立な5 block相当の目標幅に固定し、1スレッドの大入力にも同じ8 MiB強制切断を使い、thread数によるbyte差をなくす。
-  ZIP / 7z BZip2の1スレッドにもbufferを予約し、公開入力上界は最低16 MiB、solid/filterは内側とfolderごとのbufferを含む。
-- `maximumPendingInputBytes(for:)`の他形式の式は維持するが、自動並列数と項目 / 7z folder枠数の増加で返り値が増える場合がある。
-  物理16 GiB・要求12・予算8 GiBの既定LZMA2 / LZMA1の64 MiB solidは320 / 384→768 MiB。
-  詳細とPPMd / filter付き非solidの値は[設定リファレンス](Documentation/options.md#pending-input-の意味)を参照する。
+  全folderの割当codec数も予算内に抑え、重複予約で窓が狭まることを防ぐ。
+- ZIPの一括 `ArchiveWriter.add(_:events:)` で、大項目前の全drainを除く。
+  Deflate / Storedは既存の有界block窓へ投入し、Deflateの1 MiB境界・32 KiB辞書・CRC・header更新を共用する。
+  LZMA / Zstandard / PPMdは項目workerでstream圧縮し、全入力を保持せずdisk spoolへ運ぶ。
+  XZの既定16 MiB blockも先行項目と同じ窓へ投入して並列化する。片が項目予約幅を超える設定とZipCryptoは従来経路へ戻す。
+- 7zの巨大項目・solid/filter folderをlong-pole jobとして通常窓と重ねる。
+  順序付きpipelineに専用一枠を設け、予算内でLZMA1 / PPMd / Copyのcodec状態とI/Oを別に予約する。
+  大入力は有界に読み、入力長から上限を決めたdisk spoolへ出力する。
+  BZip2の大項目にも実際の片数までcodecを渡し、満杯窓から一codecだけ借りて逐次化する退行を防ぐ。
+- 一括追加の最長通常ファイル一件を longest-first で先行符号化する（要求4 threads以上・対応する並列窓）。
+  ZIP LZMA / PPMd / 単一frame Zstandard、非solid 7z LZMA1 / PPMd / BZip2、
+  solid上限を超える単独folderの7z LZMA1 / PPMdが対象。7z AES/filter、再帰directoryや重複inodeを含む先行候補は除く。
+  結果と失敗は元のindexまで保持し、書庫・通知・AES IVの順序、開始前のatime、署名再検査、取消し時のjoinとfd解放を保つ。
+- BZip2の内側片幅を入力サイズだけで決める。
+  `B = 100000 × level - 19`、`N = ceil(size / B)` とし、既知サイズは `B × min(5, max(1, floor(N / 32)))`、不明なら1 block幅。
+  項目間並列の `entryWindowLimit` は別に5 block相当へ戻し、ZIP / 非solid・filterなし7zで共通化する。
+  1スレッドの大入力にも同じ8 MiB強制切断を使う。ZIP / 7zの1スレッドにもbufferを予約し、
+  公開入力上界は最低16 MiB、solid/filterは内側とfolderごとのbufferを含む。
+- 単独 `.bz2` を独立stream連結から、header / EOSが一組の標準bzip2 streamへのspliceへ切り替える。
+  連結streamだった入力などで出力byteが変わるが同じ内容へ復号でき、thread数によらず一致する。tar.bz2の連結streamと従来の片幅は維持する。
+- raw LZMA1のwindow slackを辞書に応じて64 KiB〜4 MiBへ拡張し、履歴移動を減らす。
+  match finderを同じQoSの専用Threadへ分け、二つの4096位置bufferでparserと並列に動かす。
+  単一streamを分割せず、HC4 / BT4の状態・lookahead・終端・compactと出力byteを保つ。
+  ZIP / 7zの大項目と単独LZMA / tar.lzmaで追加一coreとメモリを予約できる場合だけ使う。lzipとLZMA2の片内finderは逐次のまま。
+- Deltaの履歴・差分loop、x86 / ARM64 BCJの走査と最大4 byteの端数保持、LHA CRC16のslicing-by-8、
+  LH5の64 bit単位のbit結合、LZWの低占有率辞書と128 bit groupを高速化する。出力byteと状態遷移は維持する。
+- `maximumPendingInputBytes(for:)` に先行枠一件分を加える。
+  対応するZIP / 非solid 7zは16 MiB、7z solid LZMA1 / PPMdはblock上限分。
+  ZIP PPMd・要求4 threadsは64→80 MiB。通常窓とcodec予算を共有し、先行結果は最初からdiskへ置く。
+  ZIP Stored（ZipCryptoを除く）の上界も `threads × 1 MiB` に訂正する。
+  自動並列数・項目 / folder窓・long-pole予約の変更でも返り値が増える場合がある。入力の上界でありRSS上限ではない。
+
+### 修正
+
+- レビュー修正 `dcff0a0` で、7zの項目別 `add(contentsOf:)` を同期読取へ戻す。
+  通常ファイルは各 `add` が戻る前に読取と署名検査を済ませ、戻った後の削除・上書きで結果を変えない。一括追加の先行圧縮は維持する。
+- ZIPの先行準備・worker・source読取の競合する失敗を元の最小indexへ帰属させる。
+  項目別追加の失敗を後続batchへ付け替えず、7zのbatch帰属はその呼出し内だけに限る。
+  取消し・callbackの例外は保持し、失敗した項目の完了通知を出さない。
+- raw LZMAは拡張slackが予算に入らなければ旧64 KiB slackへ戻し、従来受理した `memoryLimit` と辞書を保つ。
+  速さ優先のZIP Zstandardも独立frameのbufferが入らなければ単一frameへ戻す。thread数だけではframeを切り替えない。
+  `0e92b43` はlzipの全10レベルの予算境界テストをこのfallbackに合わせた変更のみで、製品ソースは `dcff0a0` と同じ。
+- BZip2の逐次経路で最後の1 byteを `BZ_FINISH` まで保持し、末尾の満杯blockを `BZ_RUN` で先に確定するbyte差を解消する。
+- 圧縮tarの次回全体再符号化の判定では固定1 threadの設定を使い、表示時に自動並列数を再解決しない。
+
+### 互換性
+
+- 既定モード（`prefersSpeed: false`）の出力byteは、以下のBZip2の例外を除いて0.8.0から維持する。
+  速さ優先の追加そのものは既定出力を変えない。ZIP / 7zの方式・順序・既定XZ / LZMA2片とsolid境界も保持する。
+- 単独 `.bz2` は旧版で連結streamになる入力などで、上記の単一stream化によりbyteが変わる。
+  ZIP / 7z BZip2も、片幅変更で8 MiB強制切断の位置が変わる長いrunを含む入力、
+  旧1スレッド経路に新たな強制切断が入る大入力、末尾blockの `BZ_FINISH` 修正が作用する入力ではbyteが変わり得る。
+  強制切断・終端修正が作用しない通常のblock列は逐次libbz2と一致する。いずれも有効な単一bzip2 streamで、同じ内容へ復号できる。
+  新版内では強制切断を含めthread数によるbyte差をなくす。tar.bz2のbyteは維持する。
+- 固定出力の17 fixtureは0.8.0ではなく `3b74afb` が基点。
+  `SpeedPriorityDefaultOutputTests` は速さ優先追加前との一致、BZip2の境界・強制切断とthread別試験は新版内の一致を検査する。
+  0.8.0と `origin/main` の製品ソース差分は空。BZip2以外の差分はbyteを保つ実装・参照差分試験と、下記計測のhashで確認する。
+
+### 検証
+
+- [MacBook M4 Maxのbatch交互比較](Documentation/verification/2026-10-09-cpu-scaling-macbook-ab.md)を追加する。
+  256 MiB corpusと単一10 MiBの20条件・180 sampleで、各条件の旧版8 / 16 threadsと新版16 threadsのSHA-256・出力サイズが全て一致する。
+  best-of-3の旧既定8 threads比はcorpusのZIP Deflate 5.75倍、7z Copy＋Delta 7.56倍、7z LZMA2 solid 2.22倍。
+  BZip2の上記例外を網羅する計測ではない。単一64 MiBのLZMA1 / PPMd streamが既定モードの末尾時間を制限する。
+- topology・電力方針・予約境界、フィルタ等の旧実装との差分、LZMA finder / slackの決定性、
+  batchの投入・先行開始・通知・失敗帰属・source寿命・取消し、速さ優先の構造・外部復号・圧縮率probeを追加する。
 
 ### ドキュメント
 
+- READMEのSwiftPM導入例を0.9.0へ更新する。計測のraw JSONLと、日本語の条件・集計・限界を保存する。
 - README を開発者向けの導入・使用例・対応表に整理し、依存解決、API の保証、形式・全設定、開発・検証の詳細を `Documentation/` に分離する。
   英語の導入にも要件・SwiftPM・ZIP 例・編集 API・KaitoKit 0.12.x の依存と詳細資料へのリンクを用意する。
 - 移動時に、実装と一致しなくなった説明を訂正する。LZMA raw level 0 の同期予算は20→19 MiB。
