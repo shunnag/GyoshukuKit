@@ -83,7 +83,7 @@ final class SevenZipFolderEncoder {
         }
         if let aes { try output(aes.finish(), write: write) }
     }
-    func abandon() { bzip2?.abandon(); bzip2 = nil }
+    func abandon() { bzip2?.abandon(); bzip2 = nil; rawLZMA?.abandon(); rawLZMA = nil }
 
     private func beginBzip2() throws {
         if bzip2 == nil {
@@ -139,7 +139,7 @@ final class SevenZipFolderEncoder {
         let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
             deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
             lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
+                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true) : nil,
             ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
             bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), cancellation: cancellation, workerActivity: workerActivity, size: size, filter: filter)
         let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize, inlineSingleThread: inlineSingleThread, workerActivity: workerActivity)

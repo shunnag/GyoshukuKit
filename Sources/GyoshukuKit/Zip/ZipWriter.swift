@@ -67,7 +67,9 @@ final class ZipWriter {
         self.deflateBlockSize = deflateBlockSize
         self.salt = salt
         entryCompressor = ZipEntryCompressor(options: options)
-        let entryThreads = EntryCompressionConfiguration(options: options).threads
+        let entryConfiguration = EntryCompressionConfiguration(options: options)
+        let entryThreads = entryConfiguration.threads
+        let finderReservation = LZMAFinderThreadReservation(enabled: entryConfiguration.longPoleThreads > 0)
         let cancellation = entryCancellation
         var workerOptions = options
         workerOptions.compressionThreads = 1
@@ -83,7 +85,11 @@ final class ZipWriter {
                         return EncodedEntry(spool: nil, data: Data(), crc: updateCRC(0, data),
                                             xzBlock: try xzEncoder(data))
                     }
-                    let compressor = ZipEntryCompressor(options: resolvedWorkerOptions, inlineSingleThread: true)
+                    let parallelFinder = job.streamed && job.method == .lzma && finderReservation.acquire()
+                    defer { if parallelFinder { finderReservation.release() } }
+                    var jobOptions = resolvedWorkerOptions
+                    if parallelFinder { jobOptions.compressionThreads = 2 }
+                    let compressor = ZipEntryCompressor(options: jobOptions, inlineSingleThread: true)
                     // 大項目は窓の codec 一つで stream 圧縮し、全入力を保持せず disk spool へ運ぶ。
                     if job.streamed, let file = job.file {
                         let crc = try file.withReader { read in

@@ -118,7 +118,11 @@ final class MulticoreWriterTests: XCTestCase {
             XCTAssertEqual(EntryCompressionConfiguration(options: limited).threads, 1)
             XCTAssertEqual(limited.maximumPendingInputBytes(for: .zip), 0)
             limited.memoryLimit = 2 * (state + UInt64(EntryCompressionConfiguration.inputLimit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size))
-            XCTAssertEqual(EntryCompressionConfiguration(options: limited).threads, 2)
+            XCTAssertEqual(EntryCompressionConfiguration(options: limited).threads, method == .lzma ? 1 : 2)
+            if method == .lzma {
+                limited.memoryLimit! += UInt64(LZMAMatchFinderPipeline.memorySize)
+                XCTAssertEqual(EntryCompressionConfiguration(options: limited).threads, 2)
+            }
         }
     }
 

@@ -12,18 +12,26 @@ final class LZMAEncoder {
     private var finished = false
 
     init(properties: LZMAEncoderProperties = .preset(6), expectedSize: UInt64? = nil,
-         endMarker: Bool = true, memoryLimit: Int = 768 << 20) throws {
+         endMarker: Bool = true, memoryLimit: Int = 768 << 20, finderThreads: Int = 1) throws {
         try properties.validate()
+        guard finderThreads == 1 || finderThreads == 2 else { throw LZMAEncodingError.invalidProperties }
         self.properties = properties; self.expectedSize = expectedSize; self.endMarker = endMarker
-        engine = try LZMAEncodingEngine(properties: properties, sizeHint: expectedSize, memoryLimit: memoryLimit)
+        engine = try LZMAEncodingEngine(properties: properties, sizeHint: expectedSize, memoryLimit: memoryLimit, finderThreads: finderThreads)
     }
     deinit { engine.release() }
 
     func push(_ input: Data) throws -> Data {
         guard !finished else { throw LZMAEncodingError.finished }
         let (total, overflow) = received.addingReportingOverflow(UInt64(input.count))
-        guard !overflow, expectedSize.map({ total <= $0 }) ?? true else { throw LZMAEncodingError.sizeMismatch }
+        guard !overflow, expectedSize.map({ total <= $0 }) ?? true else {
+            engine.finderPipeline?.stopAndWait()
+            throw LZMAEncodingError.sizeMismatch
+        }
         received = total
+        do { return try pushInput(input) }
+        catch { abandon(); throw error }
+    }
+    private func pushInput(_ input: Data) throws -> Data {
         var output = Data()
         try input.withUnsafeBytes { bytes in
             var offset = 0
@@ -33,7 +41,7 @@ final class LZMAEncoder {
                 let n = min(65536, min(bytes.count - offset, engine.capacity - engine.end))
                 engine.window.advanced(by: engine.end).update(from: bytes.baseAddress!.assumingMemoryBound(to: UInt8.self) + offset, count: n)
                 engine.end += n; offset += n
-                engine.process(limit: engine.end, reserve: LZMAEncodingEngine.lookahead)
+                try engine.process(limit: engine.end, reserve: LZMAEncodingEngine.lookahead)
                 if let error = engine.rc.error { finished = true; throw error }
                 output.append(engine.rc.take())
             }
@@ -42,13 +50,25 @@ final class LZMAEncoder {
     }
     func finish() throws -> Data {
         guard !finished else { throw LZMAEncodingError.finished }
+        guard expectedSize.map({ received == $0 }) ?? true else {
+            engine.finderPipeline?.stopAndWait()
+            throw LZMAEncodingError.sizeMismatch
+        }
+        defer { engine.finderPipeline?.stopAndWait() }
+        do { return try finishInput() }
+        catch { abandon(); throw error }
+    }
+    /// error / 取消し / writer abandon でも window 解放より先に join する。
+    func abandon() { finished = true; engine.finderPipeline?.stopAndWait() }
+    private func finishInput() throws -> Data {
+        guard !finished else { throw LZMAEncodingError.finished }
         guard expectedSize.map({ received == $0 }) ?? true else { throw LZMAEncodingError.sizeMismatch }
         finished = true
         var output = Data()
         // 出力 buffer を drain しながら終端付近を処理する。
         while engine.cursor < engine.end {
             try Task.checkCancellation()
-            engine.process(limit: min(engine.end, engine.cursor + 65536), reserve: 0)
+            try engine.process(limit: min(engine.end, engine.cursor + 65536), reserve: 0)
             if let error = engine.rc.error { throw error }
             output.append(engine.rc.take())
         }
@@ -58,8 +78,8 @@ final class LZMAEncoder {
         output.append(engine.rc.take())
         return output
     }
-    static func encode(_ input: Data, properties: LZMAEncoderProperties = .preset(6), endMarker: Bool = true) throws -> Data {
-        let encoder = try Self(properties: properties, expectedSize: UInt64(input.count), endMarker: endMarker)
+    static func encode(_ input: Data, properties: LZMAEncoderProperties = .preset(6), endMarker: Bool = true, finderThreads: Int = 1) throws -> Data {
+        let encoder = try Self(properties: properties, expectedSize: UInt64(input.count), endMarker: endMarker, finderThreads: finderThreads)
         return try encoder.push(input) + encoder.finish()
     }
     /// .lzma の 13 byte header。未知サイズは all-ones と EOS を組にする。
@@ -106,6 +126,7 @@ struct LZMAEncodingEngine {
     let opt: UnsafeMutablePointer<LZMAOptimal>
     let actions: UnsafeMutablePointer<LZMAAction>
     var finder: LZMAMatchFinder
+    let finderPipeline: LZMAMatchFinderPipeline?
     var rc: LZMARangeEncoder
     var cursor = 0, end = 0, finderCursor = 0
     var position: UInt64 = 0
@@ -122,21 +143,22 @@ struct LZMAEncodingEngine {
     var matchCounter = 0, repCounter = 0
     var modelNeedsReset = false
 
-    static func memorySize(properties: LZMAEncoderProperties, dictionary: Int, chunked: Bool = false) -> Int {
+    static func memorySize(properties: LZMAEncoderProperties, dictionary: Int, chunked: Bool = false, finderThreads: Int = 1) -> Int {
         dictionary + windowSlack(dictionary: dictionary, chunked: chunked) + lookahead + 65536
             + LZMAMatchFinder.memorySize(dictionary: dictionary, tree: properties.matchFinder == .bt4)
             + (literalOffset + (768 << (properties.lc + properties.lp))) * 2
             + 131072 + 4096 * (MemoryLayout<LZMAOptimal>.stride + MemoryLayout<LZMAAction>.stride)
             + (16 * 272 * 2 + 4 * 128 + 4 * 64 + 16) * MemoryLayout<Int>.stride + 4096
             + 274 * MemoryLayout<LZMAMatch>.stride
+            + (finderThreads == 2 ? LZMAMatchFinderPipeline.memorySize : 0)
     }
-    init(properties p: LZMAEncoderProperties, sizeHint: UInt64?, memoryLimit: Int, chunked: Bool = false) throws {
+    init(properties p: LZMAEncoderProperties, sizeHint: UInt64?, memoryLimit: Int, chunked: Bool = false, finderThreads: Int = 1) throws {
         properties = p
         posMask = UInt8((1 << p.pb) - 1); literalPosMask = UInt8((1 << p.lp) - 1)
         literalContextWidth = UInt16(1 << p.lc); literalShift = UInt8(8 - p.lc)
         dictionary = min(p.dictSize, Int(min(UInt64(p.dictSize), max(4096, sizeHint ?? UInt64(p.dictSize)))))
         capacity = dictionary + Self.windowSlack(dictionary: dictionary, chunked: chunked) + Self.lookahead + 65536
-        let required = Self.memorySize(properties: p, dictionary: dictionary, chunked: chunked)
+        let required = Self.memorySize(properties: p, dictionary: dictionary, chunked: chunked, finderThreads: finderThreads)
         guard memoryLimit >= required else { throw LZMAEncodingError.memoryLimit(required: required, limit: memoryLimit) }
         // 確保を一つの group として扱い、途中の失敗時も全 pointer を解放する。
         var allocated: [UnsafeMutableRawPointer] = []
@@ -163,6 +185,9 @@ struct LZMAEncodingEngine {
             rc.bufferLimit = min(16 << 20, memoryLimit - required + rc.capacity)
             allocated.append(UnsafeMutableRawPointer(rc.output))
             finder = try LZMAMatchFinder(properties: p, dictionary: dictionary)
+            do {
+                finderPipeline = finderThreads == 2 ? try LZMAMatchFinderPipeline(finder: finder, window: window) : nil
+            } catch { finder.release(); throw error }
         } catch { for pointer in allocated { free(pointer) }; throw error }
         for i in 0..<4096 { opt[i] = LZMAOptimal() }
         // SDK の 1/16 bit 固定小数点価格。0 / 1 を別行に展開し、lookup の shift / xor を除く。
@@ -183,6 +208,7 @@ struct LZMAEncodingEngine {
         resetModel()
     }
     func release() {
+        finderPipeline?.stopAndWait()
         free(window); free(probs); free(bitPrices); free(lengthPrices); free(repLengthPrices)
         free(distancePrices); free(slotPrices); free(alignPrices); free(matches); free(opt); free(actions)
         free(rc.output); finder.release()
@@ -196,6 +222,7 @@ struct LZMAEncodingEngine {
     mutating func compact() {
         let drop = max(0, cursor - dictionary)
         if drop > 0 {
+            finderPipeline?.compact(by: drop)
             memmove(window, window + drop, end - drop)
             end -= drop; cursor -= drop; finderCursor -= drop
         }
@@ -215,18 +242,41 @@ struct LZMAEncodingEngine {
         return lzmaMatchLength(data, data.advanced(by: 0 &- distance), limit: limit)
     }
     @inline(__always) mutating func readMatches(limit: Int) {
-        matchCount = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches)
+        if let finderPipeline {
+            matchCount = finderPipeline.matches(at: finderCursor, into: matches)
+            // 短いhash候補とniceLen以降の延長は表を変更しない。skip位置には不要なので読取時だけ確定する。
+            if finder.tree {
+                matchCount = finder.finalizeTreeMatches(UnsafePointer(window + finderCursor), available: limit - finderCursor,
+                    result: matches, count: matchCount)
+            } else if matchCount > 0 {
+                finder.extend(UnsafePointer(window + finderCursor), available: limit - finderCursor,
+                    result: matches, count: matchCount)
+            }
+        }
+        else { matchCount = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches) }
         finderCursor &+= 1
     }
     @inline(__always) mutating func skip(to target: Int, limit: Int) {
+        if let finderPipeline {
+            finderPipeline.skip(from: finderCursor, to: target)
+            finderCursor = max(finderCursor, target)
+            return
+        }
         while finderCursor < target {
             _ = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches, record: false)
             finderCursor &+= 1
         }
     }
-    mutating func process(limit: Int, reserve: Int, packedLimit: Int = .max) {
+    mutating func process(limit: Int, reserve: Int, packedLimit: Int = .max) throws {
         guard cursor < limit && (actionIndex < actionCount || pendingMatches || limit - cursor > reserve) else { return }
+        finderPipeline?.begin(limit: limit)
+        defer { finderPipeline?.pause() }
+        var cancellationPosition = cursor
         while cursor < limit && (actionIndex < actionCount || pendingMatches || limit - cursor > reserve) {
+            if cursor >= cancellationPosition {
+                try Task.checkCancellation()
+                cancellationPosition = cursor + 4096
+            }
             if actionIndex == actionCount {
                 if rc.estimatedSize >= packedLimit && !pendingMatches { break }
                 if properties.mode == .fast { parseFast(limit: limit) } else { parseNormal(limit: limit) }

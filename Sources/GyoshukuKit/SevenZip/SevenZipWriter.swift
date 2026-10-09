@@ -66,7 +66,7 @@ final class SevenZipWriter {
             encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
                 deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
                 lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-                    ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma) : nil,
+                    ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true) : nil,
                 ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
                 bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: record.size)
             self.record.method = options.sevenZipMethod
@@ -247,13 +247,15 @@ final class SevenZipWriter {
         try entryPipeline.waitForCapacity(reserved: streamed, emit: emitEntry)
         let reservedCodec = streamed && entryConfiguration.longPoleThreads > 0
         let normalCodecs = entryConfiguration.codecThreads - entryConfiguration.longPoleThreads
+        let finderThreads = streamed && options.sevenZipMethod == .lzma ? min(2, normalCodecs) : 1
         // 通常の項目窓は逐次codecを使い、長いstreamだけ内側spliceへ空き枠を渡す。
         let pieces = streamed && options.sevenZipMethod == .bzip2
-            ? ParallelBzip2StreamEncoder.estimatedChunkCount(size: record.size, level: options.bzip2Level) : 1
-        let minimum = streamed ? entryConfiguration.minimumLongPoleCodecs(pieces: pieces) : 1
+            ? ParallelBzip2StreamEncoder.estimatedChunkCount(size: record.size, level: options.bzip2Level) : finderThreads
+        // LZMAの追加finderも、BZip2の片と同じcodec予算の内側から借りる。
+        let minimum = streamed ? max(finderThreads, entryConfiguration.minimumLongPoleCodecs(pieces: pieces)) : 1
         while !reservedCodec && normalCodecs - assignedEntryThreads < minimum { try entryPipeline.emitNext(emitEntry) }
         let share = streamed ? normalCodecs : max(1, options.resolvedCompressionThreads / (entryPipeline.pendingCount + 1))
-        let threads = reservedCodec ? 1 : min(pieces, normalCodecs - assignedEntryThreads, share)
+        let threads = reservedCodec ? entryConfiguration.longPoleThreads : min(pieces, normalCodecs - assignedEntryThreads, share)
         let attribution = Self.additionAttribution
         let spool = record.size == 0 ? nil : try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "7z-entry",
             diskBacked: streamed, maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: record.size))

@@ -189,6 +189,7 @@ final class SevenZipBlockWriter {
                 tag, result in try self.emit(tag, result, position: position, write: write)
             }
             let normalCodecs = codecThreads - longPoleThreads
+            let finderThreads = oversized && options.sevenZipMethod == .lzma ? min(2, normalCodecs) : 1
             // 単一 stream の codec は一枠、片並列は実際の片数まで予約する。
             let pieces: Int
             switch options.sevenZipMethod {
@@ -200,16 +201,18 @@ final class SevenZipBlockWriter {
                 pieces = Int(min(UInt64(options.resolvedCompressionThreads), (size - 1) / UInt64(width) + 1))
             case .bzip2:
                 pieces = ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level)
-            case .lzma, .ppmd, .copy: pieces = 1
+            case .lzma: pieces = finderThreads
+            case .ppmd, .copy: pieces = 1
             }
             // 大きいfolderにも最低限の片並列を確保し、満杯窓から一枠だけで始めない。
-            let minimum = oversized ? min(pieces, max(1, (normalCodecs + 1) / 2)) : 1
+            // 専用枠がないLZMAも、同じcodec予算からparserとfinderの二枠を確保する。
+            let minimum = oversized ? max(finderThreads, min(pieces, max(1, (normalCodecs + 1) / 2))) : 1
             while !reservedCodec && normalCodecs - assignedThreads < minimum {
                 try pipeline.emitNext({ tag, result in try self.emit(tag, result, position: position, write: write) }, didEmit: didEmit)
             }
             // 長いfolderは空いているcodec枠まで使い、通常folder向けの等分で逐次化しない。
             let share = oversized ? normalCodecs : max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1))
-            var innerThreads = reservedCodec ? 1 : min(pieces, normalCodecs - assignedThreads, share)
+            var innerThreads = reservedCodec ? longPoleThreads : min(pieces, normalCodecs - assignedThreads, share)
             if options.sevenZipMethod == .bzip2, options.sevenZipSolid != .off, currentFilter != .none, !final, !oversized {
                 // filterはfolder内で逐次。次folderがあるときは予約を分け、複数filterを同時に進める。
                 innerThreads = min(innerThreads, max(1, codecThreads / min(4, folderThreads)))

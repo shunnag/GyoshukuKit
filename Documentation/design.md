@@ -1446,13 +1446,87 @@ level 6の対xzはtext 105.6% / binary 98.5%、level 9は102.5% / 102.3%。約5%
 速度比較はこの同一 `-O -wmo` 条件を使い、round 1のrelease XCTest / `-enable-testing`計測とは混ぜない。
 
 2026-10-07 の LZMA1 並列 finder 試作は public-domain の `C/LzFindMt.c` の block 受渡しを参考に、
-`Thread` と semaphore、4096位置の二つの block で実装した。65536 byte の追加入力と window 移動にまたがる
-pause / resume、終端273 byte、memory budget、cancel / abandon を検証し、thread数1 / 2 / 4の出力が一致した。
-しかし実際の raw LZMA1 streaming の level 6、best-of-5 では text が3.424 → 4.494 MB/s（1.312倍）、
-binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満たさなかった。
-固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
-採用条件を満たさず並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
-raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
+`Thread` と semaphore、4096位置の二つの block で実装した。raw LZMA1 level 6のbest-of-5は
+textが3.424 → 4.494 MB/s（1.312倍）、binaryが5.648 → 7.200 MB/s（1.275倍）だった。
+当時の採用条件には届かなかったが、many-core Macの長い単一streamが未使用coreを残すため、
+2026-10-09に二段pipelineを採用する方針へ変更した。現在の実装と試験はこのworktreeで新規作成したSwiftであり、
+新たな外部reference sourceの読取り・Cの取り込みはない。
+
+`LZMAMatchFinderPipeline`はcaller/parserと専用finder `Thread`の二段。callerの`qos_class_self()`に合わせたQoSを使う。
+各blockは4096位置、候補を詰めた配列と位置ごとのoffsetを持ち、二つのblockを`NSCondition`で所有権移譲する。
+finderのhash/sonと位置stateは専用Threadだけが更新し、parserは候補を消費し、選択したmatch内の候補を読み飛ばす。
+BTでは全位置の木の走査結果と2/3 byte hash headの距離を保存する。短いhash候補の比較と
+273 byteまでの最後の候補の延長は表を変更しないので、parserが実際に読む位置だけで行う。
+短いhashで得たbest以下のBT候補を除けば、候補順・同長の距離優先も逐次と同一になる。
+HCではchainの走査結果を記録し、延長だけを読取時に行う。これは逐次の`ReadMatchDistances`相当の最終化であり、
+parserへ渡す候補列の長さ・距離は逐次と同一。skip位置の不要な比較・延長を省き、反復が多い長いstreamの費用を抑える。
+BT4の枝更新は`record`・候補の`best/count`を参照しない。HC4のskipはhashとchainのheadを保存するだけで、
+record時のchain走査はその表を変更しない。したがって全位置で候補を記録しても、後続位置の表と候補は逐次と一致する。
+`LZMAMultithreadedFinderTests`は全preset/extremeで可変skipを混ぜ、候補とhash/sonの全byteを直接比較する。
+
+pushの64 KiB処理境界と`process(limit:reserve:)`を保つ。投機的な先読みは`available >= 273`の位置までとし、
+最後の272位置はparserが要求した範囲だけ、その時点の`limit`で生成する。短いpushでまだ確定しない長さを記録しない。
+sizeMismatchはThreadをjoinしつつ表・未消費候補を保持し、再試行時に同じ状態からThreadを再開する。
+processから戻る前にfinderをpauseし、入力追記と`compact()`はworkerの読取り完了後に行う。
+compactでは未消費候補の距離を保ち、workerのwindow位置だけdrop分ずらす。finishの小さいlimitにも同じ規則を適用する。
+取消しはcallerが4096位置ごとにも検査し、error・finish・abandon・deinitでThreadをjoinしてからwindow/hashを解放する。
+候補二組とoffset、512 KiBのThread stack、管理余裕を合わせた追加予約は18,518,024 byte（約17.66 MiB）。
+`memorySize`・`encoderMemory`・`memoryPerThread`へ計上し、追加予約が収まらない任意高速化はfinder=1へ戻す。
+
+raw設定の内部`finderThreads`は1/2。単独`.lzma`と`tar.lzma`、inlineの単一ZIP項目/7z folder、
+ZIPのstreamed大項目、7zのlong-poleだけ、解決済みcompressionThreadsが2以上なら2を選ぶ。
+通常項目窓は1。7zはlong-poleのparser+finderに要求core数の内側から二枠を予約し、通常窓には残りを渡す。
+要求2では専用long-pole枠を作らず、通常jobをdrainして二枠を貸す。folderのメモリと入力窓は二重に予約しない。
+ZIPは通常窓を要求数−1以下にしてfinder用一core・buffer一組を別予約し、非待機の貸出しで同時に一つの大項目だけMTにする。
+他のstreamed項目は1で進める。LZMA2のchunk境界・finder並列数とlzipのmember並列は従来通り。
+
+`GYOSHUKU_LZMA_MT_BENCHMARK=1 swift test -c release --disable-sandbox -debug-info-format none
+-Xswiftc -enable-testing --filter LZMAMultithreadedBenchmarkTests`でtext/Mach-O/randomを各3回測る。
+`GYOSHUKU_LZMA_MT_BENCHMARK_FILE`で任意の入力を加える。level 6、初期化・compact・joinを含むraw streamingで、
+全sample・best秒・MB/s・speedup・出力byte数を`LZMA-MT-BENCH` + tab + JSONで報告し、出力を逐次と照合する。
+2026-10-09、16-core M4 Maxのrelease buildで各3回の最良値を採った。通常の試験と他worktreeの作業が
+同じMacで並行しており、writer sampleの1分loadは2.41〜6.48。Mac miniは使用していない。
+
+| raw LZMA1 level 6 | 逐次 MB/s | MT MB/s | 逐次秒 | MT秒 | speedup |
+|---|---:|---:|---:|---:|---:|
+| text 4 MiB | 4.041 | 6.534 | 1.038050 | 0.641943 | 1.617× |
+| Mach-O試験実行file 20,517,408 byte | 6.776 | 11.467 | 3.027832 | 1.789330 | 1.692× |
+| random 16 MiB | 7.480 | 17.324 | 2.243050 | 0.968456 | 2.316× |
+| mixed z-large.dat 64 MiB | 13.696 | 15.110 | 4.899742 | 4.441325 | 1.103× |
+
+text / binaryの1.25倍目標は達成。mixedの改善は1.103倍に留まる。finderの表更新は一つのThreadで逐次実行する。
+HC4 presetの速度比較は今回のlevel 6測定の対象外。byte identityは全level / extremeで検査する。
+
+writer harnessは `swift build -c release --package-path Benchmarks --scratch-path "$PWD/.build/bench-release"
+--product gyoshuku-multicore --disable-sandbox -debug-info-format none` でbuildし、指定corpusに対して
+`gyoshuku-multicore <corpus> <sample.jsonl> <case> 16 <label> corpus batch` を各3回実行した。
+共通の`result-new.archive`の競合を避けるためlabelだけ`lzma-mt-new-<round>-<case>`へ変えた。
+入力は各case 268,435,456 byte、同じcaseの3回の出力サイズ・SHA-256は一致した。
+
+| writer case | 秒（3 sample） | best秒 | 出力byte |
+|---|---|---:|---:|
+| zip-lzma | 6.027600 / 6.081846 / 6.052139 | 6.027600 | 83,874,740 |
+| 7z-lzma-solid | 5.300184 / 5.359229 / 5.337895 | 5.300184 | 70,176,846 |
+| tar.lzma | 17.784104 / 17.766333 / 17.740243 | 17.740243 | 68,215,836 |
+
+変更前に提示されたZIP約6.24秒 / 7z solid約5.48秒に対して、それぞれ約1.035 / 1.034倍。
+実writerの改善幅はraw text / binaryより小さい。tar.lzmaの変更前baselineはこの比較に含めていない。
+全sampleは `.build/lzma-mt-results/{raw-final-samples,writer-final-samples}.jsonl` に保存した。
+
+専用試験は全preset 0〜9 / extreme、小辞書4 KiB・大辞書1 MiB、空・1 byte・text・Mach-O・random・
+反復・mixed、push幅1 / 7 / 4096 / 65537 / 262144、available=1〜273、reserve / 64 KiB境界、
+2×windowを超える入力、サイズ未知、最終pushとfinishの組合せを検査する。全presetでcompactを通し、
+BT4 / HC4の候補列とhash/sonを直接照合する。全writer preset / extremeも1 / 2 / 16 / 36 threadsで一致した。
+取消しのjoinは2秒未満をassertし、保持したencoderのerror、サイズ検査からの再試行、read / sink error、
+abandon / deinitでworkerの開始・終了数を照合する。LZMA2の既定finderと出力は維持する。
+
+最終sourceの対象試験はdebug 19 tests / 0 failures（409.216秒）、release 21 tests / 0 failures（30.571秒）。
+writerの全preset / extremeは400条件を含む。取消し試験全体はrelease 0.057秒で成功し、取消し後joinを2秒未満で検査した。
+ZIPのfile入力は読取りでatimeが変わるため、byte比較前にatime / mtimeを毎回固定する。
+7zの通常窓を二core分減らした結果、flush前に返る先頭folderの予約をprogress試験の期待値にも反映した。
+指定の広いfilterは233 tests / 16 skipped / 4 assertion failures（1988.489秒）。失敗caseは上記fixtureの二つだけだった。
+実行中にfixtureを修正したため、この旧binaryの結果と最終sourceの再検証は区別する。
+修正後の広いfilter一括再実行はしていないが、両失敗caseを含む最終sourceのdebug / release対象試験はすべて成功した。
 
 `LZMAMatchFinderProbeTests`は並列finderを再検討するためのrelease専用probe。
 `GYOSHUKU_LZMA_FINDER_PROBE=1 swift test -c release -Xswiftc -enable-testing --filter LZMAMatchFinderProbeTests`

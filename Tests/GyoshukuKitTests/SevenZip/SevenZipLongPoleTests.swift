@@ -133,7 +133,7 @@ final class SevenZipLongPoleTests: XCTestCase {
             let longStarted = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
             let seen = Mutex<(Int, Int)?>(nil)
             let single = method == .lzma || method == .ppmd || method == .copy
-            let count = single ? 4 : 2
+            let count = method == .lzma ? 2 : single ? 4 : 2
             let task = Task.detached {
                 try EntryCompressionConfiguration.$testingInputLimit.withValue(Self.limit) {
                     try SevenZipWriter.$testingWorkerRead.withValue({ name, _ in
@@ -158,11 +158,42 @@ final class SevenZipLongPoleTests: XCTestCase {
             try await LZMA2ChunkPipelineTests.wait(longStarted)
             let observed = try XCTUnwrap(seen.withLock { $0 })
             XCTAssertEqual(observed.0, count)
-            if single { XCTAssertEqual(observed.1, 1) }
+            if single { XCTAssertEqual(observed.1, method == .lzma ? 2 : 1) }
             else if method != .bzip2 { XCTAssertEqual(observed.1, 2) }
             for _ in 0..<count * 16 { release.signal() }
             try await task.value
             try FileManager.default.removeItem(at: root)
+        }
+    }
+
+    func testTwoCoreLZMALongPoleDrainsNormalReservationsAndUsesBothCores() throws {
+        let root = try TestSupport.directory("7z-lzma-two-core-long-pole")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for solid in [false, true] {
+            let observed = Mutex<(Int, Int)?>(nil)
+            let before = LZMAMatchFinderPipeline.testingWorkerCounts
+            try EntryCompressionConfiguration.$testingInputLimit.withValue(Self.limit) {
+                try SevenZipWriter.$testingWillSubmit.withValue({ name, pending, streamed, threads in
+                    if name == "long" {
+                        XCTAssertTrue(streamed)
+                        observed.withLock { $0 = (pending, threads) }
+                    }
+                }) {
+                    let writer = try ArchiveWriter.create(url: root.appendingPathComponent("\(solid).7z"), format: .sevenZip,
+                        options: Self.options(.lzma, solid: solid, filter: solid ? .delta(distance: 4) : .none, threads: 2))
+                    for index in 0..<2 {
+                        try writer.add(data: Self.payload(Self.limit), as: "medium-\(index)", modificationDate: TestSupport.date)
+                    }
+                    try writer.add(data: Self.payload(3 * Self.limit), as: "long", modificationDate: TestSupport.date)
+                    try writer.finish()
+                }
+            }
+            let reservation = try XCTUnwrap(observed.withLock { $0 })
+            XCTAssertEqual(reservation.0, 0)
+            XCTAssertEqual(reservation.1, 2)
+            let after = LZMAMatchFinderPipeline.testingWorkerCounts
+            XCTAssertGreaterThan(after.starts, before.starts)
+            XCTAssertEqual(after.live, before.live)
         }
     }
 
@@ -213,13 +244,13 @@ final class SevenZipLongPoleTests: XCTestCase {
                     }) {
                         try SevenZipWriter.$testingWillSubmit.withValue({ name, count, streamed, threads in
                             if name == "long" {
-                                XCTAssertTrue(streamed); XCTAssertEqual(threads, 1)
+                                XCTAssertTrue(streamed); XCTAssertEqual(threads, method == .lzma ? 2 : 1)
                                 pending.withLock { $0 = count }
                             }
                         }) {
                             let writer = try ArchiveWriter.create(url: root.appendingPathComponent("archive"), format: .sevenZip,
                                 options: Self.options(method, solid: false, filter: .none))
-                            for index in 0..<4 {
+                            for index in 0..<(method == .lzma ? 2 : 4) {
                                 try writer.add(data: Self.payload(Self.limit), as: "medium-\(index)", modificationDate: TestSupport.date)
                             }
                             try writer.add(data: Self.payload(3 * Self.limit), as: "long", modificationDate: TestSupport.date)
@@ -230,7 +261,7 @@ final class SevenZipLongPoleTests: XCTestCase {
             }
             defer { for _ in 0..<32 { release.signal() } }
             try await LZMA2ChunkPipelineTests.wait(started)
-            XCTAssertEqual(pending.withLock { $0 }, 4)
+            XCTAssertEqual(pending.withLock { $0 }, method == .lzma ? 2 : 4)
             for _ in 0..<32 { release.signal() }
             try await task.value
             try FileManager.default.removeItem(at: root)
@@ -416,6 +447,10 @@ final class SevenZipLongPoleTests: XCTestCase {
             var emissions: [UInt64] = []
             try writer.flush(position: { position }, write: { position += UInt64($0.count) }, didEmit: { emissions.append($0) })
             XCTAssertEqual(emissions, expected)
+            // LZMAは通常二枠+long-pole二core。第三folderの追加時に先頭の予約を既に返す。
+            if method == .lzma {
+                XCTAssertEqual(emissions, sizes.dropFirst().map { UInt64(min($0, Self.limit)) })
+            }
             XCTAssertEqual(emissions.reduce(0, +), pending)
             writer.abandon()
             let descriptors = Mutex<[Int32]>([])
