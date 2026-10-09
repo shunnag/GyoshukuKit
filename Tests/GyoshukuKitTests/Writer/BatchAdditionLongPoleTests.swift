@@ -84,6 +84,14 @@ final class BatchAdditionLongPoleTests: XCTestCase {
 
     // 小さい入力上限で実際のstream経路を通し、先行を無効にした従来batchとも通知列を比較する。
     func testBytesAndEventsMatchItemAndPreviousBatchAllPositionsAndThreadCounts() throws {
+        // ZIP の DOS timestamp を固定ハッシュ取得時の JST に揃える。
+        let originalZone = getenv("TZ").map { String(cString: $0) }
+        setenv("TZ", "Asia/Tokyo", 1)
+        NSTimeZone.resetSystemTimeZone()
+        defer {
+            if let originalZone { setenv("TZ", originalZone, 1) } else { unsetenv("TZ") }
+            NSTimeZone.resetSystemTimeZone()
+        }
         let root = try TestSupport.directory("batch-lpt-identity")
         defer { try? FileManager.default.removeItem(at: root) }
         try EntryCompressionConfiguration.$testingInputLimit.withValue(Self.limit) {

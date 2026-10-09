@@ -56,6 +56,14 @@ final class BatchLargeFileTests: XCTestCase {
     }
 
     func testParallelPieceByteIdentityAgainstBranchAndItemAPI() throws {
+        // ZIP の DOS timestamp を固定ハッシュ取得時の JST に揃える。
+        let originalZone = getenv("TZ").map { String(cString: $0) }
+        setenv("TZ", "Asia/Tokyo", 1)
+        NSTimeZone.resetSystemTimeZone()
+        defer {
+            if let originalZone { setenv("TZ", originalZone, 1) } else { unsetenv("TZ") }
+            NSTimeZone.resetSystemTimeZone()
+        }
         let root = try TestSupport.directory("batch-piece-branch-identity")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try inputs(root, sizes: [128 << 10, 128 << 10, (17 << 20) + 1])
