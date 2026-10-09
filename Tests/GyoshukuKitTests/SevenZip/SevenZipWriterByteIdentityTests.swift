@@ -23,7 +23,7 @@ final class SevenZipWriterByteIdentityTests: XCTestCase {
             "789409389ca2ef9b2f3934dd224645ffdc418557e9d0b02898b2f382d1dd8a55"
         ]
         for mode in 0..<3 {
-            for threads in [1, 8] {
+            for threads in [1, 8, 16] {
                 let counter = Mutex<UInt8>(0)
                 let url = directory.appendingPathComponent("\(mode)-\(threads).7z")
                 try SevenZipAESEncryptor.$testingIV.withValue({

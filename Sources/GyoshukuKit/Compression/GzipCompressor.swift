@@ -23,7 +23,7 @@ final class GzipCompressor: TarCompressor {
     init(level: Int, threads: Int = WriterOptions().resolvedCompressionThreads,
          blockSize: Int = DeflateBlock.size, encoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode) throws {
         guard (0...9).contains(level) else { throw WriterError.invalidOption("deflateLevel") }
-        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        guard WriterOptions.compressionThreadsRange.contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         precondition((1...DeflateBlock.size).contains(blockSize))
         self.level = level
         self.blockSize = blockSize

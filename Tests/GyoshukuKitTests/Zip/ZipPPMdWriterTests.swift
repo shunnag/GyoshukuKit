@@ -108,7 +108,8 @@ final class ZipPPMdWriterTests: XCTestCase {
         for threads in [1, 4] {
             let work = try TestSupport.work(in: root), url = work.appendingPathComponent("archive.zip")
             let options = WriterOptions(compressionMethod: .ppmd, ppmdOrder: 6, ppmdMemoryMiB: 1, compressionThreads: threads)
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), threads == 1 ? 0 : 64 << 20)
+            // 4 threadsでは通常四枠と大項目の先行一枠で、16 MiBを五枠分予約する。
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .zip), threads == 1 ? 0 : 80 << 20)
             try PPMdWriterTestSupport.write(url, format: .zip, options: options, items: [item])
             let bytes = try Data(contentsOf: url)
             if let baseline {

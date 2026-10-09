@@ -13,11 +13,11 @@ Xcode 26 / Swift 6.3 はビルドできても release で誤動作するため�
 
 ## インストール
 
-Swift Package Manager で GyoshukuKit 0.8.0 を追加します。
+Swift Package Manager で GyoshukuKit 0.9.0 を追加します。
 
 ```swift
 // Package.swift の dependencies
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.8.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.9.0"))
 
 // 利用側 target の dependencies
 .product(name: "GyoshukuKit", package: "GyoshukuKit")
@@ -122,14 +122,19 @@ ZIP の既定は互換性を重視した Deflate です。BZip2 / LZMA / Zstanda
 | `zstdLevel` / `ppmdLevel` / `lhaLevel` | `3` / `6` / `6` | `1...19` / `1...9` / `1...9` |
 | `password` / `zipEncryption` | `nil` / `.aes256` | ZIP・7z の暗号化 |
 | `sevenZipSolid` / `sevenZipFilter` | `.off` / `.none` | 7z のまとめ方と前処理 |
-| `compressionThreads` / `memoryLimit` | `nil` / `nil` | 並列数の自動解決、対応 codec のメモリ予算 |
+| `prefersSpeed` | `false` | 速さ優先。既知サイズの圧縮片・7z solid folderを増やす。[分割規則と比率のトレードオフ](Documentation/options.md#速さ優先) |
+| `compressionThreads` / `memoryLimit` | `nil` / `nil` | 並列数 `1...1024` の自動解決、対応 codec のメモリ予算 |
+| `powerPolicy` | `.reduceInLowPowerMode` | 自動並列数の省電力・温度方針 |
 
-全24項目の既定値・範囲と圧縮待ちの入力量の上限は[設定リファレンス](Documentation/options.md)にまとめています。
+全26項目の既定値・範囲と圧縮待ちの入力量の上限は[設定リファレンス](Documentation/options.md)にまとめています。
 一括追加には `ArchiveAddition` と `add(_:events:)`、読取・圧縮待ち・commit の進捗 API も使えます。[詳細](Documentation/usage.md#一括追加と進捗)
 
 ## 性能とスレッド
 
-並列数の自動設定は CPU 数・物理メモリ GiB・8 の最小値（最低1）。codec・項目サイズ・メモリ予算によって実際の並列数を制限します。
+自動並列数は有効 logical CPU 数と物理メモリ GiB の最小値（最低1）。既定の `powerPolicy` は Low Power Mode で減らします。
+`.reduceInLowPowerModeOrThermalPressure` は thermal state が serious / critical の場合も減らし、`.alwaysUseAllCores` は電力・温度による削減をしません。
+writer / updater は開始時に一度解決し、codec・項目サイズ・メモリ予算と GCD pool の安全上限で実際の並列数を制限します。
+アプリの自動値表示には `WriterOptions.automaticCompressionThreads(powerPolicy:)`、明示値の範囲には `WriterOptions.compressionThreadsRange` を使います。
 同じ writer は thread-safe / Sendable ではありません。`WriterOptions` は `Sendable` です。
 速度・サイズ・RSS の測定条件は [Benchmarks](Benchmarks/README.md) と[並列処理の検証記録](Documentation/verification/2026-10-07-writer-multicore.md)を参照してください。
 
@@ -157,7 +162,7 @@ KaitoKit 0.12.x (>= 0.12.0, < 0.13.0) is resolved automatically as a dependency.
 
 ```swift
 // Package.swift dependencies
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.8.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.9.0"))
 // Target dependencies
 .product(name: "GyoshukuKit", package: "GyoshukuKit")
 ```

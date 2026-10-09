@@ -194,7 +194,7 @@ LZMA1 は最悪 literal 膨張の上界として16 × 入力長 + 1,024 byteを�
 macOS Archive Utility / ditto と `/usr/bin/unzip` は method 12 / 14 / 95 / 98 を展開できない。
 Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 7-Zip を使う場合の opt-in とする。
 
-### ZIP / 7z BZip2 の単一stream並列圧縮
+### ZIP / 7z BZip2 / 単独.bz2 の単一stream並列圧縮
 
 `Bzip2BlockScanner` はsystem libbz2のRLE1入力段をSwiftでO(n)走査する。
 照合元はbzip2 1.0.8のBSD形式ライセンスの
@@ -206,12 +206,23 @@ Deflate を互換性の既定とし、BZip2 / LZMA / XZ / PPMd は KaitoKit や 
 独立した `BZ2_bzCompressInit(level, 0, 30)` でも同じblock内容・block CRCになる。
 `BZ_FINISH` は残り入力0の処理を満杯判定より優先するので、末尾のrunは最後のblockに数える。
 
-chunkは通常1〜5 block。既知の入力長 / 予約threads / block上限からblock数を選び、
-16 MiB・level 9・threads 12なら約900 KBずつ、推定19片となる。
-入力capは各chunk 8 MiB。長い同値run（level 9の一blockは約45 MBの原入力を含み得る）で
-capに達したときは強制切断し、その位置からscannerを初期化する。
-強制切断がなければ逐次libbz2とbyte一致し、切断時も復号内容は同じ標準の単一streamとなる。
-並列数1は既存stream経路、一block以下の入力も既存codecで符号化する。
+chunkの目標幅はlevelと入力サイズだけで決め、並列数・CPU topology・メモリ予算には依存させない。
+`B = 100000 × level - 19`、既知サイズS>0の推定block数を `N = ceil(S / B)` とし、
+目標幅を `W = B × min(5, max(1, floor(N / 32)))` とする。
+2 block以上は推定で `min(N, 32)` 片以上を確保し、巨大入力では5 block幅を上限にする。
+level 9の10 MiBはW=Bで12片、64 MiBはW=2Bで38片、1 GiBはW=5Bで239片。
+level 1では同じ入力がそれぞれW=3Bで35片、W=5Bで135片、W=5Bで2148片になる。
+サイズ不明（S=0）のstreamingは固定W=Bとし、中程度の入力も早く並列codecへ渡す。
+完全なblock境界まで走査するため、RLEによって一片の実block数・入力長・実片数は変わる。
+予約用の `estimatedChunkCount` は同じWによる `ceil(S / W)` を公開範囲 `compressionThreadsRange` の1024まで数え、S=0は1とする。
+入力capは各chunk 8 MiB。長い同値runでcapに達したときは強制切断し、その位置からscannerを初期化する。
+並列数1の大入力も同じscanner・切断・spliceを使い、workerは inline 実行し、結果を直ちに出力する。
+cap未満の既知入力の1 thread処理と一block以下の入力は既存codecを使う。
+既知入力の逐次経路は最後の1 byteをfinishまで保持し、末尾の満杯blockをBZ_RUNで先に確定させない。
+入力とfinishを別writeで渡しても、片をBZ_FINISHで圧縮するsplice経路と同じblock境界を保つ。
+capちょうどの既知入力もspliceを使い、最後の入力とfinishを別writeで渡した場合の強制切断を揃える。
+強制切断の有無にかかわらず並列数1/2/7/12/36/64でbyte一致する。強制切断時のbyteは従来の逐次libbz2とは異なるが、標準の単一streamを維持する。
+1スレッドもspliceのbuffer予約に含め、公開の入力上界は `(t + 1) × 8 MiB`（最低16 MiB）にする。
 
 `OrderedChunkPipeline` がchunkを並列符号化し、入力順にbitをspliceする。
 byte境界が揃うpayloadは一括copyし、揃わないpayloadは64 bit単位でshiftする。
@@ -222,11 +233,15 @@ block数mのchunk CRCをCとして全体CRCを `rotl(crc, m) XOR C` で結合し
 最後にEOS・全体CRC・零paddingを一度だけ書く。block数はscannerで数え、byte一致試験で照合する。
 Mac miniの事前probeでは連結streamをZIP / 7zに入れると7zzが最初のstreamだけを展開し
 rc=2・切詰め、Python zipfileはBad CRC-32、bsdtarも失敗したため、このspliceを採る。
-tar.bz2 / 単独.bz2の `ParallelBzip2Compressor` は従来の連結streamを保つ。
+tar.bz2の `ParallelBzip2Compressor` は従来の連結streamと固定幅 `5 × level × 100000` を保つ。
+単独.bz2は `SingleStreamWriter` が通常fileの既知サイズを `ParallelBzip2StreamEncoder` へ渡す。
 
-ZIP（一括disk追加も含む）と非solid/filterなし7zは5 block上限を超える項目で
-項目窓をdrainし、内側threadsを使う。
-それ以下の複数項目は既存の項目窓で各workerをthreads=1にする。
+ZIP（一括disk追加も含む）と非solid/filterなし7zの項目窓上限は `5 × B` とし、levelだけで固定する。
+上限以下は項目窓で各workerをthreads=1にし、複数項目を並列に圧縮する。
+ZIPの一括disk追加も同じ上限で先読みし、先行項目を窓に保持する。
+上限を超える項目は項目窓をdrainし、入力サイズ別のchunk幅で内側threadsを使う。
+項目窓の上限は全levelで8 MiB cap未満なので強制切断されず、逐次libbz2とspliceのbyteは一致する。
+level 1 / 9の上限直前・ちょうど・直後でthreads 1 / 7 / 36の通常追加と一括追加のbyte一致を検査する。
 solid/filterの7zは推定片数を予約し、`assignedThreads` の合計を予算内に保つ。
 filter付きsolidに次folderがあるときは、内側の予約を `max(1, 予算threads / min(4, folder窓threads))`
 以下に分配する。filterはfolder内で逐次なので、先頭folderが全予約を取ると他folderのfilterも待たされる。
@@ -236,13 +251,12 @@ filterの後に圧縮し、spliceしたbyteを従来のAES / ZipCrypto層へ渡�
 solidのworkerは共有取消しを内部の容量待ちでも観測し、source descriptorの回収だけを待つ。
 
 C=8 MiB、O=C+floor(C/100)+601、E=400000+800000×level、I=256 KiBとすると、
-内側t>1のメモリ予約は `(t+2)C + t(O+E+I)`。入力(t+1)片に加え切断copy、
+内側t>=1のメモリ予約は `(t+2)C + t(O+E+I)`。入力(t+1)片に加え切断copy、
 圧縮結果、codecとI/Oを含める。Oは[libbz2 manual §3.5.1](https://sourceware.org/bzip2/manual/manual.html#bzbufftobuffcompress)
 の出力上界を使い、結果bufferを先に予約して成長時の余剰容量を抑える。
 threadsは物理メモリの半分と `memoryLimit` の小さい方で絞る。一枠も入らない指定では
 従来どおりthreads=1へ戻し、既存のoptionを拒否しない。
-項目窓の逐次codec予約はEのままなので既存の固定期待値は変えず、
-solid窓は内側の全予約を各枠に数える。新しい固定表は `Bzip2SpliceTests` に置く。
+項目窓の逐次codec予約も上のt=1の予約を使い、solid窓は内側の全予約を各枠に数える。幅・片数・メモリ予約の固定表は `Bzip2SpliceTests` に置く。
 
 Mac mini M4でのbase 9d46fe2とda08ba6の交互比較は
 [BZip2 splice検証記録](verification/2026-10-08-bzip2-splice-mini-ab.md)に記載する。
@@ -435,7 +449,7 @@ bzip2 は運ぶ stream の元の level を維持する。CRC64 の xz、地図�
 進捗の total は橋の image byte、運ぶ圧縮 byte、自己照合の圧縮/framing 読取 byte の合計。
 圧縮長を先に求めて total を固定し、その後に出力を作る。並列数 × piece × 2 の
 cache に符号化結果を残し、収まらない fullEncode の chunk は書出し時に再符号化する。
-xz の cache 上限は8 threadsで256 MiBのまま。事前符号化と書出しの両方に下記の軽い block の枠を使う。
+xz の cache 上限は片が16 MiBなら8 threadsで256 MiB、明示16 threadsなら512 MiB（自動値に固定上限はない）。事前符号化と書出しの両方に下記の軽い block の枠を使う。
 追加の圧縮 spool は作らない。この事前符号化中も Task の取消しを確認するが、
 最初の進捗通知は total が確定した後になる。callback の throw・再入も失敗として扱う。
 
@@ -682,7 +696,7 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 |---|---|
 | ZIP stored | 0 |
 | ZIP LZMA / Zstandard / PPMd | `t > 1 ? t × 16 MiB : 0`（tは項目窓の予算で解決） |
-| ZIP / 非solid/filterなし7z BZip2 | `max(項目窓の上界, 内側t > 1 ? (t+1) × 8 MiB : 0)` |
+| ZIP / 非solid/filterなし7z BZip2 | `max(項目窓の上界, (t+1) × 8 MiB)` |
 | ZIP Deflate | `t × DeflateBlock.size`（ZipCrypto は 0） |
 | ZIP XZ | `max((t + 1) × 片, 項目窓の上界)`（大項目は終了時にblockを全て出力） |
 | tar | 0 |
@@ -694,7 +708,7 @@ writer の addEntry も単一の `reserveEntryName` / `existingPathCheck` より
 | 7z Deflate | `t × 1 MiB` |
 | 非solid/filterなし7z LZMA / PPMd | `t > 1 ? t × 16 MiB : 0` |
 | 非solid/filterなし7z Copy | 0 |
-| 7z solid / filter | `f × (solidならblockSize、非solidなら16 MiB)`（disk上の入力。fはfolder窓）BZip2は内側t>1ならさらに`(t+1+f) × 8 MiB` |
+| 7z solid / filter | `f × (solidならblockSize、非solidなら16 MiB)`（disk上の入力。fはfolder窓）BZip2はさらに`(t+1+f) × 8 MiB` |
 | LHA LH5 / LH6 / LH7 | `t > 1 ? max(項目窓の上界, t × (1 MiB + 8 / 32 / 64 KiB)) : 0` |
 | LHA stored | 0（同期処理） |
 
@@ -888,15 +902,15 @@ Apple LZMA2 と他の方式の基準辞書は8 MiB、自前 LZMA / LZMA2 は指�
 空 file / directory は EmptyStream のままで、件数とサイズには数えない。拡張子による並べ替えは行わない。
 folder の全サイズ確定後に `SevenZipFolderEncoder` を使うので raw LZMA の expectedSize も既知となる。
 圧縮前と圧縮後のfolderをunlink済みspoolで保持し、投入順に出力する。
-未出力folderと組立中folderを合わせt枠以下（t <= 16）。並列投入する各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
+未出力folderと組立中folderを合わせt枠以下（tは要求数・GCD poolの安全上限・メモリ予算で解決）。並列投入する各入力はsolidならblockSize、非solid/filterなら16 MiB以下。
 blockSizeが256 MiBを超える場合とfilterなしCopyはfolder間の並列化を使わず、従来の同期経路へ戻す。
-従って並列入力spoolの一時disk上界はt × blockSize <= 4 GiB（非solid/filterはt × 16 MiB <= 256 MiB）。
+従って並列入力spoolの一時disk上界はt × blockSize（非solid/filterはt × 16 MiB）。tは要求数・GCD poolの安全上限・メモリ予算で解決する。
 圧縮出力は各folderの最初の1 MiBをメモリに保持し、超過時だけspoolへ移す。
 通常の作業disk合計はこの入力上界と、未出力folderの圧縮長の合計（AESのpaddingを含む）。
 fileを分割しないため、組立中の単一fileが入力上限Lを超える場合だけ、入力disk上界にmax(0, fileSize - L)を加える。
 圧縮長に入力長の定数倍という仮定は置かない。同期経路の上限超過単一fileは入力spool一つと有界codec状態を使う。
 最終folderのflush時に他のfolderが無ければ同期経路で全threadsを使う。
-workerの内部並列数は実際の片数と未割当数でも制限し、未出力jobの割当合計を要求threads以下に保つ。出力開始時に予約を返す。各枠のcodec状態は引き続き要求threads分を保守的に予約する。
+workerの内部並列数は実際の片数と未割当数でも制限し、未出力jobの割当合計を要求threadsと予算内codec数の小さい方以下に保つ。出力開始時に予約を返す。各枠のcodec状態はfolder上限に入る最大片数分だけ予約する（単一stream codecは一つ、BZip2は既存splice予約）。
 上限を超える単一fileは前のfolderを出力し、既存の有界stream経路を使う。
 `pendingInputBytes` / `maximumPendingInputBytes`はdisk spoolの未圧縮byteも数える。
 `finishAdditions`は残るblockを閉じ、順に出力した入力byteを呼出側の進捗へ通知する。finishだけの場合と出力byteは同じ。
@@ -1207,6 +1221,10 @@ match / rep の各長さ、literal + rep0、match / rep + literal + rep0 の複�
 fast parser は GetOptimumFast の rep 優先と次位置の一致による遅延選択を使う。
 window、hash、tree / chain、確率、価格、parser node は unsafe buffer で確保し、入力全体を別途保持しない。
 window は辞書と先読み、入力 staging 分で、空きが足りなくなったときにだけ履歴を移す。
+raw の slack は実効辞書 D に対して `min(4 MiB, max(64 KiB, D / 2))`。
+旧64 KiBから増やし、8 MiB辞書では約8 MiBの履歴移動を数 MiBごとにまとめる。
+`push` の64 KiBごとの追加入力と `process(limit:)` の分割は維持するので、圧縮byteは変わらない。
+LZMA2 の slack は従来の2 MiBのまま。`memorySize` と writer の予約は実際の window 容量を共有する。
 位置参照は UInt32 で正規化して 4 GiB を越える stream でも wrap しない。
 一致長の延長と rep の比較は limit 内の未整列 UInt64 比較を使う。HC4 の skip は hash と chain の
 リンクだけを更新し、候補を走査しない。長さ価格は niceLen 以下の葉を親の価格から展開し、
@@ -1247,8 +1265,9 @@ preset の数値は [xz の lzma_encoder_presets.c](https://github.com/tukaani-p
 | 8 | 32 | BT4 / normal | 64 | 48 | 64.254 | 256 | 352.254 |
 | 9 | 64 | BT4 / normal | 64 | 48 | 64.254 | 512 | 640.254 |
 
-表は入力サイズ未知のときの確保量。これに probability / price / optimum / range buffer と raw LZMA1 の staging が
-約 0.5 MiB、LZMA2 はさらに約 2 MiB を使う。`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
+表は入力サイズ未知のときの確保量。これに probability / price / optimum / 初期 range buffer などの
+約0.5 MiBと、raw LZMA1 の slack 64 KiB〜4 MiB、または LZMA2 の slack 2 MiBを加える。
+`expectedSize` が小さければ宣言辞書を保ったまま実効辞書と
 match finder の表を縮める。API は辞書 1.5 GiB まで受け付けるが、確保前に総量と `memoryLimit` を照合する。
 既定の上限は 768 MiB で、上限超過や allocation 失敗は error にする。黙って小さい辞書へ変更しない。
 range 出力 buffer は初期 128 KiB で、確率の偏りによる膨張時だけ残りの memory budget 内で最大 16 MiB まで増やす。
@@ -1270,13 +1289,13 @@ extreme は BT4 / normal、level 3 / 5 が niceLen 192・自動 depth 112、そ�
 |---|---:|---:|---:|---:|---:|
 | 0 | 0.25 | 5 | 16 | 37 | 19 |
 | 1 | 1 | 10 | 16 | 42 | 25 |
-| 2 | 2 | 17 | 16 | 49 | 32 |
-| 3 | 4 | 31 | 16 | 63 | 46 |
-| 4 | 4 | 47 | 16 | 79 | 62 |
-| 5 / 6 | 8 | 91 | 16 | 123 | 106 |
-| 7 | 16 | 179 | 16 | 211 | 194 |
-| 8 | 32 | 355 | 96 | 547 | 370 |
-| 9 | 64 | 643 | 192 | 1027 | 658 |
+| 2 | 2 | 17 | 16 | 49 | 33 |
+| 3 | 4 | 31 | 16 | 63 | 48 |
+| 4 | 4 | 47 | 16 | 79 | 64 |
+| 5 / 6 | 8 | 91 | 16 | 123 | 110 |
+| 7 | 16 | 179 | 16 | 211 | 198 |
+| 8 | 32 | 355 | 96 | 547 | 374 |
+| 9 | 64 | 643 | 192 | 1027 | 662 |
 
 64-bit の通常 preset を MiB 単位で切り上げた値です。extreme のレベル0〜3は BT4 に替わり、
 それぞれ1 / 4 / 8 / 16 MiB増えます。raw LZMA1 の予算は range buffer の最大16 MiBと I/O を含みます。
@@ -1288,7 +1307,7 @@ Appleのnilレベルの既存block経路は従来のbyteと16 MiB境界を維持
 `MemoryLayout.stride`を照合した。通常preset、入力サイズ未知、LZMA2（`chunked: true`）、
 `memoryLimit = 3 GiB`、物理メモリ8 GiB、要求64 threadの結果は次のとおり。
 Eは`LZMAEncodingEngine.memorySize`、Mは`memoryPerThread = E + 2 × 片`（いずれもbyte）。
-tは`min(64, floor(3 GiB / M))`。右二列はHEADのZIP XZ / 非solid・filterなし7z LZMA2の入力上界。
+この表は明示threads=64の測定なのでtは`min(64, floor(3 GiB / M))`（64は既定上限ではない）。右二列はHEADのZIP XZ / 非solid・filterなし7z LZMA2の入力上界。
 
 | level | E: base → HEAD byte | M: base → HEAD byte | t: base → HEAD | ZIP MiB | 7z MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -1309,12 +1328,13 @@ matchが`274 × (16 - 8) = 2,192 byte`、bit価格表の増加が`4096 - 128 × 
 `LZMAMatchFinder.memorySize`のhash / son / CRCの式はbaseと同じで、match候補の縮小はengine側に計上する。
 辞書、片サイズ、probability、その他の価格表、range出力の初期容量も変わらない。
 
-HEADの`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
-Dは実効辞書、Hは`mask(for: D)`、lc / lpはproperties。各項は確保byte数と一致し、過少計上はない。
+現行の`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
+Dは実効辞書、Hは`mask(for: D)`、Sは`min(4 MiB, max(64 KiB, D / 2))`、lc / lpはproperties。
+各項は確保byte数と一致し、過少計上はない。
 
 | buffer | `memorySize`の項と確保byte数 |
 | --- | ---: |
-| window | `D + (chunked ? 2 MiB : 64 KiB) + 4369 + 64 KiB` |
+| window | `D + (chunked ? 2 MiB : S) + 4369 + 64 KiB` |
 | finder.hash | `(H + 1 + 1024 + 65536) × 4` |
 | finder.son | `(D + 1) × (BT4 ? 8 : 4)` |
 | finder.crc | `256 × 4 = 1024` |
@@ -1330,10 +1350,17 @@ range出力の伸長は`memoryLimit - required + 131072`以下（最大16 MiB）
 writerのraw予約は初期容量との差`16 MiB - 131072`を追加し、LZMA2は64 KiBのpack limitで区切る。
 小さい`expectedSize`による実効辞書の縮小も、完全な辞書で算出したwriter予約の範囲内。
 ここで数えるのはcodec bufferのbyte数であり、allocatorの管理領域やプロセス全体のRSSではない。
-`EntryCompressionConfiguration`はMに入力16 MiB・spool 1 MiB・I/O 1 MiBを追加し、最大16項目に制限する。
+`EntryCompressionConfiguration`はMに入力16 MiB・spool 1 MiB・I/O 1 MiBを追加し、要求数・GCD poolの1/4・メモリ予算で項目窓を制限する。
 この条件ではZIP XZのblock上界`(t + 1) × 片`が項目窓の上界以上になる。
 `Tests/`のraw / lzip / level-9の並列数、`MulticoreWriterTests`の項目窓の期待値、
 `WriterOptions`の式とその他の固定上界も照合し、更新が必要なのは上の固定表とraw level 0の切上げ値だった。
+
+2026-10-09のraw slack拡大では、`encoderMemory`、`memoryPerThread`を通じてlzipのmember数と
+ZIP / 7zの項目窓・pending入力上界にも新しい予約量を反映する。各解決側の式は共有計算を参照するため変更しない。
+`LZMAWriterConfigurationTests`は全levelのraw予約byte数とlzipの並列数・入力上界を固定値で検査し、
+level 6の新予約の三枠に1 byte足りない予算ではZIP / 7zの入力上界が32 MiBになることを確認する。
+`LZMAEncoderTests`は旧64 KiB slackをTaskLocalの試験用hookで強制し、256 KiB辞書より2倍以上大きい入力を
+幅1 / 7 / 65537 / 262144でpushしてHC4 / BT4の出力をbyte比較する。大辞書のlevel 4 / 6 / 9もサイズ未知で照合する。
 
 試験は KaitoKit の公開 `LZMADecoder` / `LZMA2Decoder`、xz の復号と byte 比較、`xz -t` と `7zz t` の
 独立 oracle を使う。writer は tar.xz の xz / tar 展開、7z と ZIP の `7zz t / l -slt / x`、
@@ -1419,13 +1446,101 @@ level 6の対xzはtext 105.6% / binary 98.5%、level 9は102.5% / 102.3%。約5%
 速度比較はこの同一 `-O -wmo` 条件を使い、round 1のrelease XCTest / `-enable-testing`計測とは混ぜない。
 
 2026-10-07 の LZMA1 並列 finder 試作は public-domain の `C/LzFindMt.c` の block 受渡しを参考に、
-`Thread` と semaphore、4096位置の二つの block で実装した。65536 byte の追加入力と window 移動にまたがる
-pause / resume、終端273 byte、memory budget、cancel / abandon を検証し、thread数1 / 2 / 4の出力が一致した。
-しかし実際の raw LZMA1 streaming の level 6、best-of-5 では text が3.424 → 4.494 MB/s（1.312倍）、
-binary が5.648 → 7.200 MB/s（1.275倍）で、binary の1.3倍条件を満たさなかった。
-固定windowの試作より、window移動・入力境界での同期と未使用候補の受渡しが増え、効果が下がった。
-採用条件を満たさず並列 finder、設定・writer 接続、専用試験は取り除いた。この計測は単一thread最終調整前の試作値である。
-raw LZMA1 は直列のまま。既存の LZMA2 chunk 並列と `ParallelLzipCompressor` は変更していない。
+`Thread` と semaphore、4096位置の二つの block で実装した。raw LZMA1 level 6のbest-of-5は
+textが3.424 → 4.494 MB/s（1.312倍）、binaryが5.648 → 7.200 MB/s（1.275倍）だった。
+当時の採用条件には届かなかったが、many-core Macの長い単一streamが未使用coreを残すため、
+2026-10-09に二段pipelineを採用する方針へ変更した。現在の実装と試験はこのworktreeで新規作成したSwiftであり、
+新たな外部reference sourceの読取り・Cの取り込みはない。
+
+`LZMAMatchFinderPipeline`はcaller/parserと専用finder `Thread`の二段。callerの`qos_class_self()`に合わせたQoSを使う。
+各blockは4096位置、候補を詰めた配列と位置ごとのoffsetを持ち、二つのblockを`NSCondition`で所有権移譲する。
+finderのhash/sonと位置stateは専用Threadだけが更新し、parserは候補を消費し、選択したmatch内の候補を読み飛ばす。
+BTでは全位置の木の走査結果と2/3 byte hash headの距離を保存する。短いhash候補の比較と
+273 byteまでの最後の候補の延長は表を変更しないので、parserが実際に読む位置だけで行う。
+短いhashで得たbest以下のBT候補を除けば、候補順・同長の距離優先も逐次と同一になる。
+HCではchainの走査結果を記録し、延長だけを読取時に行う。これは逐次の`ReadMatchDistances`相当の最終化であり、
+parserへ渡す候補列の長さ・距離は逐次と同一。skip位置の不要な比較・延長を省き、反復が多い長いstreamの費用を抑える。
+BT4の枝更新は`record`・候補の`best/count`を参照しない。HC4のskipはhashとchainのheadを保存するだけで、
+record時のchain走査はその表を変更しない。したがって全位置で候補を記録しても、後続位置の表と候補は逐次と一致する。
+`LZMAMultithreadedFinderTests`は全preset/extremeで可変skipを混ぜ、候補とhash/sonの全byteを直接比較する。
+
+pushの64 KiB処理境界と`process(limit:reserve:)`を保つ。投機的な先読みは`available >= 273`の位置までとし、
+最後の272位置はparserが要求した範囲だけ、その時点の`limit`で生成する。短いpushでまだ確定しない長さを記録しない。
+sizeMismatchはThreadをjoinしつつ表・未消費候補を保持し、再試行時に同じ状態からThreadを再開する。
+processから戻る前にfinderをpauseし、入力追記と`compact()`はworkerの読取り完了後に行う。
+compactでは未消費候補の距離を保ち、workerのwindow位置だけdrop分ずらす。finishの小さいlimitにも同じ規則を適用する。
+取消しはcallerが4096位置ごとにも検査し、error・finish・abandon・deinitでThreadをjoinしてからwindow/hashを解放する。
+候補二組とoffset、512 KiBのThread stack、管理余裕を合わせた追加予約は18,518,024 byte（約17.66 MiB）。
+`memorySize`・`encoderMemory`・`memoryPerThread`へ計上し、追加予約が収まらない任意高速化はfinder=1へ戻す。
+
+raw設定の内部`finderThreads`は1/2。単独`.lzma`と`tar.lzma`、inlineの単一ZIP項目/7z folder、
+ZIPのstreamed大項目、7zのlong-poleだけ、解決済みcompressionThreadsが2以上なら2を選ぶ。
+通常項目窓は1。7zはlong-poleのparser+finderに要求core数の内側から二枠を予約し、通常窓には残りを渡す。
+要求2では専用long-pole枠を作らず、通常jobをdrainして二枠を貸す。folderのメモリと入力窓は二重に予約しない。
+ZIPは通常窓を要求数−1以下にしてfinder用一core・buffer一組を別予約し、非待機の貸出しで同時に一つの大項目だけMTにする。
+他のstreamed項目は1で進める。LZMA2のchunk境界・finder並列数とlzipのmember並列は従来通り。
+
+`GYOSHUKU_LZMA_MT_BENCHMARK=1 swift test -c release --disable-sandbox -debug-info-format none
+-Xswiftc -enable-testing --filter LZMAMultithreadedBenchmarkTests`でtext/Mach-O/randomを各3回測る。
+`GYOSHUKU_LZMA_MT_BENCHMARK_FILE`で任意の入力を加える。level 6、初期化・compact・joinを含むraw streamingで、
+全sample・best秒・MB/s・speedup・出力byte数を`LZMA-MT-BENCH` + tab + JSONで報告し、出力を逐次と照合する。
+2026-10-09、16-core M4 Maxのrelease buildで各3回の最良値を採った。通常の試験と他worktreeの作業が
+同じMacで並行しており、writer sampleの1分loadは2.41〜6.48。Mac miniは使用していない。
+
+| raw LZMA1 level 6 | 逐次 MB/s | MT MB/s | 逐次秒 | MT秒 | speedup |
+|---|---:|---:|---:|---:|---:|
+| text 4 MiB | 4.041 | 6.534 | 1.038050 | 0.641943 | 1.617× |
+| Mach-O試験実行file 20,517,408 byte | 6.776 | 11.467 | 3.027832 | 1.789330 | 1.692× |
+| random 16 MiB | 7.480 | 17.324 | 2.243050 | 0.968456 | 2.316× |
+| mixed z-large.dat 64 MiB | 13.696 | 15.110 | 4.899742 | 4.441325 | 1.103× |
+
+text / binaryの1.25倍目標は達成。mixedの改善は1.103倍に留まる。finderの表更新は一つのThreadで逐次実行する。
+HC4 presetの速度比較は今回のlevel 6測定の対象外。byte identityは全level / extremeで検査する。
+
+writer harnessは `swift build -c release --package-path Benchmarks --scratch-path "$PWD/.build/bench-release"
+--product gyoshuku-multicore --disable-sandbox -debug-info-format none` でbuildし、指定corpusに対して
+`gyoshuku-multicore <corpus> <sample.jsonl> <case> 16 <label> corpus batch` を各3回実行した。
+共通の`result-new.archive`の競合を避けるためlabelだけ`lzma-mt-new-<round>-<case>`へ変えた。
+入力は各case 268,435,456 byte、同じcaseの3回の出力サイズ・SHA-256は一致した。
+
+| writer case | 秒（3 sample） | best秒 | 出力byte |
+|---|---|---:|---:|
+| zip-lzma | 6.027600 / 6.081846 / 6.052139 | 6.027600 | 83,874,740 |
+| 7z-lzma-solid | 5.300184 / 5.359229 / 5.337895 | 5.300184 | 70,176,846 |
+| tar.lzma | 17.784104 / 17.766333 / 17.740243 | 17.740243 | 68,215,836 |
+
+変更前に提示されたZIP約6.24秒 / 7z solid約5.48秒に対して、それぞれ約1.035 / 1.034倍。
+実writerの改善幅はraw text / binaryより小さい。tar.lzmaの変更前baselineはこの比較に含めていない。
+全sampleは `.build/lzma-mt-results/{raw-final-samples,writer-final-samples}.jsonl` に保存した。
+
+専用試験は全preset 0〜9 / extreme、小辞書4 KiB・大辞書1 MiB、空・1 byte・text・Mach-O・random・
+反復・mixed、push幅1 / 7 / 4096 / 65537 / 262144、available=1〜273、reserve / 64 KiB境界、
+2×windowを超える入力、サイズ未知、最終pushとfinishの組合せを検査する。全presetでcompactを通し、
+BT4 / HC4の候補列とhash/sonを直接照合する。全writer preset / extremeも1 / 2 / 16 / 36 threadsで一致した。
+取消しのjoinは2秒未満をassertし、保持したencoderのerror、サイズ検査からの再試行、read / sink error、
+abandon / deinitでworkerの開始・終了数を照合する。LZMA2の既定finderと出力は維持する。
+
+最終sourceの対象試験はdebug 19 tests / 0 failures（409.216秒）、release 21 tests / 0 failures（30.571秒）。
+writerの全preset / extremeは400条件を含む。取消し試験全体はrelease 0.057秒で成功し、取消し後joinを2秒未満で検査した。
+ZIPのfile入力は読取りでatimeが変わるため、byte比較前にatime / mtimeを毎回固定する。
+7zの通常窓を二core分減らした結果、flush前に返る先頭folderの予約をprogress試験の期待値にも反映した。
+指定の広いfilterは233 tests / 16 skipped / 4 assertion failures（1988.489秒）。失敗caseは上記fixtureの二つだけだった。
+実行中にfixtureを修正したため、この旧binaryの結果と最終sourceの再検証は区別する。
+修正後の広いfilter一括再実行はしていないが、両失敗caseを含む最終sourceのdebug / release対象試験はすべて成功した。
+
+`LZMAMatchFinderProbeTests`は並列finderを再検討するためのrelease専用probe。
+`GYOSHUKU_LZMA_FINDER_PROBE=1 swift test -c release -Xswiftc -enable-testing --filter LZMAMatchFinderProbeTests`
+で、既存の4 MiB text corpus、実在するMach-O（試験bundleの実行fileを優先）、固定seedの16 MiB randomを測る。
+`GYOSHUKU_LZMA_FINDER_PROBE_FILE`で任意の読み取り用fileを追加する。
+levelは既定6、`GYOSHUKU_LZMA_FINDER_PROBE_LEVELS=4,6,9`で増やせる。
+`GYOSHUKU_LZMA_FINDER_PROBE_REPEATS`は既定3、各計測の最良値を使う。
+`GYOSHUKU_LZMA_FINDER_PROBE_MAX_BYTES`は各入力を短くする起動確認専用で、通常の性能判断では未設定にする。
+corpus / levelごとに `LZMA-FINDER-PROBE` + tab + JSONの一行を出し、
+入力・実効辞書・出力byte数、秒、`f = finder_seconds / full_seconds`、候補数・checksum・縮小の有無を記録する。
+入力準備・checksumの報告・反復間の出力照合は計測外。finderとraw encoderの初期化はそれぞれの時間に含める。
+finderは全入力を一つのwindowで与え、各位置で `matches(..., record: true)`を呼ぶ。
+encoderの `record: false` skipや64 KiB入力境界とは異なるため、fは並列候補生成の費用を調べる目安であり、
+実際のencode時間の厳密な割合ではない。小さいfならfinder以外の改善を優先し、大きいfなら同期・候補受渡し込みの試作で再検証する。
 
 2026-10-07（round 3、改善版 `926d828`）の release targeted suite は52 tests / 0 failures、115.680秒。debug の短い通常試験は
 14 tests / 0 failures、2.836秒。両方 `--disable-sandbox --build-system native -debug-info-format none` を指定した。
@@ -1516,7 +1631,8 @@ git diff --stat
 
 `ArchiveFormat.tarLZMA / tarLzip / tarLZ4 / tarBrotli / tarCompress` は `isTar` に含め、
 名前・日時・所有者・リンク・record は既存の `TarWriter` を共有する。拡張子は呼出側が決める。
-`StreamCompressor` が tar と単独 file の sink を作る。既存 gzip / bzip2 / XZ の writer 接続・区切り・byte は維持する。
+`StreamCompressor` が tar と単独 file の共通sinkを作る。既存tarのgzip / bzip2 / XZの区切り・byteは維持する。
+単独.bz2は `SingleStreamWriter` から入力サイズを渡し、上の単一stream splice経路を使う。
 
 LZMA_Alone は自前 LZMA1 の逐次単一 stream。properties 1 byte、dictionary LE32、
 未知サイズ `UInt64.max` の13 byte headerを出し、EOSで閉じる。`lzmaLevel` の nil は6で、
@@ -1568,7 +1684,8 @@ sourceをlstatし、通常ファイル以外（directory / symlinkを含む）�
 失敗・Task cancellation・Progress.cancelでは `ArchiveOwnedFile` のpath/fd照合で自分のinodeだけを削除する。
 
 gzipは決定的header（FNAMEなし、MTIME 0、OS=3）と1 MiBの並列deflate block。
-bzip2はtarと同じ独立streamの連結、XZは単一stream内の独立blockで、nilはApple、指定levelは自前LZMA2。
+bzip2は上の入力サイズ別chunk幅でblockを並列圧縮し、単一streamへspliceする。tar.bz2の独立stream連結とは経路を分ける。
+XZは単一stream内の独立blockで、nilはApple、指定levelは自前LZMA2。
 LZMA / lzipのnilは自前level 6、extreme対応。LZ4は単一level、BrotliはApple固定level 2、compressはmaxbits 16。
 既存の `WriterOptions` のvalidationとLZMAメモリ予算を出力作成前に適用する。
 
@@ -2182,7 +2299,7 @@ t は要求並列数と64、`B / M` の最小値。一つも入らなければ�
 window は縮めない。allocator の管理領域は見積りに含めない。
 
 ZIP method 93はentryごとに一つのframeを符号化し、16 MiB以下のentryは独立workerで並列化する。
-ZIP内のframe連結は使わず、entry内の並列化は行わない。
+既定モードはZIP内のframe連結を使わない。`prefersSpeed` の大entryは下記の独立frameを使う。
 既知サイズのheader、128 KiB blockとchecksumを共通sinkに逐次渡す。
 一codecのMは上のCを128 KiBに置き換えたもの。項目窓の追加予約とpending inputは下のwriter並列化節を参照。
 [APPNOTE 6.3.10 §4.4.5](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の
@@ -2249,9 +2366,9 @@ LHAのseekを使う中memberの完成recordはdiskへ保持し、小memberはhea
 LHAの内部並列数は、1 MiBの実際の片数とmax(1, 要求threads / 投入後の未出力数)の最小値。
 未出力jobの合計を要求threadsで制限しない。round 3の合計上限はcorpus LH7/t=12をround 1比32.3%遅くしたため撤回する。
 先頭の出力までの割当上界はt×H(枠数)で、t=12なら約3t。先頭を出力して再投入する場合も、
-各jobは最大t、窓は最大16枠なので上界は枠数×t。各枠のcodec状態は元からt分予約し、入力窓も有界に保つ。
+各jobは最大t、窓はGCD poolの1/4以下なので上界は枠数×t。各枠のcodec状態は元からt分予約し、入力窓も有界に保つ。
 7z folderは実際の片数、未割当threads、max(1, 要求threads / 投入後の未出力数)の最小値。
-こちらは計測で費用が出なかったため、未出力jobの合計を要求threads以下に保つ。
+こちらは未出力jobの合計を`min(要求threads, floor(予算 / codec状態))`以下に保つ。BZip2は既存spliceの解決した並列数を使う。
 先頭の出力開始時に予約を返し、予算待ちは先頭だけをemitする。出力失敗は窓をabandonし、二重返却しない。
 7z LZMA2/Deflateは既存chunk幅での片数まで、7zの単一stream codecは1とする。
 内部writerには項目窓を作らず再帰を防ぐ。ZIP一括追加も同じ項目窓を使い、
@@ -2264,15 +2381,48 @@ solid/filter folderの窓は上のsolid節のとおり。取消しは共有latch
 abortは項目・片の着手済みworkerを待ってspool descriptorを解放する。
 LHAの片窓と7z folder内の窓も成功・失敗・取消しのすべてで終了を待ち、補助spoolを閉じる。
 
+一括追加では、要求threadsが4以上で対応する窓があるとき、通常ファイルをlstatして
+単一streamの候補から入力長が最大の一件を先行符号化する。同長なら小さいindexを選ぶ。
+対象はZIP LZMA・PPMd・単一frame Zstandard、非solid 7z LZMA1・PPMd・BZip2。
+7z solidはLZMA1・PPMdでblock上限を超え、前後と結合されない単独folderだけを対象にする。
+7zのAES/filter、ZipCrypto、ZIP XZ、速さ優先のZstandardと7z LZMA2は従来の経路を使う。
+名前の予約とwillStartは通常のindex順に残す。事前走査の失敗は通常の準備時に再検査する。
+同じinodeを複数回追加するファイルを候補から外し、再帰directoryを含むbatchではatimeの順序を保つため先行しない。
+early spool作成・読取・encoderの失敗は結果に保持して元のindexで取り出す。
+このため後方の先行失敗より前方の準備・worker・出力の失敗が優先される。
+先行ファイルの開始前のatimeも保持し、early readによるheader byteの変化を防ぐ。
+open後と読取後のfstatに加え、通常準備時と出力直前にもDiskSignatureを検査する。
+先行読取のfdはSourcePrefetchLimiterの最大4本に含む。読取・符号化中は通知せず、
+元のindexで既存の4 MiB間隔のprogressとdidFinishを再現する。
+
+early結果は最初からunlink済みのOrderedEntrySpoolに置き、通常窓の外に最大一件だけ保持する。
+maximumPendingInputBytesは対象ZIPの通常窓に+16 MiB、非solid 7zの通常窓とstream専用枠に+16 MiB、
+solid 7zの通常folder窓とstream専用枠に+block上限を加える。対象外と要求threadsが1〜3の場合は従来どおり。
+codec状態の予約は増やさず、ZIPは先行workerが動く間だけ通常workerの実行を一枠抑え、投入窓幅は保つ。
+7z LZMA1/PPMdは既存の専用codec、非solid BZip2は共有codecの半数（最低二枠、実際の片数まで）を借りる。
+先行BZip2の完了を確認したらcodecを通常項目へ返し、出力spoolだけを保持する。
+前のAPI呼出しで専用枠を使用中、またはBZip2の共有codecが足りない場合は先行しない。
+別の長いstreamが先に現れた場合はearlyをjoinし、失敗を報告せず結果を保持したままcodecを返す。
+disk出力は通常窓・stream専用枠にearly一件分を加え、early spoolを最大256 × 入力長 + 1 MiBに制限する。
+失敗・取消しは共有latchを立て、earlyを含む着手済みworkerをjoinしてsourceとspoolのfdを閉じる。
+未着手workerの捕捉入力も完了通知より先に解放し、joinの返却後にGCDのclosureが残ってもfdを保持しない。
+folder内の連結順、folder分割、codecのstream・block・frame境界は変えない。
+
+multicore harnessは既定のoptionsを維持する。GYOSHUKU_BENCH_PREFERS_SPEED=1でprefersSpeedを設定し、
+multicore.pyの--prefers-speedも同じ環境変数を使う。speedのsampleはprefers_speed=trueを記録し、
+既定の集計・再開対象と混在させない。
+
 一workerの予約は`S + 16 MiB + 1 MiB + 4 × IOChunk.size`（IOChunk=256 KiB）。
-LHA項目窓と7z solid/filter窓はSを要求threads分予約する。Sは以下。
+LHA項目窓はSを要求threads分予約する。7z solid/filter窓は一枠につき`I/O + 最大片数 × S`を予約する。
+LZMA1/PPMd/Copyの最大片数は1、LZMA2/Deflateは`min(要求threads, ceil(folder上限 / 片サイズ))`。
+folder上限はsolidのblockSize、filter付き非solidは16 MiB。既存の片サイズとfolder区切りは変えない。Sは以下。
 
 | codec | S |
 |---|---|
 | 自前LZMA1 / XZ / 7z LZMA2 | 既存`LZMAWriterConfiguration.memoryPerThread` |
 | Apple XZ / LZMA2 | 130 MiB |
 | Zstandard | 既存streaming用`ZstdWriterConfiguration.memoryPerThread` |
-| BZip2 | `400,000 + 8 × level × 100,000` byte |
+| BZip2 | `ParallelBzip2StreamEncoder.memoryReservation(level:threads: 1)`（level 9は41,501,063 byte） |
 | PPMd | 指定model memory + 2 MiB |
 | Deflate / Copyのfilter folder | 4 MiB |
 | LHA中member | 8 MiB（LH7の約3.7 MiB＋符号列の一時コピー・Huffman領域） |
@@ -2281,8 +2431,17 @@ LZMA/XZ/Zstandardの新規項目/folder窓は`min(memoryLimit（nilは物理メ�
 Appleも窓の見積りに含めるが、既存のblock経路の内部並列数・予約は変更しない。
 BZip2は単一stream spliceの導入後、項目/folder窓と内側codecの予約にも同じmemoryLimit予算を使う（上のBZip2節）。
 PPMd/Deflate/Copy/LHAは従来どおりmemoryLimitの対象外で物理メモリ50%を予算にする。
-tは要求threadsと16と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
+tは要求threadsと`floor(GCD constrained pool / 4)`と`floor(予算/予約)`の最小値。2枠未満なら既存の逐次経路へ戻し、
 従来受理できた単一codecのmemoryLimitを拒否しない。モデル・辞書・片境界を縮めない。
+既定の要求threadsは下記の topology / powerPolicy で開始時に解決する。
+7z並列窓の割当codec合計をa、folder枠数をf、最大片数をpとすると`a <= min(要求threads, floor(予算/S), f × p)`。
+従ってpeak予約は`a × S + f × I/O <= f × (p × S + I/O) <= 予算`。要求threads分のcodec状態を各folderへ重複予約しない。
+公開pending-inputの式`f × folder上限`は維持するが、fの増加により値が増える。
+物理16 GiB・予算8 GiB・要求12・既定level・64 MiB solidでLZMA2は5→12枠（320→768 MiB）、LZMA1は6→12枠（384→768 MiB）。
+PPMd level 9の明示64 MiB solidは3→12枠（192→768 MiB）、既定384 MiB solidは同期のまま。
+filter付き非solidのLZMA2 / LZMA1は80→192 / 96→192 MiB。PPMd level 9は既定block上限384 MiBによる同期経路を維持し、filter付き非solidは16 MiBのまま。
+BZip2の式・予約と明示並列数の他形式の上界は維持する。
+自動並列数と項目窓の固定16上限を撤廃したため、既定入力上界は topology・電力状態・pool・codecメモリ制限に従って変わる。
 入力上界は上の`maximumPendingInputBytes`表。spoolのfile cacheとallocator管理領域はcodecの予約に含めない。
 round 3はtree/single/single16r/small/LHA混在をthreads=1/12、corpus4方式をthreads=12で三版各5回測定した。
 810 sampleの出力size・SHA-256が一致し、54比較すべてnew/base <= 1.05、tree/smallの22比較もnew/round1 <= 1.05。
@@ -2307,3 +2466,68 @@ ZIP93の64 MiB memberを4 MiB frameへ分けるprobeは7zz26.04とKaitoKitが受
 全ZIPのbody差し替えによる計算上のサイズ増加は3.583%（単一16,990,650→連結20,122,354 byte）で、
 0.3%上限を超えるため採用しない。7zz26.03そのものと候補全ZIPの速度は未検証。
 wall/CPU・参照tool・全sample・対象testの詳細は[実測記録](verification/2026-10-07-writer-multicore.md)を参照。
+
+
+## 自動並列数と電力方針
+
+`CPUTopology` は `hw.activecpu`（失敗時は `ProcessInfo.activeProcessorCount`）と、
+`hw.nperflevels` / `hw.perflevelN.logicalcpu` / `physicalcpu` を読む。0が最高性能で、名称を参照しない。
+levelの欠落・0は全 CPU を持つ単一levelに戻す。core classや製品別の固定数は持たない。
+通常の要求数は全active logical CPU、削減時は `max(1, min(ceil(n/2), 最低levelのlogical CPU数))`。
+levelが一つなら `ceil(n/2)`。その後 `max(1, 物理メモリGiB)` と既存codecメモリresolverで制限する。
+`.reduceInLowPowerMode` はLow Power Mode、`.reduceInLowPowerModeOrThermalPressure` はそれに加えて
+serious / criticalで削減、`.alwaysUseAllCores` は削減しない。明示並列数には作用しない。
+`WriterOptions.automaticCompressionThreads(powerPolicy:)` は表示用の現在値、`compressionThreadsRange` は明示値の受理範囲1...1024。
+writer / updater / rewriter / 単独圧縮の入口で内部optionsコピーに自動値を固定し、検証・add・commit・workerは同じ値を使う。
+外部の `maximumPendingInputBytes(for:)` も呼出しごとに一度解決するため、ジョブ開始後の電力状態によっては内部の固定値と異なる。
+片・chunk・block・folder境界は並列数に依存させない。
+
+項目 / folder窓の安全上限は `floor(pool / 4)`（最低1）。poolは `kern.wq_max_constrained_threads` を読み、
+poolの安全上限はprocess内で共有し、失敗時はxnuの既定規則 `max(64, 5 × activeCPUs)` を使う。64はkernel fallbackの下限で、要求並列数の上限ではない。
+ZIP項目workerは内側を1にし、XZの逐次片はinline実行する。7z folderworkerはOrderedChunkPipeline / LZMA2ChunkPipeline / ParallelBzip2StreamEncoderの片を待つが、片workerはcodecを実行する葉であり、さらにGCD workerを待たない。
+ParallelXZCompressorも同じ葉に到達し、filterはそのfolder内で逐次。LHA memberworkerは内側LHAWriterの項目並列を無効にし、1 MiB片workerだけを待つため、外側の再帰はない。
+外側の待機は一段だけなのでpoolの1/4以下にし、残り3/4を内側の葉、先読み、呼出側の待機と他の仕事の余地に残す。
+先読みは最大4 descriptorを扱い、取得したworker自身が読取を完了して解放するため、別の内側workerの開始を待つ循環は作らない。
+内側の窓が大きくても未着手の葉はthreadを占有せず、既に動く葉の完了で窓が進む。このジョブの入れ子によるpoolの枯渇を防ぐための上限であり、他ライブラリが同じprocessのpool全体を塞ぐ状況までは保証しない。
+メモリ制限と全folderの割当codec数制限は引き続き適用する。
+
+
+### 速さ優先の決定的な分割
+
+`WriterOptions.prefersSpeed: Bool = false` は出力 byte を変える明示的な選択。既定は従来出力。
+`CompressionPieceSize.resolve` は既知サイズ S に対し、
+`max(F, min(P, ceil(S / (16 MiB)) × 1 MiB))` を返す。
+PはXZ / LZMA2が従来の16 MiBまたは大辞書の3倍、lzipが`max(16 MiB, 3 × 辞書)`。
+FはXZ / LZMA2が2 MiB、lzipが`max(2 MiB, 辞書)`。nil / S=0はP。
+UInt64の商を先に取ることで最大サイズでも溢れず、CPU・thread・電力・メモリを参照しない。
+
+ZIP XZはentryのSを `ZipEntryCompressor` と一括追加の葉worker経路の両方へ渡し、
+`compressedSizeBound` のblock数も同じ片幅で数える。7zの非solid共有pipelineは従来幅の
+メモリ予約を維持し、切断幅だけentryのSで決める。solid / filter folderはspool確定後のSを
+`SevenZipFolderEncoder` と `SevenZipChunkPipeline` に渡す。folderのcodec割当数も同じ幅から数える。
+`EntryCompressionConfiguration` は小folderで増える片数を下限2 MiBから安全側に予約する。
+単独XZ / lzipはstatで固定したSを `StreamCompressor` 経由で渡す。
+tar.xz / tar.lzは作成時に総入力不明のため従来幅を保持し、増分サイズで境界を変えない。
+
+7z solidの未指定block上限は圧縮方式だけ16 MiBへ変更する。明示blockSize / filesPerBlockと
+Copyの既定は保持。ファイルはfolder間に割らず、大ファイルは単独folder。LZMA1 / PPMdの
+一モデルを分割せず、folderを増やして並列化する。
+
+ZIP ZstandardはC=`max(4 MiB, window)`より大きいentryだけ独立frameにする。
+frameごとの既知content sizeとchecksumを保ち、RFC 8878 §3.1の順序で連結する。
+逐次・一括追加・AES / ZipCrypto・rewriter / updaterの共有sinkで同じpayloadを扱う。
+一括disk追加は16 MiB以下でも片上限を超えたentryを共有の葉worker窓へ渡し、
+各XZ片・Zstandard frameを並列化して入れ子の待機workerを増やさない。
+項目別APIも片上限超のentryは項目workerへ閉じ込めず、内部pipelineへ全coreを渡す。
+Zstandardは `ParallelZstdCompressor`、小さい項目workerではinlineの1 thread経路を使う。
+予約はencoder状態と入力・出力二frameを含み、ZIP64上界は入力長にblock headerとframeごとの
+header・checksumを足す。既定ZIPは従来の単一frameと逐次予約を保持する。
+
+入力サイズを受け取らない公開pending上界は未知サイズの従来幅を使う。速さ優先のZIP XZ /
+lzipだけは最小片で入り得るcodec数も従来幅との積で覆い、Zstandardは項目窓とt×Cの最大。
+サイズの違うentryや予算による同時codec数の変化を覆うための保守的な上界で、片幅は変えない。
+
+`SpeedPriorityDefaultOutputTests` は基点3b74afbの17 fixtureと既定byteを照合する。
+`SpeedPriorityTests` は実際の分割境界を越える入力を1 / 4 / 16 / 36 threadと3電力方針で
+符号化し、KaitoKit・xz / 7zz / lzip / zstdの復号、ZIP一括追加・暗号化も検査する。
+外部scratch corpusのサイズ比較は `SpeedPriorityRatioProbeTests` のopt-inで行う。

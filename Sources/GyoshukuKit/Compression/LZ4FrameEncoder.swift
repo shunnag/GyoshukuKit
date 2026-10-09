@@ -24,7 +24,7 @@ final class LZ4FrameEncoder {
     /// contentSize が既知なら header に記録し、finish 時にも一致を検査する。
     init(contentSize: UInt64? = nil, blockChecksums: Bool = false,
          threads: Int = WriterOptions().resolvedCompressionThreads) throws {
-        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        guard WriterOptions.compressionThreadsRange.contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         self.contentSize = contentSize
         self.blockChecksums = blockChecksums
         pipeline = OrderedChunkPipeline(threads: threads) { input in

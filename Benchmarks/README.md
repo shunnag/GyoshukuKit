@@ -66,10 +66,10 @@ bzip2 は library 既定の9、XZ / 7z / LHA は library 固有の設定です�
 tar.xz は 4 MiB 以下の member を最大 4 MiB の block に詰め、4 MiB を越える member は header 群と
 本文を分けて、本文と大きな header 群を最大 16 MiB の片にします。この配置は 0.6.0 からなので、
 0.6.0 より前の tar.xz の結果とはサイズ・時間をそのまま比べないでください。
-`--threads` は `compressionThreads`（1...64）へ渡し、省略時は nil のまま library に委ねます。
+`--threads` は `compressionThreads`（公開定数 `WriterOptions.compressionThreadsRange`、1...1024）へ渡し、省略時は nil のまま library に委ねます。
 表示する `threads` は圧縮の並列数の設定です。tar.xzは2以上で64 KiB以下のblockを枠に数えず、
 未出力blockを合計 `2 × threads + 1` まで許すため、同時に動くencoderの総数とは一致しません。
-自動値の表示は library の現行規則（CPU 数・物理メモリ GiB・8 の最小値、最低1）と揃えています。
+自動値の表示には `WriterOptions.automaticCompressionThreads(powerPolicy:)` を使います。開始直前の要求値で、codec のメモリ予算と項目窓の制限を適用する前の値です。
 非圧縮 tar は常に1です。単独実行の `elapsed_s` は `ContinuousClock` で create から finish までを
 測り、runner の wall 秒はプロセス起動・終了も含みます。`--level` / `--threads` は reference には適用しません。
 

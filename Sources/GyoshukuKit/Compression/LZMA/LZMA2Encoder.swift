@@ -67,7 +67,7 @@ final class LZMA2Encoder {
             if resetState { engine.resetModel() }
             engine.rc.reset()
             // 最大 4096 byte の optimum 復元と carry flush 用に 8 KiB を残す。
-            engine.process(limit: min(engine.end, start + Self.unpackLimit), reserve: 0, packedLimit: Self.packLimit - 8192)
+            try engine.process(limit: min(engine.end, start + Self.unpackLimit), reserve: 0, packedLimit: Self.packLimit - 8192)
             engine.rc.finish()
             if let error = engine.rc.error { finished = true; throw error }
             let compressed = engine.rc.take()

@@ -5,7 +5,7 @@ private import Darwin
 private let usage = """
 Usage: gyoshuku-bench <zip|tar|tgz|tbz|txz|7z|lha> <output> <source>... [--level N] [--threads N] [--progress] [--mode recursive|items|batch]
   --level N    deflateLevel, 0...9 (ZIP / tar.gz; default 6)
-  --threads N  compressionThreads, 1...64 (default: library auto selection)
+  --threads N  compressionThreads, \(WriterOptions.compressionThreadsRange) (default: library auto selection)
   --progress   Observe add and finishAdditions byte progress
   --mode MODE  recursive (default), sorted preorder items, or batch; enumeration is timed
   --           Treat remaining arguments as source paths
@@ -50,7 +50,7 @@ private func benchmark(_ arguments: [String]) throws {
             index += 1
             mode = arguments[index]
         } else if parseOptions && (argument == "--level" || argument == "--threads") {
-            let range = argument == "--level" ? 0...9 : 1...64
+            let range = argument == "--level" ? 0...9 : WriterOptions.compressionThreadsRange
             guard index + 1 < arguments.count,
                   let value = Int(arguments[index + 1]), range.contains(value) else {
                 throw ArgumentError(description: "\(argument) requires an integer in \(range).")
@@ -80,11 +80,8 @@ private func benchmark(_ arguments: [String]) throws {
     switch format {
     case .tar: threads = 1
     default:
-        // 報告値だけ WriterOptions.resolvedCompressionThreads と揃え、nil はそのまま渡す。
-        threads = options.compressionThreads ?? max(1, min(
-            ProcessInfo.processInfo.activeProcessorCount, 8,
-            Int(ProcessInfo.processInfo.physicalMemory / (1 << 30))
-        ))
+        // library の公開 API で開始直前の自動要求値を表示する。
+        threads = options.compressionThreads ?? WriterOptions.automaticCompressionThreads(powerPolicy: options.powerPolicy)
     }
 
     let clock = ContinuousClock()

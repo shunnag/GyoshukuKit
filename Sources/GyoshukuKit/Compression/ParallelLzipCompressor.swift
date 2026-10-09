@@ -46,8 +46,8 @@ final class ParallelLzipCompressor: TarCompressor {
     private var finished = false
     var pendingInputBytes: UInt64 { UInt64(input.count) + pipeline.pendingInputBytes }
 
-    init(options: WriterOptions) throws {
-        let configuration = try LZMAWriterConfiguration.singleStream(options: options, lzip: true)
+    init(options: WriterOptions, size: UInt64? = nil) throws {
+        let configuration = try LZMAWriterConfiguration.singleStream(options: options, lzip: true, size: size)
         chunkSize = configuration.pieceSize
         layout = TarChunkCutter(limit: chunkSize)
         pipeline = OrderedChunkPipeline(threads: configuration.threads) {

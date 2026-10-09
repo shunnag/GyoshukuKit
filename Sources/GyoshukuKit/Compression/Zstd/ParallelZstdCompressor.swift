@@ -11,11 +11,11 @@ final class ParallelZstdCompressor: TarCompressor {
     private var finished = false
     var pendingInputBytes: UInt64 { UInt64(input.count) + pipeline.pendingInputBytes }
 
-    init(options: WriterOptions) throws {
+    init(options: WriterOptions, inlineSingleThread: Bool = false) throws {
         let configuration = try ZstdWriterConfiguration(options: options)
         chunkSize = configuration.chunkSize
         layout = TarChunkCutter(limit: chunkSize)
-        pipeline = OrderedChunkPipeline(threads: configuration.threads) {
+        pipeline = OrderedChunkPipeline(threads: configuration.threads, inlineSingleThread: inlineSingleThread) {
             try ZstdFrameEncoder.encode($0, level: configuration.properties.level)
         }
     }

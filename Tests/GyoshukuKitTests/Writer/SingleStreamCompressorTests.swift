@@ -14,6 +14,29 @@ final class SingleStreamCompressorTests: XCTestCase {
     // bzip2 level 9 の 900,000 byte 境界も越え、二つの block を入力順に復号する。
     private static let smallRandom = TestCorpus.random((1 << 20) + 17)
 
+    func testBzip2UsesSizeBasedSingleStreamAcrossThreads() throws {
+        let directory = try TestSupport.directory("single-stream-bzip2-size")
+        for (label, input, level): (String, Data, Int) in [
+            ("normal", TestCorpus.random(4 * 99_981 + 137), 1),
+            ("forced", Data(repeating: 65, count: ParallelBzip2StreamEncoder.inputCap + 4096), 9)
+        ] {
+            let source = directory.appendingPathComponent(label + ".raw")
+            try input.write(to: source)
+            // 単一stream encoderとの一致で、tar用の独立stream連結へ戻らないことも検査する。
+            let encoder = try ParallelBzip2StreamEncoder(level: level, threads: 1, size: UInt64(input.count))
+            var expected = Data()
+            try encoder.write(input, finish: true) { expected.append($0) }
+            XCTAssertEqual(encoder.forcedCuts, label == "forced" ? 1 : 0)
+            for threads in [1, 2, 7, 12, 36, 64] {
+                let output = directory.appendingPathComponent("\(label)-\(threads).bz2")
+                try SingleStreamCompressor.compress(file: source, to: output, format: .bzip2,
+                    options: WriterOptions(bzip2Level: level, compressionThreads: threads))
+                XCTAssertEqual(try Data(contentsOf: output), expected, "\(label), threads=\(threads)")
+                if threads == 1 { try StreamEncoderTestSupport.assertKaito(output, equals: input) }
+            }
+        }
+    }
+
     private func verifyEveryFormat(large: Bool) throws {
         let samples = [("empty", Data()), ("one", Data([0xA7])),
                        ("text", large ? EncoderTestCorpus.sourceMiB : EncoderTestCorpus.shortSource),

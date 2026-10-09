@@ -2,19 +2,19 @@ import Foundation
 
 /// tar と単独 file の sink を共有する。既存 tar の区切り・framing は変えない。
 enum StreamCompressor {
-    static func make(format: ArchiveFormat, options: WriterOptions) throws -> any TarCompressor {
+    static func make(format: ArchiveFormat, options: WriterOptions, size: UInt64? = nil) throws -> any TarCompressor {
         switch format {
         case .tarGzip:
             return try GzipCompressor(level: options.deflateLevel, threads: options.resolvedCompressionThreads)
         case .tarBzip2:
             return try ParallelBzip2Compressor(level: options.bzip2Level, threads: options.resolvedCompressionThreads)
         case .tarXZ:
-            let configuration = try LZMAWriterConfiguration(options: options)
+            let configuration = try LZMAWriterConfiguration(options: options, size: size)
             return try ParallelXZCompressor(threads: configuration.threads, chunkSize: configuration.pieceSize,
                 allowsLightChunks: configuration.properties == nil, encoder: configuration.encoder)
         case .tarLZMA: return try LZMAAloneCompressor(options: options)
         case .tarZstd: return try ParallelZstdCompressor(options: options)
-        case .tarLzip: return try ParallelLzipCompressor(options: options)
+        case .tarLzip: return try ParallelLzipCompressor(options: options, size: size)
         case .tarLZ4: return try LZ4TarCompressor(threads: options.resolvedCompressionThreads)
         case .tarBrotli: return try SequentialStreamCompressor(brotli: BrotliStreamEncoder())
         case .tarCompress: return try SequentialStreamCompressor(compress: LZWStreamEncoder(maxbits: 16))
@@ -33,7 +33,8 @@ private final class LZMAAloneCompressor: TarCompressor {
         let configuration = try LZMAWriterConfiguration.singleStream(options: options)
         properties = configuration.properties!
         encoder = try lzmaWriterOperation {
-            try LZMAEncoder(properties: properties, endMarker: true, memoryLimit: configuration.encoderMemory)
+            try LZMAEncoder(properties: properties, endMarker: true, memoryLimit: configuration.encoderMemory,
+                finderThreads: configuration.finderThreads, legacyRawWindowSlack: configuration.legacyRawWindowSlack)
         }
     }
 

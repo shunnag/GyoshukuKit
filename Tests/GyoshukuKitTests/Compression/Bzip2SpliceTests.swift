@@ -1,5 +1,6 @@
 import Foundation
 import CGyoshukuBzip2
+import Synchronization
 import XCTest
 @testable import GyoshukuKit
 
@@ -48,6 +49,86 @@ final class Bzip2SpliceTests: XCTestCase {
         try encoder.write(manyBlocks, finish: true) { output.append($0) }
         XCTAssertEqual(output, try Bzip2StreamEncoder.encode(manyBlocks, level: 1))
         XCTAssertEqual(try decodeSingle(output), manyBlocks)
+    }
+
+    func testManyThreadsKeepSizeBasedChunkCountAndIdentity() throws {
+        let block = 99_981
+        // level 1の約49 blockは常に1 block幅の49片。並列数は片の境界を変えない。
+        let input = TestCorpus.random(48 * block + 137)
+        let size = UInt64(input.count)
+        let expected = try Bzip2StreamEncoder.encode(input, level: 1)
+        for threads in [1, 2, 7, 12, 36, 64] {
+            let calls = Mutex(0)
+            let encoder = try ParallelBzip2StreamEncoder(level: 1, threads: threads, size: size, encoder: { bytes, level in
+                calls.withLock { $0 += 1 }
+                return try Bzip2StreamEncoder.encode(bytes, level: level)
+            })
+            var output = Data()
+            try encoder.write(input, finish: true) { output.append($0) }
+            let chunks = calls.withLock { $0 }
+            XCTAssertEqual(chunks, threads == 1 ? 0 : 49, "threads=\(threads)")
+            if threads > 1 { XCTAssertEqual(chunks, ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: 1)) }
+            XCTAssertEqual(encoder.forcedCuts, 0)
+            XCTAssertEqual(output, expected, "threads=\(threads)")
+            XCTAssertEqual(try decodeSingle(output), input)
+        }
+    }
+
+    func testKnownSizeIdentityAcrossTheRealInputCap() throws {
+        // 自然境界の後に長いrunを置き、通常切断と8 MiB強制切断を一緒に検査する。
+        let mixed = alternating(899_981 + 137) + Data(repeating: 65, count: ParallelBzip2StreamEncoder.inputCap + 4096)
+        for input in [mixed, Data(repeating: 65, count: ParallelBzip2StreamEncoder.inputCap)] {
+            var baseline: Data?
+            for threads in [1, 2, 7, 12, 36, 64] {
+                let encoder = try ParallelBzip2StreamEncoder(level: 9, threads: threads, size: UInt64(input.count))
+                var output = Data()
+                // capちょうどの既知入力もfinishを別writeにし、逐次分岐との一致を検査する。
+                try encoder.write(input, finish: false) { output.append($0) }
+                try encoder.write(Data(), finish: true) { output.append($0) }
+                XCTAssertEqual(encoder.forcedCuts, 1)
+                if let baseline { XCTAssertEqual(output, baseline, "threads=\(threads)") } else { baseline = output }
+                XCTAssertEqual(try decodeSingle(output), input)
+            }
+        }
+    }
+
+    func testKnownSizeSeparateFinishMatchesWholeInputAtExactBlockTail() throws {
+        for level in [1, 9] {
+            // 満杯block直後に1 byte残る入力。BZ_RUNの後の空finishで境界が変わる場合を検査する。
+            let input = TestCorpus.random(5 * (100_000 * level - 19) + 1)
+            let expected = try Bzip2StreamEncoder.encode(input, level: level)
+            for threads in [1, 7, 36] {
+                let encoder = try ParallelBzip2StreamEncoder(level: level, threads: threads, size: UInt64(input.count))
+                var output = Data()
+                for offset in stride(from: 0, to: input.count, by: IOChunk.size) {
+                    try encoder.write(input.subdata(in: offset..<min(offset + IOChunk.size, input.count)), finish: false) { output.append($0) }
+                }
+                try encoder.write(Data(), finish: true) { output.append($0) }
+                XCTAssertEqual(encoder.forcedCuts, 0)
+                XCTAssertEqual(output, expected, "level=\(level), threads=\(threads)")
+                XCTAssertEqual(try decodeSingle(output), input)
+            }
+        }
+    }
+
+    func testUnknownSizeStreamingIdentityAcrossThreadsAndReadSizes() throws {
+        let mixed = alternating(899_981 + 137) + Data(repeating: 65, count: ParallelBzip2StreamEncoder.inputCap + 4096)
+        for (input, level, forced): (Data, Int, Int) in [(TestCorpus.random(700_013), 1, 0), (mixed, 9, 1)] {
+            var baseline: Data?
+            for threads in [1, 2, 7, 12, 36, 64] {
+                let encoder = try ParallelBzip2StreamEncoder(level: level, threads: threads, size: 0)
+                var output = Data()
+                let readSize = threads.isMultiple(of: 2) ? IOChunk.size : 32_771
+                for offset in stride(from: 0, to: input.count, by: readSize) {
+                    try encoder.write(input.subdata(in: offset..<min(offset + readSize, input.count)), finish: false) { output.append($0) }
+                }
+                try encoder.write(Data(), finish: true) { output.append($0) }
+                XCTAssertEqual(encoder.forcedCuts, forced)
+                if let baseline { XCTAssertEqual(output, baseline, "level=\(level), threads=\(threads)") } else { baseline = output }
+                if forced == 0 { XCTAssertEqual(output, try Bzip2StreamEncoder.encode(input, level: level)) }
+                XCTAssertEqual(try decodeSingle(output), input)
+            }
+        }
     }
 
     func testAllEightEOSPaddingCandidates() throws {
@@ -118,16 +199,19 @@ final class Bzip2SpliceTests: XCTestCase {
 
     func testForcedCutsDecodeAsExactlyOneStream() throws {
         let input = Data(repeating: 0, count: 200_013) + TestCorpus.random(201_007)
-        let encoder = try ParallelBzip2StreamEncoder(level: 1, threads: 7, chunkSize: 100_000, inputCap: 32_771)
-        var output = Data()
-        // 非byte境界のEOSを含むchunkを何本も継ぎ、odd readでもscannerが継続する。
-        for offset in stride(from: 0, to: input.count, by: 997) {
-            try encoder.write(input.subdata(in: offset..<min(offset + 997, input.count)), finish: false) { output.append($0) }
-            XCTAssertLessThanOrEqual(encoder.pendingInputBytes, UInt64(8 * 32_771))
+        var baseline: Data?
+        for threads in [1, 8, 36, 64] {
+            let encoder = try ParallelBzip2StreamEncoder(level: 1, threads: threads, chunkSize: 100_000, inputCap: 32_771)
+            var output = Data()
+            for offset in stride(from: 0, to: input.count, by: 997) {
+                try encoder.write(input.subdata(in: offset..<min(offset + 997, input.count)), finish: false) { output.append($0) }
+                XCTAssertLessThanOrEqual(encoder.pendingInputBytes, UInt64(threads + 1) * 32_771)
+            }
+            try encoder.write(Data(), finish: true) { output.append($0) }
+            XCTAssertGreaterThan(encoder.forcedCuts, 0)
+            if let baseline { XCTAssertEqual(output, baseline) } else { baseline = output }
+            XCTAssertEqual(try decodeSingle(output), input)
         }
-        try encoder.write(Data(), finish: true) { output.append($0) }
-        XCTAssertGreaterThan(encoder.forcedCuts, 0)
-        XCTAssertEqual(try decodeSingle(output), input)
     }
 
     func testEmptyOneByteAndEOSCandidateValidation() throws {
@@ -149,17 +233,37 @@ final class Bzip2SpliceTests: XCTestCase {
         }
     }
 
-    func testChunkSizingAndFixedMemoryReservations() {
-        let size: UInt64 = 16 << 20
-        XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: 9, size: size, threads: 12), 899_981)
-        XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: 9, threads: 12), 19)
-        XCTAssertEqual(ParallelBzip2StreamEncoder.memoryReservation(level: 9, threads: 1), 7_600_000)
+    func testSizeBasedChunkWidthsAndEstimatedCounts() {
+        // 巨大入力は生成せず、幅と予約片数を両levelの固定表で検査する。
+        for (level, block, tenWidth, tenCount, sixtyFourWidth, sixtyFourCount, gibCount): (Int, UInt64, Int, Int, Int, Int, Int) in [
+            (9, 899_981, 1, 12, 2, 38, 239),
+            (1, 99_981, 3, 35, 5, 135, 1024)
+        ] {
+            let cases: [(UInt64, Int, Int)] = [(0, 1, 1), (1, 1, 1), (block, 1, 1), (2 * block, 1, 2),
+                (10 << 20, tenWidth, tenCount), (64 << 20, sixtyFourWidth, sixtyFourCount), (1 << 30, 5, gibCount), (.max, 5, 1024)]
+            for (size, blocks, count) in cases {
+                XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: level, size: size), blocks * Int(block), "level=\(level), size=\(size)")
+                XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: level), count, "level=\(level), size=\(size)")
+            }
+            for (blocks, width, count): (UInt64, Int, Int) in [(63, 1, 63), (64, 2, 32), (95, 2, 48),
+                (96, 3, 32), (127, 3, 43), (128, 4, 32), (159, 4, 40), (160, 5, 32), (161, 5, 33)] {
+                XCTAssertEqual(ParallelBzip2StreamEncoder.chunkSize(level: level, size: blocks * block), width * Int(block))
+                XCTAssertEqual(ParallelBzip2StreamEncoder.estimatedChunkCount(size: blocks * block, level: level), count)
+            }
+        }
+        // level 1の1 GiBは実際には2148片。codec予約は公開threads上限の1024に抑える。
+        let width = UInt64(ParallelBzip2StreamEncoder.chunkSize(level: 1, size: 1 << 30))
+        XCTAssertEqual(((UInt64(1) << 30) - 1) / width + 1, 2148)
+    }
+
+    func testFixedMemoryReservations() {
+        XCTAssertEqual(ParallelBzip2StreamEncoder.memoryReservation(level: 9, threads: 1), 41_501_063)
         XCTAssertEqual(ParallelBzip2StreamEncoder.memoryReservation(level: 9, threads: 2), 66_224_910)
         let options = WriterOptions(compressionMethod: .bzip2, sevenZipMethod: .bzip2, bzip2Level: 9,
             memoryLimit: 67_000_000, compressionThreads: 12)
         XCTAssertEqual(ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: 16 << 30), 2)
-        XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 16 << 30), 32 << 20)
-        XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 32 << 20)
+        XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 16 << 30), 24 << 20)
+        XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 24 << 20)
         let solid = WriterOptions(sevenZipMethod: .bzip2, sevenZipSolid: .on(blockSize: 64 << 20, filesPerBlock: nil), bzip2Level: 9,
             memoryLimit: 67_000_000, compressionThreads: 12)
         XCTAssertEqual(EntryCompressionConfiguration(options: solid, method: .bzip2, physicalMemory: 16 << 30, innerParallelism: true).threads, 1)

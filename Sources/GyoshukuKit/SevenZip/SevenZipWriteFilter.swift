@@ -76,52 +76,102 @@ enum SevenZipWriteFilter: Equatable {
 
 final class SevenZipFilterEncoder {
     private let filter: SevenZipWriteFilter
-    private var pending: [UInt8] = []
+    // BCJ の未処理命令は最大4 byte。入力全体を配列へ往復させない。
+    private var carry: UInt32 = 0
+    private var carryCount = 0
     private var offset: UInt32 = 0
     private var x86State: UInt32 = 0
-    private var history = [UInt8](repeating: 0, count: 256)
-    private var historyPosition = 0
+    private var history: [UInt8]
 
     init(_ filter: SevenZipWriteFilter) {
         self.filter = filter
+        if case .delta(let distance) = filter {
+            precondition((1...256).contains(distance))
+            history = [UInt8](repeating: 0, count: distance)
+        } else { history = [] }
         switch filter { case .x86(let start), .arm64(let start): offset = start; default: break }
     }
 
     func push(_ data: Data, final: Bool) -> Data {
-        pending.append(contentsOf: data)
-        let consumed: Int
         switch filter {
-        case .none: consumed = pending.count
-        case .delta(let distance):
-            for i in pending.indices {
-                let value = pending[i]
-                pending[i] = value &- history[historyPosition]
-                history[historyPosition] = value
-                historyPosition = (historyPosition + 1) % distance
-            }
-            consumed = pending.count
-        case .x86: consumed = encodeX86()
-        case .arm64: consumed = encodeARM64()
+        case .none: return data
+        case .delta(let distance): return encodeDelta(data, distance: distance)
+        case .x86, .arm64: break
         }
-        let count = final ? pending.count : consumed
-        let output = Data(pending.prefix(count))
-        pending.removeFirst(count)
+        let total = carryCount + data.count
+        guard total > 0 else { return Data() }
+        var output = Data(count: total)
+        let count = output.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) -> Int in
+            let bytes = buffer.baseAddress!
+            withUnsafeBytes(of: carry) { previous in
+                bytes.copyMemory(from: previous.baseAddress!, byteCount: carryCount)
+            }
+            data.withUnsafeBytes { input in
+                if !input.isEmpty { bytes.advanced(by: carryCount).copyMemory(from: input.baseAddress!, byteCount: input.count) }
+            }
+            let consumed: Int
+            switch filter {
+            case .x86: consumed = Self.encodeX86(buffer, offset: offset, state: &x86State)
+            case .arm64: consumed = Self.encodeARM64(buffer, offset: offset)
+            default: preconditionFailure()
+            }
+            let count = final ? total : consumed
+            carryCount = total - count
+            assert(carryCount <= 4)
+            carry = 0
+            withUnsafeMutableBytes(of: &carry) { previous in
+                previous.baseAddress!.copyMemory(from: bytes.advanced(by: count), byteCount: carryCount)
+            }
+            return count
+        }
+        output.count = count
         offset &+= UInt32(truncatingIfNeeded: count)
         return output
     }
 
-    private func put(_ value: UInt32, at i: Int) {
-        for byte in 0..<4 { pending[i + byte] = UInt8(truncatingIfNeeded: value >> (8 * byte)) }
+    private func encodeDelta(_ data: Data, distance: Int) -> Data {
+        guard !data.isEmpty else { return Data() }
+        var output = Data(count: data.count)
+        data.withUnsafeBytes { input in
+            output.withUnsafeMutableBytes { destination in
+                history.withUnsafeMutableBufferPointer { tail in
+                    let source = input.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    let result = destination.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    let previous = tail.baseAddress!
+                    let leading = min(distance, input.count)
+                    for i in 0..<leading { result[i] = source[i] &- previous[i] }
+                    // 同じ入力内の参照だけなので、剰余・履歴更新・配列検査なしで SIMD 化できる。
+                    // 基点を先にずらし、添字の減算に付く溢れ検査も内側から除く。
+                    let current = source.advanced(by: leading), body = result.advanced(by: leading)
+                    for i in 0..<(input.count - leading) { body[i] = current[i] &- source[i] }
+                    if input.count >= distance {
+                        previous.update(from: source.advanced(by: input.count - distance), count: distance)
+                    } else {
+                        // 短い push は時系列順の履歴を詰め、末尾に今回の入力を継ぐ。
+                        let nextTail = previous.advanced(by: input.count)
+                        for i in 0..<(distance - input.count) { previous[i] = nextTail[i] }
+                        previous.advanced(by: distance - input.count).update(from: source, count: input.count)
+                    }
+                }
+            }
+        }
+        return output
     }
-    private func signByte(_ value: UInt8) -> Bool { value == 0 || value == 0xFF }
 
-    private func encodeX86() -> Int {
-        guard pending.count >= 5 else { return 0 }
-        let allowed = [true, true, true, false, true, false, false, false]
-        let bits = [0, 1, 2, 2, 3, 3, 3, 3]
-        let limit = pending.count - 4
+    @inline(__always)
+    private static func signByte(_ value: UInt8) -> Bool { value == 0 || value == 0xFF }
+    // mask を添字とする元の8要素の表を定数へ詰める。
+    private static let x86Allowed: UInt32 = 0x17
+    private static let x86Bits: UInt32 = 0x3333_2210
+    @inline(__always)
+    private static func bitNumber(_ mask: Int) -> Int { Int((x86Bits >> (mask * 4)) & 15) }
+
+    private static func encodeX86(_ buffer: UnsafeMutableRawBufferPointer, offset: UInt32, state: inout UInt32) -> Int {
+        guard buffer.count >= 5 else { return 0 }
+        let pending = buffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
+        let limit = buffer.count - 4
         let base = offset &+ 5
-        var position = 0, previous = -1, mask = Int(x86State & 7)
+        var position = 0, previous = -1, mask = Int(state & 7)
         while true {
             while position < limit, pending[position] & 0xFE != 0xE8 { position += 1 }
             guard position < limit else { break }
@@ -129,41 +179,43 @@ final class SevenZipFilterEncoder {
             if distance > 3 { mask = 0 }
             else {
                 mask = (mask << (distance - 1)) & 7
-                if mask != 0, !allowed[mask] || signByte(pending[position + 4 - bits[mask]]) {
+                if mask != 0, x86Allowed & (1 << mask) == 0 || signByte(pending[position + 4 - bitNumber(mask)]) {
                     previous = position; mask = ((mask << 1) | 1) & 7; position += 1
                     continue
                 }
             }
             previous = position
             if signByte(pending[position + 4]) {
-                var source = SevenZipWriteFilter.uint32(pending, position + 1)
+                var source = UInt32(littleEndian: buffer.baseAddress!.loadUnaligned(fromByteOffset: position + 1, as: UInt32.self))
                 var destination: UInt32
                 while true {
                     destination = source &+ (base &+ UInt32(truncatingIfNeeded: position))
                     guard mask != 0 else { break }
-                    let shift = bits[mask] * 8
+                    let shift = bitNumber(mask) * 8
                     guard signByte(UInt8(truncatingIfNeeded: destination >> (24 - shift))) else { break }
                     source = destination ^ ((UInt32(1) << (32 - shift)) &- 1)
                 }
                 // BCJ は25 bitの変位。bit 24を上位byteへ符号拡張する。
                 destination = (destination & 0x00FF_FFFF) | (destination & 0x0100_0000 == 0 ? 0 : 0xFF00_0000)
-                put(destination, at: position + 1)
+                buffer.baseAddress!.storeBytes(of: destination.littleEndian, toByteOffset: position + 1, as: UInt32.self)
                 position += 5
             } else { mask = ((mask << 1) | 1) & 7; position += 1 }
         }
         let distance = position - previous
-        x86State = distance > 3 ? 0 : UInt32((mask << (distance - 1)) & 7)
+        state = distance > 3 ? 0 : UInt32((mask << (distance - 1)) & 7)
         return position
     }
 
-    private func encodeARM64() -> Int {
-        let count = pending.count & ~3
+    private static func encodeARM64(_ buffer: UnsafeMutableRawBufferPointer, offset: UInt32) -> Int {
+        let count = buffer.count & ~3
+        guard count > 0 else { return 0 }
+        let pending = buffer.baseAddress!
         for i in stride(from: 0, to: count, by: 4) {
-            var instruction = SevenZipWriteFilter.uint32(pending, i)
+            var instruction = UInt32(littleEndian: pending.loadUnaligned(fromByteOffset: i, as: UInt32.self))
             let pc = offset &+ UInt32(truncatingIfNeeded: i)
             if instruction & 0xFC00_0000 == 0x9400_0000 {
                 instruction = 0x9400_0000 | ((instruction &+ (pc >> 2)) & 0x03FF_FFFF)
-                put(instruction, at: i)
+                pending.storeBytes(of: instruction.littleEndian, toByteOffset: i, as: UInt32.self)
             } else if instruction & 0x9F00_0000 == 0x9000_0000 {
                 let immediate = ((instruction >> 29) & 3) | (((instruction >> 5) & 0x7_FFFF) << 2)
                 guard immediate < 0x2_0000 || immediate >= 0x1E_0000 else { continue }
@@ -171,7 +223,7 @@ final class SevenZipFilterEncoder {
                 if encoded & 0x2_0000 != 0 { encoded |= 0x1C_0000 }
                 instruction &= ~UInt32(0x60FF_FFE0)
                 instruction |= (encoded & 3) << 29 | ((encoded >> 2) & 0x7_FFFF) << 5
-                put(instruction, at: i)
+                pending.storeBytes(of: instruction.littleEndian, toByteOffset: i, as: UInt32.self)
             }
         }
         return count

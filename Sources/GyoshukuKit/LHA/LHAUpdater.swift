@@ -54,6 +54,7 @@ public final class LHAUpdater: ArchiveEditing {
 
     static func open(url: URL, output: URL, options: WriterOptions,
                      encoder: (@Sendable (Data) throws -> Data)?) throws -> LHAUpdater {
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: .lha)
         guard options.additionPlacement == .end else { throw UpdaterRouteError.requiresRewrite(reason: "additionPlacement") }
         guard ArchiveVolumeSet.parse(fileName: url.lastPathComponent) == nil else {

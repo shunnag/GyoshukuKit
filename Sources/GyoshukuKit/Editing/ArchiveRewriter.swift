@@ -95,6 +95,7 @@ public final class ArchiveRewriter: ArchiveEditing {
     /// password は入力の復号用、options.password は出力の暗号化用として独立に指定する。
     public static func open(url: URL, password: String? = nil, output: URL? = nil,
                             format: ArchiveFormat, options: WriterOptions = WriterOptions()) throws -> ArchiveRewriter {
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: format)
         let source: ArchiveFileSource
         let reader: ArchiveReader

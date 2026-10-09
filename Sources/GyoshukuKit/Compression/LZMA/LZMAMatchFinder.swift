@@ -92,7 +92,8 @@ struct LZMAMatchFinder {
 
     /// cur の前に dictionarySize、後に available byte がある。結果は長さが増える順。
     @inline(__always) mutating func matches(_ cur: UnsafePointer<UInt8>, available: Int,
-                                           into result: UnsafeMutablePointer<LZMAMatch>, record: Bool = true) -> Int {
+                                           into result: UnsafeMutablePointer<LZMAMatch>, record: Bool = true,
+                                           extendMatches: Bool = true, recordShortMatches: Bool = true) -> Int {
         guard available >= 4 else { advance(); return 0 }
         // hash / son の書込みにまたがる不変値を register に保持する。
         let dictionarySize = self.dictionarySize, cyclicSize = self.cyclicSize
@@ -111,9 +112,16 @@ struct LZMAMatchFinder {
         if !tree && !record { son[cyclic] = candidate; advance(); return 0 }
         var count = 0
         var best = 3
+        if record && tree && !recordShortMatches {
+            // BTの走査は短いhashのbestに依存しない。headの距離を保存し、読取時に候補列を復元する。
+            let d2 = Int(position &- m2), d3 = Int(position &- m3)
+            result[0] = LZMAMatch(length: 0, distance: m2 != 0 && d2 <= dictionarySize ? d2 : 0)
+            result[1] = LZMAMatch(length: 0, distance: m3 != 0 && d3 <= dictionarySize ? d3 : 0)
+            count = 2
+        }
         // SDK の短い hash: 2 byte 候補が3 byteも一致すれば、その候補だけを延長する。
         // それ以外は2 byteを保存し、3 byte候補を一度延長する。BT は4 byte以上を補う。
-        if record && tree {
+        if record && tree && recordShortMatches {
             let d2 = Int(position &- m2), d3 = Int(position &- m3)
             var shortDistance = 0
             if m2 != 0 && d2 <= dictionarySize && cur[0] == cur[-d2] {
@@ -167,6 +175,8 @@ struct LZMAMatchFinder {
                 depth -= 1
             }
         } else {
+            // BTの枝更新・打切りはbest/count/recordを参照しない。
+            // 全位置でrecord:trueにしても、skipと同じ表を次位置へ渡す。
             var ptr0 = son + (cyclic &* 2 &+ 1)
             var ptr1 = son + (cyclic &* 2)
             var len0 = 0, len1 = 0
@@ -186,7 +196,7 @@ struct LZMAMatchFinder {
                     ptr1.pointee = pair[0]; ptr0.pointee = pair[1]
                     advance()
                     // SDK の ReadMatchDistances と同じく niceLen の一致だけ 273 まで延長する。
-                    if record && count > 0 { extend(cur, available: available, result: result, count: count) }
+                    if record && extendMatches && count > 0 { extend(cur, available: available, result: result, count: count) }
                     return count
                 }
                 if candidateData[len] < cur[len] {
@@ -199,8 +209,33 @@ struct LZMAMatchFinder {
             ptr0.pointee = 0; ptr1.pointee = 0
         }
         advance()
-        if record && count > 0 { extend(cur, available: available, result: result, count: count) }
+        if record && extendMatches && count > 0 { extend(cur, available: available, result: result, count: count) }
         return count
+    }
+    /// workerが保存したBT候補と短いhash headから、逐次と同じ候補順・同距離の優先を復元する。
+    /// shortのbest以下のBT候補だけを除外する。書込位置は常に読取位置以下なのでin-placeでよい。
+    @inline(__always) func finalizeTreeMatches(_ cur: UnsafePointer<UInt8>, available: Int,
+                                              result: UnsafeMutablePointer<LZMAMatch>, count: Int) -> Int {
+        guard count >= 2 else { return count }
+        let d2 = result[0].distance, d3 = result[1].distance
+        var written = 0, best = 3, shortDistance = 0
+        if d2 != 0 && cur[0] == cur[-d2] {
+            if cur[2] == cur[2 - d2] { shortDistance = d2 }
+            else {
+                result[0] = LZMAMatch(length: 2, distance: d2); written = 1
+                if d3 != 0 && cur[0] == cur[-d3] { shortDistance = d3 }
+            }
+        } else if d3 != 0 && cur[0] == cur[-d3] { shortDistance = d3 }
+        if shortDistance != 0 {
+            best = lzmaMatchLength(cur, cur - shortDistance, start: 3, limit: min(available, niceLen))
+            result[written] = LZMAMatch(length: best, distance: shortDistance); written += 1
+        }
+        for i in 2..<count {
+            let match = result[i]
+            if match.length > best { result[written] = match; written += 1; best = match.length }
+        }
+        if written > 0 { extend(cur, available: available, result: result, count: written) }
+        return written
     }
     @inline(__always) func extend(_ cur: UnsafePointer<UInt8>, available: Int,
                                  result: UnsafeMutablePointer<LZMAMatch>, count: Int) {

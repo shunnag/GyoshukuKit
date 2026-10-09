@@ -1,35 +1,39 @@
 import Foundation
 
-/// ZIP / 7z 用。libbz2 の完全な block を並列圧縮し、header と EOS が一組の stream に繋ぐ。
+/// ZIP / 7z / 単独.bz2 用。完全な block を並列圧縮し、header と EOS が一組の stream に繋ぐ。
 /// tar.bz2 の連結 stream は ParallelBzip2Compressor が従来どおり担当する。
-final class ParallelBzip2StreamEncoder {
+final class ParallelBzip2StreamEncoder: TarCompressor {
     typealias Encoder = ParallelBzip2Compressor.Encoder
     @TaskLocal static var testingEncoder: Encoder?
     static let inputCap = 8 << 20
 
-    static func chunkSize(level: Int, size: UInt64, threads: Int) -> Int {
+    /// 項目窓の上限はlevelだけで固定する。内側spliceの入力サイズ別の片幅とは別に扱う。
+    static func entryWindowLimit(level: Int) -> Int { 5 * (100_000 * level - 19) }
+
+    static func chunkSize(level: Int, size: UInt64) -> Int {
         let block = 100_000 * level - 19
-        // 小〜中の単一項目でも要求coreへ配る。大入力は約5 blockずつまとめる。
-        let blocks = max(1, Int(min(5, size / UInt64(max(1, threads)) / UInt64(block))))
-        return blocks * block
+        // 既知サイズは約32片以上を確保し、巨大入力でも一片を5 block幅までに抑える。
+        // サイズ不明は固定1 block幅。並列数・CPU・メモリ予算は切断位置に影響させない。
+        guard size > 0 else { return block }
+        let blocks = (size - 1) / UInt64(block) + 1
+        return Int(min(5, max(1, blocks / 32))) * block
     }
 
-    static func estimatedChunkCount(size: UInt64, level: Int, threads: Int) -> Int {
+    static func estimatedChunkCount(size: UInt64, level: Int) -> Int {
         guard size > 0 else { return 1 }
-        let width = UInt64(chunkSize(level: level, size: size, threads: threads))
-        return Int(min(64, (size - 1) / width + 1))
+        let width = UInt64(chunkSize(level: level, size: size))
+        return Int(min(UInt64(WriterOptions.compressionThreadsRange.upperBound), (size - 1) / width + 1))
     }
 
     static func memoryReservation(level: Int, threads: Int) -> UInt64 {
         // 入力(t+1)cap、完了結果の最悪膨張とcodec状態t個、切断時の一時copyを予約する。
         let cap = UInt64(inputCap)
-        if threads == 1 { return UInt64(400_000 + 800_000 * level) }
         return UInt64(threads + 2) * cap + UInt64(threads) * (cap + cap / 100 + 601 + UInt64(400_000 + 800_000 * level + IOChunk.size))
     }
 
     static func resolvedThreads(options: WriterOptions, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
         let budget = min(physicalMemory / 2, options.memoryLimit ?? UInt64.max)
-        var threads = max(1, min(64, options.resolvedCompressionThreads))
+        var threads = max(1, min(WriterOptions.compressionThreadsRange.upperBound, options.resolvedCompressionThreads))
         while threads > 1, memoryReservation(level: options.bzip2Level, threads: threads) > budget { threads -= 1 }
         return threads
     }
@@ -47,6 +51,7 @@ final class ParallelBzip2StreamEncoder {
     private let cap: Int
     private let cancellation: CompressionCancellation?
     private let sequential: Bzip2StreamEncoder?
+    private let inline: Bool
     private let pipeline: OrderedChunkPipeline<Data, Data, Int>
     private var scanner: Bzip2BlockScanner
     private var input = Data()
@@ -61,15 +66,18 @@ final class ParallelBzip2StreamEncoder {
     init(level: Int, threads: Int, size: UInt64 = 0, chunkSize: Int? = nil, inputCap: Int = ParallelBzip2StreamEncoder.inputCap,
          encoder: Encoder? = nil, cancellation: CompressionCancellation? = nil, workerActivity: (@Sendable (Bool) -> Void)? = nil) throws {
         guard (1...9).contains(level) else { throw WriterError.invalidOption("bzip2Level") }
-        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        guard WriterOptions.compressionThreadsRange.contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         precondition(inputCap > 0 && (chunkSize ?? 1) > 0)
         self.level = level; cap = inputCap
         self.cancellation = cancellation
-        target = min(inputCap, chunkSize ?? Self.chunkSize(level: level, size: size, threads: threads))
+        target = min(inputCap, chunkSize ?? Self.chunkSize(level: level, size: size))
         scanner = Bzip2BlockScanner(level: level)
-        sequential = threads == 1 ? try Bzip2StreamEncoder(level: level) : nil
+        // cap 未満の既知入力は強制切断されない。capちょうどでも途中writeの切断を揃える。
+        sequential = threads == 1 && size > 0 && size < inputCap && chunkSize == nil
+            ? try Bzip2StreamEncoder(level: level) : nil
+        inline = threads == 1
         let encode = encoder ?? Self.testingEncoder ?? Self.encodeChunk
-        pipeline = OrderedChunkPipeline(threads: threads, cancellation: cancellation) { bytes in
+        pipeline = OrderedChunkPipeline(threads: threads, inlineSingleThread: true, cancellation: cancellation) { bytes in
             workerActivity?(true)
             defer { workerActivity?(false) }
             return try encode(bytes, level)
@@ -78,14 +86,25 @@ final class ParallelBzip2StreamEncoder {
 
     deinit { abandon() }
 
+    func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {}
+
     func write(_ data: Data, finish: Bool, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
         do {
             try cancellation?.check()
             try Task.checkCancellation()
             if let sequential {
-                try sequential.write(data, finish: finish, emit: emit)
-                finished = finish
+                // BZ_RUNで末尾の満杯blockを先に確定させない。最後の1 byteをBZ_FINISHへ渡し、
+                // 入力とfinishが別writeでも、片をBZ_FINISHで圧縮するsplice経路と境界を揃える。
+                input.append(data)
+                if finish {
+                    try sequential.write(input, finish: true, emit: emit)
+                    input = Data(); finished = true
+                } else if !input.isEmpty {
+                    let last = input.removeLast()
+                    try sequential.write(input, finish: false, emit: emit)
+                    input = Data([last])
+                }
                 return
             }
             var offset = data.startIndex
@@ -145,6 +164,7 @@ final class ParallelBzip2StreamEncoder {
     private func submit(_ chunk: Data, blocks: Int, emit: (Data) throws -> Void) throws {
         submitted = true
         try pipeline.submit(chunk, tag: blocks, weight: UInt64(chunk.count)) { try self.splice($1!, blocks: $0, emit: emit) }
+        if inline { try pipeline.drain { try self.splice($1!, blocks: $0, emit: emit) } }
     }
 
     private func splice(_ stream: Data, blocks: Int, emit: (Data) throws -> Void) throws {

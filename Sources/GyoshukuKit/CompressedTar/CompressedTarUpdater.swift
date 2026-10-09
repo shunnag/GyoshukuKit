@@ -70,6 +70,7 @@ public final class CompressedTarUpdater: ArchiveEditing {
     /// reader は recordsTarEditLayout を立てて開く。open は出力も一時ファイルも作らない。
     public static func open(reader: sending ArchiveReader, output: URL, format: ArchiveFormat,
                             options: WriterOptions = WriterOptions()) throws -> CompressedTarUpdater {
+        let options = options.resolvingCompressionThreads()
         try options.validate(for: format)
         if [.tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress].contains(format) {
             throw TarLayout.refuse("container has no splice layout; use ArchiveRewriter")

@@ -20,6 +20,7 @@
 | `ppmdMemoryMiB` | `nil` | preset のモデルメモリを MiB 単位で上書き。ZIP は `1...256`、7z は encoder が対応する `1...1024` |
 | `lzmaLevel` | `nil` | tar.xz / 7z LZMA2 / ZIP XZ は nil なら従来の Apple preset-6。`0...9` は自前 encoder。ZIP / 7z LZMA と tar.lzma / tar.lz は常に自前で nil は6。単独 XZ / LZMA / lzip も同じ解決 |
 | `lzmaExtreme` | `false` | 自前 LZMA の探索量を増やす。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使い、他はレベル指定時だけ |
+| `prefersSpeed` | `false` | 速さ優先。既知サイズの XZ / LZMA2・lzip の片を小さくし、7z solid の既定上限を16 MiB、ZIP Zstandard の大項目を独立 frame 連結にする。[分割規則](#速さ優先) |
 | `memoryLimit` | `nil` | 自前 LZMA / Zstandard と ZIP / 7z BZip2 の圧縮予約の予算（byte）。物理メモリの50%との小さい方を使い、nil は50%。自前 LZMA / Zstandard は一つも入らなければ `invalidOption("memoryLimit")`。BZip2 は逐次へ戻す。新しい LZMA / XZ 項目・folder窓は Apple codec の見積りも含めるが、2枠未満なら従来経路へ戻す。Apple の既存 block 経路と他の codec には適用しない |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
 | `preserveOwnerIDs` | `false` | ディスク由来の uid/gid を保存。ZIP は 0x7875、tar は数値欄（既定0、uname/gname は常に空）。7z / LHA は true を拒否 |
@@ -27,15 +28,30 @@
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
 | `zipEncryption` | `.aes256` | WinZip AES-256。`.zipCrypto` は従来の PKWARE 暗号 |
 | `encryptsSevenZipHeaders` | `false` | 7z のファイル名を含む header も暗号化。パスワードが必要 |
-| `compressionThreads` | `nil` | ZIP / 7z / LHA の項目・folder・memberと、圧縮 tar / 単独 gzip・bzip2・XZ・Zstandard・lzip・LZ4 の並列数 `1...64`。項目窓は最大16枠、メモリ予算でも制限する。ZIP / 7z BZip2 は大項目内を単一 stream spliceで並列化する。LZMA1 / PPMd の一つの stream と LZMA_Alone / Brotli / compress は逐次。ZIP 再暗号化の鍵導出にも使用。自動は CPU 数・物理メモリ GiB・8 の最小値（最低1） |
+| `compressionThreads` | `nil` | ZIP / 7z / LHA の項目・folder・memberと、圧縮 tar / 単独 gzip・bzip2・XZ・Zstandard・lzip・LZ4 の並列数 `1...1024`。項目窓は GCD constrained pool の1/4以下、メモリ予算でも制限する。ZIP / 7z BZip2 は大項目内を単一 stream spliceで並列化する。LZMA1 / PPMd の一つの stream と LZMA_Alone / Brotli / compress は逐次。ZIP 再暗号化の鍵導出にも使用。自動は有効 logical CPU 数・物理メモリ GiB の最小値（最低1）、powerPolicy に従い削減 |
+| `powerPolicy` | `.reduceInLowPowerMode` | 自動時だけ適用。Low Power Mode で削減、`.reduceInLowPowerModeOrThermalPressure` は serious / critical でも削減、`.alwaysUseAllCores` は削減なし |
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
 
-`memoryLimit` は byte 単位の正の値、`compressionThreads` は `1...64` です。範囲外は `WriterError.invalidOption`。solid の明示的な `blockSize` / `filesPerBlock` は正の値に限ります。設定は出力・作業ファイルを作る前に検証します。各 level は、その codec を選んでいない場合も範囲検査します。
+`memoryLimit` は byte 単位の正の値、`compressionThreads` は公開定数 `WriterOptions.compressionThreadsRange`（`1...1024`）です。範囲外は `WriterError.invalidOption`。solid の明示的な `blockSize` / `filesPerBlock` は正の値に限ります。設定は出力・作業ファイルを作る前に検証します。各 level は、その codec を選んでいない場合も範囲検査します。
 
 ## 並列処理と出力の待機
 
-自動並列数は `max(1, min(CPU 数, 物理メモリ GiB, 8))` です。小〜中項目の窓は最大16枠で、メモリ予算によりさらに減らします。出力は追加順を保ちます。`compressionThreads: 1` は同期、2以上では後続の `add` / `finish` まで出力・エラー通知が遅れる場合があります。明示的に待つには `finishAdditions(progress:)` を使います。
+通常の自動並列数は `max(1, min(有効 logical CPU 数, 物理メモリ GiB))` です。固定のコア数上限はありません。
+既定の `.reduceInLowPowerMode` と `.reduceInLowPowerModeOrThermalPressure` は Low Power Mode で減らし、後者は thermal state が serious / critical のときも減らします。
+`.alwaysUseAllCores` は削減せず、明示した `compressionThreads` にはどの方針も作用しません。
+削減時は `max(1, min(ceil(activeCPUs / 2), 最低性能 level の logical CPU 数))`。level が一つなら半分（切上げ）です。その後に GiB と codec のメモリ制限を適用します。
+level は `hw.nperflevels` と `hw.perflevelN.logicalcpu` / `physicalcpu` の番号順（0が最高性能）で扱い、Performance / Efficiency / Super 等の名称では分類しません。
+`hw.activecpu` が読めなければ `ProcessInfo.activeProcessorCount`、level が欠落・0なら全 CPU の単一 level を使います。
+16-core（12+4）/ 128 GiB は通常16・削減4、10-core（4+6）/ 16 GiB は10・5、18-core（6+12）/ 36 GiB は18・9、12-core（2+4+6）は12・6、36-core（12+24）は36・18です。
+
+writer / updater / rewriter / 単独圧縮は開始時に topology・Low Power Mode・thermal state を一度読み、内部 options コピーに固定します。途中の状態変更は片・窓の決定に作用しません。
+表示には `WriterOptions.automaticCompressionThreads(powerPolicy:)` を使います。これは呼出時の自動要求値で、codec のメモリ制限と項目 / folder 窓の安全上限を適用する前です。
+開始後に外部の options から再計算した値はジョブと異なる可能性があります。開始時の入力上界を固定して共有する場合は、公開 API の自動値を一度取得して `compressionThreads` に明示し、その options を writer と上界計算の両方へ渡してください。
+
+項目 / folder 窓は `min(要求並列数, floor(GCD constrained pool / 4), floor(メモリ予算 / 一枠の予約))`（最低1）。pool は `kern.wq_max_constrained_threads`、読めなければ `max(64, 5 × activeCPUs)` を使います。
+待機する外側 worker と内側の片 worker が pool を埋めないための余地です。[設計上の理由](design.md#自動並列数と電力方針)も参照してください。
+出力は追加順を保ちます。`compressionThreads: 1` は同期、2以上では後続の `add` / `finish` まで出力・エラー通知が遅れる場合があります。明示的に待つには `finishAdditions(progress:)` を使います。
 
 ZIP LZMA / XZ / Zstandard / PPMd と non-solid 7z LZMA / PPMd は16 MiB以下の項目を並列化します。ZIP / 7z BZip2 は約5 block分以下を項目間、それより大きい項目内は block を並列化し、完全な単一 stream に splice します。大項目と filter なしの 7z Copy は従来の stream 経路です。ZIP XZ と7z LZMA2 / Deflate は大項目内の block も並列化します。LHA は1 MiB超〜16 MiBの member も項目間で並列化し、内部の1 MiB境界と履歴を保持します。
 
@@ -57,17 +73,55 @@ Apple 経路の tar.xz の待機中の入力と組立中の入力の上界は、
 tar.bz2 の chunk は内部 block size の5倍です。level 9 は4,500,000 byteごとの独立streamとなり、
 thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB（約15.8 MiB）を使います。
 
+## 速さ優先
+
+`WriterOptions(prefersSpeed: true)` は、圧縮率の一部を引き換えに独立した圧縮片を増やします。
+既定の `false` は従来の圧縮率・出力 byte を保ちます。どちらのモードも、片境界と solid folder の
+区切りは方式・level・既知入力サイズだけで決まり、thread 数・CPU 構成・電力状態・メモリに依存しません。
+環境によって変えるのは同時に動く codec 数だけです。
+
+ZIP XZ の entry、7z LZMA2 の非solid entryとサイズ確定後のsolid / filter folder、単独 .xz の
+既知入力サイズを S、従来の片を P とすると、片は `max(2 MiB, min(P, roundUp(S / 16, 1 MiB)))`。
+P は Apple と辞書16 MiB以下の自前 encoder が16 MiB、大辞書は3 × 辞書です。
+S = 0 / 不明なら P を使います。1 MiB未満の入力も片の上限は2 MiBで、空の片を追加しません。
+
+| S | 不明・0 | 1 MiB | 10 MiB | 64 MiB | 256 MiB | 1 GiB |
+|---|---:|---:|---:|---:|---:|---:|
+| P = 16 MiB の XZ / LZMA2 | 16 MiB | 2 MiB | 2 MiB（5片） | 4 MiB（16片） | 16 MiB | 16 MiB |
+| level 6 lzip（辞書8 MiB、P = 24 MiB） | 24 MiB | 8 MiB | 8 MiB | 8 MiB | 16 MiB | 24 MiB |
+
+単独 .lz の lzip member も同じ式で、下限を `max(2 MiB, 辞書)`、P を `max(16 MiB, 3 × 辞書)` にします。
+辞書そのものは縮小しません。tar.xz / tar.lz は compressor 作成時に総 tar サイズが確定しないため、
+速さ優先でも従来の片・member幅と packing を保持します。逐次追加で見えてきたサイズから再計算しません。
+
+7z solid の LZMA1 / LZMA2 / PPMd / BZip2 / Deflate は、`blockSize: nil` の上限を16 MiBにします。
+明示 `blockSize` と `filesPerBlock` はそのまま使います。ファイルを folder 間に分割せず、上限超の
+ファイルは単独 folder にします。Copy の既定上限は従来どおりです。
+
+ZIP Zstandard は entry が `max(4 MiB, level の window)` を超えると独立 frame を並列符号化し、
+入力順に連結します（[RFC 8878 §3.1](https://www.rfc-editor.org/rfc/rfc8878.html#section-3.1)）。
+上限以下の entry と既定モードは単一 frame。各 frame は content size と checksum を持ち、
+AES / ZipCrypto の暗号化対象にも含まれます。KaitoKit・7zz・zstd CLIで連結を検証しています。
+
+`LZMAWriterConfiguration` は実際の片を入出力予約に使います。複数 entry の共有窓は従来幅を
+安全側に予約し、7z folder 窓の最大片数は下限2 MiBで数えます。入力サイズを受け取らない公開
+`maximumPendingInputBytes(for:)` は、速さ優先の ZIP XZ / lzip では最小片で解決した並列数と
+従来幅の積を使う保守的な上界です。ZIP Zstandard は `max(e, frame 並列数 × frame 幅)`。
+実際の片は予算に応じて変更せず、収まらなければ codec の従来の memoryLimit エラーを返します。
+
 ## Pending input の意味
 
 `maximumPendingInputBytes(for:)` は検証済み options に対する、待機中の入力 byte の上界です。codec state・圧縮出力・XZ index を含む RSS の上限ではありません。solid / filter 付き 7z は disk 上の未圧縮 spool も数えます。圧縮出力は1 MiBまでメモリ、それを超えると unlink 済み disk spool に保持します。
 
-以下で `t` は対応経路が解決した並列数、`p` は LZMA2 の片サイズ、`e` は項目窓（2枠以上なら `窓の枠数 × 16 MiB`、逐次なら0）、`b` は BZip2 内側並列（2以上なら `(内側並列数 + 1) × 8 MiB`、逐次なら0）です。
+ZIP / 7z BZip2 は片を常に5 block相当の固定目標幅でまとめ、8 MiB cap の強制切断も1スレッドと並列で共通です。大入力の1スレッドも有界 buffer を使うため、ZIP / 非solid 7z BZip2 の上界は最低16 MiB（従来0）です。小さい既知入力では従来の逐次 codec を使い、実際の待ち入力は0の場合があります。
+
+以下で `t` は対応経路が解決した並列数、`p` は LZMA2 の片サイズ、`e` は項目窓（2枠以上なら `窓の枠数 × 16 MiB`、逐次なら0）、`b` は BZip2 内側の入力上界 `(内側並列数 + 1) × 8 MiB`（1スレッドも含む）です。
 
 | 形式・方式 | 入力の上界 |
 |---|---|
 | ZIP Stored / ZipCrypto Deflate | 0 |
 | ZIP Deflate | `compressionThreads（自動解決後）× 1 MiB` |
-| ZIP LZMA / Zstandard / PPMd | `e` |
+| ZIP LZMA / Zstandard / PPMd | `e`（速さ優先の Zstandard は `max(e, frame 並列数 × frame 幅)`） |
 | ZIP BZip2 | `max(e, b)` |
 | ZIP XZ | `max(e, (t + 1) × p)` |
 | tar / LZMA_Alone / Brotli / compress | 0 |
@@ -77,14 +131,17 @@ thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB
 | tar.zst / tar.lz / tar.lz4 | `t × 片` / `t × member 上限` / `t × 4 MiB` |
 | 通常の7z LZMA2 / Deflate | `t × p` / `compressionThreads（自動解決後）× 1 MiB` |
 | non-solid 7z LZMA / PPMd / BZip2 / filterなしCopy | `e` / `e` / `max(e, b)` / 0 |
-| 7z solid / filter | folder窓の入力上界。BZip2 は `b` と、内側並列時に `folder枠数 × 8 MiB` も加算 |
+| 7z solid / filter | folder窓の入力上界。BZip2 は `b` と `folder枠数 × 8 MiB` も加算 |
 | LHA（圧縮並列数が2以上） | `max(e, compressionThreads（自動解決後）× (1 MiB + 辞書履歴))`。逐次・stored は0 |
 
 `maximumPendingInputBytes(for: .sevenZip)` は通常の LZMA2 が `解決した並列数 × 片サイズ`、Deflate が `compressionThreads × 1 MiB`、
 LZMA / PPMd が項目窓の入力上界、BZip2 が項目窓と内側 splice buffer の大きい方です。filterなしの Copy は0です。
 solid / filter の値は disk上の folder入力も数え、BZip2 は内側bufferも加えます。codec stateや圧縮出力を含むRSS上限ではありません。
 
-7z solid の窓は `枠数 × block 上限`、filter付き non-solid は `枠数 × 16 MiB` です。block 上限が256 MiBを超える solid と filterなしCopyは一枠の逐次経路を使います。分割しない単一ファイルが block 上限を超える場合、実 spool に必要な容量はそのファイルのサイズです。
+7z solid の窓は `枠数 × block 上限`、filter付き non-solid は `枠数 × 16 MiB` です。解決したblock上限が256 MiBを超える場合とfilterなしCopyは一枠の逐次経路を使います。分割しない単一ファイルが block 上限を超える場合、実 spool に必要な容量はそのファイルのサイズです。
+
+folder一枠の予約は `I/O + 最大片数 × codec状態` です。LZMA1 / PPMd / Copyは最大片数1、LZMA2 / Deflateは `min(要求並列数, ceil(folder上限 / 片サイズ))` です。I/Oは入力16 MiB・出力spool 1 MiB・4 × 256 KiBです。全folderの割当codec数も `min(要求並列数, floor(予算 / codec状態))` 以下に保ちます。BZip2 は入力・出力・codec 状態の splice 予約を1スレッドにも適用します。
+入力上界の式は同じですが、folder枠数の増加により値が増える場合があります。物理16 GiB・要求12・既定level・予算8 GiBでは、64 MiB solidのLZMA2は320→768 MiB、LZMA1は384→768 MiB、PPMd level 9の明示64 MiB solidは192→768 MiBです。filter付きnon-solidのLZMA2は80→192、LZMA1は96→192 MiBです。PPMd level 9は既定block上限384 MiBによる同期経路を維持し、既定solidは384 MiB、filter付きnon-solidは16 MiBのままです。自動値の固定16上限と項目窓の固定16上限を撤廃したため、他形式でも既定の入力上界が増える場合があります。上界はこの呼出しで一度解決した電力状態・GCD pool・各経路のメモリ制限を反映します。
 
 `maximumPendingInputBytes(for: .lha)` は圧縮並列数 `t > 1` のとき `max(項目窓の入力上界, t × (1 MiB + 辞書履歴))`、
 逐次またはstoredなら0です。出力・codec表はこの入力byte数に含みません。
@@ -133,4 +190,4 @@ LZMA_Alone / Brotli / compress は0です。codec 内部の辞書・bufferと出
 
 Zstandard はレベル1...12が4 MiB、13...19が8 MiBの片です。
 実際の並列数 t は encoder の見積りと入力・出力二片、framing の余白がメモリ予算に入る最大数です。
-`maximumPendingInputBytes(for: .tarZstd)` は組立中を含め `t × 片`。ZIP Zstandard は entry 内では単一 frame の逐次出力ですが、項目窓を使う場合の入力上界は `e` です。
+`maximumPendingInputBytes(for: .tarZstd)` は組立中を含め `t × 片`。ZIP Zstandard の既定は entry 内で単一 frame を逐次出力し、項目窓の入力上界は `e`。速さ優先では `max(e, frame 並列数 × frame 幅)` です。

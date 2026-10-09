@@ -35,6 +35,11 @@
 | `SingleStreamTestSupport` | 単独 stream の実ツール復号、decoder と bsdtar の pipe、lzip trailer の独立検査 |
 | その他 | `SevenZipExternalOracles`・`CompressedTarCompatibility`・`SevenZipProbePayload`・`BatchAdditionTestSupport`・`AdditionProgressTestSupport` |
 | `SevenZipSolidFilterSupport` | 小さい Mach-O 相当の入力、solid / filter の必須7zz t / l / x と KaitoKit 往復、folder 数・substream CRC の照合 |
+| `FilterSpeedReference` | speed2 最適化前の Delta / BCJ、LHA CRC-16、LH5 bit結合、LZWを残した差分試験の参照。製品側の高速経路を再利用せず、出力互換性を守る |
+
+`swift test --filter FilterSpeedDifferentialTests` は Delta の全距離1〜256と1〜4 byteを含む分割、
+BCJ の密な E8/E9・BL/ADRP と奇数開始位置、CRC の長さ・整列・初期値、LH5 の全端数1〜7 bit、
+LZW の maxbits 12〜16・幅変更・CLEAR・EOF を参照と byte 比較する。外部ツールなしで実行できる。
 
 ## Fixtures
 
@@ -56,9 +61,12 @@
 |---|---|---|
 | `GYOSHUKU_LARGE_ENCODER_TESTS=1` | encoder / writer 10 class の `…FullSize` 16 件（BZip2追加後） | 元の 1 / 4 / 8 / 9 / 20 / 128 MiB と全分割幅、BZip2 splice の16 MiB並列検査を保持する。CI は Xcode 27 / Swift 6.4 で build した release test を macOS 27 と macOS 26 で実行する。既定の境界・復旧検査と実測は [encoder検証記録](../Documentation/verification/2026-10-07-encoder-debug-speed.md) と [BZip2検証記録](../Documentation/verification/2026-10-08-bzip2-splice-mini-ab.md) |
 | `GYOSHUKU_ENCODER_TIMING=1` | ✱ `EncoderWriterOverheadProbeTests`・工程の計測 | probe は Copy / file I/O の対照を測る。`ENCODER_PHASE`、工程名、秒、入力 byte、出力 byte を TSV で出す。encoder / writer、corpus、KaitoKit、oracle、CRC、Data append を分ける |
+| `GYOSHUKU_FILTER_SPEED_PROBE=1` | ✱ `FilterSpeedProbeTests` | Delta（距離1・4・256）、LHA CRC-16、LZW16、LH5 bit結合を最適化前の参照と局所比較する。4 MiB入力（LZWは1 MiB）、3回の最良MB/s。`-c release -Xswiftc -enable-testing --filter FilterSpeedProbeTests` |
 | `GYOSHUKU_ENCODER_BENCHMARK_RUN=<label>` | skip しない。計測 process の分離 | 出力を `.build/verification/encoder-speed/<label>/` に置く。before / after の反復で一時 file を共有しない |
 | `GYOSHUKU_MULTICORE_BENCHMARK=1` | ✱ `MulticoreBenchmarkTests` / `ZipConcatenatedZstdProbeTests` | 256 MiB混合corpusのwriter wall / process CPU / サイズ / SHA-256と、MulticoreWriterTestsの13個の16 MiB直前項目のpending上界。大入力はreleaseで実行。`Benchmarks/multicore.py`と同日検証記録を参照。corpusとJSONL出力は`GYOSHUKU_MULTICORE_CORPUS` / `GYOSHUKU_MULTICORE_RESULTS`。 |
 | `GYOSHUKU_LZMA_BENCHMARK=1` | ✱ `LZMAEncoderBenchmarkTests` | 自前 LZMA2 / xz / Apple の level 1・6・9、4 MiB text と実在 Mach-O（最大 32 MiB）。`-c release` 必須。design.md の自前 LZMA encoder 節 |
+| `GYOSHUKU_LZMA_FINDER_PROBE=1` | ✱ `LZMAMatchFinderProbeTests` | 全位置 `record:true` のfinderとraw LZMA1の時間比f。level 6、4 MiB text / Mach-O実行file / 固定seedの16 MiB random、任意の `GYOSHUKU_LZMA_FINDER_PROBE_FILE`。`-c release` 必須。`…_LEVELS=4,6,9` / `…_REPEATS`（既定3）で条件指定、`…_MAX_BYTES`は短い起動確認専用。各corpus / levelをtag + JSONの一行で報告。design.md参照 |
+| `GYOSHUKU_LZMA_MT_BENCHMARK=1` | ✱ `LZMAMultithreadedBenchmarkTests` | raw LZMA1 level 6の逐次 / 専用finder ThreadのMB/sと秒、全sample、byte identity。4 MiB text / Mach-O試験実行file / 16 MiB random、任意の `GYOSHUKU_LZMA_MT_BENCHMARK_FILE`。`-c release` 必須、`…_REPEATS`は既定3でbest-of-3。初期化・compact・joinを含む。 |
 | `GYOSHUKU_PPMD_BENCHMARK=1` | ✱ `PPMdEncoderBenchmarkTests` | var.H / var.I と 7zz single-thread、level 1・6・9、8 MiB 英文風 text と実在 Mach-O（最大 16 MiB）。order / restart を指定し 7zz の実 heap も記録する best-of-5 の TSV。`-c release` 必須。design.md の PPMd 節 |
 | `GYOSHUKU_ZSTD_BENCHMARK=1`（任意で `GYOSHUKU_ZSTD_ALL_LEVELS=1`） | ✱ `ZstdEncoderBenchmarkTests` | 4 MiB text / 実在Mach-O（最大32 MiB）/ 固定seedの16 MiB tar風混合入力、level 1・3・9・19（または全19 level）、最低5回の最良値、必須zstd / KaitoKit復号。`-c release` 必須 |
 | `GYOSHUKU_ZSTD_PARALLEL_BENCHMARK=1` | ✱ `ZstdParallelBenchmarkTests` | 上のtext / Mach-O連結を繰り返した256 MiB、公開 `.zst` / `tar.zst` writerを1 / 4 / 8 / 12 threadで最低5回、file I/Oを含む。thread間byte一致と必須zstd検査 |
@@ -137,3 +145,18 @@ raw entry dataのzstd復号、単一frame・ZIP64・updater追加・rewriterも�
 7-Zip 26.03はmethod 93の実抽出に成功する。必須の `/opt/homebrew/bin/zstd` はCIでも導入する。
 空 .Z を BSD uncompress が拒否する既知の制限は終了値・診断・空出力を照合し、KaitoKit と7zzで復号する。
 制限付き環境が `uncompress -c` の `/dev/stdout` 再openだけを拒否した場合は同じ実ツールのfile出力を使う。
+
+
+### 速さ優先の圧縮率 probe
+
+`GYOSHUKU_SPEED_RATIO_CORPUS=<directory>` で `SpeedPriorityRatioProbeTests` を有効にする。
+`hdr32.txt` / `bin32` / `mixed32.bin` を、Apple XZ・自前XZ level 6・lzip level 6・
+ZIP Zstandard level 3・7z solid LZMA2（Apple / level 6）の既定と速さ優先で比較する。
+7z solidは同じ入力を四つの8 MiB memberへ分ける。出力byteと増加率を標準エラーへ表示し、
+`.build/verification/speed-priority-ratio/sizes.json` に保存する。
+
+既定byteの基点は `Tests/Fixtures/speed-priority` の3b74afb fixtureで、通常試験でも照合する。
+`GYOSHUKU_SPEED_RECORD_BASELINE` は基点での初回採取専用。変更後のwriterから再生成しない。
+
+`GYOSHUKU_SPEED_RATIO_VERIFY=1` と同じcorpusを指定すると、`testSavedProbeRoundTrips` が
+保存済みの出力を再圧縮せずKaitoKitとxz / lzip / 7zz / zstdで検査する。

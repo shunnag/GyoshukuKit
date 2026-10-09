@@ -19,7 +19,7 @@ final class ParallelBzip2Compressor: TarCompressor {
 
     init(level: Int, threads: Int, encoder: @escaping Encoder = Bzip2StreamEncoder.encode) throws {
         guard (1...9).contains(level) else { throw WriterError.invalidOption("bzip2Level") }
-        guard (1...64).contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
+        guard WriterOptions.compressionThreadsRange.contains(threads) else { throw WriterError.invalidOption("compressionThreads") }
         chunkSize = Self.chunkSize(level: level)
         layout = TarChunkCutter(limit: chunkSize)
         pipeline = OrderedChunkPipeline(threads: threads) { try encoder($0, level) }

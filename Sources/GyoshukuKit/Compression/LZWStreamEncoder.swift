@@ -9,12 +9,17 @@ import Foundation
 final class LZWStreamEncoder {
     private let maxbits: Int
     private let dictionaryLimit: Int
-    // key = (prefix code << 8) | suffix byte。entry 数は 2^maxbits - 257 以下。
-    private var dictionary: [UInt32: Int] = [:]
+    // key = (prefix code << 8) | suffix byte。占有率は1/2未満の線形探索表。
+    // 上位に key、下位16 bitに code を詰める。code >= 257 なのでゼロを空き欄にできる。
+    private var dictionary: UnsafeMutablePointer<UInt64>?
+    private let tableCount: Int
+    private let tableMask: Int
+    private let hashShift: Int
     private var nextCode = 257
     private var prefix: Int?
     private var width = 9
-    private var group = [UInt8](repeating: 0, count: 16)
+    private var groupLow: UInt64 = 0
+    private var groupHigh: UInt64 = 0
     private var groupBits = 0
     private var output = Data()
     private var inputCount: UInt64 = 0
@@ -30,8 +35,21 @@ final class LZWStreamEncoder {
         guard (12...16).contains(maxbits) else { throw WriterError.invalidOption("compressMaxbits") }
         self.maxbits = maxbits
         dictionaryLimit = 1 << maxbits
-        dictionary.reserveCapacity(dictionaryLimit - nextCode)
+        tableCount = 1 << (maxbits + 1)
+        tableMask = tableCount - 1
+        hashShift = 31 - maxbits
+        let table = UnsafeMutablePointer<UInt64>.allocate(capacity: tableCount)
+        table.initialize(repeating: 0, count: tableCount)
+        dictionary = table
         output.reserveCapacity(IOChunk.size)
+    }
+
+    deinit { releaseDictionary() }
+
+    private func releaseDictionary() {
+        dictionary?.deinitialize(count: tableCount)
+        dictionary?.deallocate()
+        dictionary = nil
     }
 
     func write(_ input: Data, finish: Bool = false, emit: (Data) throws -> Void) throws {
@@ -43,21 +61,33 @@ final class LZWStreamEncoder {
                 try emit(Data([0x1F, 0x9D, 0x80 | UInt8(maxbits)]))
                 started = true
             }
+            // chunk 全体で一度だけ溢れを検査し、内側では入力数と prefix をレジスタへ置く。
+            let endCount = try checkedAdd(inputCount, UInt64(input.count))
+            var inputCount = self.inputCount, prefix = self.prefix ?? -1, nextCode = self.nextCode
+            let dictionary = self.dictionary!, tableMask = self.tableMask, hashShift = self.hashShift
             try input.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                guard let base = bytes.baseAddress else { return }
+                let source = base.assumingMemoryBound(to: UInt8.self)
                 for offset in 0..<bytes.count {
                     if offset & 0x3FFF == 0 { try Task.checkCancellation() }
-                    inputCount = try checkedAdd(inputCount, 1)
-                    let byte = bytes[offset]
-                    guard let previous = prefix else { prefix = Int(byte); continue }
-                    let key = UInt32(previous) << 8 | UInt32(byte)
-                    if let code = dictionary[key] {
-                        prefix = code
+                    inputCount &+= 1
+                    let byte = source[offset]
+                    guard prefix >= 0 else { prefix = Int(byte); continue }
+                    let key = UInt32(prefix) << 8 | UInt32(byte)
+                    var slot = Int((key &* 0x9E37_79B1) >> hashShift)
+                    var entry = dictionary[slot]
+                    while entry != 0, entry >> 16 != UInt64(key) {
+                        slot = (slot + 1) & tableMask
+                        entry = dictionary[slot]
+                    }
+                    if entry != 0 {
+                        prefix = Int(entry & 0xFFFF)
                         continue
                     }
-                    try put(previous, emit: emit)
+                    try put(prefix, nextCode: nextCode, emit: emit)
                     prefix = Int(byte)
                     if nextCode < dictionaryLimit {
-                        dictionary[key] = nextCode
+                        dictionary[slot] = UInt64(key) << 16 | UInt64(nextCode)
                         nextCode += 1
                     } else if inputCount >= checkpoint {
                         // 満杯の辞書だけを定期評価する。累積圧縮率が悪化したら block を再学習する。
@@ -65,47 +95,53 @@ final class LZWStreamEncoder {
                         let bytesWritten = try checkedAdd(outputCount, UInt64((groupBits + 7) / 8))
                         let ratio = Double(inputCount) / Double(bytesWritten)
                         if ratio < bestRatio {
-                            try clear(emit: emit)
+                            try clear(nextCode: nextCode, emit: emit)
+                            dictionary.update(repeating: 0, count: tableCount)
+                            nextCode = 257
                         } else {
                             bestRatio = ratio
                         }
                     }
                 }
             }
+            assert(inputCount == endCount)
+            self.inputCount = endCount
+            self.prefix = prefix >= 0 ? prefix : nil
+            self.nextCode = nextCode
             if finish {
-                if let prefix { try put(prefix, emit: emit) }
+                if prefix >= 0 { try put(prefix, nextCode: nextCode, emit: emit) }
                 try flushGroup(padded: false, emit: emit)
                 if !output.isEmpty { try emit(output); output = Data() }
-                dictionary.removeAll(keepingCapacity: false)
-                prefix = nil
+                releaseDictionary()
+                self.prefix = nil
                 finished = true
             }
         } catch {
-            dictionary.removeAll(keepingCapacity: false)
+            releaseDictionary()
             output = Data()
             finished = true
             throw error
         }
     }
 
-    private func clear(emit: (Data) throws -> Void) throws {
-        try put(256, emit: emit)
+    private func clear(nextCode: Int, emit: (Data) throws -> Void) throws {
+        try put(256, nextCode: nextCode, emit: emit)
         // CLEAR を含む旧幅の group を丸ごと埋め、次は 9 bit literal から始める。
         try flushGroup(padded: true, emit: emit)
-        dictionary.removeAll(keepingCapacity: true)
-        nextCode = 257
         width = 9
         bestRatio = 0
         clearCount = try checkedAdd(clearCount, 1)
     }
 
-    private func put(_ code: Int, emit: (Data) throws -> Void) throws {
-        // LSB first。最大 16 bit の code は、byte 境界次第で三つの byte にまたがる。
-        let byte = groupBits / 8, shift = groupBits & 7
-        let bits = UInt32(code) << shift
-        group[byte] |= UInt8(truncatingIfNeeded: bits)
-        if byte + 1 < width { group[byte + 1] |= UInt8(truncatingIfNeeded: bits >> 8) }
-        if byte + 2 < width { group[byte + 2] |= UInt8(truncatingIfNeeded: bits >> 16) }
+    private func put(_ code: Int, nextCode: Int, emit: (Data) throws -> Void) throws {
+        // LSB first。8 code の group は最大128 bitなので、二つのレジスタだけで保持する。
+        let bits = UInt64(code)
+        if groupBits < 64 {
+            groupLow |= bits << groupBits
+            if groupBits + width > 64 { groupHigh |= bits >> (64 - groupBits) }
+        } else {
+            groupHigh |= bits << (groupBits - 64)
+        }
         groupBits += width
         if groupBits == width * 8 { try flushGroup(padded: true, emit: emit) }
         // encoder の辞書は decoder より一つ先行する。幅を変えるのは code を出した直後で、
@@ -120,9 +156,12 @@ final class LZWStreamEncoder {
         guard groupBits > 0 else { return }
         // 幅変更と CLEAR は width byte（8 code 分）、EOF だけは byte 境界まで。
         let count = padded ? width : (groupBits + 7) / 8
-        output.append(contentsOf: group.prefix(count))
+        withUnsafeBytes(of: (groupLow.littleEndian, groupHigh.littleEndian)) { group in
+            output.append(group.baseAddress!.assumingMemoryBound(to: UInt8.self), count: count)
+        }
         outputCount = try checkedAdd(outputCount, UInt64(count))
-        group = [UInt8](repeating: 0, count: 16)
+        groupLow = 0
+        groupHigh = 0
         groupBits = 0
         if output.count >= IOChunk.size {
             try emit(output)
