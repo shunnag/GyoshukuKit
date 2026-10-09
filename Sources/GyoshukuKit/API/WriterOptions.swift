@@ -180,7 +180,8 @@ public struct WriterOptions: Sendable {
     /// 単独 gzip / bzip2 / XZ / lzip / LZ4 も同じ設定。LZMA_Alone / Brotli / compress は逐次。
     /// ZIP LZMA・XZ・Zstandard・PPMd と非solid 7z LZMA・PPMd は16 MiB以下の項目を並列化する。
     /// ZIP / 7z BZip2は約5 block分以下を項目間、それより大きい項目内はblockを並列化し単一streamへspliceする。
-    /// 大項目と7z Copyは既存のstream経路。ZIP XZと7z LZMA2・Deflateは大項目内のblockも並列化する。
+    /// 要求4以上の一括追加は、対応する単一streamの最長ファイル一件を先行符号化し、元の順に出力する。
+    /// 7z solidは上限超の単独folderだけが対象。ZIP XZと7z LZMA2・Deflateは大項目内のblockも並列化する。
     /// 7z solid/filterはfolderごとのdisk spoolを並列圧縮する。非solidは16 MiB、solidはblock上限まで。
     /// LHAは1 MiB超〜16 MiBのmemberも項目間で並列化し、内部の1 MiB境界と履歴を保つ。
     /// PPMdは各entry/folderに独立した指定サイズのモデルを使う。モデルを片に分けない。
@@ -329,6 +330,9 @@ public struct WriterOptions: Sendable {
     /// 7z solidは (f + 1) × block上限、filter付き非solidは (f + 1) × 16 MiB。逐次は一枠、組立中も枠に数える。
     /// 上限を超えるstreamは一窓分の待ち入力予約で報告する。disk入力はそのfolderの確定長、出力spoolは最大256 × 入力長 + 1 MiB（UInt64で飽和）。
     /// 出力spoolの本数は通常f本と専用一本まで。空き容量から枠や上限を増減させない。
+    /// 一括追加で先行できる方式は、さらに早期long pole一件分を予約する（要求4以上・対応する並列窓のみ）。
+    /// ZIP LZMA/PPMd/単一frame Zstandardと非solid 7z LZMA/PPMd/BZip2は +16 MiB、7z solid LZMA/PPMdは +block上限。
+    /// 先行結果は最初からdiskに置く。既存のcodec予約を共有し、通知と出力の順序は変えない。7z AES/filterは先行しない。
     /// rは要求並列数（自動解決後）。fは max(1, min(r, floor(GCD constrained pool / 4), floor((予算 - 専用予約) / (I/O + p × codec状態))))。
     /// I/Oは16 MiB + 1 MiB + 4 × 256 KiB。pはLZMA・PPMd・Copyが1、LZMA2・Deflateが min(r, ceil(folder上限 / 片サイズ))。
     /// LZMA・PPMd・Copyは予算内に二枠入る場合、一状態とI/Oを専用予約する。片並列も専用枠を含むf+1個のI/Oを先に差し引く。

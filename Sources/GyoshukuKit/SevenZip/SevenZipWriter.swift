@@ -28,6 +28,7 @@ final class SevenZipWriter {
     private let entryConfiguration: EntryCompressionConfiguration
     private var assignedEntryThreads = 0
     private let entryCancellation = CompressionCancellation()
+    private var earlyEntry: (index: Int, ticket: OrderedChunkPipeline<EntryJob, EncodedEntry, EntryTag>.Early, threads: Int, encoderThreads: Int)?
     // AES と spool は一つの worker に移譲し、完了後は呼出側だけが結果を読む。
     private struct EntryJob: @unchecked Sendable {
         enum Input: @unchecked Sendable { case data(Data), scratch(ScratchFile), file(FileJob) }
@@ -234,17 +235,75 @@ final class SevenZipWriter {
         entryPipeline != nil && isStreamedEntry(size: size) && !Self.testingOldDrain
     }
 
+    func supportsEarlyEntry(size: UInt64) -> Bool {
+        guard options.resolvedCompressionThreads >= 4, options.password == nil, !Self.testingOldDrain else { return false }
+        if let blocks { return blocks.supportsEarlyEntry(size: size) }
+        guard supportsStreamEntry(size: size), entryPipeline?.hasReservedItem == false, pipeline.pendingInputBytes == 0 else { return false }
+        if options.sevenZipMethod == .bzip2 {
+            let threads = min(ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level),
+                max(2, entryConfiguration.codecThreads / 2))
+            return entryConfiguration.codecThreads >= 3 && entryConfiguration.codecThreads - assignedEntryThreads >= threads
+        }
+        return (options.sevenZipMethod == .lzma || options.sevenZipMethod == .ppmd) && entryConfiguration.longPoleThreads > 0
+    }
+
+    func hasEarlyEntry(index: Int) -> Bool { earlyEntry?.index == index || blocks?.hasEarlyEntry(index: index) == true }
+
+    func startEarlyEntry(_ file: FileJob) throws {
+        if let blocks { try blocks.startEarlyEntry(file); return }
+        guard let entryPipeline, earlyEntry == nil else { throw WriterError.invalidState }
+        let normalCodecs = entryConfiguration.codecThreads - entryConfiguration.longPoleThreads
+        let threads = options.sevenZipMethod == .bzip2
+            ? min(ParallelBzip2StreamEncoder.estimatedChunkCount(size: UInt64(file.size), level: options.bzip2Level), max(2, normalCodecs / 2))
+            : entryConfiguration.longPoleThreads
+        let normalThreads = entryConfiguration.longPoleThreads > 0 ? 0 : threads
+        assignedEntryThreads += normalThreads
+        let ticket = try entryPipeline.startEarly(weight: UInt64(EntryCompressionConfiguration.inputLimit)) {
+            EntryJob(input: .file(file), size: UInt64(file.size), name: file.addition.path, threads: threads,
+                attribution: .init(index: file.index, addition: file.addition), aes: nil,
+                spool: try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "7z-entry", diskBacked: true,
+                    maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: UInt64(file.size))))
+        }
+        earlyEntry = (file.index, ticket, normalThreads, threads)
+    }
+
+    private func joinEarlyBeforeStream() throws {
+        if let earlyEntry {
+            try entryPipeline!.joinEarly(earlyEntry.ticket)
+            assignedEntryThreads -= earlyEntry.threads
+            self.earlyEntry?.threads = 0
+        }
+    }
+
     // sourceの署名とfd上限は既存FileJobに任せ、長い入力をworkerから直接読む。
     func add(name: String, mode: UInt16, date: Date, file: FileJob) throws {
+        if let blocks, blocks.hasEarlyEntry(index: file.index) {
+            try reserveSignature()
+            try blocks.addEarlyEntry(name: name, mode: mode, date: date, file: file, position: { self.position }, write: write)
+            return
+        }
         guard supportsStreamEntry(size: UInt64(file.size)) else { throw WriterError.invalidState }
         try reserveSignature()
         var record = SevenZipRecords.Entry(name: name, mode: mode, size: UInt64(file.size), mtime: try SevenZipRecords.timestamp(date))
         record.method = options.sevenZipMethod
+        if let earlyEntry, earlyEntry.index == file.index {
+            Self.testingWillSubmit?(name, entryPipeline!.pendingCount, true, earlyEntry.encoderThreads)
+            try entryPipeline!.submitEarly(earlyEntry.ticket, tag: EntryTag(record: record, threads: earlyEntry.threads,
+                attribution: Self.additionAttribution, verification: file), reserved: true, emit: emitEntry)
+            self.earlyEntry = nil
+            return
+        }
         try submitEntry(record, input: .file(file), streamed: true)
     }
 
     private func submitEntry(_ record: SevenZipRecords.Entry, input: EntryJob.Input, streamed: Bool) throws {
         guard let entryPipeline else { throw WriterError.invalidState }
+        if streamed { try joinEarlyBeforeStream() }
+        else if let earlyEntry, earlyEntry.threads > 0, entryPipeline.isEarlyComplete(earlyEntry.ticket) {
+            // 符号化済みの結果を保持する間はcodecを占有せず、通常項目へ戻す。
+            assignedEntryThreads -= earlyEntry.threads
+            self.earlyEntry?.threads = 0
+        }
         try entryPipeline.waitForCapacity(reserved: streamed, emit: emitEntry)
         let reservedCodec = streamed && entryConfiguration.longPoleThreads > 0
         let normalCodecs = entryConfiguration.codecThreads - entryConfiguration.longPoleThreads

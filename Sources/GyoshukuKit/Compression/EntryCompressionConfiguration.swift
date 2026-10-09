@@ -11,10 +11,12 @@ struct EntryCompressionConfiguration {
     let codecThreads: Int
     // 7zでは専用jobのcodec core数（LZMAのparser+finderは2）、ZIPでは追加finder core数。
     let longPoleThreads: Int
+    let earlyLongPoleSlots: Int
 
     init(lhaThreads: Int, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
         codecThreads = 1
         longPoleThreads = 0
+        earlyLongPoleSlots = 0
         // 各memberの片並列にも最大の内部codec数を予約する。
         let state = UInt64(8 << 20) * UInt64(max(1, min(WriterOptions.compressionThreadsRange.upperBound, lhaThreads)))
         threads = Self.resolve(requested: lhaThreads, state: state,
@@ -69,6 +71,9 @@ struct EntryCompressionConfiguration {
         let codecState = method == .bzip2 ? ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level, threads: 1) : state
         let normalCodecs = max(1, Int(min(UInt64(normalRequested), (normalBudget - overhead) / max(1, codecState))))
         codecThreads = normalCodecs + longPoleThreads
+        earlyLongPoleSlots = requested >= 4 && options.password == nil && options.sevenZipFilter == .none
+            && ((method == .lzma || method == .ppmd) && longPoleThreads > 0
+                || (method == .bzip2 && options.sevenZipSolid == .off && codecThreads >= 3 && threads > 1)) ? 1 : 0
     }
 
     init(options: WriterOptions, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
@@ -102,6 +107,10 @@ struct EntryCompressionConfiguration {
         longPoleThreads = parallelFinder ? 1 : 0
         threads = Self.resolve(requested: max(1, options.resolvedCompressionThreads - longPoleThreads),
             state: state, budget: parallelFinder ? available - extra : available)
+        earlyLongPoleSlots = options.resolvedCompressionThreads >= 4 && threads > 1
+            && !(options.password != nil && options.zipEncryption == .zipCrypto)
+            && (options.compressionMethod == .lzma || options.compressionMethod == .ppmd
+                || (options.compressionMethod == .zstd && !options.prefersSpeed)) ? 1 : 0
     }
 
     private static func resolve(options: WriterOptions, state: UInt64, budget: UInt64) -> Int {
@@ -116,8 +125,8 @@ struct EntryCompressionConfiguration {
         return max(1, min(requested, Int(min(UInt64(maximumEntryThreads), min(budget, testingMemoryBudget ?? budget) / reservation))))
     }
 
-    var maximumPendingInputBytes: UInt64 { threads > 1 ? UInt64(threads * Self.inputLimit) : 0 }
-    var sevenZipWindowCount: Int { threads > 1 || longPoleThreads > 0 ? threads + 1 : 1 }
+    var maximumPendingInputBytes: UInt64 { threads > 1 ? UInt64((threads + earlyLongPoleSlots) * Self.inputLimit) : 0 }
+    var sevenZipWindowCount: Int { threads > 1 || longPoleThreads > 0 ? threads + 1 + earlyLongPoleSlots : 1 }
     var sevenZipMaximumPendingInputBytes: UInt64 {
         threads > 1 || longPoleThreads > 0 ? UInt64(sevenZipWindowCount) * UInt64(Self.inputLimit) : 0
     }

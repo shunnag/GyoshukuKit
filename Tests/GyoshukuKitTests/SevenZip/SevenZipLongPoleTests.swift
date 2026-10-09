@@ -58,9 +58,12 @@ final class SevenZipLongPoleTests: XCTestCase {
                     }) {
                         let options = Self.options(.bzip2, solid: false, filter: .none, threads: 4)
                         let writer = try ArchiveWriter.create(url: root.appendingPathComponent("archive"), format: .sevenZip, options: options)
-                        try writer.add(items, events: { _ in
-                            XCTAssertLessThanOrEqual(writer.pendingInputBytes, options.maximumPendingInputBytes(for: .sevenZip))
-                        })
+                        // 通常窓が満杯のときの従来splice予約を検証する。早期投入はBatchAdditionLongPoleTestsで検証。
+                        try ArchiveWriter.$testingDisablesEarlyLongPoles.withValue(true) {
+                            try writer.add(items, events: { _ in
+                                XCTAssertLessThanOrEqual(writer.pendingInputBytes, options.maximumPendingInputBytes(for: .sevenZip))
+                            })
+                        }
                         try writer.finish()
                     }
                 }

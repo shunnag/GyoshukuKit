@@ -27,6 +27,7 @@ final class ZipWriter {
     private let entryCompressor: ZipEntryCompressor
     private let entryPipeline: OrderedChunkPipeline<EntryJob, EncodedEntry, Tag>?
     private let entryCancellation = CompressionCancellation()
+    private var earlyEntry: (index: Int, ticket: OrderedChunkPipeline<EntryJob, EncodedEntry, Tag>.Early)?
     private struct EntryJob: Sendable {
         let data: Data?
         let file: FileJob?
@@ -121,6 +122,7 @@ final class ZipWriter {
                         })
                     return EncodedEntry(spool: job.spool, data: Data(), crc: crc)
                 } catch {
+                    job.spool?.close()
                     if let file = job.file { throw additionFailure(error, index: file.index, addition: file.addition) }
                     throw error
                 }
@@ -635,6 +637,24 @@ final class ZipWriter {
         return true
     }
 
+    func supportsEarlyEntry(name: String, mode: UInt16, size: UInt64) -> Bool {
+        guard options.resolvedCompressionThreads >= 4, entryPipeline != nil, !encryptsWithZipCrypto,
+              size > UInt64(EntryCompressionConfiguration.inputLimit) else { return false }
+        let method = compression(name: name, mode: mode, size: size)
+        return method == .lzma || method == .ppmd || (method == .zstd && !options.prefersSpeed)
+    }
+
+    func startEarlyEntry(_ file: FileJob) throws {
+        guard let entryPipeline, earlyEntry == nil else { throw WriterError.invalidState }
+        let method = compression(name: file.addition.path, mode: FileMode.regular, size: UInt64(file.size))
+        let ticket = try entryPipeline.startEarly(weight: UInt64(EntryCompressionConfiguration.inputLimit), borrowsThread: true) {
+            EntryJob(data: nil, file: file, name: file.addition.path, method: method,
+                spool: try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry", diskBacked: true,
+                    maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: UInt64(file.size))), streamed: true)
+        }
+        earlyEntry = (file.index, ticket)
+    }
+
     func waitForCapacity(emit: (Tag, Prefetched?) throws -> Void) throws {
         try submitWaitingEntry()
         try entryPipeline?.waitForCapacity { tag, result in try self.emitEntry(tag, result, batchEmit: emit) }
@@ -668,7 +688,13 @@ final class ZipWriter {
                      emit: (Tag, Prefetched?) throws -> Void) throws {
         Self.testingBeforeBatchBlocks?(attribution.index, entryPipeline?.pendingCount ?? pipeline.pendingCount, pendingInputBytes)
         if entryPipeline != nil {
-            if entry.method == .xz || (entry.method == .zstd && options.prefersSpeed) {
+            if let earlyEntry, earlyEntry.index == file.index {
+                try entryPipeline!.submitEarly(earlyEntry.ticket, tag: Tag(entry: nil, crc: nil,
+                    attribution: attribution, verification: file)) {
+                    tag, result in try self.emitEntry(tag, result, batchEmit: emit)
+                }
+                self.earlyEntry = nil
+            } else if entry.method == .xz || (entry.method == .zstd && options.prefersSpeed) {
                 try submitPieces(entry, file: file, attribution: attribution, emit: emit)
             } else {
                 try submit(file, method: entry.method, attribution: attribution, weight: entry.size, emit: emit)

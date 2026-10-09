@@ -14,6 +14,7 @@ func benchmark() throws {
         let label = arguments[5]
         let workload = arguments[6]
         let mode = arguments.count > 7 ? arguments[7] : "item"
+        let prefersSpeed = ProcessInfo.processInfo.environment["GYOSHUKU_BENCH_PREFERS_SPEED"] == "1"
         guard mode == "item" || mode == "batch" else { throw WriterError.invalidOption(mode) }
         let members = workload == "corpus" ? "mixed" : workload
         let files = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent(members), includingPropertiesForKeys: nil)
@@ -25,6 +26,7 @@ func benchmark() throws {
         }
         for name in cases {
             var options = WriterOptions(useCompressionHeuristic: false, compressionThreads: threads)
+            options.prefersSpeed = prefersSpeed
             if workload == "zipcrypto" { options.password = "benchmark-secret"; options.zipEncryption = .zipCrypto }
             // 生の LZMA1 は既定6、LZMA2/XZ は凍結された Apple nil-level 経路。
             let output = root.appendingPathComponent("result-\(label).archive")
@@ -138,6 +140,7 @@ func benchmark() throws {
                 row["content_sha256"] = content.finalize().map { String(format: "%02x", $0) }.joined()
             }
             if mode == "batch" { row["mode"] = mode }
+            if prefersSpeed { row["prefers_speed"] = true }
             var json = try JSONSerialization.data(withJSONObject: row, options: .sortedKeys)
             json.append(10)
             if !FileManager.default.fileExists(atPath: destination.path) { FileManager.default.createFile(atPath: destination.path, contents: nil) }

@@ -1,7 +1,7 @@
 import Foundation
 private import Darwin
 
-// 先読みの窓は compressionThreads 件、同時に open している source は最大 4 本（`init(threads:)` の `min(threads, 4)`）。
+// 通常窓とearly long poleで共有し、同時にopenしているsourceは最大4本（`init(threads:)`の`min(threads, 4)`）。
 final class SourcePrefetchLimiter: @unchecked Sendable {
     private let condition = NSCondition()
     private var available: Int
@@ -57,6 +57,8 @@ struct FileJob: Sendable {
     @TaskLocal static var testingBeforeWorkerOpen: (@Sendable (Int, URL) throws -> Void)?
     @TaskLocal static var testingDuringWorkerRead: (@Sendable (Int, URL) throws -> Void)?
     @TaskLocal static var testingDescriptorChange: (@Sendable (Int) -> Void)?
+    @TaskLocal static var testingEncoderStarted: (@Sendable (Int) throws -> Void)?
+    @TaskLocal static var testingEncoderFinished: (@Sendable (Int) -> Void)?
 
     let index: Int
     let addition: ArchiveAddition
@@ -69,6 +71,8 @@ struct FileJob: Sendable {
     let beforeOpen = testingBeforeWorkerOpen
     let duringRead = testingDuringWorkerRead
     let descriptorChange = testingDescriptorChange
+    let encoderStarted = testingEncoderStarted
+    let encoderFinished = testingEncoderFinished
 
     func run(encode: (DeflateBlock) throws -> Data) throws -> Prefetched {
         do {
@@ -104,8 +108,9 @@ struct FileJob: Sendable {
     // 大項目も同じ open・署名・descriptor 上限を使い、全入力を保持せず block ごとに読む。
     // read の EOF 検査で署名も確定し、最後の block を投入する前に変更を検出する。
     func withReader<T>(_ body: ((Int) throws -> Data) throws -> T) throws -> T {
-        try withDescriptor { fd in
-            try body { requested in
+        let result = try withDescriptor { fd in
+            try encoderStarted?(index)
+            return try body { requested in
                 try limiter.check()
                 let data = try FileRead.readChunk(fd, upTo: requested)
                 try duringRead?(index, addition.sourceURL!)
@@ -113,6 +118,8 @@ struct FileJob: Sendable {
                 return data
             }
         }
+        encoderFinished?(index)
+        return result
     }
 
     private func withDescriptor<T>(_ body: (Int32) throws -> T) throws -> T {

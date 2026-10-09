@@ -2381,6 +2381,37 @@ solid/filter folderの窓は上のsolid節のとおり。取消しは共有latch
 abortは項目・片の着手済みworkerを待ってspool descriptorを解放する。
 LHAの片窓と7z folder内の窓も成功・失敗・取消しのすべてで終了を待ち、補助spoolを閉じる。
 
+一括追加では、要求threadsが4以上で対応する窓があるとき、通常ファイルをlstatして
+単一streamの候補から入力長が最大の一件を先行符号化する。同長なら小さいindexを選ぶ。
+対象はZIP LZMA・PPMd・単一frame Zstandard、非solid 7z LZMA1・PPMd・BZip2。
+7z solidはLZMA1・PPMdでblock上限を超え、前後と結合されない単独folderだけを対象にする。
+7zのAES/filter、ZipCrypto、ZIP XZ、速さ優先のZstandardと7z LZMA2は従来の経路を使う。
+名前の予約とwillStartは通常のindex順に残す。事前走査の失敗は通常の準備時に再検査する。
+同じinodeを複数回追加するファイルを候補から外し、再帰directoryを含むbatchではatimeの順序を保つため先行しない。
+early spool作成・読取・encoderの失敗は結果に保持して元のindexで取り出す。
+このため後方の先行失敗より前方の準備・worker・出力の失敗が優先される。
+先行ファイルの開始前のatimeも保持し、early readによるheader byteの変化を防ぐ。
+open後と読取後のfstatに加え、通常準備時と出力直前にもDiskSignatureを検査する。
+先行読取のfdはSourcePrefetchLimiterの最大4本に含む。読取・符号化中は通知せず、
+元のindexで既存の4 MiB間隔のprogressとdidFinishを再現する。
+
+early結果は最初からunlink済みのOrderedEntrySpoolに置き、通常窓の外に最大一件だけ保持する。
+maximumPendingInputBytesは対象ZIPの通常窓に+16 MiB、非solid 7zの通常窓とstream専用枠に+16 MiB、
+solid 7zの通常folder窓とstream専用枠に+block上限を加える。対象外と要求threadsが1〜3の場合は従来どおり。
+codec状態の予約は増やさず、ZIPは先行workerが動く間だけ通常workerの実行を一枠抑え、投入窓幅は保つ。
+7z LZMA1/PPMdは既存の専用codec、非solid BZip2は共有codecの半数（最低二枠、実際の片数まで）を借りる。
+先行BZip2の完了を確認したらcodecを通常項目へ返し、出力spoolだけを保持する。
+前のAPI呼出しで専用枠を使用中、またはBZip2の共有codecが足りない場合は先行しない。
+別の長いstreamが先に現れた場合はearlyをjoinし、失敗を報告せず結果を保持したままcodecを返す。
+disk出力は通常窓・stream専用枠にearly一件分を加え、early spoolを最大256 × 入力長 + 1 MiBに制限する。
+失敗・取消しは共有latchを立て、earlyを含む着手済みworkerをjoinしてsourceとspoolのfdを閉じる。
+未着手workerの捕捉入力も完了通知より先に解放し、joinの返却後にGCDのclosureが残ってもfdを保持しない。
+folder内の連結順、folder分割、codecのstream・block・frame境界は変えない。
+
+multicore harnessは既定のoptionsを維持する。GYOSHUKU_BENCH_PREFERS_SPEED=1でprefersSpeedを設定し、
+multicore.pyの--prefers-speedも同じ環境変数を使う。speedのsampleはprefers_speed=trueを記録し、
+既定の集計・再開対象と混在させない。
+
 一workerの予約は`S + 16 MiB + 1 MiB + 4 × IOChunk.size`（IOChunk=256 KiB）。
 LHA項目窓はSを要求threads分予約する。7z solid/filter窓は一枠につき`I/O + 最大片数 × S`を予約する。
 LZMA1/PPMd/Copyの最大片数は1、LZMA2/Deflateは`min(要求threads, ceil(folder上限 / 片サイズ))`。

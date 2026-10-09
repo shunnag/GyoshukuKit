@@ -90,7 +90,7 @@ final class EntryCompressionConfigurationTests: XCTestCase {
                 let options = WriterOptions(sevenZipMethod: method, sevenZipSolid: .on(), lzmaLevel: level, compressionThreads: 12)
                 XCTAssertEqual(EntryCompressionConfiguration(options: options, method: method,
                     physicalMemory: 16 << 30, innerParallelism: true).threads, method == .lzma ? 10 : 12)
-                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), UInt64(method == .lzma ? 704 : 832) << 20)
+                XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), UInt64(method == .lzma ? 768 : 832) << 20)
             }
         }
         // PPMd level 9は一folder一モデル。194 MiBの状態と18 MiBのI/Oで一枠212 MiB。
@@ -102,14 +102,14 @@ final class EntryCompressionConfigurationTests: XCTestCase {
             XCTAssertEqual(configuration.codecThreads, 4)
             XCTAssertEqual(configuration.longPoleThreads, 1)
             XCTAssertEqual(UInt64(configuration.threads + configuration.longPoleThreads) * (212 << 20), 848 << 20)
-            XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 256 << 20)
+            XCTAssertEqual(options.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 320 << 20)
         }
     }
 
     func testLongPoleReservationFallsBackAtMemoryBoundary() {
         let options = WriterOptions(sevenZipMethod: .ppmd, sevenZipSolid: .on(blockSize: 64 << 20), ppmdLevel: 9, compressionThreads: 12)
         for (budget, reserved, codecs, bound): (UInt64, Int, Int, UInt64) in [
-            ((424 << 20) - 1, 0, 2, 64 << 20), (424 << 20, 1, 2, 128 << 20)
+            ((424 << 20) - 1, 0, 2, 64 << 20), (424 << 20, 1, 2, 192 << 20)
         ] {
             EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {
                 let configuration = EntryCompressionConfiguration(options: options, method: .ppmd,

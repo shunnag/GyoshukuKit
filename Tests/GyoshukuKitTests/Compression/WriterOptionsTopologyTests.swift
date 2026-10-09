@@ -73,7 +73,7 @@ final class WriterOptionsTopologyTests: XCTestCase {
             let limit = CompressionWorkerPool.entryThreadLimit(activeCPUs: requested, constrainedThreads: nil)
             EntryCompressionConfiguration.$testingEntryThreadLimit.withValue(limit) {
                 XCTAssertEqual(EntryCompressionConfiguration(options: options, physicalMemory: 1 << 40).threads, requested)
-                XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 1 << 40), UInt64(requested) << 24)
+                XCTAssertEqual(options.maximumPendingInputBytes(for: .zip, physicalMemory: 1 << 40), UInt64(requested + 1) << 24)
             }
         }
         EntryCompressionConfiguration.$testingEntryThreadLimit.withValue(128) {
