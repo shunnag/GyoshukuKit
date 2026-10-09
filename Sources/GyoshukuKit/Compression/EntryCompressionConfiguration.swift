@@ -1,6 +1,6 @@
 import Foundation
 
-/// 小〜中項目の窓と、長い単一streamを重ねる一枠のcodec状態を予約する。
+/// 小〜中項目の窓と、長いstreamの専用codecまたは片並列の共有枠を予約する。
 struct EntryCompressionConfiguration {
     @TaskLocal static var testingInputLimit: Int?
     @TaskLocal static var testingMemoryBudget: UInt64?
@@ -108,6 +108,13 @@ struct EntryCompressionConfiguration {
     var sevenZipWindowCount: Int { threads > 1 || longPoleThreads > 0 ? threads + 1 : 1 }
     var sevenZipMaximumPendingInputBytes: UInt64 {
         threads > 1 || longPoleThreads > 0 ? UInt64(sevenZipWindowCount) * UInt64(Self.inputLimit) : 0
+    }
+
+    // 満杯の通常窓から一枠だけ借りると、長い片並列が最後まで逐次になる。
+    // 通常項目一つ分を残して空き枠を確保し、片数まで長い項目へ渡す。
+    // 単一stream専用codecは通常窓へ貸さず、常に一枠だけを使う。
+    func minimumLongPoleCodecs(pieces: Int) -> Int {
+        longPoleThreads > 0 ? 1 : min(pieces, max(1, codecThreads - 1))
     }
 }
 

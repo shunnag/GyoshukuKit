@@ -3,6 +3,29 @@ import XCTest
 @testable import GyoshukuKit
 
 final class EntryCompressionConfigurationTests: XCTestCase {
+    func testBzip2LongPoleSharesMemoryLimitedCodecsInsteadOfSingleStreamReservation() {
+        let io = UInt64(EntryCompressionConfiguration.inputLimit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size)
+        for method: SevenZipCompressionMethod in [.bzip2, .lzma2, .deflate, .lzma, .ppmd, .copy] {
+            for requested in [1, 4, 16, 36] {
+                let options = WriterOptions(sevenZipMethod: method, compressionThreads: requested)
+                let configuration = EntryCompressionConfiguration(options: options, method: method, physicalMemory: 16 << 30)
+                let single = method == .lzma || method == .ppmd || method == .copy
+                XCTAssertEqual(configuration.longPoleThreads, single && requested > 1 ? 1 : 0)
+                XCTAssertEqual(configuration.minimumLongPoleCodecs(pieces: 36), single && requested > 1
+                    ? 1 : max(1, configuration.codecThreads - 1))
+            }
+        }
+        let options = WriterOptions(sevenZipMethod: .bzip2, bzip2Level: 9, compressionThreads: 16)
+        let state = ParallelBzip2StreamEncoder.memoryReservation(level: 9, threads: 1)
+        for budget in [UInt64(256 << 20), 512 << 20, 1024 << 20] {
+            EntryCompressionConfiguration.$testingMemoryBudget.withValue(budget) {
+                let configuration = EntryCompressionConfiguration(options: options, method: .bzip2, physicalMemory: 16 << 30)
+                XCTAssertEqual(configuration.longPoleThreads, 0)
+                XCTAssertLessThanOrEqual(UInt64(configuration.codecThreads) * state + UInt64(configuration.threads + 1) * io, budget)
+                XCTAssertLessThanOrEqual(configuration.minimumLongPoleCodecs(pieces: 36), configuration.codecThreads)
+            }
+        }
+    }
     func testAutomaticThreadsUseAllActiveCoresAndGiBClamp() {
         let options = WriterOptions()
         for (cores, memory, expected) in [(16, UInt64(128 << 30), 16), (10, 16 << 30, 10),

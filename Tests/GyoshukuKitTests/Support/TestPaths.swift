@@ -15,6 +15,10 @@ enum TestPaths {
     /// 検証の出力を置く root。Xcode が再帰的に同期する package の group の外に置く。
     static let verification: URL = {
         let base = package.appendingPathComponent(".build/verification")
+        // SwiftPMの並列試験は別processで動く。共有labelのfixtureを互いに消さない。
+        if OptInGate.isOn("GYOSHUKU_TEST_PROCESS_DIRECTORY") {
+            return base.appendingPathComponent("parallel").appendingPathComponent(String(ProcessInfo.processInfo.processIdentifier))
+        }
         guard let run = OptInGate.value("GYOSHUKU_ENCODER_BENCHMARK_RUN"), !run.isEmpty else { return base }
         // 同じ class を複数 process で計測しても、一時 file を共有しない。
         return base.appendingPathComponent("encoder-speed").appendingPathComponent(URL(fileURLWithPath: run).lastPathComponent)

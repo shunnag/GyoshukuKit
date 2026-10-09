@@ -2,6 +2,8 @@ import Foundation
 
 /// container 間で辞書・片・並列数の解決を共有する。Apple 経路は従来の境界を保つ。
 struct LZMAWriterConfiguration: Sendable {
+    // XZの実際の片境界を縮め、巨大項目の構造試験を小入力で行う。
+    @TaskLocal static var testingPieceSize: Int?
     let properties: LZMAEncoderProperties?
     let pieceSize: Int
     let threads: Int
@@ -15,7 +17,7 @@ struct LZMAWriterConfiguration: Sendable {
         memoryBudget = min(options.memoryLimit ?? physicalMemory / 2, physicalMemory / 2)
         guard raw || options.lzmaLevel != nil else {
             properties = nil
-            pieceSize = ParallelXZCompressor.defaultBlockSize
+            pieceSize = Self.testingPieceSize ?? ParallelXZCompressor.defaultBlockSize
             threads = options.resolvedCompressionThreads
             encoderMemory = 0; memoryPerThread = 0
             return
@@ -23,8 +25,8 @@ struct LZMAWriterConfiguration: Sendable {
         let p = LZMAEncoderProperties.preset(options.lzmaLevel ?? 6,
             extreme: options.lzmaLevel != nil && options.lzmaExtreme)
         properties = p
-        pieceSize = lzip ? max(16 << 20, 3 * p.dictSize) : raw ? IOChunk.size : p.dictSize > ParallelXZCompressor.defaultBlockSize
-            ? max(ParallelXZCompressor.defaultBlockSize, 3 * p.dictSize) : ParallelXZCompressor.defaultBlockSize
+        pieceSize = lzip ? max(16 << 20, 3 * p.dictSize) : raw ? IOChunk.size : Self.testingPieceSize ?? (p.dictSize > ParallelXZCompressor.defaultBlockSize
+            ? max(ParallelXZCompressor.defaultBlockSize, 3 * p.dictSize) : ParallelXZCompressor.defaultBlockSize)
         // memorySize は raw の辞書に応じた slack と LZMA2 の2 MiBを含む。
         // LZMA2 の range buffer は64 KiBの pack limit 内。raw は最大16 MiBの伸長分も予約する。
         encoderMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)

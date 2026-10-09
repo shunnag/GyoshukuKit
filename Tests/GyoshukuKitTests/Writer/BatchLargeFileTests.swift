@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Darwin
 import Synchronization
 import XCTest
@@ -7,6 +8,183 @@ import XCTest
 final class BatchLargeFileTests: XCTestCase {
     private typealias B = BatchAdditionTestSupport
     private typealias S = AdditionProgressTestSupport
+
+    func testBatchXZLongPoleEncodesBlocksConcurrentlyWithoutDrainingMediumItems() async throws {
+        let root = try TestSupport.directory("batch-xz-concurrent-blocks")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let width = 64 << 10
+        // 16 MiB片四つの64 MiB項目と同じ形を、小さい片幅で検証する。
+        let items = try inputs(root, sizes: [width / 2, width / 2, 4 * width + 7])
+        for threads in [4, 16, 36] {
+            try B.resetDates(items)
+            let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+            let activity = Mutex((running: 0, peak: 0))
+            let pending = Mutex<Int?>(nil)
+            let task = Task.detached {
+                try EntryCompressionConfiguration.$testingInputLimit.withValue(width) {
+                    try LZMAWriterConfiguration.$testingPieceSize.withValue(width) {
+                        try ZipWriter.$testingBeforeBatchBlocks.withValue({ index, count, _ in
+                            if index == 2 { pending.withLock { $0 = count } }
+                        }) {
+                            try ZipWriter.$testingBatchXZEncoder.withValue({ bytes in
+                                activity.withLock { $0.running += 1; $0.peak = max($0.peak, $0.running) }
+                                defer { activity.withLock { $0.running -= 1 } }
+                                started.signal()
+                                XCTAssertEqual(release.wait(timeout: .now() + 10), .success)
+                                return try LZMA2Compressor.encode(bytes)
+                            }) {
+                                let options = WriterOptions(compressionMethod: .xz, useCompressionHeuristic: false, compressionThreads: threads)
+                                let writer = try ArchiveWriter.create(url: root.appendingPathComponent("t\(threads)"), options: options)
+                                try writer.add(items, events: { _ in
+                                    XCTAssertLessThanOrEqual(writer.pendingInputBytes, options.maximumPendingInputBytes(for: .zip))
+                                })
+                                try writer.finish()
+                            }
+                        }
+                    }
+                }
+            }
+            defer { for _ in 0..<32 { release.signal() } }
+            try await LZMA2ChunkPipelineTests.wait(started)
+            try await LZMA2ChunkPipelineTests.wait(started)
+            XCTAssertEqual(pending.withLock { $0 }, 2)
+            XCTAssertGreaterThanOrEqual(activity.withLock { $0.peak }, 2)
+            for _ in 0..<32 { release.signal() }
+            try await task.value
+            XCTAssertEqual(activity.withLock { $0.running }, 0)
+        }
+    }
+
+    func testParallelPieceByteIdentityAgainstBranchAndItemAPI() throws {
+        let root = try TestSupport.directory("batch-piece-branch-identity")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let items = try inputs(root, sizes: [128 << 10, 128 << 10, (17 << 20) + 1])
+        for item in items { XCTAssertEqual(chmod(item.sourceURL!.path, 0o644), 0) }
+        for format: ArchiveFormat in [.zip, .sevenZip] {
+            var expected: Data?
+            for threads in [1, 4, 16, 36] {
+                for batch in [false, true] {
+                    try B.resetDates(items)
+                    let output = root.appendingPathComponent("archive")
+                    let options = WriterOptions(compressionMethod: .xz, sevenZipMethod: .bzip2,
+                        bzip2Level: 1, useCompressionHeuristic: false, compressionThreads: threads)
+                    let writer = try ArchiveWriter.create(url: output, format: format, options: options)
+                    if batch { try writer.add(items, events: { _ in }) } else { try B.singles(writer, items) }
+                    try writer.finish()
+                    let bytes = try Data(contentsOf: output)
+                    if let expected { XCTAssertTrue(bytes == expected, "\(format), t=\(threads), batch=\(batch)") }
+                    else {
+                        expected = bytes
+                        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                        // 0a40b74 の一括・項目API、threads 1/4/16/36で取得した固定出力。
+                        XCTAssertEqual(digest, format == .zip
+                            ? "ca8bbf7a9cbee81d48cf74dee486e289a616291cb070fc236626a8dc261ae4b3"
+                            : "bc1567e3e8d44be807cb3df02cce4eaf673ae76f18b95f52d1988aadaed9b2a8")
+                    }
+                    try FileManager.default.removeItem(at: output)
+                }
+            }
+        }
+    }
+
+    func testBatchXZPiecesMatchItemFramingWithAESAndExplicitLevel() throws {
+        let root = try TestSupport.directory("batch-xz-piece-framing")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let width = 64 << 10
+        let items = try inputs(root, sizes: [width / 2, width / 2, 4 * width + 7, width / 2])
+        try EntryCompressionConfiguration.$testingInputLimit.withValue(width) {
+            try LZMAWriterConfiguration.$testingPieceSize.withValue(width) {
+                for level in [nil, 0] as [Int?] {
+                    for encrypted in [false, true] {
+                        var expected: Data?
+                        for threads in [1, 4, 16, 36] {
+                            for batch in [false, true] {
+                                try B.resetDates(items)
+                                let output = root.appendingPathComponent("archive")
+                                let options = WriterOptions(compressionMethod: .xz, lzmaLevel: level, useCompressionHeuristic: false,
+                                    password: encrypted ? "xz-pieces" : nil, compressionThreads: threads)
+                                let writer = try ArchiveWriter.create(url: output, format: .zip, options: options,
+                                    zipSalt: { Data(repeating: 0x17, count: 16) }, lzmaChunkSize: width)
+                                if batch { try writer.add(items, events: { _ in }) } else { try B.singles(writer, items) }
+                                try writer.finish()
+                                let bytes = try Data(contentsOf: output)
+                                if let expected { XCTAssertTrue(bytes == expected, "level=\(String(describing: level)), AES=\(encrypted), t=\(threads), batch=\(batch)") }
+                                else { expected = bytes }
+                                try FileManager.default.removeItem(at: output)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testBatchXZFourIncompressiblePiecesMatchItemAPIWithFullMediumWindow() throws {
+        let root = try TestSupport.directory("batch-xz-four-random-pieces")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let width = 1 << 20
+        let items = try (0..<25).map { index in
+            let source = root.appendingPathComponent("source-\(index)")
+            try TestCorpus.random(index == 24 ? 4 * width : width / 2).write(to: source)
+            return ArchiveAddition(path: "file-\(index)", source: .contents(of: source))
+        }
+        try EntryCompressionConfiguration.$testingInputLimit.withValue(width) {
+            try LZMAWriterConfiguration.$testingPieceSize.withValue(width) {
+                var expected: Data?
+                for (batch, threads) in [(false, 1), (true, 4), (true, 16), (true, 36)] {
+                    try B.resetDates(items)
+                    let output = root.appendingPathComponent("archive")
+                    let writer = try ArchiveWriter.create(url: output, options: .init(compressionMethod: .xz,
+                        useCompressionHeuristic: false, compressionThreads: threads))
+                    if batch { try writer.add(items, events: { _ in }) } else { try B.singles(writer, items) }
+                    try writer.finish()
+                    let bytes = try Data(contentsOf: output)
+                    if let expected { XCTAssertTrue(bytes == expected, "t=\(threads)") } else { expected = bytes }
+                    try FileManager.default.removeItem(at: output)
+                }
+            }
+        }
+    }
+
+    func testBatchXZPieceFailuresKeepIndexAndRecheckSourceAfterEarlierCallback() throws {
+        let root = try TestSupport.directory("batch-xz-piece-failures")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let width = 64 << 10
+        for failure in ["worker", "earlier", "replace"] {
+            let items = try inputs(root, sizes: [width / 2, width / 2, 4 * width + 7])
+            var finished: [Int] = []
+            try EntryCompressionConfiguration.$testingInputLimit.withValue(width) {
+                try LZMAWriterConfiguration.$testingPieceSize.withValue(width) {
+                    try ZipWriter.$testingBatchXZEncoder.withValue({ bytes in
+                        if failure == "worker" { throw WriterError.compression(-73) }
+                        return try LZMA2Compressor.encode(bytes)
+                    }) {
+                        try FileJob.$testingDuringWorkerRead.withValue({ index, _ in
+                            if failure == "earlier", index == 1 { throw WriterError.compression(-74) }
+                            if failure == "earlier", index == 2 { throw WriterError.compression(-75) }
+                        }) {
+                            let writer = try ArchiveWriter.create(url: root.appendingPathComponent(failure),
+                                options: .init(compressionMethod: .xz, useCompressionHeuristic: false, compressionThreads: 4))
+                            XCTAssertThrowsError(try writer.add(items, events: { event in
+                                if case let .didFinish(index) = event {
+                                    finished.append(index)
+                                    if failure == "replace", index == 0 {
+                                        try Data(repeating: 3, count: 4 * width + 7).write(to: items[2].sourceURL!, options: .atomic)
+                                    }
+                                }
+                            })) { error in
+                                let actual = error as? ArchiveAdditionError
+                                XCTAssertEqual(actual?.index, failure == "earlier" ? 1 : 2)
+                                XCTAssertEqual(actual?.underlying as? WriterError, failure == "replace"
+                                    ? .sourceChanged(items[2].sourceURL!.path) : .compression(failure == "earlier" ? -74 : -73))
+                            }
+                        }
+                    }
+                }
+            }
+            XCTAssertEqual(finished, failure == "earlier" ? [0] : [0, 1])
+        }
+    }
 
     private func inputs(_ root: URL, sizes: [Int]) throws -> [ArchiveAddition] {
         try sizes.enumerated().map { index, size in
@@ -64,7 +242,7 @@ final class BatchLargeFileTests: XCTestCase {
         }
     }
 
-    func testLargeStreamSpoolsKeepEntryWindowEventsAndMemoryBound() throws {
+    func testLargeStreamsAndXZBlocksKeepEntryWindowEventsAndMemoryBound() throws {
         let root = try TestSupport.directory("batch-large-stream-window")
         defer { try? FileManager.default.removeItem(at: root) }
         let items = try inputs(root, sizes: [S.mib - 1, S.mib - 1, 17 * S.mib, S.mib - 1])
@@ -99,7 +277,9 @@ final class BatchLargeFileTests: XCTestCase {
                 }
             }
             XCTAssertTrue(probe.withLock { $0 })
-            XCTAssertGreaterThan(spools.withLock { $0 }, 0)
+            // XZは共有窓の片を直接emitし、他の単一streamはdisk spoolを通る。
+            if method == .xz { XCTAssertEqual(spools.withLock { $0 }, 0) }
+            else { XCTAssertGreaterThan(spools.withLock { $0 }, 0) }
             XCTAssertEqual(finished, Array(items.indices))
             for index in items.indices { sessions[index]!.check(total: try ArchiveWriter.inputByteCount(items[index].sourceURL!)) }
             XCTAssertEqual(sessions[2]!.updates.map(\.completedBytes), [0, 4 << 20, 8 << 20, 12 << 20, 16 << 20, 17 << 20])

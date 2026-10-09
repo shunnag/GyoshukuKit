@@ -5,6 +5,7 @@ import Foundation
 final class ZipWriter {
     // 大項目の投入直前に先行 block が窓に残っていることを検証する。
     @TaskLocal static var testingBeforeBatchBlocks: (@Sendable (Int, Int, UInt64) -> Void)?
+    @TaskLocal static var testingBatchXZEncoder: LZMA2ChunkPipeline<Void>.Encoder?
     typealias AppendedRecords = (entries: [ZipRecords.Entry], end: UInt64)
 
     // 最初の block は entry、最後は crc を運ぶ。一括追加の block は帰属先と入力幅も運び、
@@ -33,17 +34,21 @@ final class ZipWriter {
         let method: CompressionMethod
         let spool: OrderedEntrySpool?
         var streamed = false
+        var xzBlock = false
     }
     private struct EncodedEntry: Sendable {
         let spool: OrderedEntrySpool?
         let data: Data
         let crc: UInt32
+        var xzBlock: XZLZMA2? = nil
     }
     private var waitingEntry: (entry: ZipRecords.Entry, name: String, input: Data)?
     private var emittingEntry: ZipRecords.Entry?
     private var emittingHeaderSize = 0
     private var emittingStart: UInt64 = 0
     private var emittingAES: ZipAESEncryptor?
+    private var xzRecords = Data()
+    private var xzBlockCount: UInt64 = 0
     private(set) var position: UInt64 = 0
     private var outputBuffer = Data()
     private var bufferedAttribution: AdditionAttribution?
@@ -67,9 +72,17 @@ final class ZipWriter {
         var workerOptions = options
         workerOptions.compressionThreads = 1
         let resolvedWorkerOptions = workerOptions
+        let xzEncoder = options.compressionMethod == .xz
+            ? Self.testingBatchXZEncoder ?? (try? LZMAWriterConfiguration(options: options))?.encoder : nil
         entryPipeline = entryThreads > 1 && options.compressionMethod != .deflate && options.compressionMethod != .stored
             ? OrderedChunkPipeline(threads: entryThreads) { job in
                 do {
+                    // 大きいXZも項目と同じ窓の葉workerで圧縮し、内側の待機workerを作らない。
+                    if job.xzBlock, let data = job.data, let xzEncoder {
+                        try cancellation.check()
+                        return EncodedEntry(spool: nil, data: Data(), crc: updateCRC(0, data),
+                                            xzBlock: try xzEncoder(data))
+                    }
                     let compressor = ZipEntryCompressor(options: resolvedWorkerOptions, inlineSingleThread: true)
                     // 大項目は窓の codec 一つで stream 圧縮し、全入力を保持せず disk spool へ運ぶ。
                     if job.streamed, let file = job.file {
@@ -186,6 +199,8 @@ final class ZipWriter {
         waitingEntry = nil
         emittingEntry = nil
         emittingAES = nil
+        xzRecords = Data()
+        xzBlockCount = 0
         outputBuffer.removeAll()
         bufferedAttribution = nil
     }
@@ -288,7 +303,21 @@ final class ZipWriter {
     }
 
     private func emitEntry(_ tag: Tag, _ result: EncodedEntry?, batchEmit: (Tag, Prefetched?) throws -> Void) throws {
-        if tag.attribution != nil {
+        if let block = result?.xzBlock {
+            // 項目APIと同じ一組のheader・block・index・footerを投入順に組み立てる。
+            var bytes = Data()
+            if tag.entry != nil {
+                xzRecords = Data(); xzBlockCount = 0
+                bytes.append(XZFraming.streamHeader)
+            }
+            xzRecords.append(try XZFraming.emitBlock(block, crc: result!.crc) { bytes.append($0) })
+            xzBlockCount = try checkedAdd(xzBlockCount, 1)
+            if tag.crc != nil {
+                try XZFraming.emitIndexAndFooter(records: xzRecords, blockCount: xzBlockCount) { bytes.append($0) }
+                xzRecords = Data(); xzBlockCount = 0
+            }
+            try batchEmit(tag, Prefetched(data: bytes, crc: 0))
+        } else if tag.attribution != nil {
             try batchEmit(tag, result.map { Prefetched(data: $0.data, crc: $0.crc, spool: $0.spool) })
         } else { try emitEntry(tag, result) }
     }
@@ -606,7 +635,11 @@ final class ZipWriter {
                      emit: (Tag, Prefetched?) throws -> Void) throws {
         Self.testingBeforeBatchBlocks?(attribution.index, entryPipeline?.pendingCount ?? pipeline.pendingCount, pendingInputBytes)
         if entryPipeline != nil {
-            try submit(file, method: entry.method, attribution: attribution, weight: entry.size, emit: emit)
+            if entry.method == .xz {
+                try submitXZ(entry, file: file, attribution: attribution, emit: emit)
+            } else {
+                try submit(file, method: entry.method, attribution: attribution, weight: entry.size, emit: emit)
+            }
             return
         }
         do {
@@ -619,6 +652,50 @@ final class ZipWriter {
                 // caller の読取失敗より前の worker の失敗だけを確認する。失敗した項目は完了通知しない。
                 while let first = pipeline.firstTag, let previous = first.attribution, previous.index < attribution.index {
                     try pipeline.emitNext(emit)
+                }
+            }
+            throw additionFailure(error, index: attribution.index, addition: attribution.addition)
+        }
+    }
+
+    // 先行項目をdrainせず、既存XZの片境界を共有の有界窓へ投入する。
+    private func submitXZ(_ entry: ZipRecords.Entry, file: FileJob, attribution: AdditionAttribution,
+                          emit: (Tag, Prefetched?) throws -> Void) throws {
+        guard let entryPipeline else { throw WriterError.invalidState }
+        let width = try LZMAWriterConfiguration(options: options).pieceSize
+        var remaining = entry.size
+        var first = true
+        var crc: UInt32 = 0
+        func receive(_ tag: Tag, _ result: EncodedEntry?) throws { try emitEntry(tag, result, batchEmit: emit) }
+        do {
+            try file.withReader { read in
+                while remaining > 0 {
+                    // 組立中の入力も項目窓一枠に数え、予約幅を超えない。
+                    try entryPipeline.waitForCapacity(emit: receive)
+                    let count = Int(min(remaining, UInt64(width)))
+                    var input = Data(); input.reserveCapacity(count)
+                    while input.count < count {
+                        try Task.checkCancellation()
+                        let requested = min(IOChunk.size, count - input.count)
+                        let bytes = try read(requested)
+                        guard !bytes.isEmpty, bytes.count <= requested else { throw WriterError.sourceChanged(attribution.addition.path) }
+                        crc = updateCRC(crc, bytes)
+                        input.append(bytes)
+                    }
+                    remaining -= UInt64(count)
+                    if remaining == 0, try !read(1).isEmpty { throw WriterError.sourceChanged(attribution.addition.path) }
+                    try entryPipeline.submit(EntryJob(data: input, file: file, name: attribution.addition.path,
+                        method: .xz, spool: nil, xzBlock: true), tag: Tag(entry: first ? entry : nil,
+                        crc: remaining == 0 ? crc : nil, attribution: attribution, inputBytes: UInt64(count),
+                        verification: remaining == 0 ? file : nil), weight: UInt64(count), emit: receive)
+                    first = false
+                }
+            }
+        } catch {
+            if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {
+                // source読取より前の項目の失敗を優先する。
+                while let first = entryPipeline.firstTag, let previous = first.attribution, previous.index < attribution.index {
+                    try entryPipeline.emitNext(receive)
                 }
             }
             throw additionFailure(error, index: attribution.index, addition: attribution.addition)

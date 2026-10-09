@@ -23,6 +23,62 @@ final class SevenZipLongPoleTests: XCTestCase {
         return data
     }
 
+    func testNonSolidBatchBzip2LongPoleRunsSpliceChunksConcurrentlyAfterFullMediumWindow() async throws {
+        let root = try TestSupport.directory("7z-batch-bzip2-concurrent-long-pole")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let medium = Self.payload(Self.limit / 2), large = Self.payload(2 << 20)
+        let items = try (0..<5).map { index in
+            let file = root.appendingPathComponent("source-\(index)")
+            try (index == 4 ? large : medium).write(to: file)
+            try AdditionProgressTestSupport.timestamp(file)
+            return ArchiveAddition(path: index == 4 ? "long" : "medium-\(index)", source: .contents(of: file))
+        }
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let activity = Mutex((running: 0, peak: 0))
+        let reservation = Mutex<(Int, Int)?>(nil)
+        let normalWindow = Mutex(0)
+        let task = Task.detached {
+            try EntryCompressionConfiguration.$testingInputLimit.withValue(Self.limit) {
+                try SevenZipWriter.$testingWillSubmit.withValue({ name, count, streamed, inner in
+                    if name == "long" {
+                        XCTAssertTrue(streamed)
+                        reservation.withLock { $0 = (count, inner) }
+                    } else {
+                        normalWindow.withLock { $0 = max($0, count + 1) }
+                    }
+                }) {
+                    try ParallelBzip2StreamEncoder.$testingEncoder.withValue({ bytes, level in
+                        activity.withLock { $0.running += 1; $0.peak = max($0.peak, $0.running) }
+                        defer { activity.withLock { $0.running -= 1 } }
+                        started.signal()
+                        XCTAssertEqual(release.wait(timeout: .now() + 10), .success)
+                        var output = Data()
+                        try Bzip2StreamEncoder(level: level).write(bytes, finish: true) { output.append($0) }
+                        return output
+                    }) {
+                        let options = Self.options(.bzip2, solid: false, filter: .none, threads: 4)
+                        let writer = try ArchiveWriter.create(url: root.appendingPathComponent("archive"), format: .sevenZip, options: options)
+                        try writer.add(items, events: { _ in
+                            XCTAssertLessThanOrEqual(writer.pendingInputBytes, options.maximumPendingInputBytes(for: .sevenZip))
+                        })
+                        try writer.finish()
+                    }
+                }
+            }
+        }
+        defer { for _ in 0..<64 { release.signal() } }
+        try await LZMA2ChunkPipelineTests.wait(started)
+        try await LZMA2ChunkPipelineTests.wait(started)
+        let observed = try XCTUnwrap(reservation.withLock { $0 })
+        XCTAssertEqual(normalWindow.withLock { $0 }, 4)
+        XCTAssertEqual(observed.0, 1)
+        XCTAssertEqual(observed.1, 3)
+        XCTAssertGreaterThanOrEqual(activity.withLock { $0.peak }, 2)
+        for _ in 0..<64 { release.signal() }
+        try await task.value
+        XCTAssertEqual(activity.withLock { $0.running }, 0)
+    }
+
     func testOldDrainByteIdentityAllMethodsFiltersAESAndThreadCounts() throws {
         let root = try TestSupport.directory("7z-long-pole-identity")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -353,9 +409,13 @@ final class SevenZipLongPoleTests: XCTestCase {
                 }, position: { position }, write: { position += UInt64($0.count) })
             }
             let pending = writer.pendingInputBytes
+            // 長いfolderの片並列を確保するため、追加中に先頭が返却済みの場合がある。
+            // flushは残る予約だけを投入順に返す。
+            var expected = sizes.map { UInt64(min($0, Self.limit)) }
+            while expected.reduce(0, +) > pending { expected.removeFirst() }
             var emissions: [UInt64] = []
             try writer.flush(position: { position }, write: { position += UInt64($0.count) }, didEmit: { emissions.append($0) })
-            XCTAssertEqual(emissions, sizes.map { UInt64(min($0, Self.limit)) })
+            XCTAssertEqual(emissions, expected)
             XCTAssertEqual(emissions.reduce(0, +), pending)
             writer.abandon()
             let descriptors = Mutex<[Int32]>([])

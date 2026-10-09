@@ -850,7 +850,13 @@ extension ArchiveWriter {
                             try blockProgress!.start()
                         }
                         try zipWriter!.emitDeflate(tag, result)
-                        try blockProgress!.advance(count)
+                        // XZの16 MiB片でも既存の4 MiBごとの進捗通知を保つ。
+                        var remaining = count
+                        while remaining > 0 {
+                            let step = min(CommitProgressMeter.notificationInterval, remaining)
+                            try blockProgress!.advance(step)
+                            remaining -= step
+                        }
                         if tag.crc != nil {
                             try zipWriter!.flushOutput()
                             appendedPaths.append((entry.name, false))

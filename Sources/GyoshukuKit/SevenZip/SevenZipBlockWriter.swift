@@ -189,9 +189,6 @@ final class SevenZipBlockWriter {
                 tag, result in try self.emit(tag, result, position: position, write: write)
             }
             let normalCodecs = codecThreads - longPoleThreads
-            while !reservedCodec && assignedThreads >= normalCodecs {
-                try pipeline.emitNext({ tag, result in try self.emit(tag, result, position: position, write: write) }, didEmit: didEmit)
-            }
             // 単一 stream の codec は一枠、片並列は実際の片数まで予約する。
             let pieces: Int
             switch options.sevenZipMethod {
@@ -204,6 +201,11 @@ final class SevenZipBlockWriter {
             case .bzip2:
                 pieces = ParallelBzip2StreamEncoder.estimatedChunkCount(size: size, level: options.bzip2Level)
             case .lzma, .ppmd, .copy: pieces = 1
+            }
+            // 大きいfolderにも最低限の片並列を確保し、満杯窓から一枠だけで始めない。
+            let minimum = oversized ? min(pieces, max(1, (normalCodecs + 1) / 2)) : 1
+            while !reservedCodec && normalCodecs - assignedThreads < minimum {
+                try pipeline.emitNext({ tag, result in try self.emit(tag, result, position: position, write: write) }, didEmit: didEmit)
             }
             // 長いfolderは空いているcodec枠まで使い、通常folder向けの等分で逐次化しない。
             let share = oversized ? normalCodecs : max(1, options.resolvedCompressionThreads / (pipeline.pendingCount + 1))
