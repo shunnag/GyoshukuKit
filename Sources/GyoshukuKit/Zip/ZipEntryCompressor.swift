@@ -22,7 +22,7 @@ final class ZipEntryCompressor {
         // APPNOTE §4.4.5 の method 95 は、7-Zip 26.03 の生成 ZIP で完全な .xz stream と確認した。
         // ParallelXZCompressor は stream header・blocks・index・footer を一組だけ出力する。
         let configuration = method == .xz || method == .lzma
-            ? try LZMAWriterConfiguration(options: options, raw: method == .lzma) : nil
+            ? try LZMAWriterConfiguration(options: options, raw: method == .lzma, parallelFinder: true) : nil
         let lzma = method == .lzma ? try configuration!.rawEncoder(size: size, endMarker: true) : nil
         if let lzma {
             // APPNOTE §5.8: SDK 26.03 と互換の properties、長さ5、lc/lp/pb + 辞書 LE32。

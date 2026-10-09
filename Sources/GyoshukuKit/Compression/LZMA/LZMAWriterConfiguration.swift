@@ -5,11 +5,12 @@ struct LZMAWriterConfiguration: Sendable {
     let properties: LZMAEncoderProperties?
     let pieceSize: Int
     let threads: Int
+    let finderThreads: Int
     let encoderMemory: Int
     let memoryPerThread: UInt64
     let memoryBudget: UInt64
 
-    init(options: WriterOptions, raw: Bool = false, lzip: Bool = false,
+    init(options: WriterOptions, raw: Bool = false, lzip: Bool = false, parallelFinder: Bool = false,
          physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) throws {
         if let level = options.lzmaLevel, !(0...9).contains(level) { throw WriterError.invalidOption("lzmaLevel") }
         memoryBudget = min(options.memoryLimit ?? physicalMemory / 2, physicalMemory / 2)
@@ -17,6 +18,7 @@ struct LZMAWriterConfiguration: Sendable {
             properties = nil
             pieceSize = ParallelXZCompressor.defaultBlockSize
             threads = options.resolvedCompressionThreads
+            finderThreads = 1
             encoderMemory = 0; memoryPerThread = 0
             return
         }
@@ -27,8 +29,12 @@ struct LZMAWriterConfiguration: Sendable {
             ? max(ParallelXZCompressor.defaultBlockSize, 3 * p.dictSize) : ParallelXZCompressor.defaultBlockSize
         // memorySize は raw の辞書に応じた slack と LZMA2 の2 MiBを含む。
         // LZMA2 の range buffer は64 KiBの pack limit 内。raw は最大16 MiBの伸長分も予約する。
-        encoderMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
+        let sequentialMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
             + (raw ? (16 << 20) - 131072 : 0)
+        // 任意の高速化のために従来受理した予算を拒否しない。追加bufferが収まる場合だけ使う。
+        finderThreads = raw && !lzip && parallelFinder && options.resolvedCompressionThreads >= 2
+            && UInt64(sequentialMemory + LZMAMatchFinderPipeline.memorySize + 2 * pieceSize) <= memoryBudget ? 2 : 1
+        encoderMemory = sequentialMemory + (finderThreads == 2 ? LZMAMatchFinderPipeline.memorySize : 0)
         memoryPerThread = UInt64(encoderMemory) + 2 * UInt64(pieceSize)
         guard memoryPerThread <= memoryBudget else { throw WriterError.invalidOption("memoryLimit") }
         threads = raw && !lzip ? 1 : min(options.resolvedCompressionThreads, Int(min(UInt64(WriterOptions.compressionThreadsRange.upperBound), memoryBudget / memoryPerThread)))
@@ -50,7 +56,7 @@ struct LZMAWriterConfiguration: Sendable {
     func rawEncoder(size: UInt64, endMarker: Bool) throws -> LZMAEncoder {
         guard let properties else { throw WriterError.invalidState }
         return try lzmaWriterOperation {
-            try LZMAEncoder(properties: properties, expectedSize: size, endMarker: endMarker, memoryLimit: encoderMemory)
+            try LZMAEncoder(properties: properties, expectedSize: size, endMarker: endMarker, memoryLimit: encoderMemory, finderThreads: finderThreads)
         }
     }
 
@@ -58,8 +64,22 @@ struct LZMAWriterConfiguration: Sendable {
     static func singleStream(options: WriterOptions, lzip: Bool = false) throws -> Self {
         var resolved = options
         resolved.lzmaLevel = options.lzmaLevel ?? 6
-        return try Self(options: resolved, raw: true, lzip: lzip)
+        return try Self(options: resolved, raw: true, lzip: lzip, parallelFinder: !lzip)
     }
+}
+
+/// ZIP の通常窓とは別に予約した一coreを、同時に一つの大項目だけへ貸す。
+final class LZMAFinderThreadReservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let enabled: Bool
+    private var busy = false
+    init(enabled: Bool) { self.enabled = enabled }
+    func acquire() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard enabled && !busy else { return false }
+        busy = true; return true
+    }
+    func release() { lock.lock(); busy = false; lock.unlock() }
 }
 
 /// 内部 encoder の失敗を公開 writer の error に揃え、取消しはそのまま伝える。

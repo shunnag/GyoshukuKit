@@ -3,6 +3,24 @@ import XCTest
 @testable import GyoshukuKit
 
 final class LZMAWriterConfigurationTests: XCTestCase {
+    func testFinderBufferMemoryAndSingleStreamEnablement() throws {
+        for threads in [1, 2, 16, 36] {
+            let options = WriterOptions(lzmaLevel: 6, memoryLimit: 1 << 30, compressionThreads: threads)
+            let sequential = try LZMAWriterConfiguration(options: options, raw: true)
+            let parallel = try LZMAWriterConfiguration(options: options, raw: true, parallelFinder: true)
+            XCTAssertEqual(parallel.finderThreads, threads == 1 ? 1 : 2)
+            let extra = threads == 1 ? 0 : LZMAMatchFinderPipeline.memorySize
+            XCTAssertEqual(parallel.encoderMemory, sequential.encoderMemory + extra)
+            XCTAssertEqual(parallel.memoryPerThread, sequential.memoryPerThread + UInt64(extra))
+            XCTAssertEqual(try LZMAWriterConfiguration.singleStream(options: options).finderThreads, parallel.finderThreads)
+            XCTAssertEqual(try LZMAWriterConfiguration(options: options, parallelFinder: true).finderThreads, 1)
+            XCTAssertEqual(try LZMAWriterConfiguration.singleStream(options: options, lzip: true).finderThreads, 1)
+            var tight = options
+            tight.memoryLimit = sequential.memoryPerThread
+            XCTAssertEqual(try LZMAWriterConfiguration(options: tight, raw: true, parallelFinder: true).finderThreads, 1)
+        }
+    }
+
     func testRawSlackMemoryAndDerivedPendingBounds() throws {
         // 64-bit 通常 preset の raw予約を固定し、slack と range最大16 MiBの計上を検査する。
         let rawMemory = [19_342_481, 25_240_721, 33_105_041, 48_833_681, 65_610_901,
@@ -51,9 +69,9 @@ final class LZMAWriterConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.memoryBudget, 2 << 30)
         XCTAssertEqual(configuration.threads, 1)
         let zipRaw = WriterOptions(compressionMethod: .lzma, memoryLimit: 4 << 30, compressionThreads: 12)
-        XCTAssertEqual(zipRaw.maximumPendingInputBytes(for: .zip, physicalMemory: 16 << 30), 192 << 20)
+        XCTAssertEqual(zipRaw.maximumPendingInputBytes(for: .zip, physicalMemory: 16 << 30), 176 << 20)
         let sevenRaw = WriterOptions(sevenZipMethod: .lzma, memoryLimit: 4 << 30, compressionThreads: 12)
-        XCTAssertEqual(sevenRaw.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 208 << 20)
+        XCTAssertEqual(sevenRaw.maximumPendingInputBytes(for: .sevenZip, physicalMemory: 16 << 30), 176 << 20)
         XCTAssertNil(WriterOptions().lzmaLevel)
         XCTAssertFalse(WriterOptions().lzmaExtreme)
         for threads in [Int.min, 0, 1025, Int.max] {

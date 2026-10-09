@@ -33,7 +33,7 @@ private final class LZMAAloneCompressor: TarCompressor {
         let configuration = try LZMAWriterConfiguration.singleStream(options: options)
         properties = configuration.properties!
         encoder = try lzmaWriterOperation {
-            try LZMAEncoder(properties: properties, endMarker: true, memoryLimit: configuration.encoderMemory)
+            try LZMAEncoder(properties: properties, endMarker: true, memoryLimit: configuration.encoderMemory, finderThreads: configuration.finderThreads)
         }
     }
 

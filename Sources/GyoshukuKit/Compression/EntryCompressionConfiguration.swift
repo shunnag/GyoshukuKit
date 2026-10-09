@@ -9,6 +9,7 @@ struct EntryCompressionConfiguration {
     static var maximumEntryThreads: Int { testingEntryThreadLimit ?? CompressionWorkerPool.maximumEntryThreads }
     let threads: Int
     let codecThreads: Int
+    // 7zでは専用jobのcodec core数（LZMAのparser+finderは2）、ZIPでは追加finder core数。
     let longPoleThreads: Int
 
     init(lhaThreads: Int, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
@@ -48,26 +49,29 @@ struct EntryCompressionConfiguration {
         let singleStream = method == .lzma || method == .ppmd || method == .copy
         let io = UInt64(Self.inputLimit + OrderedEntrySpool.memoryLimit + 4 * IOChunk.size)
         let (reservation, reserveOverflow) = state.addingReportingOverflow(io)
-        longPoleThreads = singleStream && requested > 1 && !reserveOverflow && reservation <= available / 2 ? 1 : 0
-        let normalBudget = available - (longPoleThreads == 1 ? reservation : 0)
+        let finderMemory = method == .lzma && requested >= 3 ? UInt64(LZMAMatchFinderPipeline.memorySize) : 0
+        // LZMAの二coreは要求数の内側で確保する。要求2では通常窓をdrainして二枠を貸す。
+        longPoleThreads = singleStream && requested > 1 && !reserveOverflow
+            && reservation + finderMemory <= available / 2 ? (method == .lzma ? (requested >= 3 ? 2 : 0) : 1) : 0
+        let normalBudget = available - (longPoleThreads > 0 ? reservation + finderMemory : 0)
         // 単一 stream は一つ、片並列はfolder上限に入る片数だけcodec状態を予約する。
         let size = options.sevenZipSolid == .off ? UInt64(Self.inputLimit) : options.resolvedSevenZipBlockSize
         let pieces = innerParallelism && (method == .lzma2 || method == .deflate)
             ? min(UInt64(requested), (max(1, size) - 1) / UInt64(pieceSize) + 1) : 1
         let (folderState, overflow) = state.multipliedReportingOverflow(by: pieces)
-        threads = Self.resolve(options: options, state: overflow ? UInt64.max : folderState, budget: normalBudget)
+        let normalRequested = method == .lzma ? max(1, requested - longPoleThreads) : requested
+        threads = Self.resolve(requested: normalRequested, state: overflow ? UInt64.max : folderState, budget: normalBudget)
         // 通常窓のI/Oを先に差し引く。片並列の専用枠にもI/Oを一枠予約する。
         // 単一streamの専用状態とI/Oは既に差し引き、通常codecへ貸さない。
         let ioSlots = threads + (!singleStream && threads > 1 ? 1 : 0)
         let overhead = min(normalBudget, UInt64(ioSlots) * io)
         let codecState = method == .bzip2 ? ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level, threads: 1) : state
-        let normalCodecs = max(1, Int(min(UInt64(requested), (normalBudget - overhead) / max(1, codecState))))
+        let normalCodecs = max(1, Int(min(UInt64(normalRequested), (normalBudget - overhead) / max(1, codecState))))
         codecThreads = normalCodecs + longPoleThreads
     }
 
     init(options: WriterOptions, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
         codecThreads = 1
-        longPoleThreads = 0
         let state: UInt64
         let budget: UInt64
         switch options.compressionMethod {
@@ -89,7 +93,14 @@ struct EntryCompressionConfiguration {
             state = 4 << 20
             budget = physicalMemory / 2
         }
-        threads = Self.resolve(options: options, state: state, budget: budget)
+        // ZIP LZMA は一coreとbuffer一組を大項目用に確保する。通常窓の項目はfinder=1。
+        let extra = UInt64(LZMAMatchFinderPipeline.memorySize)
+        let available = min(budget, Self.testingMemoryBudget ?? budget)
+        let parallelFinder = options.compressionMethod == .lzma && options.resolvedCompressionThreads >= 2
+            && state < available && extra <= available - state
+        longPoleThreads = parallelFinder ? 1 : 0
+        threads = Self.resolve(requested: max(1, options.resolvedCompressionThreads - longPoleThreads),
+            state: state, budget: parallelFinder ? available - extra : available)
     }
 
     private static func resolve(options: WriterOptions, state: UInt64, budget: UInt64) -> Int {

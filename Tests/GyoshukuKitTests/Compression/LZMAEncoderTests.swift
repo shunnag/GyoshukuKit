@@ -120,7 +120,7 @@ final class LZMAEncoderTests: XCTestCase {
                     engine.window.update(from: bytes.baseAddress!.assumingMemoryBound(to: UInt8.self), count: bytes.count)
                 }
                 engine.end = input.count
-                engine.process(limit: 4096, reserve: 0)
+                try engine.process(limit: 4096, reserve: 0)
                 if normalizing {
                     // 履歴の相対距離を保ち、128位置後に UInt32 の正規化を起こす。
                     let shift = UInt32.max - 65536 - 128 - engine.finder.position
@@ -130,7 +130,7 @@ final class LZMAEncoderTests: XCTestCase {
                     }
                     engine.finder.position += shift
                 }
-                engine.process(limit: engine.end, reserve: 0)
+                try engine.process(limit: engine.end, reserve: 0)
                 if normalizing { XCTAssertLessThan(engine.finder.position, 1 << 20) }
                 engine.writeEndMarker(); engine.rc.finish()
                 return engine.rc.take()
@@ -390,7 +390,7 @@ final class LZMAEncoderTests: XCTestCase {
         }
         engine.end = input.count
         // 中間 drain をせず range buffer を越える出力を作り、carry と probability が保たれることを復号で検査する。
-        engine.process(limit: engine.end, reserve: 0)
+        try engine.process(limit: engine.end, reserve: 0)
         engine.writeEndMarker(); engine.rc.finish()
         XCTAssertNil(engine.rc.error)
         XCTAssertGreaterThan(engine.rc.capacity, 131072)
@@ -403,7 +403,7 @@ final class LZMAEncoderTests: XCTestCase {
             limited.window.update(from: bytes.baseAddress!.assumingMemoryBound(to: UInt8.self), count: bytes.count)
         }
         limited.end = input.count
-        limited.process(limit: limited.end, reserve: 0)
+        try limited.process(limit: limited.end, reserve: 0)
         guard case .memoryLimit = limited.rc.error else { return XCTFail("Range buffer must report its budget limit") }
     }
 
