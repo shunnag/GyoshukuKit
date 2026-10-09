@@ -248,7 +248,8 @@ final class SevenZipWriter {
         let reservedCodec = streamed && entryConfiguration.longPoleThreads > 0
         let normalCodecs = entryConfiguration.codecThreads - entryConfiguration.longPoleThreads
         while !reservedCodec && assignedEntryThreads >= normalCodecs { try entryPipeline.emitNext(emitEntry) }
-        let pieces = options.sevenZipMethod == .bzip2
+        // 通常の項目窓は逐次codecを使い、長いstreamだけ内側spliceへ空き枠を渡す。
+        let pieces = streamed && options.sevenZipMethod == .bzip2
             ? ParallelBzip2StreamEncoder.estimatedChunkCount(size: record.size, level: options.bzip2Level) : 1
         let share = streamed ? normalCodecs : max(1, options.resolvedCompressionThreads / (entryPipeline.pendingCount + 1))
         let threads = reservedCodec ? 1 : min(pieces, normalCodecs - assignedEntryThreads, share)

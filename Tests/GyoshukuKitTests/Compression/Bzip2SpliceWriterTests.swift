@@ -89,7 +89,13 @@ final class Bzip2SpliceWriterTests: XCTestCase {
                                     for (index, item) in items.enumerated() {
                                         try writer.add(contentsOf: item.sourceURL!, as: item.path)
                                         if index == 0, threads > 1 {
-                                            XCTAssertEqual(writer.pendingInputBytes, size <= limit ? UInt64(size) : 0)
+                                            if format == .sevenZip, size > limit {
+                                                // 7zの大項目はworkerへ渡し、long-pole枠にmin(size, L)を予約する。
+                                                XCTAssertEqual(writer.pendingInputBytes,
+                                                    min(UInt64(size), UInt64(EntryCompressionConfiguration.inputLimit)))
+                                            } else {
+                                                XCTAssertEqual(writer.pendingInputBytes, size <= limit ? UInt64(size) : 0)
+                                            }
                                         }
                                     }
                                 }
