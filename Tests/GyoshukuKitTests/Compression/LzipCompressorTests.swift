@@ -4,6 +4,13 @@ import XCTest
 
 final class LzipCompressorTests: XCTestCase {
     func testRawMemoryBudgetLimitsThreadsAndKeepsDictionary() throws {
+        let input = LZMAEncoderCorpus.text(size: (256 << 10) + 17)
+        func encode(options: WriterOptions) throws -> Data {
+            let compressor = try ParallelLzipCompressor(options: options)
+            var output = Data()
+            try compressor.write(input, finish: true) { output.append($0) }
+            return output
+        }
         for level in 0...9 {
             let options = WriterOptions(lzmaLevel: level, memoryLimit: 3 << 30, compressionThreads: 64)
             let configuration = try LZMAWriterConfiguration(options: options, raw: true, lzip: true, physicalMemory: 8 << 30)
@@ -18,9 +25,25 @@ final class LzipCompressorTests: XCTestCase {
             let two = try LZMAWriterConfiguration(options: limited, raw: true, lzip: true, physicalMemory: 8 << 30)
             XCTAssertEqual(two.threads, 2)
             XCTAssertEqual(two.properties?.dictSize, properties.dictSize)
-            limited.memoryLimit = configuration.memoryPerThread - 1
+            let legacy = try LZMAEncodingEngine.$testingLegacyRawWindowSlack.withValue(true) {
+                try LZMAWriterConfiguration(options: options, raw: true, lzip: true, physicalMemory: 8 << 30)
+            }
+            // 旧64 KiB slackの最低予算を下回る場合だけ拒否する。
+            limited.memoryLimit = legacy.memoryPerThread - 1
             XCTAssertThrowsError(try LZMAWriterConfiguration(options: limited, raw: true, lzip: true, physicalMemory: 8 << 30)) {
                 XCTAssertEqual($0 as? WriterError, .invalidOption("memoryLimit"))
+            }
+            let fallbackBudget = configuration.memoryPerThread - 1
+            if fallbackBudget >= legacy.memoryPerThread {
+                limited.memoryLimit = fallbackBudget
+                let fallback = try LZMAWriterConfiguration(options: limited, raw: true, lzip: true, physicalMemory: 8 << 30)
+                XCTAssertTrue(fallback.legacyRawWindowSlack)
+                XCTAssertEqual(fallback.threads, 1)
+                XCTAssertEqual(fallback.properties, properties)
+                XCTAssertEqual(fallback.pieceSize, configuration.pieceSize)
+                XCTAssertEqual(fallback.memoryPerThread, legacy.memoryPerThread)
+                XCTAssertLessThanOrEqual(fallback.memoryPerThread, fallbackBudget)
+                XCTAssertEqual(try encode(options: limited), try encode(options: options), "level \(level)")
             }
         }
         XCTAssertEqual(try LZMAWriterConfiguration.singleStream(options: .init(lzmaExtreme: true), lzip: true).properties,
