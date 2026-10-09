@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 変更
+
+- KaitoKit 依存を 0.13.x に上げ、CPU 構成の判定を KaitoKit の共有実装に統一した（公開 API と並列数は不変）。
+- KaitoKit 0.13.0 の復号高速化は、自己検査や updater による既存書庫の読み取りなど、GyoshukuKit の reader 側経路にも適用される。
+
 ## [0.9.0] - 2026-10-09
 
 一括追加の大項目による待機を減らし、CPU topology・電力方針に応じた自動並列数と速さ優先を追加する release。
