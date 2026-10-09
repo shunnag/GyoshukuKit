@@ -86,7 +86,7 @@ struct EntryCompressionConfiguration {
             state = configuration?.properties == nil ? 130 << 20 : configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
         case .zstd:
-            let configuration = try? ZstdWriterConfiguration(options: options, streaming: !options.prefersSpeed, physicalMemory: physicalMemory)
+            let configuration = try? ZstdWriterConfiguration.zip(options: options, physicalMemory: physicalMemory)
             state = configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
         case .ppmd:

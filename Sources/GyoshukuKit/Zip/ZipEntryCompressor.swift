@@ -18,8 +18,8 @@ final class ZipEntryCompressor {
         // parameter word は encoder が一度だけ出力し、ZIP 暗号化の内側に含める。
         let ppmd = method == .ppmd ? try PPMd8StreamEncoder(properties: options.ppmd8Properties()) : nil
         // 速さ優先の大項目だけ独立frameを連結し、AES / ZipCryptoの共通sinkの内側へ渡す。
-        let frames = try method == .zstd && options.prefersSpeed
-            && size > UInt64(ZstdWriterConfiguration(options: options, streaming: true).chunkSize)
+        let zstdConfiguration = method == .zstd ? try ZstdWriterConfiguration.zip(options: options) : nil
+        let frames = zstdConfiguration.map { !$0.streaming && size > UInt64($0.chunkSize) } ?? false
         let parallelZstd = frames ? try ParallelZstdCompressor(options: options, inlineSingleThread: inlineSingleThread) : nil
         defer { parallelZstd?.abandon() }
         let zstd = method == .zstd && !frames ? try ZstdFrameEncoder(level: options.zstdLevel, contentSize: size) : nil

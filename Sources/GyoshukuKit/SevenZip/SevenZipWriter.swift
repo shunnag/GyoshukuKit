@@ -36,14 +36,13 @@ final class SevenZipWriter {
         let size: UInt64
         let name: String
         let threads: Int
-        let attribution: AdditionAttribution?
         let aes: SevenZipAESEncryptor?
         let spool: OrderedEntrySpool
     }
     private struct EntryTag {
         let record: SevenZipRecords.Entry
         let threads: Int
-        let attribution: AdditionAttribution?
+        var attribution: AdditionAttribution?
         let verification: FileJob?
     }
     private struct EncodedEntry: Sendable {
@@ -102,7 +101,10 @@ final class SevenZipWriter {
         let workerRead = Self.testingWorkerRead
         let bzip2Encoder = ParallelBzip2StreamEncoder.testingEncoder
         entryPipeline = blocks == nil && (threads > 1 || configuration.longPoleThreads > 0) && options.sevenZipMethod != .lzma2 && options.sevenZipMethod != .deflate
-            && options.sevenZipMethod != .copy ? OrderedChunkPipeline(threads: threads) { job in
+            && options.sevenZipMethod != .copy ? OrderedChunkPipeline(threads: threads, failure: { tag, error in
+                guard let attribution = tag.attribution else { return error }
+                return additionFailure(error, index: attribution.index, addition: attribution.addition)
+            }) { job in
                 do {
                     var workerOptions = options
                     workerOptions.compressionThreads = job.threads
@@ -142,9 +144,6 @@ final class SevenZipWriter {
                                         compressedSize: encoder.compressedSize, crc: crc)
                 } catch {
                     job.spool.close()
-                    if let attribution = job.attribution {
-                        throw additionFailure(error, index: attribution.index, addition: attribution.addition)
-                    }
                     throw error
                 }
             } : nil
@@ -260,7 +259,7 @@ final class SevenZipWriter {
         assignedEntryThreads += normalThreads
         let ticket = try entryPipeline.startEarly(weight: UInt64(EntryCompressionConfiguration.inputLimit)) {
             EntryJob(input: .file(file), size: UInt64(file.size), name: file.addition.path, threads: threads,
-                attribution: .init(index: file.index, addition: file.addition), aes: nil,
+                aes: nil,
                 spool: try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "7z-entry", diskBacked: true,
                     maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: UInt64(file.size))))
         }
@@ -320,7 +319,7 @@ final class SevenZipWriter {
         let spool = record.size == 0 ? nil : try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "7z-entry",
             diskBacked: streamed, maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: record.size))
         let job = try spool.map { EntryJob(input: input, size: record.size, name: record.name, threads: threads,
-            attribution: attribution, aes: try encryptors.make(), spool: $0) }
+            aes: try encryptors.make(), spool: $0) }
         let normalThreads = reservedCodec ? 0 : threads
         assignedEntryThreads += normalThreads
         Self.testingWillSubmit?(record.name, entryPipeline.pendingCount, streamed, threads)
@@ -334,6 +333,12 @@ final class SevenZipWriter {
         try blocks?.drainPending(position: { self.position }, write: write)
         if let entryPipeline, entryPipeline.pendingCount > 0 { try entryPipeline.drain(emit: emitEntry) }
         if pipeline.pendingInputBytes > 0 { try pipeline.drain(emit: emit) }
+    }
+
+    // batch外のfinish / addは従来どおり原因をそのまま返す。入力や出力の窓は維持する。
+    func clearBatchAttributions() {
+        entryPipeline?.updatePendingTags { $0.attribution = nil }
+        blocks?.clearBatchAttributions()
     }
 
     // 検証済みの単一 chunk は、読み直し・コピー・CRC の再計算をせず既存の encoder へ渡す。

@@ -34,7 +34,6 @@ final class SevenZipBlockWriter {
         let filter: SevenZipWriteFilter
         let files: Int
         let threads: Int
-        let attribution: AdditionAttribution?
         let name: String
     }
     private struct EncodedBlock: Sendable {
@@ -46,7 +45,7 @@ final class SevenZipBlockWriter {
         let files: [Int]
         let streams: [SevenZipEditModel.Substream]
         let threads: Int
-        let attribution: AdditionAttribution?
+        var attribution: AdditionAttribution?
         var verification: FileJob? = nil
     }
 
@@ -63,7 +62,10 @@ final class SevenZipBlockWriter {
         let bzip2Encoder = ParallelBzip2StreamEncoder.testingEncoder
         let workerRead = SevenZipWriter.testingWorkerRead
 
-        pipeline = threads > 1 || configuration.longPoleThreads > 0 ? OrderedChunkPipeline(threads: threads) { job in
+        pipeline = threads > 1 || configuration.longPoleThreads > 0 ? OrderedChunkPipeline(threads: threads, failure: { tag, error in
+            guard let attribution = tag.attribution else { return error }
+            return additionFailure(error, index: attribution.index, addition: attribution.addition)
+        }) { job in
             do {
                 var workerOptions = options
                 workerOptions.compressionThreads = job.threads
@@ -94,9 +96,6 @@ final class SevenZipBlockWriter {
                 return EncodedBlock(output: job.output, folder: encoder.folder(size: job.size, substreamCount: job.files), crc: crc)
             } catch {
                 job.output.close()
-                if let attribution = job.attribution {
-                    throw additionFailure(error, index: attribution.index, addition: attribution.addition)
-                }
                 throw error
             }
         } : nil
@@ -131,7 +130,7 @@ final class SevenZipBlockWriter {
                 output: try OrderedEntrySpool(directory: directory, tag: "7z-folder", diskBacked: true,
                     maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: size)),
                 aes: nil, filter: .none, files: 1, threads: longPoleThreads,
-                attribution: .init(index: file.index, addition: file.addition), name: file.addition.path)
+                name: file.addition.path)
         }
         earlyEntry = (file.index, ticket)
     }
@@ -274,7 +273,7 @@ final class SevenZipBlockWriter {
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder", diskBacked: oversized,
                 maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: size))
             let job = Job(input: .scratch(scratch), size: size, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,
-                threads: innerThreads, attribution: attribution, name: records[indices[0]].name)
+                threads: innerThreads, name: records[indices[0]].name)
             SevenZipWriter.testingWillSubmit?(job.name, pipeline.pendingCount, oversized, innerThreads)
             // 専用codecは通常窓の予約に混ぜず、専用pipeline枠の返却で再利用する。
             let normalThreads = reservedCodec ? 0 : innerThreads
@@ -370,5 +369,10 @@ final class SevenZipBlockWriter {
         if let pipeline, pipeline.pendingCount > 0 {
             try pipeline.drain { tag, result in try self.emit(tag, result, position: position, write: write) }
         }
+    }
+
+    func clearBatchAttributions() {
+        attribution = nil
+        pipeline?.updatePendingTags { $0.attribution = nil }
     }
 }

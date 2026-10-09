@@ -37,7 +37,10 @@ final class LZMAWriterConfigurationTests: XCTestCase {
             XCTAssertEqual(options.maximumPendingInputBytes(for: .tarLzip, physicalMemory: 8 << 30),
                            UInt64(lzipPendingMiB[level]) << 20, "level \(level)")
             var insufficient = options
-            insufficient.memoryLimit = raw.memoryPerThread - 1
+            let legacy = try LZMAEncodingEngine.$testingLegacyRawWindowSlack.withValue(true) {
+                try LZMAWriterConfiguration(options: options, raw: true, physicalMemory: 8 << 30)
+            }
+            insufficient.memoryLimit = legacy.memoryPerThread - 1
             XCTAssertThrowsError(try LZMAWriterConfiguration(options: insufficient, raw: true, physicalMemory: 8 << 30))
         }
         // 新予約の三枠に1 byte足りない境界では、ZIP / 7z の項目窓は二枠に減る。

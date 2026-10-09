@@ -85,6 +85,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     private let lightWeightLimit: UInt64
     private let inlineSingleThread: Bool
     private let encoder: Encoder
+    private let failure: (Tag, Error) -> Error
     private let cancellation: CompressionCancellation?
     private let queue: DispatchQueue
     private let state = State()
@@ -104,17 +105,24 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     var hasReservedItem: Bool { reservedCount > 0 }
     var firstTag: Tag? { items.first?.tag }
 
-    init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, cancellation: CompressionCancellation? = nil, encoder: @escaping Encoder) {
+    init(threads: Int, lightWeightLimit: UInt64 = 0, inlineSingleThread: Bool = false, cancellation: CompressionCancellation? = nil,
+         failure: @escaping (Tag, Error) -> Error = { _, error in error }, encoder: @escaping Encoder) {
         precondition(WriterOptions.compressionThreadsRange.contains(threads))
         self.threads = threads
         self.lightWeightLimit = lightWeightLimit
         self.inlineSingleThread = inlineSingleThread
         self.encoder = encoder
+        self.failure = failure
         self.cancellation = cancellation
         queue = DispatchQueue(label: "GyoshukuKit.Compression", qos: Self.currentQoS, attributes: .concurrent)
     }
 
     deinit { abandon() }
+
+    // 帰属の有効期間は呼出側が管理し、完了済みworkerの失敗も出力時のtagで解決する。
+    func updatePendingTags(_ update: (inout Tag) -> Void) {
+        for index in items.indices { update(&items[index].tag) }
+    }
 
     func startEarly(weight: UInt64, borrowsThread: Bool = false, input: () throws -> Input) throws -> Early {
         guard !finished, early == nil else { throw WriterError.invalidState }
@@ -239,8 +247,8 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
     // 内部 codec の予約待ちでも先頭だけを出力し、残りの窓を保つ。
     func emitNext(_ emit: (Tag, Output?) throws -> Void, didEmit: ((UInt64) throws -> Void)? = nil) throws {
         guard !finished, !items.isEmpty else { throw WriterError.invalidState }
+        let item = items[0]
         do {
-            let item = items[0]
             let result = try state.take(item.id, cancellation: cancellation).get()
             try emit(item.tag, result)
             items.removeFirst()
@@ -250,7 +258,7 @@ final class OrderedChunkPipeline<Input: Sendable, Output: Sendable, Tag> {
             try didEmit?(item.weight)
         } catch {
             abandon()
-            throw error
+            throw failure(item.tag, error)
         }
     }
 

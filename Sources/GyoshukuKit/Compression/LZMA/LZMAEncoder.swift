@@ -12,11 +12,13 @@ final class LZMAEncoder {
     private var finished = false
 
     init(properties: LZMAEncoderProperties = .preset(6), expectedSize: UInt64? = nil,
-         endMarker: Bool = true, memoryLimit: Int = 768 << 20, finderThreads: Int = 1) throws {
+         endMarker: Bool = true, memoryLimit: Int = 768 << 20, finderThreads: Int = 1,
+         legacyRawWindowSlack: Bool = false) throws {
         try properties.validate()
         guard finderThreads == 1 || finderThreads == 2 else { throw LZMAEncodingError.invalidProperties }
         self.properties = properties; self.expectedSize = expectedSize; self.endMarker = endMarker
-        engine = try LZMAEncodingEngine(properties: properties, sizeHint: expectedSize, memoryLimit: memoryLimit, finderThreads: finderThreads)
+        engine = try LZMAEncodingEngine(properties: properties, sizeHint: expectedSize, memoryLimit: memoryLimit,
+            finderThreads: finderThreads, legacyRawWindowSlack: legacyRawWindowSlack)
     }
     deinit { engine.release() }
 
@@ -97,9 +99,9 @@ struct LZMAEncodingEngine {
     static let lookahead = 4096 + 273
     // byte 同一性の試験だけで旧 raw window を使う。LZMA2 の容量には影響しない。
     @TaskLocal static var testingLegacyRawWindowSlack = false
-    static func windowSlack(dictionary: Int, chunked: Bool = false) -> Int {
+    static func windowSlack(dictionary: Int, chunked: Bool = false, legacyRawWindowSlack: Bool = false) -> Int {
         if chunked { return 2 << 20 }
-        if testingLegacyRawWindowSlack { return 65536 }
+        if legacyRawWindowSlack || testingLegacyRawWindowSlack { return 65536 }
         // 履歴の移動を数 MiB ごとにまとめ、push の64 KiB処理境界は保つ。
         return min(4 << 20, max(65536, dictionary / 2))
     }
@@ -143,8 +145,9 @@ struct LZMAEncodingEngine {
     var matchCounter = 0, repCounter = 0
     var modelNeedsReset = false
 
-    static func memorySize(properties: LZMAEncoderProperties, dictionary: Int, chunked: Bool = false, finderThreads: Int = 1) -> Int {
-        dictionary + windowSlack(dictionary: dictionary, chunked: chunked) + lookahead + 65536
+    static func memorySize(properties: LZMAEncoderProperties, dictionary: Int, chunked: Bool = false, finderThreads: Int = 1,
+                           legacyRawWindowSlack: Bool = false) -> Int {
+        dictionary + windowSlack(dictionary: dictionary, chunked: chunked, legacyRawWindowSlack: legacyRawWindowSlack) + lookahead + 65536
             + LZMAMatchFinder.memorySize(dictionary: dictionary, tree: properties.matchFinder == .bt4)
             + (literalOffset + (768 << (properties.lc + properties.lp))) * 2
             + 131072 + 4096 * (MemoryLayout<LZMAOptimal>.stride + MemoryLayout<LZMAAction>.stride)
@@ -152,13 +155,16 @@ struct LZMAEncodingEngine {
             + 274 * MemoryLayout<LZMAMatch>.stride
             + (finderThreads == 2 ? LZMAMatchFinderPipeline.memorySize : 0)
     }
-    init(properties p: LZMAEncoderProperties, sizeHint: UInt64?, memoryLimit: Int, chunked: Bool = false, finderThreads: Int = 1) throws {
+    init(properties p: LZMAEncoderProperties, sizeHint: UInt64?, memoryLimit: Int, chunked: Bool = false, finderThreads: Int = 1,
+         legacyRawWindowSlack: Bool = false) throws {
         properties = p
         posMask = UInt8((1 << p.pb) - 1); literalPosMask = UInt8((1 << p.lp) - 1)
         literalContextWidth = UInt16(1 << p.lc); literalShift = UInt8(8 - p.lc)
         dictionary = min(p.dictSize, Int(min(UInt64(p.dictSize), max(4096, sizeHint ?? UInt64(p.dictSize)))))
-        capacity = dictionary + Self.windowSlack(dictionary: dictionary, chunked: chunked) + Self.lookahead + 65536
-        let required = Self.memorySize(properties: p, dictionary: dictionary, chunked: chunked, finderThreads: finderThreads)
+        capacity = dictionary + Self.windowSlack(dictionary: dictionary, chunked: chunked,
+            legacyRawWindowSlack: legacyRawWindowSlack) + Self.lookahead + 65536
+        let required = Self.memorySize(properties: p, dictionary: dictionary, chunked: chunked, finderThreads: finderThreads,
+            legacyRawWindowSlack: legacyRawWindowSlack)
         guard memoryLimit >= required else { throw LZMAEncodingError.memoryLimit(required: required, limit: memoryLimit) }
         // 確保を一つの group として扱い、途中の失敗時も全 pointer を解放する。
         var allocated: [UnsafeMutableRawPointer] = []

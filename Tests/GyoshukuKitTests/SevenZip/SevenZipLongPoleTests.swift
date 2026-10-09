@@ -200,7 +200,7 @@ final class SevenZipLongPoleTests: XCTestCase {
         }
     }
 
-    func testWorkerFileInputMatchesOldDrainAndClosesSpools() throws {
+    func testBatchWorkerFileInputMatchesOldDrainAndClosesSpools() throws {
         for method: SevenZipCompressionMethod in [.lzma, .ppmd, .bzip2] {
             let root = try TestSupport.directory("7z-long-pole-file-\(method)")
             let source = root.appendingPathComponent("source")
@@ -218,7 +218,8 @@ final class SevenZipLongPoleTests: XCTestCase {
                                 for index in 0..<3 {
                                     try writer.add(data: Self.payload(Self.limit / 2), as: "medium-\(index)", modificationDate: TestSupport.date)
                                 }
-                                try writer.add(contentsOf: source, as: "long")
+                                // worker読取はbatch内で完了させ、項目別addは同期readを保つ。
+                                try writer.add([.init(path: "long", source: .contents(of: source))], events: nil)
                                 try writer.finish()
                             }
                         }
@@ -308,8 +309,8 @@ final class SevenZipLongPoleTests: XCTestCase {
         }
     }
 
-    func testRealSixteenMiBItemWindowStreamsLZMAAndPPMdFromFile() throws {
-        let root = try TestSupport.directory("7z-long-pole-real-item-window")
+    func testRealSixteenMiBBatchWindowStreamsLZMAAndPPMdFromFile() throws {
+        let root = try TestSupport.directory("7z-long-pole-real-batch-window")
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source")
         try Self.payload((16 << 20) + 1).write(to: source)
@@ -325,7 +326,7 @@ final class SevenZipLongPoleTests: XCTestCase {
                         for index in 0..<3 {
                             try writer.add(data: Self.payload(1 << 20), as: "medium-\(index)", modificationDate: TestSupport.date)
                         }
-                        try writer.add(contentsOf: source, as: "long")
+                        try writer.add([.init(path: "long", source: .contents(of: source))], events: nil)
                         XCTAssertLessThanOrEqual(writer.pendingInputBytes,
                             Self.options(method, solid: false, filter: .none, threads: threads).maximumPendingInputBytes(for: .sevenZip))
                         try writer.finish()

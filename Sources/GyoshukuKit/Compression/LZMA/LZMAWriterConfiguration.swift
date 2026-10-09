@@ -11,6 +11,7 @@ struct LZMAWriterConfiguration: Sendable {
     let encoderMemory: Int
     let memoryPerThread: UInt64
     let memoryBudget: UInt64
+    let legacyRawWindowSlack: Bool
 
     init(options: WriterOptions, raw: Bool = false, lzip: Bool = false, parallelFinder: Bool = false, size: UInt64? = nil,
          physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) throws {
@@ -22,6 +23,7 @@ struct LZMAWriterConfiguration: Sendable {
                 size: size, prefersSpeed: options.prefersSpeed)
             threads = options.resolvedCompressionThreads
             finderThreads = 1
+            legacyRawWindowSlack = false
             encoderMemory = 0; memoryPerThread = 0
             return
         }
@@ -34,8 +36,12 @@ struct LZMAWriterConfiguration: Sendable {
             floor: lzip ? max(2 << 20, p.dictSize) : 2 << 20, size: size, prefersSpeed: options.prefersSpeed)
         // memorySize は raw の辞書に応じた slack と LZMA2 の2 MiBを含む。
         // LZMA2 の range buffer は64 KiBの pack limit 内。raw は最大16 MiBの伸長分も予約する。
-        let sequentialMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
+        let preferredMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
             + (raw ? (16 << 20) - 131072 : 0)
+        // 大きいslackは任意。従来の64 KiBなら収まる予算も受理する。
+        legacyRawWindowSlack = raw && UInt64(preferredMemory) + 2 * UInt64(pieceSize) > memoryBudget
+        let sequentialMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw,
+            legacyRawWindowSlack: legacyRawWindowSlack) + (raw ? (16 << 20) - 131072 : 0)
         // 任意の高速化のために従来受理した予算を拒否しない。追加bufferが収まる場合だけ使う。
         finderThreads = raw && !lzip && parallelFinder && options.resolvedCompressionThreads >= 2
             && UInt64(sequentialMemory + LZMAMatchFinderPipeline.memorySize + 2 * pieceSize) <= memoryBudget ? 2 : 1
@@ -61,7 +67,8 @@ struct LZMAWriterConfiguration: Sendable {
     func rawEncoder(size: UInt64, endMarker: Bool) throws -> LZMAEncoder {
         guard let properties else { throw WriterError.invalidState }
         return try lzmaWriterOperation {
-            try LZMAEncoder(properties: properties, expectedSize: size, endMarker: endMarker, memoryLimit: encoderMemory, finderThreads: finderThreads)
+            try LZMAEncoder(properties: properties, expectedSize: size, endMarker: endMarker, memoryLimit: encoderMemory,
+                finderThreads: finderThreads, legacyRawWindowSlack: legacyRawWindowSlack)
         }
     }
 

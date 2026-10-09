@@ -502,7 +502,9 @@ final class ZipWriter {
         guard options.prefersSpeed else { return false }
         switch method {
         case .xz: return size > UInt64((try? LZMAWriterConfiguration(options: options, size: size).pieceSize) ?? Int.max)
-        case .zstd: return size > UInt64((try? ZstdWriterConfiguration(options: options, streaming: true).chunkSize) ?? Int.max)
+        case .zstd:
+            guard let configuration = try? ZstdWriterConfiguration.zip(options: options), !configuration.streaming else { return false }
+            return size > UInt64(configuration.chunkSize)
         default: return false
         }
     }
@@ -632,7 +634,8 @@ final class ZipWriter {
             return ((try? LZMAWriterConfiguration(options: options, size: size).pieceSize) ?? Int.max) <= EntryCompressionConfiguration.inputLimit
         }
         if method == .zstd, options.prefersSpeed {
-            return ((try? ZstdWriterConfiguration(options: options).chunkSize) ?? Int.max) <= EntryCompressionConfiguration.inputLimit
+            guard let configuration = try? ZstdWriterConfiguration.zip(options: options) else { return false }
+            return configuration.streaming || configuration.chunkSize <= EntryCompressionConfiguration.inputLimit
         }
         return true
     }
@@ -648,15 +651,22 @@ final class ZipWriter {
         guard let entryPipeline, earlyEntry == nil else { throw WriterError.invalidState }
         let method = compression(name: file.addition.path, mode: FileMode.regular, size: UInt64(file.size))
         let ticket = try entryPipeline.startEarly(weight: UInt64(EntryCompressionConfiguration.inputLimit), borrowsThread: true) {
-            EntryJob(data: nil, file: file, name: file.addition.path, method: method,
-                spool: try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry", diskBacked: true,
-                    maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: UInt64(file.size))), streamed: true)
+            do {
+                return EntryJob(data: nil, file: file, name: file.addition.path, method: method,
+                    spool: try OrderedEntrySpool(directory: url.deletingLastPathComponent(), tag: "zip-entry", diskBacked: true,
+                        maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: UInt64(file.size))), streamed: true)
+            } catch { throw additionFailure(error, index: file.index, addition: file.addition) }
         }
         earlyEntry = (file.index, ticket)
     }
 
     func waitForCapacity(emit: (Tag, Prefetched?) throws -> Void) throws {
         try submitWaitingEntry()
+        // 項目別の入力はbatchのsourceを読む前に出力し、失敗も元の呼出しのまま返す。
+        while let tag = entryPipeline?.firstTag, tag.attribution == nil {
+            try entryPipeline!.emitNext { tag, result in try self.emitEntry(tag, result, batchEmit: emit) }
+        }
+        while let tag = pipeline.firstTag, tag.attribution == nil { try pipeline.emitNext(emit) }
         try entryPipeline?.waitForCapacity { tag, result in try self.emitEntry(tag, result, batchEmit: emit) }
         try pipeline.waitForCapacity(emit: emit)
     }
@@ -694,7 +704,8 @@ final class ZipWriter {
                     tag, result in try self.emitEntry(tag, result, batchEmit: emit)
                 }
                 self.earlyEntry = nil
-            } else if entry.method == .xz || (entry.method == .zstd && options.prefersSpeed) {
+            } else if entry.method == .xz || (entry.method == .zstd
+                && (try? ZstdWriterConfiguration.zip(options: options).streaming) == false) {
                 try submitPieces(entry, file: file, attribution: attribution, emit: emit)
             } else {
                 try submit(file, method: entry.method, attribution: attribution, weight: entry.size, emit: emit)
@@ -709,7 +720,7 @@ final class ZipWriter {
         } catch {
             if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {
                 // caller の読取失敗より前の worker の失敗だけを確認する。失敗した項目は完了通知しない。
-                while let first = pipeline.firstTag, let previous = first.attribution, previous.index < attribution.index {
+                while let first = pipeline.firstTag, first.attribution.map({ $0.index < attribution.index }) ?? true {
                     try pipeline.emitNext(emit)
                 }
             }
@@ -755,7 +766,7 @@ final class ZipWriter {
         } catch {
             if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {
                 // source読取より前の項目の失敗を優先する。
-                while let first = entryPipeline.firstTag, let previous = first.attribution, previous.index < attribution.index {
+                while let first = entryPipeline.firstTag, first.attribution.map({ $0.index < attribution.index }) ?? true {
                     try entryPipeline.emitNext(receive)
                 }
             }
