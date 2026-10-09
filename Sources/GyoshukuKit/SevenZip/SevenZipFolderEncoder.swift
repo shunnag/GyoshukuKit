@@ -139,10 +139,10 @@ final class SevenZipFolderEncoder {
         let encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
             deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
             lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true) : nil,
+                ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true, size: size) : nil,
             ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
             bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), cancellation: cancellation, workerActivity: workerActivity, size: size, filter: filter)
-        let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize, inlineSingleThread: inlineSingleThread, workerActivity: workerActivity)
+        let pipeline = try SevenZipChunkPipeline<Void>(options: options, chunkSize: chunkSize, size: size, inlineSingleThread: inlineSingleThread, workerActivity: workerActivity)
         let filtered = filter == .none ? nil : SevenZipFilteredInput(filter: filter, size: size)
         defer { pipeline.abandonAndWait(); encoder.abandon() }
         func emit(_: Void, _ result: SevenZipChunkOutput?) throws {

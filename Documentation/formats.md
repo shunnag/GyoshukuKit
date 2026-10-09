@@ -12,7 +12,7 @@ ZIP の書き込み方式は次の七つです。updater の新規追加と ZIP 
 | `.deflate`（既定） | 8 | system zlib の raw deflate |
 | `.bzip2` | 12 | system libbz2 の単一 bzip2 stream |
 | `.lzma` | 14 | 自前の単一 raw LZMA1 stream、EOS 付き。展開要求 version 6.3 |
-| `.zstd` | 93 | 自前の content checksum 付き単一 Zstandard frame。展開要求 version 6.3 |
+| `.zstd` | 93 | 自前の content checksum 付き Zstandard frame（既定は単一、速さ優先の大entryは連結）。展開要求 version 6.3 |
 | `.xz` | 95 | Apple または自前 LZMA2 と XZFraming の完全な単一 XZ stream |
 | `.ppmd` | 98 | 自前の単一 PPMd var.I rev.1 stream。2 byte parameter word、restoration は restart。展開要求 version 6.3 |
 
@@ -178,7 +178,7 @@ gzip は1 MiB block、bzip2 は `5 × level × 100,000` byte の独立 stream、
 
 ## Zstandard
 
-ZIP は entry ごとに単一 frame を書き、入力サイズに比例するメモリを使いません。
+ZIP の既定は entry ごとに単一 frame。`prefersSpeed` の大entryは同じ固定幅の独立frameを連結し、入力全体をメモリへ載せません。
 [APPNOTE §4.4.5](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の現行 method 93を使い、
 要求 version の表に Zstandard の明記がないため、writer は6.3を選びます。
 7-Zip 26.03で非暗号・AES・ZipCryptoの `t / x` を確認しました。ZIP内の並列frame連結は使いません。

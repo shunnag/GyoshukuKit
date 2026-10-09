@@ -13,17 +13,20 @@ final class SevenZipChunkPipeline<Tag> {
         case lzma2(Data)
         case deflate(DeflateBlock)
     }
+    private let options: WriterOptions
+    private let explicitChunkSize: Int?
     private let method: SevenZipCompressionMethod
     private let pipeline: OrderedChunkPipeline<Input, SevenZipChunkOutput, Tag>
     private var dictionary = Data()
     let chunkSize: Int
     var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
-    init(options: WriterOptions, chunkSize: Int? = nil, inlineSingleThread: Bool = false,
+    init(options: WriterOptions, chunkSize: Int? = nil, size: UInt64? = nil, inlineSingleThread: Bool = false,
          encoder: LZMA2ChunkPipeline<Void>.Encoder? = nil,
          workerActivity: (@Sendable (Bool) -> Void)? = nil) throws {
+        self.options = options; explicitChunkSize = chunkSize
         let configuration = try LZMAWriterConfiguration(options: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-            ? options : WriterOptions(compressionThreads: options.resolvedCompressionThreads), raw: options.sevenZipMethod == .lzma)
+            ? options : WriterOptions(compressionThreads: options.resolvedCompressionThreads), raw: options.sevenZipMethod == .lzma, size: size)
         let pieceSize = chunkSize ?? configuration.pieceSize
         precondition(pieceSize > 0)
         let encode = encoder ?? configuration.encoder
@@ -41,6 +44,12 @@ final class SevenZipChunkPipeline<Tag> {
             case .deflate(let block): return .packed(try DeflateBlock.encode(block, level: options.deflateLevel))
             }
         }
+    }
+
+    // 複数項目を共有する窓は従来幅のメモリを予約し、実際の切断だけ項目サイズで決める。
+    func pieceSize(for size: UInt64) -> Int {
+        guard method == .lzma2, explicitChunkSize == nil, LZMAWriterConfiguration.testingPieceSize == nil else { return chunkSize }
+        return CompressionPieceSize.resolve(standard: chunkSize, size: size, prefersSpeed: options.prefersSpeed)
     }
 
     func submit(_ data: Data?, tag: Tag, isLast: Bool, weight: UInt64 = 0,

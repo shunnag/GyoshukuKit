@@ -33,7 +33,7 @@ enum SingleStreamWriter {
             compressor = try ParallelBzip2StreamEncoder(level: options.bzip2Level,
                 threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: UInt64(info.st_size))
         } else {
-            compressor = try StreamCompressor.make(format: format.archiveFormat, options: options)
+            compressor = try StreamCompressor.make(format: format.archiveFormat, options: options, size: UInt64(info.st_size))
         }
         defer { compressor.abandon() }
         let temporary = output.deletingLastPathComponent().appendingPathComponent(".gyoshuku-stream-\(UUID().uuidString).tmp")

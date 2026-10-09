@@ -122,10 +122,11 @@ ZIP の既定は互換性を重視した Deflate です。BZip2 / LZMA / Zstanda
 | `zstdLevel` / `ppmdLevel` / `lhaLevel` | `3` / `6` / `6` | `1...19` / `1...9` / `1...9` |
 | `password` / `zipEncryption` | `nil` / `.aes256` | ZIP・7z の暗号化 |
 | `sevenZipSolid` / `sevenZipFilter` | `.off` / `.none` | 7z のまとめ方と前処理 |
+| `prefersSpeed` | `false` | 速さ優先。既知サイズの圧縮片・7z solid folderを増やす。[分割規則と比率のトレードオフ](Documentation/options.md#速さ優先) |
 | `compressionThreads` / `memoryLimit` | `nil` / `nil` | 並列数 `1...1024` の自動解決、対応 codec のメモリ予算 |
 | `powerPolicy` | `.reduceInLowPowerMode` | 自動並列数の省電力・温度方針 |
 
-全25項目の既定値・範囲と圧縮待ちの入力量の上限は[設定リファレンス](Documentation/options.md)にまとめています。
+全26項目の既定値・範囲と圧縮待ちの入力量の上限は[設定リファレンス](Documentation/options.md)にまとめています。
 一括追加には `ArchiveAddition` と `add(_:events:)`、読取・圧縮待ち・commit の進捗 API も使えます。[詳細](Documentation/usage.md#一括追加と進捗)
 
 ## 性能とスレッド

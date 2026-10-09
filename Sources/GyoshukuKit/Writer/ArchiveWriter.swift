@@ -77,9 +77,11 @@ public final class ArchiveWriter {
         url: URL, format: ArchiveFormat = .zip, options: WriterOptions = WriterOptions()
     ) throws -> ArchiveWriter {
         let options = options.resolvingCompressionThreads()
-        let piece = format == .tarXZ || (format == .sevenZip && options.sevenZipMethod == .lzma2)
-            ? try LZMAWriterConfiguration(options: options).pieceSize : LZMA2ChunkPipeline<Void>.chunkSize
-        return try create(url: url, format: format, options: options, lzmaChunkSize: piece)
+        // 従来の検証順を保ち、実際の切断幅は内側で既知サイズに合わせる。
+        if format == .tarXZ || (format == .sevenZip && options.sevenZipMethod == .lzma2) {
+            _ = try LZMAWriterConfiguration(options: options)
+        }
+        return try create(url: url, format: format, options: options, lzmaChunkSize: nil)
     }
 
     // 小さい入力でも複数 chunk と待機中の失敗を検証できるようにする。
@@ -89,7 +91,7 @@ public final class ArchiveWriter {
         deflateEncoder: @escaping DeflateBlock.Encoder = DeflateBlock.encode,
         bzip2Encoder: @escaping ParallelBzip2Compressor.Encoder = Bzip2StreamEncoder.encode,
         zipSalt: @escaping () throws -> Data = { try EncryptionPrimitives.random(count: 16) },
-        lzmaChunkSize: Int,
+        lzmaChunkSize: Int?,
         xzPackingSize: Int? = nil,
         lzmaEncoder: LZMA2ChunkPipeline<Void>.Encoder? = nil,
         lh5Encoder: (@Sendable (Data) throws -> Data)? = nil
@@ -109,7 +111,7 @@ public final class ArchiveWriter {
         case .tarXZ:
             let configuration = try LZMAWriterConfiguration(options: options)
             compressor = try ParallelXZCompressor(threads: configuration.threads,
-                chunkSize: lzmaChunkSize, packingSize: xzPackingSize, allowsLightChunks: configuration.properties == nil,
+                chunkSize: lzmaChunkSize ?? configuration.pieceSize, packingSize: xzPackingSize, allowsLightChunks: configuration.properties == nil,
                 encoder: lzmaEncoder ?? configuration.encoder)
         case .tarZstd, .tarLZMA, .tarLzip, .tarLZ4, .tarBrotli, .tarCompress:
             compressor = try StreamCompressor.make(format: format, options: options)

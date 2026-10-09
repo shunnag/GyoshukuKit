@@ -30,7 +30,8 @@ struct EntryCompressionConfiguration {
             let configuration = try? LZMAWriterConfiguration(options: options, raw: method == .lzma, physicalMemory: physicalMemory)
             state = configuration?.properties == nil ? 130 << 20 : configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
-            pieceSize = chunkSize ?? configuration?.pieceSize ?? ParallelXZCompressor.defaultBlockSize
+            pieceSize = chunkSize ?? (options.prefersSpeed && method == .lzma2
+                ? LZMAWriterConfiguration.testingPieceSize ?? (2 << 20) : configuration?.pieceSize ?? ParallelXZCompressor.defaultBlockSize)
         case .bzip2:
             state = ParallelBzip2StreamEncoder.memoryReservation(level: options.bzip2Level,
                 threads: innerParallelism ? ParallelBzip2StreamEncoder.resolvedThreads(options: options, physicalMemory: physicalMemory) : 1)
@@ -80,7 +81,7 @@ struct EntryCompressionConfiguration {
             state = configuration?.properties == nil ? 130 << 20 : configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
         case .zstd:
-            let configuration = try? ZstdWriterConfiguration(options: options, streaming: true, physicalMemory: physicalMemory)
+            let configuration = try? ZstdWriterConfiguration(options: options, streaming: !options.prefersSpeed, physicalMemory: physicalMemory)
             state = configuration?.memoryPerThread ?? UInt64.max
             budget = configuration?.memoryBudget ?? 0
         case .ppmd:

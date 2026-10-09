@@ -10,7 +10,7 @@ public enum CompressionMethod: UInt16, Sendable {
     case lzma = 14
     /// 完全な XZ stream。レベル未指定は Apple Compression、指定時は自前 LZMA2。
     case xz = 95
-    /// 自前 encoder の content checksum 付き単一 Zstandard frame。method 93 対応 reader が必要。
+    /// 自前 encoder の content checksum 付き Zstandard frame。速さ優先の大項目は独立 frame を連結する。method 93 対応 reader が必要。
     /// macOS Archive Utility / unzip は非対応。抽出要求 version は6.3。
     case zstd = 93
     /// 自前 encoder の単一 PPMd var.I rev.1 stream。展開には method 98 対応の reader が必要。
@@ -37,6 +37,7 @@ public enum SevenZipCompressionMethod: Sendable {
 public enum SevenZipSolidMode: Sendable, Equatable {
     case off
     /// 入力順。nil のサイズは min(4 GiB, max(64 MiB, 辞書または PPMd model memory × 2))、件数は1,000,000。
+    /// prefersSpeed が true の圧縮 folder は nil のサイズを16 MiBにする。明示サイズは保持する。
     /// ファイルは分割せず、上限より大きいファイルは単独の folder にする。
     case on(blockSize: UInt64? = nil, filesPerBlock: Int? = nil)
 }
@@ -148,6 +149,11 @@ public struct WriterOptions: Sendable {
     /// 自前 LZMA の探索量を増やす。既定は false。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使う。
     /// 他の形式は lzmaLevel を指定したときだけ使う。
     public var lzmaExtreme: Bool
+    /// 速さ優先。既知サイズの XZ / LZMA2・lzip を小片に分け、7z solid の既定上限を16 MiBにする。
+    /// 既定 false は従来の圧縮率と byte を保つ。片境界は並列数・CPU・電力・メモリに依存しない。
+    /// ZIP Zstandard の大項目は max(4 MiB, window) の独立 frame を連結する。
+    /// 総サイズが作成時に不明な tar.xz / tar.lz は従来の片幅を使う。
+    public var prefersSpeed: Bool
     /// 自前 LZMA / Zstandard、ZIP / 7z BZip2の圧縮作業メモリ上限（byte）。nil は物理メモリの50%。
     /// 物理メモリの50%との小さい方で並列数を抑える。LZMA / Zstandardは一つも入らなければ invalidOption("memoryLimit")。
     /// 辞書を上限に合わせて縮小しない。Appleの既存block経路と上記以外のcodecには適用しない。
@@ -185,7 +191,7 @@ public struct WriterOptions: Sendable {
     /// deflate / tar.bz2 は thread ごとに約2 × chunk size + codec state、Apple LZMA2 は約130 MiB。
     /// 自前 LZMA2 の辞書が16 MiBを超えると片は3 × 辞書。実際の並列数は
     /// t × (encoder memory + 2 × 片) <= min(memoryLimit, 物理メモリの50%) に制限する。
-    /// 自前経路は小さい block も並列数に数える。Apple 経路の片は常に16 MiB。
+    /// 自前経路は小さい block も並列数に数える。Apple 経路の既定片は16 MiB、速さ優先は既知サイズで縮める。
     /// chunk 上限は deflate が1 MiB、tar.bz2 が5 × level × 100,000 byte。tar.xz の packing は4 MiB。
     /// gzip / bzip2 / XZ / lzip の圧縮 tar は member 境界で区切り、上限を超える header 群・本文を分割し、終端を独立させる。
     /// tar.bz2 level 9 は入力・出力約9 MB + codec state約7.6 MBで、thread ごとに約16.6 MB。
@@ -218,6 +224,7 @@ public struct WriterOptions: Sendable {
         ppmdMemoryMiB: Int? = nil,
         lzmaLevel: Int? = nil,
         lzmaExtreme: Bool = false,
+        prefersSpeed: Bool = false,
         memoryLimit: UInt64? = nil,
         useCompressionHeuristic: Bool = true,
         preserveOwnerIDs: Bool = false,
@@ -244,6 +251,7 @@ public struct WriterOptions: Sendable {
         self.ppmdMemoryMiB = ppmdMemoryMiB
         self.lzmaLevel = lzmaLevel
         self.lzmaExtreme = lzmaExtreme
+        self.prefersSpeed = prefersSpeed
         self.memoryLimit = memoryLimit
         self.useCompressionHeuristic = useCompressionHeuristic
         self.preserveOwnerIDs = preserveOwnerIDs
@@ -305,6 +313,7 @@ public struct WriterOptions: Sendable {
     /// ZIP Stored / Deflate（ZipCrypto以外）は解決した compressionThreads × 1 MiB。組立中 block も同じ窓に含む。
     /// tar.xz は通常枠と4 MiBの組立中 block を含み、Apple 経路だけ64 KiB以下の軽い block を別枠にする。
     /// ZIP LZMA・Zstandard・PPMd は t > 1 なら t × 16 MiB、逐次は0。
+    /// 速さ優先のZIP Zstandardは項目窓とframe並列数 × frame幅の大きい方を使う。
     /// 非solid 7z LZMA・PPMdの項目窓は (f + 1) × 16 MiB。追加の一枠は長いstream専用、逐次は0。
     /// ZIP の大項目を stream worker に渡す場合も一枠16 MiB以下を予約し、全入力は保持せず、結果はdisk spoolへ運ぶ。
     /// BZip2は項目窓と、内側(t+1) × 8 MiBの大きい方。t=1の大入力も同じ有界切断を使う。
@@ -312,6 +321,7 @@ public struct WriterOptions: Sendable {
     /// PPMd のモデルは ppmdMemoryMiB または preset のメモリを entry / folder ごとに使い、この入力 byte には含まない。
     /// t は解決した並列数。7z Deflate は t 個の1 MiB block、LZMA2 は t 個の片を上界にする。
     /// ZIP XZは項目窓の上界と、既存block窓の (t + 1) × 片の大きい方。大項目の終了時にはblockを全て出力する。
+    /// 速さ優先のZIP XZ / lzipは、最小片で入り得る並列数と従来幅を使い未知サイズの上界を保つ。
     /// tar.zst はメモリ予算で解決した t × max(4 MiB, level の window)。組立中の frame も枠に含む。
     /// LHAは項目窓の t × 16 MiBと、既存の t 個の1 MiB入力＋履歴の大きい方。逐次とforced storeは0。
     /// 自動値はこの呼出しでも一度解決する。ジョブ開始後の電力状態とは異なる場合がある。
@@ -345,11 +355,18 @@ public struct WriterOptions: Sendable {
                 let inner = ParallelBzip2StreamEncoder.resolvedThreads(options: self, physicalMemory: physicalMemory)
                 let chunks = UInt64(inner + 1) * UInt64(ParallelBzip2StreamEncoder.inputCap)
                 return max(chunks, EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes)
+            case .zstd where prefersSpeed:
+                let configuration = try? ZstdWriterConfiguration(options: self, physicalMemory: physicalMemory)
+                let frames = UInt64(max(1, min(Self.compressionThreadsRange.upperBound, configuration?.threads ?? 1))) * UInt64(configuration?.chunkSize ?? (4 << 20))
+                return max(frames, EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes)
             case .lzma, .zstd, .ppmd:
                 return EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes
             case .deflate:
                 return password != nil && zipEncryption == .zipCrypto ? 0 : threads * UInt64(DeflateBlock.size)
-            case .xz: return max((lzmaThreads + 1) * piece, EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes)
+            case .xz:
+                let smaller = prefersSpeed ? try? LZMAWriterConfiguration(options: self, size: 1, physicalMemory: physicalMemory) : nil
+                let maximumThreads = max(lzmaThreads, UInt64(max(1, min(Self.compressionThreadsRange.upperBound, smaller?.threads ?? 1))))
+                return max((maximumThreads + 1) * piece, EntryCompressionConfiguration(options: self, physicalMemory: physicalMemory).maximumPendingInputBytes)
             }
         case .tar: return 0
         case .tarLZMA, .tarBrotli, .tarCompress: return 0
@@ -360,7 +377,9 @@ public struct WriterOptions: Sendable {
         case .tarLzip:
             let configuration = try? LZMAWriterConfiguration.singleStream(options: self, lzip: true)
             let resolved = UInt64(max(1, min(Self.compressionThreadsRange.upperBound, configuration?.threads ?? 1)))
-            return resolved * UInt64(configuration?.pieceSize ?? (16 << 20))
+            let smaller = prefersSpeed ? try? LZMAWriterConfiguration.singleStream(options: self, lzip: true, size: 1) : nil
+            let maximumThreads = max(resolved, UInt64(max(1, min(Self.compressionThreadsRange.upperBound, smaller?.threads ?? 1))))
+            return maximumThreads * UInt64(configuration?.pieceSize ?? (16 << 20))
         case .tarGzip: return (threads + 1) * UInt64(DeflateBlock.size)
         case .tarBzip2: return (threads + 1) * UInt64(ParallelBzip2Compressor.chunkSize(level: max(1, min(9, bzip2Level))))
         case .tarXZ:
@@ -455,6 +474,7 @@ public struct WriterOptions: Sendable {
 
     var resolvedSevenZipBlockSize: UInt64 {
         if case let .on(size?, _) = sevenZipSolid { return size }
+        if prefersSpeed && sevenZipMethod != .copy { return 16 << 20 }
         let dictionary = sevenZipMethod == .ppmd ? UInt64((try? ppmd7Properties().memorySize) ?? (16 << 20))
             : sevenZipMethod == .lzma || (sevenZipMethod == .lzma2 && lzmaLevel != nil)
             ? UInt64(LZMAEncoderProperties.preset(lzmaLevel ?? 6).dictSize) : 8 << 20

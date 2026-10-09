@@ -35,6 +35,7 @@ final class ZipWriter {
         let spool: OrderedEntrySpool?
         var streamed = false
         var xzBlock = false
+        var zstdFrame = false
     }
     private struct EncodedEntry: Sendable {
         let spool: OrderedEntrySpool?
@@ -84,6 +85,10 @@ final class ZipWriter {
                         try cancellation.check()
                         return EncodedEntry(spool: nil, data: Data(), crc: updateCRC(0, data),
                                             xzBlock: try xzEncoder(data))
+                    }
+                    if job.zstdFrame, let data = job.data {
+                        try cancellation.check()
+                        return EncodedEntry(spool: nil, data: try ZstdFrameEncoder.encode(data, level: options.zstdLevel), crc: 0)
                     }
                     let parallelFinder = job.streamed && job.method == .lzma && finderReservation.acquire()
                     defer { if parallelFinder { finderReservation.release() } }
@@ -219,6 +224,7 @@ final class ZipWriter {
         let method = compression(name: name, mode: mode, size: size)
         if let entryPipeline, !(encryptsWithZipCrypto && mode.isRegularFileMode && (method == .stored || size == 0)),
            size <= (method == .stored ? DeflateBlock.size : EntryCompressionConfiguration.inputLimit),
+           !prefersPieceParallelism(method: method, size: size),
            !(method == .bzip2 && size > UInt64(ParallelBzip2StreamEncoder.entryWindowLimit(level: options.bzip2Level))) {
             try submitWaitingEntry()
             try entryPipeline.waitForCapacity(emit: emitEntry)
@@ -467,8 +473,10 @@ final class ZipWriter {
             return try checkedAdd(bound, 1024)
         case .zstd:
             // raw fallback 以下の block と3 byte header、frame header・checksum の上界。
-            let blocks = size / UInt64(ZstdFrameEncoder.blockSize) + 1
-            return try checkedAdd(checkedAdd(size, blocks * 3), 18)
+            let width = UInt64(try ZstdWriterConfiguration(options: options, streaming: true).chunkSize)
+            let frames = options.prefersSpeed && size > width ? (size - 1) / width + 1 : 1
+            let blocks = try checkedAdd(size / UInt64(ZstdFrameEncoder.blockSize), frames)
+            return try checkedAdd(checkedAdd(size, blocks * 3), frames * 18)
         case .ppmd:
             // 最大 order の全 suffix で escape しても、各 range 操作の正規化は最大4 byte。
             // literal と EOF、parameter word・flush を含む保守的な上界で ZIP64 の余白を予約する。
@@ -479,11 +487,21 @@ final class ZipWriter {
         case .xz:
             // encodeXZ は block ごとに入力長の2倍 + 65,536 byte まで。
             // 組み直す block header・check・index record は各1,024 byte、stream 終端も1,024 byteで覆う。
-            let blockSize = UInt64(try LZMAWriterConfiguration(options: options).pieceSize)
+            let blockSize = UInt64(try LZMAWriterConfiguration(options: options, size: size).pieceSize)
             let blocks = size / blockSize + (size % blockSize == 0 ? 0 : 1)
             let (overhead, overflow) = blocks.multipliedReportingOverflow(by: 65_536 + 1_024)
             guard !overflow else { throw WriterError.sizeOverflow }
             return try checkedAdd(checkedAdd(checkedAdd(size, size), overhead), 1_024)
+        }
+    }
+
+    // 速さ優先の中サイズも項目内へcoreを渡し、項目worker一つで片を逐次にしない。
+    private func prefersPieceParallelism(method: CompressionMethod, size: UInt64) -> Bool {
+        guard options.prefersSpeed else { return false }
+        switch method {
+        case .xz: return size > UInt64((try? LZMAWriterConfiguration(options: options, size: size).pieceSize) ?? Int.max)
+        case .zstd: return size > UInt64((try? ZstdWriterConfiguration(options: options, streaming: true).chunkSize) ?? Int.max)
+        default: return false
         }
     }
 
@@ -590,6 +608,12 @@ final class ZipWriter {
             // 大項目の一括disk追加も、項目workerを経ず内側のblock並列へ渡す。
             return entryPipeline == nil ? 0 : min(EntryCompressionConfiguration.inputLimit,
                 ParallelBzip2StreamEncoder.entryWindowLimit(level: options.bzip2Level))
+        case .xz where options.prefersSpeed:
+            return entryPipeline == nil ? 0 : min(EntryCompressionConfiguration.inputLimit,
+                (try? LZMAWriterConfiguration(options: options, size: size).pieceSize) ?? EntryCompressionConfiguration.inputLimit)
+        case .zstd where options.prefersSpeed:
+            return entryPipeline == nil ? 0 : min(EntryCompressionConfiguration.inputLimit,
+                (try? ZstdWriterConfiguration(options: options, streaming: true).chunkSize) ?? EntryCompressionConfiguration.inputLimit)
         case .lzma, .xz, .zstd, .ppmd:
             return entryPipeline == nil ? 0 : EntryCompressionConfiguration.inputLimit
         case .stored, .deflate: break
@@ -603,7 +627,10 @@ final class ZipWriter {
         guard entryPipeline != nil, method != .bzip2 else { return false }
         // XZ の片が項目入力の予約を超える設定は、既存の内部並列へ戻す。
         if method == .xz {
-            return ((try? LZMAWriterConfiguration(options: options).pieceSize) ?? Int.max) <= EntryCompressionConfiguration.inputLimit
+            return ((try? LZMAWriterConfiguration(options: options, size: size).pieceSize) ?? Int.max) <= EntryCompressionConfiguration.inputLimit
+        }
+        if method == .zstd, options.prefersSpeed {
+            return ((try? ZstdWriterConfiguration(options: options).chunkSize) ?? Int.max) <= EntryCompressionConfiguration.inputLimit
         }
         return true
     }
@@ -641,8 +668,8 @@ final class ZipWriter {
                      emit: (Tag, Prefetched?) throws -> Void) throws {
         Self.testingBeforeBatchBlocks?(attribution.index, entryPipeline?.pendingCount ?? pipeline.pendingCount, pendingInputBytes)
         if entryPipeline != nil {
-            if entry.method == .xz {
-                try submitXZ(entry, file: file, attribution: attribution, emit: emit)
+            if entry.method == .xz || (entry.method == .zstd && options.prefersSpeed) {
+                try submitPieces(entry, file: file, attribution: attribution, emit: emit)
             } else {
                 try submit(file, method: entry.method, attribution: attribution, weight: entry.size, emit: emit)
             }
@@ -664,11 +691,13 @@ final class ZipWriter {
         }
     }
 
-    // 先行項目をdrainせず、既存XZの片境界を共有の有界窓へ投入する。
-    private func submitXZ(_ entry: ZipRecords.Entry, file: FileJob, attribution: AdditionAttribution,
+    // 先行項目をdrainせず、XZの片・Zstandardの独立frameを共有の有界窓へ投入する。
+    private func submitPieces(_ entry: ZipRecords.Entry, file: FileJob, attribution: AdditionAttribution,
                           emit: (Tag, Prefetched?) throws -> Void) throws {
         guard let entryPipeline else { throw WriterError.invalidState }
-        let width = try LZMAWriterConfiguration(options: options).pieceSize
+        let width = entry.method == .xz
+            ? try LZMAWriterConfiguration(options: options, size: entry.size).pieceSize
+            : try ZstdWriterConfiguration(options: options).chunkSize
         var remaining = entry.size
         var first = true
         var crc: UInt32 = 0
@@ -691,7 +720,7 @@ final class ZipWriter {
                     remaining -= UInt64(count)
                     if remaining == 0, try !read(1).isEmpty { throw WriterError.sourceChanged(attribution.addition.path) }
                     try entryPipeline.submit(EntryJob(data: input, file: file, name: attribution.addition.path,
-                        method: .xz, spool: nil, xzBlock: true), tag: Tag(entry: first ? entry : nil,
+                        method: entry.method, spool: nil, xzBlock: entry.method == .xz, zstdFrame: entry.method == .zstd), tag: Tag(entry: first ? entry : nil,
                         crc: remaining == 0 ? crc : nil, attribution: attribution, inputBytes: UInt64(count),
                         verification: remaining == 0 ? file : nil), weight: UInt64(count), emit: receive)
                     first = false

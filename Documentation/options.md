@@ -20,6 +20,7 @@
 | `ppmdMemoryMiB` | `nil` | preset のモデルメモリを MiB 単位で上書き。ZIP は `1...256`、7z は encoder が対応する `1...1024` |
 | `lzmaLevel` | `nil` | tar.xz / 7z LZMA2 / ZIP XZ は nil なら従来の Apple preset-6。`0...9` は自前 encoder。ZIP / 7z LZMA と tar.lzma / tar.lz は常に自前で nil は6。単独 XZ / LZMA / lzip も同じ解決 |
 | `lzmaExtreme` | `false` | 自前 LZMA の探索量を増やす。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使い、他はレベル指定時だけ |
+| `prefersSpeed` | `false` | 速さ優先。既知サイズの XZ / LZMA2・lzip の片を小さくし、7z solid の既定上限を16 MiB、ZIP Zstandard の大項目を独立 frame 連結にする。[分割規則](#速さ優先) |
 | `memoryLimit` | `nil` | 自前 LZMA / Zstandard と ZIP / 7z BZip2 の圧縮予約の予算（byte）。物理メモリの50%との小さい方を使い、nil は50%。自前 LZMA / Zstandard は一つも入らなければ `invalidOption("memoryLimit")`。BZip2 は逐次へ戻す。新しい LZMA / XZ 項目・folder窓は Apple codec の見積りも含めるが、2枠未満なら従来経路へ戻す。Apple の既存 block 経路と他の codec には適用しない |
 | `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
 | `preserveOwnerIDs` | `false` | ディスク由来の uid/gid を保存。ZIP は 0x7875、tar は数値欄（既定0、uname/gname は常に空）。7z / LHA は true を拒否 |
@@ -72,6 +73,42 @@ Apple 経路の tar.xz の待機中の入力と組立中の入力の上界は、
 tar.bz2 の chunk は内部 block size の5倍です。level 9 は4,500,000 byteごとの独立streamとなり、
 thread ごとの入力・出力約9 MBとcodec state約7.6 MBで合計約16.6 MB（約15.8 MiB）を使います。
 
+## 速さ優先
+
+`WriterOptions(prefersSpeed: true)` は、圧縮率の一部を引き換えに独立した圧縮片を増やします。
+既定の `false` は従来の圧縮率・出力 byte を保ちます。どちらのモードも、片境界と solid folder の
+区切りは方式・level・既知入力サイズだけで決まり、thread 数・CPU 構成・電力状態・メモリに依存しません。
+環境によって変えるのは同時に動く codec 数だけです。
+
+ZIP XZ の entry、7z LZMA2 の非solid entryとサイズ確定後のsolid / filter folder、単独 .xz の
+既知入力サイズを S、従来の片を P とすると、片は `max(2 MiB, min(P, roundUp(S / 16, 1 MiB)))`。
+P は Apple と辞書16 MiB以下の自前 encoder が16 MiB、大辞書は3 × 辞書です。
+S = 0 / 不明なら P を使います。1 MiB未満の入力も片の上限は2 MiBで、空の片を追加しません。
+
+| S | 不明・0 | 1 MiB | 10 MiB | 64 MiB | 256 MiB | 1 GiB |
+|---|---:|---:|---:|---:|---:|---:|
+| P = 16 MiB の XZ / LZMA2 | 16 MiB | 2 MiB | 2 MiB（5片） | 4 MiB（16片） | 16 MiB | 16 MiB |
+| level 6 lzip（辞書8 MiB、P = 24 MiB） | 24 MiB | 8 MiB | 8 MiB | 8 MiB | 16 MiB | 24 MiB |
+
+単独 .lz の lzip member も同じ式で、下限を `max(2 MiB, 辞書)`、P を `max(16 MiB, 3 × 辞書)` にします。
+辞書そのものは縮小しません。tar.xz / tar.lz は compressor 作成時に総 tar サイズが確定しないため、
+速さ優先でも従来の片・member幅と packing を保持します。逐次追加で見えてきたサイズから再計算しません。
+
+7z solid の LZMA1 / LZMA2 / PPMd / BZip2 / Deflate は、`blockSize: nil` の上限を16 MiBにします。
+明示 `blockSize` と `filesPerBlock` はそのまま使います。ファイルを folder 間に分割せず、上限超の
+ファイルは単独 folder にします。Copy の既定上限は従来どおりです。
+
+ZIP Zstandard は entry が `max(4 MiB, level の window)` を超えると独立 frame を並列符号化し、
+入力順に連結します（[RFC 8878 §3.1](https://www.rfc-editor.org/rfc/rfc8878.html#section-3.1)）。
+上限以下の entry と既定モードは単一 frame。各 frame は content size と checksum を持ち、
+AES / ZipCrypto の暗号化対象にも含まれます。KaitoKit・7zz・zstd CLIで連結を検証しています。
+
+`LZMAWriterConfiguration` は実際の片を入出力予約に使います。複数 entry の共有窓は従来幅を
+安全側に予約し、7z folder 窓の最大片数は下限2 MiBで数えます。入力サイズを受け取らない公開
+`maximumPendingInputBytes(for:)` は、速さ優先の ZIP XZ / lzip では最小片で解決した並列数と
+従来幅の積を使う保守的な上界です。ZIP Zstandard は `max(e, frame 並列数 × frame 幅)`。
+実際の片は予算に応じて変更せず、収まらなければ codec の従来の memoryLimit エラーを返します。
+
 ## Pending input の意味
 
 `maximumPendingInputBytes(for:)` は検証済み options に対する、待機中の入力 byte の上界です。codec state・圧縮出力・XZ index を含む RSS の上限ではありません。solid / filter 付き 7z は disk 上の未圧縮 spool も数えます。圧縮出力は1 MiBまでメモリ、それを超えると unlink 済み disk spool に保持します。
@@ -84,7 +121,7 @@ ZIP / 7z BZip2 は片を常に5 block相当の固定目標幅でまとめ、8 Mi
 |---|---|
 | ZIP Stored / ZipCrypto Deflate | 0 |
 | ZIP Deflate | `compressionThreads（自動解決後）× 1 MiB` |
-| ZIP LZMA / Zstandard / PPMd | `e` |
+| ZIP LZMA / Zstandard / PPMd | `e`（速さ優先の Zstandard は `max(e, frame 並列数 × frame 幅)`） |
 | ZIP BZip2 | `max(e, b)` |
 | ZIP XZ | `max(e, (t + 1) × p)` |
 | tar / LZMA_Alone / Brotli / compress | 0 |
@@ -153,4 +190,4 @@ LZMA_Alone / Brotli / compress は0です。codec 内部の辞書・bufferと出
 
 Zstandard はレベル1...12が4 MiB、13...19が8 MiBの片です。
 実際の並列数 t は encoder の見積りと入力・出力二片、framing の余白がメモリ予算に入る最大数です。
-`maximumPendingInputBytes(for: .tarZstd)` は組立中を含め `t × 片`。ZIP Zstandard は entry 内では単一 frame の逐次出力ですが、項目窓を使う場合の入力上界は `e` です。
+`maximumPendingInputBytes(for: .tarZstd)` は組立中を含め `t × 片`。ZIP Zstandard の既定は entry 内で単一 frame を逐次出力し、項目窓の入力上界は `e`。速さ優先では `max(e, frame 並列数 × frame 幅)` です。

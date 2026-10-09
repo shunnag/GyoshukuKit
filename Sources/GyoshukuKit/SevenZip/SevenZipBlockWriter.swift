@@ -194,7 +194,7 @@ final class SevenZipBlockWriter {
             let pieces: Int
             switch options.sevenZipMethod {
             case .lzma2:
-                let width = try chunkSize ?? LZMAWriterConfiguration(options: options).pieceSize
+                let width = try chunkSize ?? LZMAWriterConfiguration(options: options, size: size).pieceSize
                 pieces = Int(min(UInt64(options.resolvedCompressionThreads), (size - 1) / UInt64(width) + 1))
             case .deflate:
                 let width = try min(chunkSize ?? LZMAWriterConfiguration(options: WriterOptions(compressionThreads: options.resolvedCompressionThreads)).pieceSize, DeflateBlock.size)

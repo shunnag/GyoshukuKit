@@ -66,7 +66,7 @@ final class SevenZipWriter {
             encoder = SevenZipFolderEncoder(aes: aes, method: options.sevenZipMethod,
                 deflateLevel: options.deflateLevel, bzip2Level: options.bzip2Level,
                 lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
-                    ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true) : nil,
+                    ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true, size: record.size) : nil,
                 ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
                 bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: record.size)
             self.record.method = options.sevenZipMethod
@@ -196,9 +196,10 @@ final class SevenZipWriter {
         try entryPipeline?.drain(emit: emitEntry)
         let entry = try PendingEntry(record: record, aes: size > 0 ? try encryptors.make() : nil, options: options)
         var remaining = size
+        let pieceSize = pipeline.pieceSize(for: size)
         while remaining > 0 {
             try Task.checkCancellation()
-            let inputSize = Int(min(UInt64(pipeline.chunkSize), remaining))
+            let inputSize = Int(min(UInt64(pieceSize), remaining))
             var input = Data()
             input.reserveCapacity(inputSize)
             // 短い read でも圧縮境界を変えず、I/O だけを 256 KiB に保つ。

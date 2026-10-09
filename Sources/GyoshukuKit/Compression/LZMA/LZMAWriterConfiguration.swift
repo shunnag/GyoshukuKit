@@ -1,6 +1,6 @@
 import Foundation
 
-/// container 間で辞書・片・並列数の解決を共有する。Apple 経路は従来の境界を保つ。
+/// container 間で辞書・片・並列数の解決を共有する。未知サイズは従来の境界を保つ。
 struct LZMAWriterConfiguration: Sendable {
     // XZの実際の片境界を縮め、巨大項目の構造試験を小入力で行う。
     @TaskLocal static var testingPieceSize: Int?
@@ -12,13 +12,14 @@ struct LZMAWriterConfiguration: Sendable {
     let memoryPerThread: UInt64
     let memoryBudget: UInt64
 
-    init(options: WriterOptions, raw: Bool = false, lzip: Bool = false, parallelFinder: Bool = false,
+    init(options: WriterOptions, raw: Bool = false, lzip: Bool = false, parallelFinder: Bool = false, size: UInt64? = nil,
          physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) throws {
         if let level = options.lzmaLevel, !(0...9).contains(level) { throw WriterError.invalidOption("lzmaLevel") }
         memoryBudget = min(options.memoryLimit ?? physicalMemory / 2, physicalMemory / 2)
         guard raw || options.lzmaLevel != nil else {
             properties = nil
-            pieceSize = Self.testingPieceSize ?? ParallelXZCompressor.defaultBlockSize
+            pieceSize = Self.testingPieceSize ?? CompressionPieceSize.resolve(standard: ParallelXZCompressor.defaultBlockSize,
+                size: size, prefersSpeed: options.prefersSpeed)
             threads = options.resolvedCompressionThreads
             finderThreads = 1
             encoderMemory = 0; memoryPerThread = 0
@@ -27,8 +28,10 @@ struct LZMAWriterConfiguration: Sendable {
         let p = LZMAEncoderProperties.preset(options.lzmaLevel ?? 6,
             extreme: options.lzmaLevel != nil && options.lzmaExtreme)
         properties = p
-        pieceSize = lzip ? max(16 << 20, 3 * p.dictSize) : raw ? IOChunk.size : Self.testingPieceSize ?? (p.dictSize > ParallelXZCompressor.defaultBlockSize
-            ? max(ParallelXZCompressor.defaultBlockSize, 3 * p.dictSize) : ParallelXZCompressor.defaultBlockSize)
+        let standard = lzip ? max(16 << 20, 3 * p.dictSize) : p.dictSize > ParallelXZCompressor.defaultBlockSize
+            ? 3 * p.dictSize : ParallelXZCompressor.defaultBlockSize
+        pieceSize = raw && !lzip ? IOChunk.size : Self.testingPieceSize ?? CompressionPieceSize.resolve(standard: standard,
+            floor: lzip ? max(2 << 20, p.dictSize) : 2 << 20, size: size, prefersSpeed: options.prefersSpeed)
         // memorySize は raw の辞書に応じた slack と LZMA2 の2 MiBを含む。
         // LZMA2 の range buffer は64 KiBの pack limit 内。raw は最大16 MiBの伸長分も予約する。
         let sequentialMemory = LZMAEncodingEngine.memorySize(properties: p, dictionary: p.dictSize, chunked: !raw)
@@ -63,10 +66,10 @@ struct LZMAWriterConfiguration: Sendable {
     }
 
     /// 単独 LZMA / lzip は nil も自前 level 6。既存 ZIP / 7z の nil の解決は変えない。
-    static func singleStream(options: WriterOptions, lzip: Bool = false) throws -> Self {
+    static func singleStream(options: WriterOptions, lzip: Bool = false, size: UInt64? = nil) throws -> Self {
         var resolved = options
         resolved.lzmaLevel = options.lzmaLevel ?? 6
-        return try Self(options: resolved, raw: true, lzip: lzip, parallelFinder: !lzip)
+        return try Self(options: resolved, raw: true, lzip: lzip, parallelFinder: !lzip, size: size)
     }
 }
 

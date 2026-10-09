@@ -6,13 +6,14 @@ public enum SingleStreamFormat: Sendable, CaseIterable {
     case gzip
     /// bzip2Level と入力サイズだけで片幅を決め、blockを並列圧縮して単一streamへ繋ぐ。
     case bzip2
-    /// 単一 XZ stream。lzmaLevel の nil は Apple、指定時は自前 LZMA2。
+    /// 単一 XZ stream。lzmaLevel の nil は Apple、指定時は自前 LZMA2。prefersSpeed は既知ファイルサイズで片を縮める。
     case xz
     /// content checksum 付き独立 frame を max(4 MiB, level の window) で並列化する。zstdLevel は1...19、既定3。
     case zstd
     /// 未知サイズ header と EOS を持つ逐次 LZMA_Alone。lzmaLevel の nil は6。
     case lzma
     /// lzip version 1。最大 max(16 MiB, 3 × 辞書) の独立 member を並列化する。nil は level 6。
+    /// prefersSpeed は既知ファイルサイズでmemberを縮め、最低 max(2 MiB, 辞書) にする。
     case lzip
     /// content checksum 付き単一 frame。4 MiB の独立 block を並列化する。レベルは一つ。
     case lz4

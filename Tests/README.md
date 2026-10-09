@@ -145,3 +145,18 @@ raw entry dataのzstd復号、単一frame・ZIP64・updater追加・rewriterも�
 7-Zip 26.03はmethod 93の実抽出に成功する。必須の `/opt/homebrew/bin/zstd` はCIでも導入する。
 空 .Z を BSD uncompress が拒否する既知の制限は終了値・診断・空出力を照合し、KaitoKit と7zzで復号する。
 制限付き環境が `uncompress -c` の `/dev/stdout` 再openだけを拒否した場合は同じ実ツールのfile出力を使う。
+
+
+### 速さ優先の圧縮率 probe
+
+`GYOSHUKU_SPEED_RATIO_CORPUS=<directory>` で `SpeedPriorityRatioProbeTests` を有効にする。
+`hdr32.txt` / `bin32` / `mixed32.bin` を、Apple XZ・自前XZ level 6・lzip level 6・
+ZIP Zstandard level 3・7z solid LZMA2（Apple / level 6）の既定と速さ優先で比較する。
+7z solidは同じ入力を四つの8 MiB memberへ分ける。出力byteと増加率を標準エラーへ表示し、
+`.build/verification/speed-priority-ratio/sizes.json` に保存する。
+
+既定byteの基点は `Tests/Fixtures/speed-priority` の3b74afb fixtureで、通常試験でも照合する。
+`GYOSHUKU_SPEED_RECORD_BASELINE` は基点での初回採取専用。変更後のwriterから再生成しない。
+
+`GYOSHUKU_SPEED_RATIO_VERIFY=1` と同じcorpusを指定すると、`testSavedProbeRoundTrips` が
+保存済みの出力を再圧縮せずKaitoKitとxz / lzip / 7zz / zstdで検査する。

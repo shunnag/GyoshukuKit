@@ -7,6 +7,12 @@
 
 ### 変更
 
+- opt-in の `WriterOptions.prefersSpeed`（速さ優先、既定false）を追加する。既定出力は維持する。
+  既知サイズの ZIP XZ / 7z LZMA2 / 単独XZとlzipを約16片へ分け、7z solidの未指定上限を16 MiBにする。
+  ZIP Zstandardの大項目は4 MiBまたはwindow幅の独立frameを並列符号化して連結する。
+  片・folder境界はthread数・CPU・電力・メモリに依存せず、明示solid上限を尊重する。
+  総入力不明のtar.xz / tar.lzは従来幅を保持する。
+
 - 自動圧縮並列数を全active logical CPUへ拡張し、perflevel番号順のtopologyと公開 `CompressionPowerPolicy` を導入する。
   既定はLow Power Modeで削減。thermal pressureも考慮する方針と常時全coreの方針を選べ、各ジョブの開始時に一度解決する。
   `WriterOptions.automaticCompressionThreads(powerPolicy:)` を表示用に公開し、明示値の公開範囲 `compressionThreadsRange` を1...1024に拡張する。

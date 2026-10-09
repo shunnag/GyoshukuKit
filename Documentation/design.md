@@ -2299,7 +2299,7 @@ t は要求並列数と64、`B / M` の最小値。一つも入らなければ�
 window は縮めない。allocator の管理領域は見積りに含めない。
 
 ZIP method 93はentryごとに一つのframeを符号化し、16 MiB以下のentryは独立workerで並列化する。
-ZIP内のframe連結は使わず、entry内の並列化は行わない。
+既定モードはZIP内のframe連結を使わない。`prefersSpeed` の大entryは下記の独立frameを使う。
 既知サイズのheader、128 KiB blockとchecksumを共通sinkに逐次渡す。
 一codecのMは上のCを128 KiBに置き換えたもの。項目窓の追加予約とpending inputは下のwriter並列化節を参照。
 [APPNOTE 6.3.10 §4.4.5](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT) の
@@ -2459,3 +2459,44 @@ ParallelXZCompressorも同じ葉に到達し、filterはそのfolder内で逐次
 先読みは最大4 descriptorを扱い、取得したworker自身が読取を完了して解放するため、別の内側workerの開始を待つ循環は作らない。
 内側の窓が大きくても未着手の葉はthreadを占有せず、既に動く葉の完了で窓が進む。このジョブの入れ子によるpoolの枯渇を防ぐための上限であり、他ライブラリが同じprocessのpool全体を塞ぐ状況までは保証しない。
 メモリ制限と全folderの割当codec数制限は引き続き適用する。
+
+
+### 速さ優先の決定的な分割
+
+`WriterOptions.prefersSpeed: Bool = false` は出力 byte を変える明示的な選択。既定は従来出力。
+`CompressionPieceSize.resolve` は既知サイズ S に対し、
+`max(F, min(P, ceil(S / (16 MiB)) × 1 MiB))` を返す。
+PはXZ / LZMA2が従来の16 MiBまたは大辞書の3倍、lzipが`max(16 MiB, 3 × 辞書)`。
+FはXZ / LZMA2が2 MiB、lzipが`max(2 MiB, 辞書)`。nil / S=0はP。
+UInt64の商を先に取ることで最大サイズでも溢れず、CPU・thread・電力・メモリを参照しない。
+
+ZIP XZはentryのSを `ZipEntryCompressor` と一括追加の葉worker経路の両方へ渡し、
+`compressedSizeBound` のblock数も同じ片幅で数える。7zの非solid共有pipelineは従来幅の
+メモリ予約を維持し、切断幅だけentryのSで決める。solid / filter folderはspool確定後のSを
+`SevenZipFolderEncoder` と `SevenZipChunkPipeline` に渡す。folderのcodec割当数も同じ幅から数える。
+`EntryCompressionConfiguration` は小folderで増える片数を下限2 MiBから安全側に予約する。
+単独XZ / lzipはstatで固定したSを `StreamCompressor` 経由で渡す。
+tar.xz / tar.lzは作成時に総入力不明のため従来幅を保持し、増分サイズで境界を変えない。
+
+7z solidの未指定block上限は圧縮方式だけ16 MiBへ変更する。明示blockSize / filesPerBlockと
+Copyの既定は保持。ファイルはfolder間に割らず、大ファイルは単独folder。LZMA1 / PPMdの
+一モデルを分割せず、folderを増やして並列化する。
+
+ZIP ZstandardはC=`max(4 MiB, window)`より大きいentryだけ独立frameにする。
+frameごとの既知content sizeとchecksumを保ち、RFC 8878 §3.1の順序で連結する。
+逐次・一括追加・AES / ZipCrypto・rewriter / updaterの共有sinkで同じpayloadを扱う。
+一括disk追加は16 MiB以下でも片上限を超えたentryを共有の葉worker窓へ渡し、
+各XZ片・Zstandard frameを並列化して入れ子の待機workerを増やさない。
+項目別APIも片上限超のentryは項目workerへ閉じ込めず、内部pipelineへ全coreを渡す。
+Zstandardは `ParallelZstdCompressor`、小さい項目workerではinlineの1 thread経路を使う。
+予約はencoder状態と入力・出力二frameを含み、ZIP64上界は入力長にblock headerとframeごとの
+header・checksumを足す。既定ZIPは従来の単一frameと逐次予約を保持する。
+
+入力サイズを受け取らない公開pending上界は未知サイズの従来幅を使う。速さ優先のZIP XZ /
+lzipだけは最小片で入り得るcodec数も従来幅との積で覆い、Zstandardは項目窓とt×Cの最大。
+サイズの違うentryや予算による同時codec数の変化を覆うための保守的な上界で、片幅は変えない。
+
+`SpeedPriorityDefaultOutputTests` は基点3b74afbの17 fixtureと既定byteを照合する。
+`SpeedPriorityTests` は実際の分割境界を越える入力を1 / 4 / 16 / 36 threadと3電力方針で
+符号化し、KaitoKit・xz / 7zz / lzip / zstdの復号、ZIP一括追加・暗号化も検査する。
+外部scratch corpusのサイズ比較は `SpeedPriorityRatioProbeTests` のopt-inで行う。
