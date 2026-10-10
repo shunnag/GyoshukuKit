@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-10
+
+KaitoKit 0.13.x へ追従し、多数の同期 writer を同時に動かしたときの停止を修正する release。
+既定出力の byte、公開 API、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.9.0 と同じ。
+
+### 変更
+
+- KaitoKit 依存を 0.13.x に上げ、CPU 構成の判定を KaitoKit の共有実装に統一した（公開 API と並列数は不変）。
+- KaitoKit 0.13.0 の復号高速化は、自己検査や updater による既存書庫の読み取りなど、GyoshukuKit の reader 側経路にも適用される。
+
+### 修正
+
+- Swift concurrency の多数の同期 writer が GCD の圧縮 worker を待つと停止する問題を修正する。
+  順序付き pipeline の未着手 job は待機する呼出側でも一度だけ処理し、先行 worker の借用枠・取消し時の join・入力の解放を保つ。出力 byte と失敗の報告順は変えない。
+
 ## [0.9.0] - 2026-10-09
 
 一括追加の大項目による待機を減らし、CPU topology・電力方針に応じた自動並列数と速さ優先を追加する release。

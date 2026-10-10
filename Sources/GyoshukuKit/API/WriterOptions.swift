@@ -1,4 +1,5 @@
 import Foundation
+@_spi(Parallelism) internal import KaitoKit
 
 /// ZIP の圧縮方式。
 public enum CompressionMethod: UInt16, Sendable {

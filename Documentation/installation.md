@@ -14,13 +14,13 @@ GyoshukuKit 0.8.0 を Swift Package Manager で追加します。
 
 ## KaitoKit の依存解決
 
-[KaitoKit](https://github.com/shunnag/KaitoKit) 0.12.x（0.12.0 以上、0.13.0 未満）。更新時の読取と往復検証に使用。
-`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.12.0")` に限定する。
+[KaitoKit](https://github.com/shunnag/KaitoKit) 0.13.x（0.13.0 以上、0.14.0 未満）。更新時の読取と往復検証に使用。
+`@_spi` は SemVer の保証外で、`public import KaitoKit` により公開 API にも KaitoKit の型を含むため、`.upToNextMinor(from: "0.13.0")` に限定する。
 `Package.swift` は隣に `../KaitoKit` の checkout があればその path 依存（開発用）、なければ tag 参照を選ぶ。
 SwiftPM / Xcode の `checkouts/` 配下（依存として取得された場合）では常に tag 参照。
 切り替わった後は `swift package purge-cache`（Xcode は File → Packages → Reset Package Caches）で manifest を再評価させます（`.build` の削除では manifest cache が残ります）。
 
-この選択は [Package.swift](../Package.swift) に実装しています。path 依存を使う開発者も、KaitoKit 0.12.x の checkout を用意してください。
+この選択は [Package.swift](../Package.swift) に実装しています。path 依存を使う開発者も、KaitoKit 0.13.x の checkout を用意してください。
 
 ## 0.8.0 のリリースの関係
 

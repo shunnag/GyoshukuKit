@@ -1,5 +1,5 @@
 import Foundation
-import KaitoKit
+@_spi(Parallelism) import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 

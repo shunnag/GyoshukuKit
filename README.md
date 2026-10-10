@@ -13,17 +13,17 @@ Xcode 26 / Swift 6.3 はビルドできても release で誤動作するため�
 
 ## インストール
 
-Swift Package Manager で GyoshukuKit 0.9.0 を追加します。
+Swift Package Manager で GyoshukuKit 0.10.0 を追加します。
 
 ```swift
 // Package.swift の dependencies
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.9.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.10.0"))
 
 // 利用側 target の dependencies
 .product(name: "GyoshukuKit", package: "GyoshukuKit")
 ```
 
-KaitoKit 0.12.x（0.12.0 以上、0.13.0 未満）が依存として自動で解決されます。
+KaitoKit 0.13.x（0.13.0 以上、0.14.0 未満）が依存として自動で解決されます。
 依存解決の仕組みと開発時の配置は[導入の詳細](Documentation/installation.md)を参照してください。
 
 ## クイックスタート
@@ -158,11 +158,11 @@ writer / updater は開始時に一度解決し、codec・項目サイズ・メ�
 GyoshukuKit is a pure-Swift archive writer for ZIP, 7z, tar variants and LHA, with ZIP / 7z encryption and single-file compression. It depends on KaitoKit for reading: use KaitoKit alone to read, and add GyoshukuKit to write.
 
 Requirements: macOS 26+ on Apple Silicon at runtime; Xcode 27 / Swift 6.4+ to build. Xcode 26 / Swift 6.3 release builds are unsupported; the manifest does not enforce this requirement.
-KaitoKit 0.12.x (>= 0.12.0, < 0.13.0) is resolved automatically as a dependency.
+KaitoKit 0.13.x (>= 0.13.0, < 0.14.0) is resolved automatically as a dependency.
 
 ```swift
 // Package.swift dependencies
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.9.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.10.0"))
 // Target dependencies
 .product(name: "GyoshukuKit", package: "GyoshukuKit")
 ```

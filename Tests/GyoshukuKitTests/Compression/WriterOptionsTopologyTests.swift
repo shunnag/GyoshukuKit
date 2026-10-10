@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import XCTest
+@_spi(Parallelism) import KaitoKit
 @testable import GyoshukuKit
 
 final class WriterOptionsTopologyTests: XCTestCase {
@@ -115,7 +116,7 @@ final class WriterOptionsTopologyTests: XCTestCase {
 
     func testSnapshotIsSharedByWritersAndUpdaters() throws {
         let root = try TestSupport.directory("topology-job-snapshot")
-        for format: ArchiveFormat in [.zip, .sevenZip, .lha, .tar, .tarXZ, .tarBzip2, .tarZstd] {
+        for format: GyoshukuKit.ArchiveFormat in [.zip, .sevenZip, .lha, .tar, .tarXZ, .tarBzip2, .tarZstd] {
             let state = Mutex((calls: 0, value: 8))
             let url = root.appendingPathComponent(UUID().uuidString)
             try WriterOptions.$testingAutomaticThreads.withValue({ _ in state.withLock { $0.calls += 1; return $0.value } }) {
