@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-10
+
+KaitoKit 0.13.x へ追従し、多数の同期 writer を同時に動かしたときの停止を修正する release。
+既定出力の byte、公開 API、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.9.0 と同じ。
+
 ### 変更
 
 - KaitoKit 依存を 0.13.x に上げ、CPU 構成の判定を KaitoKit の共有実装に統一した（公開 API と並列数は不変）。

@@ -32,8 +32,8 @@ GyoshukuKit ──依存──> KaitoKit
 書庫の**更新**(追加・削除・改名)は、生き残る entry を再圧縮せずに運ぶために
 既存書庫を読む必要がある。その堅い parser は KaitoKit が既に持っているので、
 二つ目の ZIP parser は書かない。開発中は `.package(path: "../KaitoKit")`、
-release では `.upToNextMinor(from: "0.12.0")` の tag 参照を使う。
-GyoshukuKit 0.8.0 は KaitoKit 0.12.x に依存する。`@_spi` は SemVer の保証外で、
+release では `.upToNextMinor(from: "0.13.0")` の tag 参照を使う。
+GyoshukuKit 0.10.0 は KaitoKit 0.13.x に依存する。`@_spi` は SemVer の保証外で、
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 

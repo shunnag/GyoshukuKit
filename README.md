@@ -13,11 +13,11 @@ Xcode 26 / Swift 6.3 はビルドできても release で誤動作するため�
 
 ## インストール
 
-Swift Package Manager で GyoshukuKit 0.9.0 を追加します。
+Swift Package Manager で GyoshukuKit 0.10.0 を追加します。
 
 ```swift
 // Package.swift の dependencies
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.9.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.10.0"))
 
 // 利用側 target の dependencies
 .product(name: "GyoshukuKit", package: "GyoshukuKit")
@@ -162,7 +162,7 @@ KaitoKit 0.13.x (>= 0.13.0, < 0.14.0) is resolved automatically as a dependency.
 
 ```swift
 // Package.swift dependencies
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.9.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.10.0"))
 // Target dependencies
 .product(name: "GyoshukuKit", package: "GyoshukuKit")
 ```
