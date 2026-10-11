@@ -4,6 +4,8 @@ import XCTest
 
 final class LZMAWriterConfigurationTests: XCTestCase {
     func testFinderBufferMemoryAndSingleStreamEnablement() throws {
+        // 二つの block / offset、stack、管理余裕と pairBuffer 2,192 byte を含む。
+        XCTAssertEqual(LZMAMatchFinderPipeline.memorySize, 18_520_216)
         for threads in [1, 2, 16, 36] {
             let options = WriterOptions(lzmaLevel: 6, memoryLimit: 1 << 30, compressionThreads: threads)
             let sequential = try LZMAWriterConfiguration(options: options, raw: true)
@@ -23,8 +25,8 @@ final class LZMAWriterConfigurationTests: XCTestCase {
 
     func testRawSlackMemoryAndDerivedPendingBounds() throws {
         // 64-bit 通常 preset の raw予約を固定し、slack と range最大16 MiBの計上を検査する。
-        let rawMemory = [19_342_481, 25_240_721, 33_105_041, 48_833_681, 65_610_901,
-                         113_845_397, 113_845_397, 206_120_085, 390_669_461, 692_659_349]
+        let rawMemory = [19_344_681, 25_242_921, 33_107_241, 48_835_881, 65_613_101,
+                         113_847_597, 113_847_597, 206_122_285, 390_671_661, 692_661_549]
         let lzipThreads = [60, 54, 48, 39, 32, 19, 19, 10, 5, 2]
         let lzipPendingMiB = [960, 864, 768, 624, 512, 456, 456, 480, 480, 384]
         for level in 0...9 {
@@ -43,11 +45,20 @@ final class LZMAWriterConfigurationTests: XCTestCase {
             insufficient.memoryLimit = legacy.memoryPerThread - 1
             XCTAssertThrowsError(try LZMAWriterConfiguration(options: insufficient, raw: true, physicalMemory: 8 << 30))
         }
-        // 新予約の三枠に1 byte足りない境界では、ZIP / 7z の項目窓は二枠に減る。
+        // この固定予算では、ZIP / 7z の入力上界は予約追加後も48 MiBを保つ。
         let options = WriterOptions(compressionMethod: .lzma, sevenZipMethod: .lzma, lzmaLevel: 6,
                                     memoryLimit: 399_732_158, compressionThreads: 64)
         for format in [ArchiveFormat.zip, .sevenZip] {
             XCTAssertEqual(options.maximumPendingInputBytes(for: format, physicalMemory: 8 << 30), 48 << 20)
+        }
+        // 三つの通常/専用状態とfinder一組が入る旧境界から、新境界は8,792 byte増える。
+        for (budget, pending) in [(UInt64(418_250_183), UInt64(48 << 20)), (418_258_975, 64 << 20)] {
+            var boundary = options
+            boundary.memoryLimit = budget
+            for format in [ArchiveFormat.zip, .sevenZip] {
+                XCTAssertEqual(boundary.maximumPendingInputBytes(for: format, physicalMemory: 8 << 30), pending,
+                               "\(format) budget \(budget)")
+            }
         }
     }
 

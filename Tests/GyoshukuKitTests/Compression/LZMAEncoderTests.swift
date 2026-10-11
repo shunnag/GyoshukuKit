@@ -8,6 +8,9 @@ final class LZMAEncoderTests: XCTestCase {
     private let levels = [0, 1, 3, 5, 6, 9]
 
     func testWindowSlackCapacityAndMemoryAccounting() throws {
+        // hash / son / CRC に加え、HC4 / BT4 とも対の走査の scratch 8 byte を予約する。
+        XCTAssertEqual(LZMAMatchFinder.memorySize(dictionary: 4096, tree: false), 545_804)
+        XCTAssertEqual(LZMAMatchFinder.memorySize(dictionary: 4096, tree: true), 562_192)
         for (dictionary, slack) in [(4096, 65536), (65536, 65536), (256 << 10, 128 << 10),
                                     (1 << 20, 512 << 10), (8 << 20, 4 << 20), (64 << 20, 4 << 20)] {
             var p = LZMAEncoderProperties.preset(6)

@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-11
+
+KaitoKit 0.14.x へ追従し、LZMA の単一 stream の符号化を速くする release。
+既定出力の byte、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.10.0 と同じ。
+
+### 変更
+
+- LZMA の BT4 match finder で、次の位置の hash 行と現在 node の子の行を先に読み、bucket が異なる連続二位置の
+  木を一つの loop で交互に一段ずつ走査する。比較と書込みの順序は逐次と同じで、出力は byte 単位で変わらない。
+  .lzma / lzip / 7z LZMA / ZIP LZMA と、level 指定の LZMA2（.xz・7z）に効く。
+  MacBook M4 Max で 32 MiB の text を level 6 で符号化すると、.lzma / 7z LZMA / ZIP LZMA が 0.70 倍、
+  1 thread の .lzma が 0.78 倍、.xz が 0.74 倍の時間になる。反復の多い mixed 入力では 0.84〜0.94 倍。
+- LZMA 符号化の memory 見積りに、追加した match 候補の一時領域（1 thread あたり約 2.2 KB）を含める。
+  `WriterOptions.maximumPendingInputBytes(for:)` は、予算の境界にちょうど掛かる構成で一段小さい値を返すことがある。
+- KaitoKit 依存を 0.14.x に上げた。KaitoKit 0.14.0 の復号高速化は、自己検査や updater による既存書庫の
+  読み取りにも適用される。
+
 ## [0.10.0] - 2026-10-10
 
 KaitoKit 0.13.x へ追従し、多数の同期 writer を同時に動かしたときの停止を修正する release。

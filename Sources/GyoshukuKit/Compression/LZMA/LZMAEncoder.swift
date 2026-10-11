@@ -125,6 +125,9 @@ struct LZMAEncodingEngine {
     let slotPrices: UnsafeMutablePointer<Int>
     let alignPrices: UnsafeMutablePointer<Int>
     let matches: UnsafeMutablePointer<LZMAMatch>
+    /// 対で走査した次位置の候補。-1 は空。finderCursor の位置に対する候補を保持する。
+    let cachedMatches: UnsafeMutablePointer<LZMAMatch>
+    var cachedMatchCount = -1
     let opt: UnsafeMutablePointer<LZMAOptimal>
     let actions: UnsafeMutablePointer<LZMAAction>
     var finder: LZMAMatchFinder
@@ -152,7 +155,7 @@ struct LZMAEncodingEngine {
             + (literalOffset + (768 << (properties.lc + properties.lp))) * 2
             + 131072 + 4096 * (MemoryLayout<LZMAOptimal>.stride + MemoryLayout<LZMAAction>.stride)
             + (16 * 272 * 2 + 4 * 128 + 4 * 64 + 16) * MemoryLayout<Int>.stride + 4096
-            + 274 * MemoryLayout<LZMAMatch>.stride
+            + 2 * 274 * MemoryLayout<LZMAMatch>.stride // matches / cachedMatches
             + (finderThreads == 2 ? LZMAMatchFinderPipeline.memorySize : 0)
     }
     init(properties p: LZMAEncoderProperties, sizeHint: UInt64?, memoryLimit: Int, chunked: Bool = false, finderThreads: Int = 1,
@@ -185,6 +188,7 @@ struct LZMAEncodingEngine {
             slotPrices = try allocate(Int.self, 4 * 64)
             alignPrices = try allocate(Int.self, 16)
             matches = try allocate(LZMAMatch.self, 274)
+            cachedMatches = try allocate(LZMAMatch.self, 274)
             opt = try allocate(LZMAOptimal.self, 4096)
             actions = try allocate(LZMAAction.self, 4096)
             rc = try LZMARangeEncoder()
@@ -216,7 +220,7 @@ struct LZMAEncodingEngine {
     func release() {
         finderPipeline?.stopAndWait()
         free(window); free(probs); free(bitPrices); free(lengthPrices); free(repLengthPrices)
-        free(distancePrices); free(slotPrices); free(alignPrices); free(matches); free(opt); free(actions)
+        free(distancePrices); free(slotPrices); free(alignPrices); free(matches); free(cachedMatches); free(opt); free(actions)
         free(rc.output); finder.release()
     }
     mutating func resetModel() {
@@ -259,7 +263,15 @@ struct LZMAEncodingEngine {
                     result: matches, count: matchCount)
             }
         }
-        else { matchCount = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches) }
+        else if cachedMatchCount >= 0 {
+            matchCount = cachedMatchCount; cachedMatchCount = -1
+            if matchCount > 0 { matches.update(from: cachedMatches, count: matchCount) }
+        } else if limit - finderCursor - 1 >= 273, let (count, next) = finder.treeMatchesPair(UnsafePointer(window + finderCursor),
+                available: limit - finderCursor, into: matches, second: cachedMatches, record: true,
+                extendMatches: true, recordShortMatches: true) {
+            // 次位置は available >= 273 なので、後の process の limit に左右されない同じ候補になる。
+            matchCount = count; cachedMatchCount = next
+        } else { matchCount = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches) }
         finderCursor &+= 1
     }
     @inline(__always) mutating func skip(to target: Int, limit: Int) {
@@ -269,6 +281,12 @@ struct LZMAEncodingEngine {
             return
         }
         while finderCursor < target {
+            if cachedMatchCount >= 0 { cachedMatchCount = -1; finderCursor &+= 1; continue }
+            if finderCursor &+ 1 < target, finder.treeMatchesPair(UnsafePointer(window + finderCursor), available: limit - finderCursor,
+                    into: matches, second: matches, record: false, extendMatches: false, recordShortMatches: false) != nil {
+                finderCursor &+= 2
+                continue
+            }
             _ = finder.matches(UnsafePointer(window + finderCursor), available: limit - finderCursor, into: matches, record: false)
             finderCursor &+= 1
         }

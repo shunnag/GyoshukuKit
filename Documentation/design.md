@@ -32,8 +32,8 @@ GyoshukuKit ──依存──> KaitoKit
 書庫の**更新**(追加・削除・改名)は、生き残る entry を再圧縮せずに運ぶために
 既存書庫を読む必要がある。その堅い parser は KaitoKit が既に持っているので、
 二つ目の ZIP parser は書かない。開発中は `.package(path: "../KaitoKit")`、
-release では `.upToNextMinor(from: "0.13.0")` の tag 参照を使う。
-GyoshukuKit 0.10.0 は KaitoKit 0.13.x に依存する。`@_spi` は SemVer の保証外で、
+release では `.upToNextMinor(from: "0.14.0")` の tag 参照を使う。
+GyoshukuKit 0.11.0 は KaitoKit 0.14.x に依存する。`@_spi` は SemVer の保証外で、
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
@@ -1234,7 +1234,8 @@ normal parser は posState の価格行と長さ5以上の距離価格を再利�
 BT4 の2 / 3 byte hash は SDK と同じ選択で延長を一度にまとめ、HC4 は二候補から best を先に得て chain を除外する。
 通常の advance は inline 化し、大きな表の正規化だけを別関数に分ける。bit 価格は0 / 1 の各2048確率を UInt8 の4 KiB表に展開し、
 lookup の shift / xor を省いた。symbol の入力位置・state・rep は pointer の書込みにまたがる local 値で保持する。
-`memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減った。
+探索 buffer 縮小時の `memorySize` の予約量は以前より encoder ごとに261,264 byte（約0.249 MiB）減った。
+2026-10-11 の対の走査では `cachedMatches` と finder の `scratch` に2,200 byteを追加し、現行の減少は259,064 byte（約0.247 MiB）。
 LZMA2のMiB切上げの予算表は変わらないが、raw level 0の同期予算は20から19 MiBになり、
 byte単位で解決する並列数と入力上界は予算境界で増える（下の統合時照合表を参照）。
 
@@ -1325,8 +1326,9 @@ Eは`LZMAEncodingEngine.memorySize`、Mは`memoryPerThread = E + 2 × 片`（い
 減少の内訳はoptimum / actionが`4096 × ((88 + 16) - (32 + 8)) = 262,144 byte`、
 matchが`274 × (16 - 8) = 2,192 byte`、bit価格表の増加が`4096 - 128 × 8 = 3,072 byte`。
 合計は`262,144 + 2,192 - 3,072 = 261,264 byte`。
-`LZMAMatchFinder.memorySize`のhash / son / CRCの式はbaseと同じで、match候補の縮小はengine側に計上する。
+この統合時の `LZMAMatchFinder.memorySize` のhash / son / CRCの式はbaseと同じで、match候補の縮小はengine側に計上する。
 辞書、片サイズ、probability、その他の価格表、range出力の初期容量も変わらない。
+現行の対の走査では、上のHEAD列のE / Mにそれぞれ2,200 byteを追加する（tと入力上界はこの予算では変わらない）。
 
 現行の`init`が`calloc(count, stride)`で確保するbufferと見積りの対応は次のとおり。
 Dは実効辞書、Hは`mask(for: D)`、Sは`min(4 MiB, max(64 KiB, D / 2))`、lc / lpはproperties。
@@ -1338,11 +1340,12 @@ Dは実効辞書、Hは`mask(for: D)`、Sは`min(4 MiB, max(64 KiB, D / 2))`、l
 | finder.hash | `(H + 1 + 1024 + 65536) × 4` |
 | finder.son | `(D + 1) × (BT4 ? 8 : 4)` |
 | finder.crc | `256 × 4 = 1024` |
+| finder.scratch | `2 × 4 = 8` |
 | probs | `(1846 + (768 << (lc + lp))) × 2` |
 | bitPrices | `4096 × 1` |
 | lengthPrices / repLengthPrices | `2 × 16 × 272 × 8` |
 | distancePrices / slotPrices / alignPrices | `(4 × 128 + 4 × 64 + 16) × 8` |
-| matches | `274 × 8` |
+| matches / cachedMatches | `2 × 274 × 8 = 4384` |
 | opt / actions | `4096 × (32 + 8)` |
 | rc.outputの初期容量 | `131072` |
 
@@ -1358,7 +1361,10 @@ writerのraw予約は初期容量との差`16 MiB - 131072`を追加し、LZMA2�
 2026-10-09のraw slack拡大では、`encoderMemory`、`memoryPerThread`を通じてlzipのmember数と
 ZIP / 7zの項目窓・pending入力上界にも新しい予約量を反映する。各解決側の式は共有計算を参照するため変更しない。
 `LZMAWriterConfigurationTests`は全levelのraw予約byte数とlzipの並列数・入力上界を固定値で検査し、
-level 6の新予約の三枠に1 byte足りない予算ではZIP / 7zの入力上界が32 MiBになることを確認する。
+level 6の予算399,732,158 byteではZIP / 7zの入力上界が48 MiBになることを確認する。
+対の走査の予約追加後もこの値と3 GiBの固定入力上界表は変わらないが、並列数を減らす予算境界は移動する。
+raw level 6・要求64 thread・物理8 GiBでは、`WriterOptions.maximumPendingInputBytes(for: .zip / .sevenZip)` の
+64 MiBへの境界は418,250,183から418,258,975 byteへ8,792 byte移動する。旧境界の予算では上界は64から48 MiBへ16 MiB減る。
 `LZMAEncoderTests`は旧64 KiB slackをTaskLocalの試験用hookで強制し、256 KiB辞書より2倍以上大きい入力を
 幅1 / 7 / 65537 / 262144でpushしてHC4 / BT4の出力をbyte比較する。大辞書のlevel 4 / 6 / 9もサイズ未知で照合する。
 
@@ -1464,13 +1470,44 @@ BT4の枝更新は`record`・候補の`best/count`を参照しない。HC4のski
 record時のchain走査はその表を変更しない。したがって全位置で候補を記録しても、後続位置の表と候補は逐次と一致する。
 `LZMAMultithreadedFinderTests`は全preset/extremeで可変skipを混ぜ、候補とhash/sonの全byteを直接比較する。
 
+#### BT4 の対の走査と先読み（2026-10-11）
+
+BT4 の木の走査は son（8 MiB 辞書で 64 MiB）と 4 byte hash 表（16 MiB）の random access に支配され、
+一段ごとに memory の待ち時間が直列に並ぶ。出力を一切変えずにこれを重ねる二つの手を `LZMAMatchFinder` に入れた。
+
+- 先読み: Swift に prefetch 命令はないので、二つ先の位置の 4 byte hash の行と、現在の node の両方の子の son の行を
+  読み、値を `prefetchSink` に畳み込む（store が残るので load は最適化で消えない）。木の進行方向は予測しにくく、
+  分岐予測の失敗後も次段の行が届いているようにする。候補の index は辞書外のとき自分の slot に丸め、常に表の内側を読む。
+- 対の走査 `treeMatchesPair`: 連続する二位置の 4 byte hash の bucket が異なれば、二つの木は node を共有しない
+  （node は自分の bucket の木にだけ属し、辞書外の stale な pointer は位置の値の検査で辿らない）。そのとき二つの走査を
+  一つの loop で交互に一段ずつ進め、逐次と同じ比較・同じ書込みを行う。唯一の依存は、後の位置の自分の slot が
+  前の位置から見て辞書内の最古の node（距離 = 辞書サイズ）と同じ slot である点で、前の走査がその旧内容を読み得る。
+  後の位置の自分の slot への書込みだけを `scratch` に留め、両走査の終了後に son へ写す。hash head の読み書きは
+  逐次と同じ順に先に済ませ、短い hash の候補・273 byte までの延長は位置ごとに独立に行う。bucket が同じ、
+  available < 5、正規化の直前のときは nil を返し、呼出側が一位置ずつ処理する。HC4 では使わない。
+- 利用箇所: finder Thread の block 走査、parser の `skip` の連続位置、parser の `readMatches`。parser 側は
+  次位置の候補を `cachedMatches` に一つだけ保持し、次の読取りか skip で消費する。先読みする次位置は
+  `available >= 273` に限り、後の `process` の limit に左右されない候補になることを保つ。LZMA2 の chunk 境界では
+  `finderCursor == cursor` を保つが、`packedLimit` で止まると次chunkの先頭位置に対する cache は残り得る。
+  この位置の finder の表更新は既に済んでおり、次の読取りか skip が cache を消費して二重更新を防ぐ。
+  候補は最大長273 byteまで確定しているため、後の limit や確率stateのresetに左右されず出力は同じになる。
+  unpack limit（入力末尾）まで処理した場合は cache は空になる。`LZMAPairedFinderTests` が逐次の `matches` と候補列・hash/son の全 byte を
+  比較し、push 幅・既知サイズ・finder thread 数・LZMA2 の 2 MiB 境界で bytes が変わらないことを検査する。
+
+f5b23c5 との比較（同じ Mac、他 worktree の作業と並行、各3回の最良値、noisy）: 32 MiB の辞書語 text の raw LZMA1
+level 6 で単一 thread の user 時間 0.74 倍、finder 2 thread の wall 0.67 倍。lab の単体計測では level 4 / 9e も
+0.80 倍前後、Mach-O 混在は 0.98 倍（parser 支配）。全 preset・extreme・辞書サイズ・push 幅・finder thread 数・
+.lzma / .lz / .xz / 7z / ZIP の出力 SHA-256 は f5b23c5 と一致した。
+
 pushの64 KiB処理境界と`process(limit:reserve:)`を保つ。投機的な先読みは`available >= 273`の位置までとし、
 最後の272位置はparserが要求した範囲だけ、その時点の`limit`で生成する。短いpushでまだ確定しない長さを記録しない。
 sizeMismatchはThreadをjoinしつつ表・未消費候補を保持し、再試行時に同じ状態からThreadを再開する。
 processから戻る前にfinderをpauseし、入力追記と`compact()`はworkerの読取り完了後に行う。
 compactでは未消費候補の距離を保ち、workerのwindow位置だけdrop分ずらす。finishの小さいlimitにも同じ規則を適用する。
 取消しはcallerが4096位置ごとにも検査し、error・finish・abandon・deinitでThreadをjoinしてからwindow/hashを解放する。
-候補二組とoffset、512 KiBのThread stack、管理余裕を合わせた追加予約は18,518,024 byte（約17.66 MiB）。
+候補二組とoffset、`pairBuffer`（`274 × 8 = 2,192 byte`）、512 KiBのThread stack、管理余裕を合わせた追加予約は
+18,520,216 byte（約17.66 MiB、従来の18,518,024 byteから2,192 byte増）。engineの `cachedMatches`（2,192 byte）と
+finderの `scratch`（8 byte）はthread数にかかわらず別に計上し、合計の増加はfinder=1で2,200 byte、finder=2で4,392 byte。
 `memorySize`・`encoderMemory`・`memoryPerThread`へ計上し、追加予約が収まらない任意高速化はfinder=1へ戻す。
 
 raw設定の内部`finderThreads`は1/2。単独`.lzma`と`tar.lzma`、inlineの単一ZIP項目/7z folder、
