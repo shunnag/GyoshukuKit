@@ -9,6 +9,7 @@ final class LZMAMatchFinderPipeline: @unchecked Sendable {
     static let slots = 2
     static let memorySize = slots * (blockSize * 274 * MemoryLayout<LZMAMatch>.stride
         + (blockSize + 1) * MemoryLayout<UInt32>.stride) + (512 << 10) + 4096
+        + 274 * MemoryLayout<LZMAMatch>.stride // pairBuffer
     @TaskLocal static var testingWorkerActivity: (@Sendable (Bool) -> Void)?
     @TaskLocal static var testingDidFindBlock: (@Sendable () -> Void)?
     private static let workers = Mutex((starts: 0, live: 0))
@@ -19,6 +20,8 @@ final class LZMAMatchFinderPipeline: @unchecked Sendable {
     private var finder: LZMAMatchFinder
     private let buffers: [UnsafeMutablePointer<LZMAMatch>]
     private let offsets: [UnsafeMutablePointer<UInt32>]
+    /// 対の走査の後の位置の候補。worker Thread だけが使う。
+    private let pairBuffer: UnsafeMutablePointer<LZMAMatch>
     private var ready = [false, false]
     private var counts = [0, 0]
     private var writeSlot = 0
@@ -39,6 +42,7 @@ final class LZMAMatchFinderPipeline: @unchecked Sendable {
                 buffers.append(try lzmaAllocate(LZMAMatch.self, count: Self.blockSize * 274))
                 offsets.append(try lzmaAllocate(UInt32.self, count: Self.blockSize + 1))
             }
+            pairBuffer = try lzmaAllocate(LZMAMatch.self, count: 274)
         } catch {
             for p in buffers { free(p) }; for p in offsets { free(p) }
             throw error
@@ -65,7 +69,7 @@ final class LZMAMatchFinderPipeline: @unchecked Sendable {
 
     deinit {
         // owner は window / hash の解放前に必ず stopAndWait を呼ぶ。
-        for p in buffers { free(p) }; for p in offsets { free(p) }
+        for p in buffers { free(p) }; for p in offsets { free(p) }; free(pairBuffer)
     }
 
     func begin(limit: Int) {
@@ -140,6 +144,7 @@ final class LZMAMatchFinderPipeline: @unchecked Sendable {
     private func run() {
         // hot loopの状態はThreadのstackへ置き、class propertyの排他アクセスを位置ごとに行わない。
         var finder = self.finder
+        let pairBuffer = self.pairBuffer
         Self.workers.withLock { $0.starts += 1; $0.live += 1 }
         activity?(true)
         condition.lock()
@@ -155,10 +160,23 @@ final class LZMAMatchFinderPipeline: @unchecked Sendable {
             let output = buffers[slot], starts = offsets[slot]
             var used = 0
             starts[0] = 0
-            for position in start..<end {
+            var position = start
+            while position < end {
+                if position + 1 < end, let (a, b) = finder.treeMatchesPair(UnsafePointer(window + position),
+                        available: availableEnd - position, into: output + used, second: pairBuffer, record: true,
+                        extendMatches: false, recordShortMatches: false) {
+                    used += a
+                    starts[position - start + 1] = UInt32(used)
+                    if b > 0 { (output + used).update(from: pairBuffer, count: b) }
+                    used += b
+                    starts[position - start + 2] = UInt32(used)
+                    position += 2
+                    continue
+                }
                 used += finder.matches(UnsafePointer(window + position), available: availableEnd - position,
                     into: output + used, extendMatches: false, recordShortMatches: !finder.tree)
                 starts[position - start + 1] = UInt32(used)
+                position += 1
             }
             didFindBlock?()
             condition.lock()
