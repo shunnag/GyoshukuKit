@@ -4,17 +4,148 @@ name: CI
 # build は Xcode 27 / Swift 6.4 のみ。成果物を macOS 26 にも運び、OS の差を検出する。
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。2026-10-08 の probe で確認）。
+# 文書だけの変更では起動しない。tag は main の merge commit（試験済み）に付くので起動しない。
+# 毎日の定時実行は KaitoKit の新しい 0.14.x tag による解決結果の変化を検出する。
 on:
   push:
     branches: [main]
-    tags: ['*']
+    paths-ignore:
+      - 'Documentation/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'Tests/README.md'
+      - 'Tests/GyoshukuKitTests/README.md'
   pull_request:
+    paths-ignore:
+      - 'Documentation/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'Tests/README.md'
+      - 'Tests/GyoshukuKitTests/README.md'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 18 * * *'
+
+# PR だけ古い実行を取り消す。main・定時・手動は run ごとの group で取り消さない。
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
 
 jobs:
+  # main への push では、同じ tree（と KaitoKit の tag 集合）が PR の完全な CI を通っていれば重い job を省く。
+  # 少しでも曖昧なら全部実行する。tree は全 shard と網羅検査の通過後にだけ記録する。
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      full: ${{ steps.lookup.outputs.full }}
+      tree: ${{ steps.lookup.outputs.tree }}
+      kaitokit_tags: ${{ steps.lookup.outputs.kaitokit_tags }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - name: Look up a fully tested PR tree
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("full=true\n")
+
+          try:
+              def emit(name, value):
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                      output.write(f"{name}={value}\n")
+
+              def api(endpoint):
+                  return json.loads(subprocess.check_output(["gh", "api", endpoint], text=True))
+
+              tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
+              tags = subprocess.check_output([
+                  "git", "ls-remote", "--tags", "--refs", "https://github.com/shunnag/KaitoKit.git"
+              ], env={**os.environ, "LC_ALL": "C"})
+              if not tags.strip():
+                  raise RuntimeError("Empty KaitoKit tag set")
+              kaitokit_tags = hashlib.sha256(b"\n".join(sorted(tags.splitlines())) + b"\n").hexdigest()
+              emit("tree", tree)
+              emit("kaitokit_tags", kaitokit_tags)
+              if os.environ["GITHUB_EVENT_NAME"] == "push" and os.environ["GITHUB_REF"] == "refs/heads/main":
+                  repository = os.environ["GITHUB_REPOSITORY"]
+                  sha = os.environ["GITHUB_SHA"]
+                  prs = [pr for pr in api(f"repos/{repository}/commits/{sha}/pulls")
+                         if pr.get("merged_at") and pr.get("merge_commit_sha") == sha
+                         and pr["base"]["ref"] == "main"]
+                  if len(prs) != 1:
+                      raise RuntimeError(f"Expected one merged main PR, found {len(prs)}")
+                  pr = prs[0]
+                  runs = api(f"repos/{repository}/actions/workflows/ci.yml/runs?event=pull_request&status=success"
+                             f"&head_sha={pr['head']['sha']}&per_page=100")["workflow_runs"]
+                  runs = [run for run in runs if run.get("conclusion") == "success" and (
+                      any(item["number"] == pr["number"] for item in run.get("pull_requests", []))
+                      or run.get("head_branch") == pr["head"]["ref"])]
+                  runs.sort(key=lambda run: (run["created_at"], run["id"]), reverse=True)
+                  with tempfile.TemporaryDirectory() as temporary:
+                      for run in runs:
+                          artifacts = api(f"repos/{repository}/actions/runs/{run['id']}/artifacts?name=tested-tree")["artifacts"]
+                          artifacts = [artifact for artifact in artifacts
+                                       if artifact["name"] == "tested-tree" and not artifact["expired"]]
+                          if len(artifacts) != 1:
+                              print(f"Run {run['id']}: expected one unexpired tested-tree artifact")
+                              continue
+                          destination = Path(temporary) / str(run["id"])
+                          subprocess.run(["gh", "run", "download", str(run["id"]), "-n", "tested-tree",
+                                          "-D", str(destination), "-R", repository], check=True)
+                          recorded = {}
+                          for line in (destination / "tested-tree.txt").read_text().splitlines():
+                              key, value = line.split("=", 1)
+                              if key in recorded:
+                                  raise RuntimeError(f"Duplicate tested-tree field: {key}")
+                              recorded[key] = value
+                          if recorded["tree"] == tree and recorded["kaitokit_tags"] == kaitokit_tags:
+                              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                                  summary.write(f"Heavy jobs skipped: identical tree and KaitoKit tags passed {run['html_url']}\n")
+                              print(f"Matched fully tested PR run {run['id']}")
+                              emit("full", "false")
+                              break
+                          print(f"Run {run['id']}: tree or KaitoKit tags differ")
+                      else:
+                          print("No fully tested PR tree matched; running full CI")
+              else:
+                  print("PR, schedule, or manual run: running full CI")
+          except Exception as error:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("full=true\n")
+              print(f"Gate lookup inconclusive; running full CI: {error}")
+          PY
+
   build-and-test:
+    name: build-and-test (${{ matrix.shard }}/2)
     runs-on: xcode-27
-    # debug suite と release の大入力試験に余裕を持たせる。
-    timeout-minutes: 240
+    needs: gate
+    if: needs.gate.outputs.full == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    # 2026-10-14 の計測で最遅 shard は約74分。上限はその約2倍とする。
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
@@ -40,23 +171,125 @@ jobs:
           swift --version
       - name: Build
         run: swift build --build-tests
+      - name: List debug tests
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shard"
+          swift test list --skip-build | LC_ALL=C sort > "$RUNNER_TEMP/shard/enumerated.txt"
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shard"
+          names = (report / "enumerated.txt").read_text().splitlines()
+          if not names or any(not re.fullmatch(r"GyoshukuKitTests\.\w+/\w+", name) for name in names):
+              raise RuntimeError("Invalid or empty debug test identifiers")
+          if len(names) != len(set(names)):
+              raise RuntimeError("Duplicate debug test identifiers")
+          classes = [line.strip() for line in Path(".github/ci/test-shard-1.txt").read_text().splitlines()
+                     if line.strip() and not line.strip().startswith("#")]
+          if not classes or any(not re.fullmatch(r"\w+", name) for name in classes) or len(classes) != len(set(classes)):
+              raise RuntimeError("Invalid classes: update .github/ci/test-shard-1.txt")
+          class_set = set(classes)
+          available = {name.split(".", 1)[1].split("/", 1)[0] for name in names}
+          missing = class_set - available
+          if missing:
+              raise RuntimeError(f"Missing classes {sorted(missing)}: update .github/ci/test-shard-1.txt")
+          regex = r"^GyoshukuKitTests\.(" + "|".join(re.escape(name) for name in classes) + r")/"
+          shard = os.environ["SHARD"]
+          if shard not in ("1", "2"):
+              raise RuntimeError(f"Invalid shard: {shard}")
+          expected = sorted(name for name in names if bool(re.match(regex, name)) == (shard == "1"))
+          if not expected:
+              raise RuntimeError(f"Empty shard {shard}")
+          (report / "expected.txt").write_text("\n".join(expected) + "\n")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"SHARD1_REGEX={regex}\n")
+          print(f"Shard {shard}: {len(expected)} / {len(names)} debug tests")
+          PY
       - name: Test
-        run: swift test --skip-build
+        run: |
+          set -o pipefail
+          set -e
+          if [ "${{ matrix.shard }}" = 1 ]; then sel=(--filter "$SHARD1_REGEX"); else sel=(--skip "$SHARD1_REGEX"); fi
+          swift test --skip-build "${sel[@]}" 2>&1 | tee "$RUNNER_TEMP/shard/debug.log" || exit 1
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shard"
+          expected = set((report / "expected.txt").read_text().splitlines())
+          log = (report / "debug.log").read_text()
+          cases = re.findall(r"^Test Case '-\[GyoshukuKitTests\.(\w+) (\w+)\]' (?:passed|failed|skipped)\b", log, re.MULTILINE)
+          executed = [f"GyoshukuKitTests.{cls}/{method}" for cls, method in cases]
+          if len(executed) != len(set(executed)):
+              raise RuntimeError("Duplicate executed debug tests")
+          actual = set(executed)
+          if actual != expected:
+              raise RuntimeError(f"Debug coverage mismatch: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
+          summaries = re.findall(r"Executed (\d+) tests?, with (?:\d+ tests? skipped and )?\d+ failures?", log)
+          if not summaries or int(summaries[-1]) != len(expected):
+              raise RuntimeError(f"Debug summary mismatch: expected {len(expected)}, summaries={summaries}")
+          (report / "executed.txt").write_text("\n".join(sorted(actual)) + "\n")
+          print(f"Verified {len(actual)} executed debug tests")
+          PY
+          grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/shard/debug.log" || exit 1
       - name: Build release tests
+        if: matrix.shard == 1
         run: swift build -c release --build-tests -Xswiftc -enable-testing
       - name: Large encoder tests (release)
+        if: matrix.shard == 1
         # FullSize 16 件（BZip2追加後）は debug suite では opt-in。
         # 追加前の14件では、Mac mini M4 の release build が約 2.5 分、実行が 127 秒だった。
         env:
           GYOSHUKU_LARGE_ENCODER_TESTS: '1'
         run: |
           set -o pipefail
+          set -e
           swift test -c release --skip-build -Xswiftc -enable-testing --filter FullSize 2>&1 | tee "$RUNNER_TEMP/large.log"
           grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/large.log" || exit 1
+          export FULLSIZE_COUNT
+          FULLSIZE_COUNT="$(swift test list -c release --skip-build -Xswiftc -enable-testing | grep -c FullSize)" || exit 1
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shard"
+          log = (Path(os.environ["RUNNER_TEMP"]) / "large.log").read_text()
+          cases = re.findall(r"^Test Case '-\[GyoshukuKitTests\.(\w+) (\w*FullSize\w*)\]' (?:passed|failed|skipped)\b", log, re.MULTILINE)
+          if len(cases) != len(set(cases)):
+              raise RuntimeError("Duplicate executed FullSize tests")
+          expected = int(os.environ["FULLSIZE_COUNT"])
+          if len(cases) != expected:
+              raise RuntimeError(f"FullSize count mismatch: executed {len(cases)}, expected {expected}")
+          print(f"Verified {len(cases)} executed FullSize tests")
+          PY
+      - name: Collect release log
+        if: always() && matrix.shard == 1
+        run: |
+          if [ -f "$RUNNER_TEMP/large.log" ]; then
+            mkdir -p "$RUNNER_TEMP/shard"
+            cp "$RUNNER_TEMP/large.log" "$RUNNER_TEMP/shard/large.log"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-report-xcode-27-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard/
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 7
 
   build-for-macos-26:
     runs-on: xcode-27
-    timeout-minutes: 240
+    needs: gate
+    if: needs.gate.outputs.full == 'true'
+    timeout-minutes: 25
     steps:
       # 全 job で同じ checkout path。fixture と Bundle.module の絶対 path を保つ。
       - uses: actions/checkout@v5
@@ -72,14 +305,17 @@ jobs:
       - name: Package runtime tests and Xcode 27 dependencies
         run: |
           set -euo pipefail
+          swift test list --skip-build | LC_ALL=C sort > "$RUNNER_TEMP/debug-test-list.txt"
+          test -s "$RUNNER_TEMP/debug-test-list.txt"
           swift test list -c release --skip-build -Xswiftc -enable-testing > "$RUNNER_TEMP/release-test-list.txt"
           grep FullSize "$RUNNER_TEMP/release-test-list.txt" | LC_ALL=C sort -u > "$RUNNER_TEMP/fullsize-tests.txt"
           test -s "$RUNNER_TEMP/fullsize-tests.txt"
-          export DEBUG_BIN RELEASE_BIN PACKAGE_STAGE FULLSIZE_LIST
+          export DEBUG_BIN RELEASE_BIN PACKAGE_STAGE FULLSIZE_LIST DEBUG_LIST
           DEBUG_BIN="$(swift build --show-bin-path)"
           RELEASE_BIN="$(swift build -c release --show-bin-path -Xswiftc -enable-testing)"
           PACKAGE_STAGE="$RUNNER_TEMP/macos-26-tests"
           FULLSIZE_LIST="$RUNNER_TEMP/fullsize-tests.txt"
+          DEBUG_LIST="$RUNNER_TEMP/debug-test-list.txt"
           python3 <<'PY'
           import os
           import platform
@@ -96,6 +332,12 @@ jobs:
           for directory in (runtime / "bin", runtime / "lib", runtime / "Frameworks"):
               directory.mkdir(parents=True, exist_ok=True)
           (runtime / "checkout-path.txt").write_text(str(root) + "\n")
+          debug_identifiers = Path(os.environ["DEBUG_LIST"]).read_text().splitlines()
+          if not debug_identifiers or any(not re.fullmatch(r"GyoshukuKitTests\.\w+/\w+", name) for name in debug_identifiers):
+              raise RuntimeError("Invalid or empty debug test identifiers")
+          if len(debug_identifiers) != len(set(debug_identifiers)):
+              raise RuntimeError("Duplicate debug test identifiers")
+          (runtime / "debug-tests.txt").write_text("\n".join(debug_identifiers) + "\n")
           identifiers = Path(os.environ["FULLSIZE_LIST"]).read_text().splitlines()
           if not identifiers or any(not re.fullmatch(r"[\w.]+/\w*FullSize\w*", name) for name in identifiers):
               raise RuntimeError("Invalid or empty FullSize test identifiers")
@@ -223,9 +465,14 @@ jobs:
           retention-days: 3
 
   macos-26-runtime:
+    name: macos-26-runtime (${{ matrix.shard }}/2)
     runs-on: macos-26
     needs: build-for-macos-26
-    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v5
       - name: Install differential-test oracles
@@ -258,14 +505,50 @@ jobs:
           # #filePath / Bundle.module の build 時 path と一致することも検査する。
           test "$(cat .build/ci-runtime/checkout-path.txt)" = "$(pwd -P)"
       - name: Run debug suite and release FullSize without compiling
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
           runtime="$PWD/.build/ci-runtime"
+          mkdir -p "$RUNNER_TEMP/shard"
+          cp "$runtime/debug-tests.txt" "$RUNNER_TEMP/shard/enumerated.txt"
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shard"
+          names = (report / "enumerated.txt").read_text().splitlines()
+          if not names or any(not re.fullmatch(r"GyoshukuKitTests\.\w+/\w+", name) for name in names):
+              raise RuntimeError("Invalid or empty debug test identifiers")
+          if len(names) != len(set(names)):
+              raise RuntimeError("Duplicate debug test identifiers")
+          classes = [line.strip() for line in Path(".github/ci/test-shard-1.txt").read_text().splitlines()
+                     if line.strip() and not line.strip().startswith("#")]
+          if not classes or any(not re.fullmatch(r"\w+", name) for name in classes) or len(classes) != len(set(classes)):
+              raise RuntimeError("Invalid classes: update .github/ci/test-shard-1.txt")
+          class_set = set(classes)
+          available = {name.split(".", 1)[1].split("/", 1)[0] for name in names}
+          missing = class_set - available
+          if missing:
+              raise RuntimeError(f"Missing classes {sorted(missing)}: update .github/ci/test-shard-1.txt")
+          regex = r"^GyoshukuKitTests\.(" + "|".join(re.escape(name) for name in classes) + r")/"
+          shard = os.environ["SHARD"]
+          if shard not in ("1", "2"):
+              raise RuntimeError(f"Invalid shard: {shard}")
+          expected = sorted(name for name in names if bool(re.match(regex, name)) == (shard == "1"))
+          if not expected:
+              raise RuntimeError(f"Empty shard {shard}")
+          (report / "expected.txt").write_text("\n".join(expected) + "\n")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"SHARD1_REGEX={regex}\n")
+          print(f"Shard {shard}: {len(expected)} / {len(names)} debug tests")
+          PY
 
           run_tests() {
             local label="$1" bundle="$2"
             shift 2
-            local log="$RUNNER_TEMP/${label}-bundled.log"
+            local log="$RUNNER_TEMP/shard/${label}-bundled.log"
             printf 'Runner (%s): %s\n' "$label" "$runtime/bin/xctest"
             # Xcode 26 の system xctest は Xcode 27 の test bundle を load できないため、同梱 runner を使う。
             env DYLD_FRAMEWORK_PATH="$runtime/Frameworks" DYLD_LIBRARY_PATH="$runtime/lib" \
@@ -274,8 +557,115 @@ jobs:
             grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$log"
           }
 
-          run_tests debug "$PWD/$(cat "$runtime/debug-bundle.txt")"
-          selectors="$(paste -sd, "$runtime/fullsize-tests.txt")"
-          test -n "$selectors"
-          export GYOSHUKU_LARGE_ENCODER_TESTS=1
-          run_tests release "$PWD/$(cat "$runtime/release-bundle.txt")" -XCTest "$selectors"
+          run_tests debug "$PWD/$(cat "$runtime/debug-bundle.txt")" -XCTest "$(paste -sd, "$RUNNER_TEMP/shard/expected.txt")"
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shard"
+          expected = set((report / "expected.txt").read_text().splitlines())
+          log = (report / "debug-bundled.log").read_text()
+          cases = re.findall(r"^Test Case '-\[GyoshukuKitTests\.(\w+) (\w+)\]' (?:passed|failed|skipped)\b", log, re.MULTILINE)
+          executed = [f"GyoshukuKitTests.{cls}/{method}" for cls, method in cases]
+          if len(executed) != len(set(executed)):
+              raise RuntimeError("Duplicate executed debug tests")
+          actual = set(executed)
+          if actual != expected:
+              raise RuntimeError(f"Debug coverage mismatch: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
+          summaries = re.findall(r"Executed (\d+) tests?, with (?:\d+ tests? skipped and )?\d+ failures?", log)
+          if not summaries or int(summaries[-1]) != len(expected):
+              raise RuntimeError(f"Debug summary mismatch: expected {len(expected)}, summaries={summaries}")
+          (report / "executed.txt").write_text("\n".join(sorted(actual)) + "\n")
+          print(f"Verified {len(actual)} executed debug tests")
+          PY
+          if [ "${{ matrix.shard }}" = 1 ]; then
+            selectors="$(paste -sd, "$runtime/fullsize-tests.txt")"
+            test -n "$selectors"
+            export GYOSHUKU_LARGE_ENCODER_TESTS=1
+            run_tests release "$PWD/$(cat "$runtime/release-bundle.txt")" -XCTest "$selectors"
+            python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          report = Path(os.environ["RUNNER_TEMP"]) / "shard"
+          log = (report / "release-bundled.log").read_text()
+          cases = re.findall(r"^Test Case '-\[GyoshukuKitTests\.(\w+) (\w*FullSize\w*)\]' (?:passed|failed|skipped)\b", log, re.MULTILINE)
+          if len(cases) != len(set(cases)):
+              raise RuntimeError("Duplicate executed FullSize tests")
+          expected = len((Path.cwd() / ".build/ci-runtime/fullsize-tests.txt").read_text().splitlines())
+          if len(cases) != expected:
+              raise RuntimeError(f"FullSize count mismatch: executed {len(cases)}, expected {expected}")
+          print(f"Verified {len(cases)} executed FullSize tests")
+          PY
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-report-macos-26-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard/
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  shard-coverage:
+    runs-on: ubuntu-latest
+    needs: [gate, build-and-test, macos-26-runtime]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shard-report-*
+          path: reports
+      - name: Verify shard and platform coverage
+        run: |
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          def read_names(directory, filename):
+              names = (directory / filename).read_text().splitlines()
+              if not names or len(names) != len(set(names)):
+                  raise RuntimeError(f"Empty or duplicate test identifiers: {directory / filename}")
+              return names
+
+          platforms = {}
+          counts = []
+          for platform in ("xcode-27", "macos-26"):
+              first = Path("reports") / f"shard-report-{platform}-1"
+              second = Path("reports") / f"shard-report-{platform}-2"
+              if not first.is_dir() or not second.is_dir():
+                  raise RuntimeError(f"Missing shard reports for {platform}")
+              enumerated = read_names(first, "enumerated.txt")
+              if enumerated != read_names(second, "enumerated.txt"):
+                  raise RuntimeError(f"Enumerated lists differ between {platform} shards")
+              e1 = set(read_names(first, "executed.txt"))
+              e2 = set(read_names(second, "executed.txt"))
+              if e1 & e2 or e1 | e2 != set(enumerated) or len(e1) + len(e2) != len(enumerated):
+                  raise RuntimeError(f"Shard coverage mismatch for {platform}")
+              platforms[platform] = enumerated
+              counts.append(f"{platform}: shard 1 = {len(e1)}, shard 2 = {len(e2)}, total = {len(enumerated)}")
+          if platforms["xcode-27"] != platforms["macos-26"]:
+              raise RuntimeError("Enumerated lists differ between platforms")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("\n".join(counts) + "\n")
+          print("\n".join(counts))
+          PY
+      - name: Record fully tested PR tree
+        if: github.event_name == 'pull_request'
+        env:
+          TESTED_TREE: ${{ needs.gate.outputs.tree }}
+          KAITOKIT_TAGS: ${{ needs.gate.outputs.kaitokit_tags }}
+          TESTED_RUN_ID: ${{ github.run_id }}
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          printf 'tree=%s\nkaitokit_tags=%s\nrun_id=%s\nsha=%s\n' \
+            "$TESTED_TREE" "$KAITOKIT_TAGS" "$TESTED_RUN_ID" "$TESTED_SHA" > tested-tree.txt
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: tested-tree
+          path: tested-tree.txt
+          if-no-files-found: error
+          retention-days: 30

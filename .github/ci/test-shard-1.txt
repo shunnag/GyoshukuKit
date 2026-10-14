@@ -1,0 +1,14 @@
+# 両 platform の shard 1 で実行する class（試験64件）。
+# 2026-10-14 の計測では最遅 shard は約4440秒（74分）。
+# 最後の shard は、この一覧以外の全 class を実行する。
+SevenZipUpdaterDifferentialTests
+LZMAMultithreadedFinderTests
+SevenZipLongPoleTests
+SpeedPriorityTests
+MulticoreWriterTests
+LHAUpdaterDifferentialTests
+LHACompressionMethodTests
+LZMARawWindowSlackTests
+SevenZipCompressionUpdaterTests
+ReviewFixSourceLifetimeTests
+SevenZipUpdaterHeaderTests

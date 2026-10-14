@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 
 final class ArchiveTestDisk {
@@ -40,8 +41,28 @@ final class ArchiveTestDisk {
 
     func detach() throws {
         guard attached else { return }
-        try Self.command(["detach", "-force", mount.path])
-        attached = false
+        // hdiutil detach は CI で一時的に "No such file or directory" で失敗することがある（2026-10-08 job 113264557496）。再試行し、既に外れていれば成功とする。
+        for attempt in 1...3 {
+            do {
+                try Self.command(["detach", "-force", mount.path])
+                attached = false
+                return
+            } catch {
+                var mountInfo = stat(), directoryInfo = stat()
+                let mountStatus = stat(mount.path, &mountInfo)
+                if mountStatus != 0 && errno == ENOENT {
+                    attached = false
+                    return
+                }
+                if mountStatus == 0 && stat(directory.path, &directoryInfo) == 0
+                    && mountInfo.st_dev == directoryInfo.st_dev {
+                    attached = false
+                    return
+                }
+                if attempt == 3 { throw error }
+                Thread.sleep(forTimeInterval: Double(attempt))
+            }
+        }
     }
 
     deinit {
