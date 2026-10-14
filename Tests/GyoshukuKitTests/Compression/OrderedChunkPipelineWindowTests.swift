@@ -133,6 +133,7 @@ final class OrderedChunkPipelineWindowTests: XCTestCase {
         for cancel in [false, true] {
             let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
             let fail = DispatchSemaphore(value: 0), completed = DispatchSemaphore(value: 0)
+            let windowStarted = DispatchSemaphore(value: 0)
             let task = Task.detached {
                 let pipeline = OrderedChunkPipeline<Int, Int, Int>(threads: 2, lightWeightLimit: 64) { index in
                     started.signal()
@@ -145,9 +146,15 @@ final class OrderedChunkPipelineWindowTests: XCTestCase {
                     return index
                 }
                 do {
-                    for index in 0..<6 {
+                    for index in 0..<5 {
                         try pipeline.submit(index, tag: index, weight: 1) { _, _ in XCTFail("unexpected output") }
                     }
+                    // 6件目の submit より前に5件を GCD で着手させる。待機中の呼出側が先頭 job を inline で実行すると、取消しの確認が release 待ち（5秒）の後になる。
+                    for _ in 0..<5 {
+                        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+                        windowStarted.signal()
+                    }
+                    try pipeline.submit(5, tag: 5, weight: 1) { _, _ in XCTFail("unexpected output") }
                     XCTFail("full window did not wait")
                 } catch {
                     if cancel { XCTAssertTrue(error is CancellationError) }
@@ -157,7 +164,7 @@ final class OrderedChunkPipelineWindowTests: XCTestCase {
                 pipeline.abandon()
             }
             defer { fail.signal(); for _ in 0..<5 { release.signal() } }
-            for _ in 0..<5 { try await LZMA2ChunkPipelineTests.wait(started) }
+            for _ in 0..<5 { try await LZMA2ChunkPipelineTests.wait(windowStarted) }
             if cancel { task.cancel() } else { fail.signal() }
             try await task.value
             for _ in 0..<5 { release.signal() }

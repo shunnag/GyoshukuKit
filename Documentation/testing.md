@@ -19,6 +19,8 @@ Swift 6.3.3 の `-O` は `TaskLocal<function?>.withValue` を誤コンパイル�
 
 [CI](../.github/workflows/ci.yml) は Xcode 27 で debug suite と release FullSize をビルド・実行します。別 job でも同じ toolchain で debug / release をビルドし、test bundle・resource・依存 dylib / framework と Xcode 27 の xctest runner を macOS 26 に運び、再コンパイルせず同じ試験を実行します。Xcode 26 の system xctest は XCTestCore の interop symbol が不足するため使いません。実際の test failure と実行件数0を失敗にし、KaitoKit は利用側と同じ tag 参照で解決します。
 
+debug suite は class 単位で 2 shard に分け、最後の shard は `.github/ci/test-shard-1.txt` 以外の全 class を実行し、shard-coverage job が列挙件数と実行件数の一致を検査します。文書だけの変更では CI を起動しません。main への push は、同じ tree と KaitoKit の tag 集合が PR で通っていれば重い job を省きます。毎日 1 回と手動実行で全体を実行します。
+
 FullSize の大入力 encoder / writer 試験（16件、BZip2追加後）は通常実行で opt-in です。CI では両 OS で有効にします。
 
 ```sh
