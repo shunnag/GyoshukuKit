@@ -3,7 +3,15 @@
 注目すべき変更を記録する。バージョニングは Semantic Versioning に従う。
 現在の導入方法は [README](README.md)、方式・互換性は[形式リファレンス](Documentation/formats.md)、全設定は [WriterOptions](Documentation/options.md)を参照する。
 
-## [Unreleased]
+## [0.12.0] - 2026-10-20
+
+KaitoKit 0.15.x へ追従し、7z の更新で scratch の FD が folder 数に比例して増える問題を直す release。
+既定出力の byte、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.11.0 と同じ。
+
+### 変更
+
+- KaitoKit 依存を 0.15.x に上げた。KaitoKit 0.15.0 は、先頭巻の照合と兄弟巻の探索で起きた ENOENT 以外の OS エラー
+  （EMFILE など）を、破損や「巻なし」ではなく `KaitoError.io(errno)` として返す。
 
 ### 修正
 
