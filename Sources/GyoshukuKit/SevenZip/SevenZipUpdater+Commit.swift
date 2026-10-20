@@ -66,7 +66,9 @@ extension SevenZipUpdater {
         if meter == nil { meter = CommitProgressMeter(total: destination.units(for: outputPlan), progress: callback); try meter!.start() }
         let totalVerification = Mutex<Double>(0)
         let fault = Self.faultAction(plan: plan, assembly: assembly)
-        let scratchBefore = workset.reencoded.mapValues { $0.scratch.copySeconds }
+        let scratchBefore = workset.reencoded.values.reduce(into: [ObjectIdentifier: Double]()) {
+            $0[ObjectIdentifier($1.scratch.file)] = $1.scratch.file.copySeconds
+        }
         let packsStart = ProcessInfo.processInfo.systemUptime
         let strategy: SegmentCommitStrategy
         do {

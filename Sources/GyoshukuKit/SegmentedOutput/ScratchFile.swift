@@ -73,3 +73,10 @@ final class ScratchFile {
         try? handle.close()
     }
 }
+
+/// 共有 scratch 中の 1 folder 分。ファイル全長と圧縮 pack 長を混同しない。
+struct ScratchFileSlice {
+    let file: ScratchFile
+    let range: Range<UInt64>
+    var length: UInt64 { range.byteLength }
+}

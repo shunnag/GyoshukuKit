@@ -40,8 +40,9 @@ extension SevenZipCommitStatistics {
     mutating func summarize(plan: SevenZipEditPlan, assembly: SevenZipEditPlan.Assembly, original model: SevenZipEditModel,
                             shared: SegmentCommitStrategy, isCloneMode: Bool, appended: Range<UInt64>?, hasAdditions: Bool,
                             workset: SevenZipFolderWorkset,
-                            scratchBefore: [Int: Double]) {
+                            scratchBefore: [ObjectIdentifier: Double]) {
         var shifted = false, converted = false, reencodedAny = false
+        var countedScratch: Set<ObjectIdentifier> = []
         for work in plan.works {
             let index = work.index, target = assembly.model.folders[assembly.outputFolderIndices[index]!]
             switch work {
@@ -58,7 +59,11 @@ extension SevenZipCommitStatistics {
                 converted = true; convertedPackBytes += workset.conversions[index]!.replacement.packs[0].length
             case .reencode:
                 reencodedAny = true; reencodedFolderCount += 1
-                scratchCopySeconds += workset.reencoded[index]!.scratch.copySeconds - (scratchBefore[index] ?? 0)
+                let scratch = workset.reencoded[index]!.scratch.file
+                let identity = ObjectIdentifier(scratch)
+                if countedScratch.insert(identity).inserted {
+                    scratchCopySeconds += scratch.copySeconds - (scratchBefore[identity] ?? 0)
+                }
                 reencodedInputBytes += model.folders[index].size
                 reencodedPackBytes += workset.reencoded[index]!.scratch.length
                 reencodeScratchWrittenBytes += workset.reencoded[index]!.scratch.length
