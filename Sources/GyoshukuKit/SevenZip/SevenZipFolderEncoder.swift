@@ -173,6 +173,6 @@ final class SevenZipFolderEncoder {
 /// 作り直した solid folder の scratch と、その folder が持つ file・置換後の定義。
 struct SevenZipReencodedFolder {
     let files: [Int]
-    let scratch: ScratchFile
+    let scratch: ScratchFileSlice
     let replacement: SevenZipEditPlan.Replacement
 }

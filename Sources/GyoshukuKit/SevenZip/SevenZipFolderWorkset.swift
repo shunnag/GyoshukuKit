@@ -16,6 +16,9 @@ final class SevenZipFolderWorkset {
     private(set) var reencrypt = false
     private(set) var reencoded: [Int: SevenZipReencodedFolder] = [:]
     private(set) var conversions: [Int: SevenZipFolderConversion] = [:]
+    // folder 数から独立した 2 本だけを保持する。unlink 済みなので再 open はしない。
+    private var conversionScratch: ScratchFile?
+    private var reencodingScratch: ScratchFile?
     private var passwordChecked: Set<Int> = []
 
     init(snapshot: ArchiveSourceSnapshot, reader: ArchiveReader, model: SevenZipEditModel,
@@ -63,9 +66,15 @@ final class SevenZipFolderWorkset {
                                                              aes: makeEncryptor(enabled: kind != .detach))
             }
             if toScratch, let conversion = conversions[index], conversion.scratch == nil {
-                let scratch = try destination.makeScratch(tag: "convert")
+                let scratch: ScratchFile
+                if let existing = conversionScratch { scratch = existing }
+                else {
+                    scratch = try destination.makeScratch(tag: "convert")
+                    conversionScratch = scratch
+                }
+                let start = scratch.length
                 try conversion.write(reader: reader, source: snapshot.source, model: model, write: { _ = try scratch.append($0) })
-                conversion.scratch = scratch
+                conversion.scratch = ScratchFileSlice(file: scratch, range: start..<scratch.length)
             }
         }
     }
@@ -94,7 +103,13 @@ final class SevenZipFolderWorkset {
         for case let .reencode(index, files) in plan.works {
             try Task.checkCancellation()
             if reencoded[index]?.files == files { continue }
-            let scratch = try destination.makeScratch(tag: "reencode")
+            let scratch: ScratchFile
+            if let existing = reencodingScratch { scratch = existing }
+            else {
+                scratch = try destination.makeScratch(tag: "reencode")
+                reencodingScratch = scratch
+            }
+            let start = scratch.length
             let encrypted = reencrypt ? options.password != nil : model.folders[index].isEncrypted
             let aes = try makeEncryptor(enabled: encrypted)
             let input = SevenZipSolidInput(reader: reader, files: filesByFolder[index], surviving: files, advance: advance)
@@ -108,9 +123,10 @@ final class SevenZipFolderWorkset {
                 defer { offset += size }
                 return .init(folderIndex: 0, offset: offset, size: size, crc32: input.crcs[file])
             }
-            reencoded[index] = SevenZipReencodedFolder(files: files, scratch: scratch,
+            let slice = ScratchFileSlice(file: scratch, range: start..<scratch.length)
+            reencoded[index] = SevenZipReencodedFolder(files: files, scratch: slice,
                 replacement: .init(folder: encoder.folder(size: size, substreamCount: files.count),
-                                   packs: [.init(range: 0..<scratch.length)], streams: streams))
+                                   packs: [.init(range: 0..<slice.length)], streams: streams))
         }
     }
 
@@ -144,10 +160,10 @@ final class SevenZipFolderWorkset {
                 for pack in model.packs[model.folders[index].packIndices] { prefix.append(.source(pack.range)) }
             case .reencode(let index, _):
                 guard let value = reencoded[index] else { throw failure("V0 reencoded pack \(index)") }
-                prefix.append(.scratch(value.scratch, 0..<value.scratch.length))
+                prefix.append(.scratch(value.scratch.file, value.scratch.range))
             case .convert(let index, _):
                 guard let value = conversions[index] else { throw failure("V0 converted pack \(index)") }
-                if let scratch = value.scratch { prefix.append(.scratch(scratch, 0..<scratch.length)) }
+                if let scratch = value.scratch { prefix.append(.scratch(scratch.file, scratch.range)) }
                 else {
                     prefix.append(.generated(length: value.replacement.packs[0].length, write: { sink in
                         try value.write(reader: self.reader, source: self.snapshot.source, model: self.model, write: sink.write)

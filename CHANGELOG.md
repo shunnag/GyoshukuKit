@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 修正
+
+- 7z の更新で多数の folder を再圧縮または暗号化変換するときに、folder ごとに unlink 済みの scratch ファイルを開くのをやめた。
+  workset ごとに共有の scratch を 1 本ずつ使い、folder ごとの範囲を記録する。folder 数に比例して FD を消費し、
+  通常の上限 256 で `EMFILE` になる問題を防ぐ。共有ファイルのコピー時間は重複して数えない。
+
 ## [0.11.0] - 2026-10-11
 
 KaitoKit 0.14.x へ追従し、LZMA の単一 stream の符号化を速くする release。
