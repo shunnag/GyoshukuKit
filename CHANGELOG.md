@@ -3,6 +3,15 @@
 注目すべき変更を記録する。バージョニングは Semantic Versioning に従う。
 現在の導入方法は [README](README.md)、方式・互換性は[形式リファレンス](Documentation/formats.md)、全設定は [WriterOptions](Documentation/options.md)を参照する。
 
+## [0.13.0] - 2026-10-22
+
+KaitoKit 0.16.x へ追従する release。GyoshukuKit 自身のコードと既定出力の byte、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.12.0 と同じ。
+
+### 変更
+
+- KaitoKit 依存を 0.16.x に上げた。KaitoKit 0.16.0 は、NAS など非ローカル volume 上の入力を高遅延と判定して 7z LZMA2 の事前走査を省き、
+  RAR のヘッダ走査を適応窓で読む。更新時に既存書庫を読む処理も、NAS 上ではこの恩恵を受ける。
+
 ## [0.12.0] - 2026-10-20
 
 KaitoKit 0.15.x へ追従し、7z の更新で scratch の FD が folder 数に比例して増える問題を直す release。
