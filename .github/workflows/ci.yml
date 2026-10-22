@@ -5,7 +5,7 @@ name: CI
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。2026-10-08 の probe で確認）。
 # 文書だけの変更では起動しない。tag は main の merge commit（試験済み）に付くので起動しない。
-# 毎日の定時実行は KaitoKit の新しい 0.15.x tag による解決結果の変化を検出する。
+# 毎日の定時実行は KaitoKit の新しい 0.16.x tag による解決結果の変化を検出する。
 on:
   push:
     branches: [main]
