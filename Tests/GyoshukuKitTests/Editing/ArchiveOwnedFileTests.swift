@@ -4,6 +4,22 @@ import XCTest
 @testable import GyoshukuKit
 
 final class ArchiveOwnedFileTests: XCTestCase {
+    func testSourceSnapshotNarrowsModeAndRemainsUnchanged() throws {
+        let root = try TestSupport.directory("source-snapshot-mode")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.bin")
+        try Data([1, 2, 3]).write(to: source)
+        XCTAssertEqual(chmod(source.path, 0o666), 0)
+        let snapshot = try ArchiveSourceSnapshot(url: source, directory: root, pathExtension: "bin")
+        guard let owned = snapshot.snapshot else { throw XCTSkip("clone unavailable on test volume") }
+        var info = stat()
+        XCTAssertEqual(lstat(owned.url.path, &info), 0)
+        XCTAssertEqual(info.st_mode & 0o7777, 0o600)
+        XCTAssertNoThrow(try snapshot.checkUnchanged())
+        XCTAssertEqual(lstat(source.path, &info), 0)
+        XCTAssertEqual(info.st_mode & 0o7777, 0o666)
+    }
+
     func testAssignedInodeRange() {
         let firstFake = ino_t(1) << 63
         for inode in [ino_t(1), 67, 263, ino_t(UInt32.max), firstFake - 1] {

@@ -1,5 +1,6 @@
 import Foundation
 private import Darwin
+internal import KaitoKit
 
 /// ZIP / ZIP64、tar（9種の stream 圧縮を含む）、7z、LHA を新規作成する。既存の出力先は上書きしない。
 ///
@@ -618,6 +619,7 @@ public final class ArchiveWriter {
         // tar は名前中の \ と : を許す。ZIP / 7z / LHA は Windows 向けの制約を保つ。
         guard !body.isEmpty, !body.utf8.contains(0),
               format.isTar || (!body.utf8.contains(92) && !body.utf8.contains(58)),
+              components.count <= ReadLimits().maxPathComponentCount,
               components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
               name.utf8.count <= Int(UInt16.max) else { throw WriterError.invalidPath(path) }
         return name

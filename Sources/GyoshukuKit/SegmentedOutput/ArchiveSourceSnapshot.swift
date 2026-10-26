@@ -38,9 +38,12 @@ final class ArchiveSourceSnapshot {
             if info.st_flags != 0, fchflags(cloned.descriptor, 0) != 0 {
                 throw WriterError.io(operation: "clear snapshot flags", code: errno)
             }
+            guard fchmod(cloned.descriptor, 0o600) == 0 else {
+                throw WriterError.io(operation: "snapshot permissions", code: errno)
+            }
             try original.checkUnchanged(at: url)
-            source = cloned
-            snapshot = owned
+            source = try ArchiveFileSource(duplicating: cloned.descriptor)
+            snapshot = try ArchiveOwnedFile(url: target, descriptor: cloned.descriptor)
         } catch { owned.remove(); throw error }
     }
 

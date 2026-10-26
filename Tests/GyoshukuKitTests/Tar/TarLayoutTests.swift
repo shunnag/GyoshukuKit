@@ -4,6 +4,20 @@ import XCTest
 @testable import GyoshukuKit
 
 final class TarLayoutTests: XCTestCase {
+    func testOversizedExtensionIsRejectedBeforeReadingPayload() throws {
+        let declared = ReadLimits().maxMetadataSize + 1
+        let length = 512 + declared + UInt64(TarRecords.padding(declared))
+        for type in TarRecords.TypeFlag.extensionHeaders {
+            let header = TarRecords.Entry(name: Data("extended".utf8), size: declared, type: type).ustar()
+            let source = HeaderOnlyTarSource(header: header, length: length)
+            XCTAssertThrowsError(try TarLayout.walk(source: source, range: 0..<length, headerReadLimit: 512) { _, _, _ in
+                XCTFail("Oversized extension must not reach a member")
+            }) {
+                XCTAssertEqual($0 as? TarUpdaterError, .requiresRewrite(reason: "R8: extension bounds"))
+            }
+        }
+    }
+
     func testSignedChecksumAndNumericFields() throws {
         var header = TarRecords.Entry(name: Data("name".utf8), size: 9 * 1024 * 1024 * 1024).ustar()
         header[265] = 0xff
@@ -37,5 +51,21 @@ final class TarLayoutTests: XCTestCase {
                                        nameEncoding: nil, hardLinkTargets: [:], dataTargets: [:])
         XCTAssertEqual(memory.membersEnd, layout.membersEnd)
         XCTAssertEqual(memory.units.map(\.groupStart), layout.units.map(\.groupStart))
+    }
+}
+
+private struct HeaderOnlyTarSource: ByteSource {
+    let header: Data
+    let length: UInt64
+    private enum ReadError: Error { case payloadRead }
+
+    func read(into buffer: UnsafeMutableRawBufferPointer, at offset: UInt64) throws -> Int {
+        guard offset < UInt64(header.count), buffer.count <= header.count - Int(offset) else {
+            throw ReadError.payloadRead
+        }
+        header.withUnsafeBytes {
+            buffer.copyMemory(from: UnsafeRawBufferPointer(rebasing: $0[Int(offset)..<(Int(offset) + buffer.count)]))
+        }
+        return buffer.count
     }
 }

@@ -78,6 +78,7 @@ struct TarLayout {
     /// - R8: 構造の不整合（checksum、数値欄、境界、pax record の書式と size、重複 pax、孤立した拡張 header、短い読取）
     /// 4 KiB の header cache は本文を跨いで先読みしない。拡張 payload は別の範囲で読む。
     static func walk(source: any ByteSource, range: Range<UInt64>, headerReadLimit: UInt64? = nil,
+                     headerMetadataLimit: UInt64 = ReadLimits().maxMetadataSize,
                      visit: (Int, Unit, Group) throws -> Void) throws -> TarLayout {
         var cache = HeaderCache(source: source, length: headerReadLimit ?? range.upperBound)
         var offset = range.lowerBound
@@ -102,7 +103,8 @@ struct TarLayout {
             let body = try checkedAdd(offset, UInt64(TarRecords.blockSize))
             if TypeFlag.extensionHeaders.contains(type) {
                 let end = try checkedAdd(body, checkedAdd(declared, UInt64(TarRecords.padding(declared))))
-                guard end <= range.upperBound, declared <= UInt64(Int.max) else { throw refuse("R8: extension bounds") }
+                guard end <= range.upperBound, declared <= headerMetadataLimit,
+                      declared <= UInt64(Int.max) else { throw refuse("R8: extension bounds") }
                 let payload = try bytes(source, at: body, count: Int(declared))
                 if type == TypeFlag.globalPax {
                     guard extensions.isEmpty, try parsePAX(payload).allSatisfy({ $0.key == "comment" }) else {
