@@ -10,6 +10,7 @@
 - writer のパス成分数を KaitoKit の既定上限1,024個以内にし、自分で書いた書庫を reader が拒否する問題を直す。
 - tar の拡張 header payload を確保前に metadata 上限（既定16 MiB）で検査する。
 - source snapshot の clone を mode 0600 に狭め、変更後の identity で同一性を検査する。
+- KaitoKit 0.17.0 に追従する。
 
 ## [0.13.0] - 2026-10-22
 
