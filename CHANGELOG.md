@@ -5,12 +5,20 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-27
+
+2026-10-26 の監査検査（36 agent と所見ごとの敵対的反証2観点）で確認された3件を直し、KaitoKit 0.17.x へ追従する release。既定出力の byte、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.13.0 と同じ。**受理する出力名が狭まった**（`/` 区切りの成分が1,024個以内）。
+
+### 変更
+
+- **動作変更**: 新規追加・改名・`ArchiveRewriter` の再出力名で、`/` 区切りの成分が1,024個を超える名前を拒否する（`WriterError.invalidPath`、rewriter 経路は `RewriterError.unrepresentable`）。境界は NFC 正規化後の成分数で、directory の末尾 `/` は数えない。上限は KaitoKit の reader の既定 `ReadLimits.maxPathComponentCount` に合わせた固定値で、`WriterOptions` では変えられない。0.13.0 以前は書けていたが、書いた書庫を KaitoKit の reader が拒否していた（1,025成分の名前で実測）。
+- KaitoKit 依存を 0.17.x に上げた（0.17.0 以上、0.18.0 未満）。KaitoKit を自分でも固定している下流は範囲を同時に上げる。0.17.0 は 7z entry の鍵導出に reader と password の組ごとの予算を設けたため、salt が folder ごとに異なる敵対的な 7z を password 付きで編集する経路は `KaitoError.limitExceeded` で失敗し得る。GyoshukuKit と 7-Zip が書く書庫は saltSize 0 で導出が1回なので影響しない。
+- GitHub Actions を commit SHA で pin し、更新を Dependabot（月1回・1 PR にまとめる）で追う。
+
 ### 修正
 
-- writer のパス成分数を KaitoKit の既定上限1,024個以内にし、自分で書いた書庫を reader が拒否する問題を直す。
 - tar の拡張 header payload を確保前に metadata 上限（既定16 MiB）で検査する。
 - source snapshot の clone を mode 0600 に狭め、変更後の identity で同一性を検査する。
-- KaitoKit 0.17.0 に追従する。
 
 ## [0.13.0] - 2026-10-22
 

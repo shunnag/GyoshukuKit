@@ -33,7 +33,7 @@ GyoshukuKit ──依存──> KaitoKit
 既存書庫を読む必要がある。その堅い parser は KaitoKit が既に持っているので、
 二つ目の ZIP parser は書かない。開発中は `.package(path: "../KaitoKit")`、
 release では `.upToNextMinor(from: "0.17.0")` の tag 参照を使う。
-GyoshukuKit 0.13.0 は KaitoKit 0.17.x に依存する。`@_spi` は SemVer の保証外で、
+GyoshukuKit 0.14.0 は KaitoKit 0.17.x に依存する。`@_spi` は SemVer の保証外で、
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
@@ -1174,7 +1174,7 @@ AES があればそれを直接読む 1 入力 / 1 出力である folder に対
 呼出側の全件検査を省略してよいという意味ではない。
 
 入力の AES properties はそのまま継承するため、暗号化の予約・solid の一部削除・rewriter などで復号する入力の salt が folder ごとに異なる場合、KaitoKit の鍵導出予算を folder ごとに消費する。
-0.17.0 候補の既定は reader と password の組ごとに `16 * (1 << 24)` SHA-256 rounds（別 password の設定でリセット）で、cyclesPower 19 なら異なる salt 512 個、24 なら16個までとし、超える入力の編集は `KaitoError.limitExceeded` で失敗する。
+0.17.0 の既定は reader と password の組ごとに `16 * (1 << 24)` SHA-256 rounds（別 password の設定でリセット）で、cyclesPower 19 なら異なる salt 512 個、24 なら16個までとし、超える入力の編集は `KaitoError.limitExceeded` で失敗する。
 GyoshukuKit / 7-Zip が生成する書庫は saltSize 0 で導出が1回なので、この制限の影響を受けない。
 
 header は元が平文 / Copy なら平文、元が圧縮されていれば LZMA2 にし、AES の有無は
