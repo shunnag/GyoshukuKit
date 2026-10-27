@@ -6,6 +6,27 @@ import XCTest
 final class ArchivePathValidationTests: XCTestCase {
     private let formats: [GyoshukuKit.ArchiveFormat] = [.zip, .tar, .tarGzip, .tarBzip2, .tarXZ, .sevenZip, .lha]
 
+    func testWriterPathComponentLimitMatchesDefaultReader() throws {
+        let accepted = Array(repeating: "a", count: 1_024).joined(separator: "/")
+        let rejected = accepted + "/a"
+        for format in formats {
+            for directory in [false, true] {
+                XCTAssertEqual(try ArchiveWriter.normalizedPath(accepted, directory: directory, format: format),
+                               accepted + (directory ? "/" : ""))
+                XCTAssertThrowsError(try ArchiveWriter.normalizedPath(rejected, directory: directory, format: format)) {
+                    XCTAssertEqual($0 as? WriterError, .invalidPath(rejected))
+                }
+            }
+        }
+        let root = try TestSupport.directory("writer-path-component-limit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("boundary.zip")
+        let writer = try ArchiveWriter.create(url: archive)
+        try writer.add(data: Data(), as: accepted)
+        try writer.finish()
+        XCTAssertEqual(try ArchiveReader.open(url: archive).entries.map(\.name), [accepted])
+    }
+
     func testCombiningMarksDoNotHideInvalidPathBytesOrComponents() throws {
         for format in formats {
             for directory in [false, true] {

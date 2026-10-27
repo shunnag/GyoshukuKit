@@ -13,6 +13,9 @@ swift test
 
 ## Toolchain と CI
 
+GitHub Actions はコミット SHA で固定し、Dependabot で月 1 回、更新を 1 つの PR にまとめて追跡します。
+`brew install` は従来どおりバージョンを固定しない方針です。
+
 Swift 6.3.3 の `-O` は `TaskLocal<function?>.withValue` を誤コンパイルし、valueType metadata が nil になって EXC_BAD_ACCESS となることを2026-10-08に確認しました。Xcode 26 / Swift 6.3 でのビルドはサポートしません。Swift 6.4 でビルドした製品は macOS 26 の OS Swift runtime で動作します。
 
 `Package.swift` の `swift-tools-version` は6.0のため、manifest はこのビルド要件を強制しません。古い toolchain で依存解決・ビルドできても、release での正しい動作は保証されません。

@@ -416,6 +416,10 @@ tl-S11 の危険は残る。level 2 の長さの下位 byte が 0 だと KaitoKi
 
 ## 6. 更新の安全性
 
+編集用 reader は `maxEntrySize` / `maxTotalUncompressedSize` を `.max` にする。
+KaitoKit の LHA / RAR decoder は stream 作成時に圧縮済み member 全体をメモリへ読み、門番は `maxEntrySize` だけなので、
+これらの入力の peak RSS は入力ファイル長に比例する（圧縮済み入力に対して約1:1）。これは編集時の読取制限の契約とする。
+
 ### 圧縮 tar の区切り単位の更新（P3-G G2）
 
 `CompressedTarUpdater.open(reader:output:format:options:)` は KaitoKit の
@@ -431,6 +435,7 @@ pax/sparse header 群の変更、comment の global header、所有者と未変�
 追加/literal だけの保存領域は形式共通の `ScratchFile`（出力の隣に O_EXCL・0600 で作り、inode の一致を確かめて直ちに unlink し、fd だけを持つ。2026-09-29 に再配置の scratch・7z folder の scratch・LHA の圧縮 spool も同じ型に統一）で、
 固定の予備容量や空き容量の事前検査は設けず、実際の書込みエラーを伝えて後始末する。
 出力 volume 上で追加と literal だけを保存するため、出力本体と同じ容量方針にする。
+空き容量の検査は故障注入時だけで、scratch の容量上限は設けない。展開総量の上限も外すため、7z folder の再符号化は ENOSPC まで書き込める契約とする。
 
 運ぶ chunk は新 image の一つの連続する source 区間に収まるものだけとする。
 gzip はさらに直前 32 KiB も同じ source 区間に収め、BFINAL を途中へ運ばない。
@@ -543,6 +548,8 @@ callback の throw・再入・取消しは失敗として、自分の inode の 
    xattr と作成日は保つが `com.apple.quarantine` は落とすので、付いていれば戻す。
 
 原本は一度も in-place 編集しない。commit 前の失敗・破棄では clone を削除する。
+原本置換の公開は新しい inode になり、元の hard link との関係は切れる。
+mode は set-ID / sticky を含めて元の値（`mode & 0o7777`）を復元するが、所有者は引き継がず、公開後の uid は編集プロセスの実効ユーザーになる。
 成功後の commit は no-op。失敗後の instance は再利用できない。原本の inode・size・
 mtime・mode が open 時と変わった場合は置換を拒否する。device も比較する。
 Finder tag や LaunchServices の `com.apple.lastuseddate#PS` 更新でも変わるため ctime は除外する。
@@ -620,7 +627,7 @@ CD 側の改名拒否は実行中の I/O エラーより先に判定する。混
 `ArchiveUpdater.open(url:output:options:)` の output は既存であってはならず、親は呼出側が用意する。
 省略時の原本置換は従来どおり。指定時は原本を O_RDONLY | O_NOFOLLOW で開き、immutable / append の
 UF/SF flags があれば何も作らず EPERM を返す。開いた descriptor から `fclonefileat` で output の隣に
-source snapshot を作り、flags を 0 にする。以後の門番・reader・validate・rebuild・CD 読取はこの descriptor
+source snapshot を作り、flags を 0、mode を 0600 にする。以後の門番・reader・validate・rebuild・CD 読取はこの descriptor
 だけを使う。ENOTSUP / EXDEV だけは原本への直接読取へ戻り、他の clone エラーは失敗にする。
 この処理は形式に依存しない internal の `ArchiveSourceSnapshot` で、拡張子を指定できる（後続の tar 用）。
 
@@ -1165,6 +1172,10 @@ AES があればそれを直接読む 1 入力 / 1 出力である folder に対
 7z AES は認証を持たず、64 KiB を越える AES + Copy の entry では誤った currentPassword をこの確認だけでは検出できない。
 短い entry は最後まで読むので CRC が照合される。同じ UTF-16 password の carry は復号しない。
 呼出側の全件検査を省略してよいという意味ではない。
+
+入力の AES properties はそのまま継承するため、暗号化の予約・solid の一部削除・rewriter などで復号する入力の salt が folder ごとに異なる場合、KaitoKit の鍵導出予算を folder ごとに消費する。
+0.17.0 候補の既定は reader と password の組ごとに `16 * (1 << 24)` SHA-256 rounds（別 password の設定でリセット）で、cyclesPower 19 なら異なる salt 512 個、24 なら16個までとし、超える入力の編集は `KaitoError.limitExceeded` で失敗する。
+GyoshukuKit / 7-Zip が生成する書庫は saltSize 0 で導出が1回なので、この制限の影響を受けない。
 
 header は元が平文 / Copy なら平文、元が圧縮されていれば LZMA2 にし、AES の有無は
 `encryptsSevenZipHeaders` に従う。ただし暗号化の予約なしに元の暗号化 header を平文にする設定は

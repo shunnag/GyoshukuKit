@@ -3,6 +3,14 @@
 注目すべき変更を記録する。バージョニングは Semantic Versioning に従う。
 現在の導入方法は [README](README.md)、方式・互換性は[形式リファレンス](Documentation/formats.md)、全設定は [WriterOptions](Documentation/options.md)を参照する。
 
+## [Unreleased]
+
+### 修正
+
+- writer のパス成分数を KaitoKit の既定上限1,024個以内にし、自分で書いた書庫を reader が拒否する問題を直す。
+- tar の拡張 header payload を確保前に metadata 上限（既定16 MiB）で検査する。
+- source snapshot の clone を mode 0600 に狭め、変更後の identity で同一性を検査する。
+
 ## [0.13.0] - 2026-10-22
 
 KaitoKit 0.16.x へ追従する release。GyoshukuKit 自身のコードと既定出力の byte、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.12.0 と同じ。

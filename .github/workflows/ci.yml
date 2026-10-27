@@ -41,6 +41,7 @@ permissions:
 jobs:
   # main への push では、同じ tree（と KaitoKit の tag 集合）が PR の完全な CI を通っていれば重い job を省く。
   # 少しでも曖昧なら全部実行する。tree は全 shard と網羅検査の通過後にだけ記録する。
+  # 照合は ci.yml 自身も含む tree hash なので、細工した ci.yml で異なる tree の実行を省くことはできない。
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -49,7 +50,7 @@ jobs:
       tree: ${{ steps.lookup.outputs.tree }}
       kaitokit_tags: ${{ steps.lookup.outputs.kaitokit_tags }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 1
       - name: Look up a fully tested PR tree
@@ -147,7 +148,7 @@ jobs:
     # 2026-10-14 の計測で最遅 shard は約74分。上限はその約2倍とする。
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
         run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
@@ -276,7 +277,7 @@ jobs:
             mkdir -p "$RUNNER_TEMP/shard"
             cp "$RUNNER_TEMP/large.log" "$RUNNER_TEMP/shard/large.log"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: shard-report-xcode-27-${{ matrix.shard }}
@@ -292,7 +293,7 @@ jobs:
     timeout-minutes: 25
     steps:
       # 全 job で同じ checkout path。fixture と Bundle.module の絶対 path を保つ。
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Show toolchain versions
         run: |
           sw_vers
@@ -457,7 +458,7 @@ jobs:
           PY
           # tar で bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
           tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-26-tests
           path: ${{ runner.temp }}/macos-26-tests.tar.gz
@@ -474,7 +475,7 @@ jobs:
         shard: [1, 2]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
         run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
@@ -495,7 +496,7 @@ jobs:
         run: |
           sw_vers
           xcodebuild -version
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: macos-26-tests
           path: ${{ runner.temp }}/macos-26-artifact
@@ -600,7 +601,7 @@ jobs:
           print(f"Verified {len(cases)} executed FullSize tests")
           PY
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: shard-report-macos-26-${{ matrix.shard }}
@@ -614,7 +615,7 @@ jobs:
     needs: [gate, build-and-test, macos-26-runtime]
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: shard-report-*
           path: reports
@@ -662,7 +663,7 @@ jobs:
         run: |
           printf 'tree=%s\nkaitokit_tags=%s\nrun_id=%s\nsha=%s\n' \
             "$TESTED_TREE" "$KAITOKIT_TAGS" "$TESTED_RUN_ID" "$TESTED_SHA" > tested-tree.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: github.event_name == 'pull_request'
         with:
           name: tested-tree

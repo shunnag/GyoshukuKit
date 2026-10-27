@@ -22,6 +22,8 @@ try writer.finish()
 
 出力先は新規ファイルに限り、既存ファイルを上書きしません。ディスク上の
 ディレクトリは再帰的に追加します。symlink は辿らず、target path を保存します（LHA は symlink を拒否します）。
+ディスク上の mode は set-ID / sticky を含めてそのまま書庫へ保存し、symlink target も内容を検査せず保存します。
+展開時の扱いは reader の方針に従います（KaitoKit 0.17.0 は既定で通常ファイルの set-ID を落とします）。
 同じ writer は呼出側が直列化してください。thread-safe / Sendable ではありません。
 設定値の `WriterOptions` は `Sendable` です。
 
@@ -67,6 +69,8 @@ ZIP の更新は同一 volume の clone で作業し、commit で atomic replace
 復元します。未 commit の破棄、途中失敗、置換前の Task cancellation では原本を変更しません。
 成功後の commit は no-op、失敗後は再利用できません。metadata 復元で失敗した場合は既に
 内容の置換は完了しています。同じ書庫への操作は呼出側で直列化してください。
+
+SIGKILL や電源断などの異常終了では、出力または原本の隣に `.gyoshuku-source-*` / `.gyoshuku-staged-*` / `.gyoshuku-rewrite-*` などの一時ファイルが残る場合があります。他プロセスが使用中のファイルを消すおそれがあるため、自動清掃は行いません。
 
 ### ZIP の編集可否 probe
 
