@@ -210,6 +210,8 @@ tar（全9圧縮形式を含む）/ LHA のパスワード指定は `unsupported
 新規追加・改名・`ArchiveRewriter` の再出力名は、全形式で NFC へ正規化します。
 空の名前・絶対パス・`.` / `..`・空の成分・NUL・
 UTF-8 で 65,535 byte を超える出力名・NFC 正規化後の重複・file と子の衝突は拒否します。
+`/` 区切りの成分が1,024個を超える出力名も拒否します。KaitoKit の reader の既定
+`ReadLimits.maxPathComponentCount` に合わせた固定上限で、`WriterOptions` では変えられません。
 `\` / `:` は Windows 向けの ZIP / 7z / LHA 出力で拒否します。
 tar（全9圧縮形式を含む）では両文字を名前の一部として許可します。
 `ArchiveRewriter` の既存名の検査にも、出力形式の規則を適用します。

@@ -4,10 +4,10 @@
 
 ## Swift Package Manager
 
-GyoshukuKit 0.8.0 を Swift Package Manager で追加します。
+GyoshukuKit 0.14.0 を Swift Package Manager で追加します。
 
 ```swift
-.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.8.0"))
+.package(url: "https://github.com/shunnag/GyoshukuKit.git", .upToNextMinor(from: "0.14.0"))
 ```
 
 利用側の target の dependencies に `.product(name: "GyoshukuKit", package: "GyoshukuKit")` を追加してください。

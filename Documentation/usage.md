@@ -71,6 +71,7 @@ ZIP の更新は同一 volume の clone で作業し、commit で atomic replace
 内容の置換は完了しています。同じ書庫への操作は呼出側で直列化してください。
 
 SIGKILL や電源断などの異常終了では、出力または原本の隣に `.gyoshuku-source-*` / `.gyoshuku-staged-*` / `.gyoshuku-rewrite-*` などの一時ファイルが残る場合があります。他プロセスが使用中のファイルを消すおそれがあるため、自動清掃は行いません。
+原本を置換する更新では、clone と staging が macOS の item replacement directory（同一 volume の `.TemporaryItems` 配下）に残る場合もあります。
 
 ### ZIP の編集可否 probe
 

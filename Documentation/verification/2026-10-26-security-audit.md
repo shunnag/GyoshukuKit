@@ -105,7 +105,7 @@ KaitoFinder の確認ダイアログへの行注入（同日の KaitoFinder 検�
 相対 `mkdir d && cd d` の反復で `stop at depth 447 abslen 1025 errno 63`（`ENAMETOOLONG`）。
 walk 可能な深さは 446 で、「数千段の再帰で stack を使い切る」には到達しない。
 
-## 3. 修正（本記録の時点。commit はしていない）
+## 3. 修正（0.14.0 で commit 済み。第 7 節に検証を追記した）
 
 1. **4.2-C / 4.2-G**: `Writer/ArchiveWriter.swift` の `normalizedPath` の guard に
    `components.count <= ReadLimits().maxPathComponentCount` を追加。前例は
@@ -147,7 +147,8 @@ walk 可能な深さは 446 で、「数千段の再帰で stack を使い切る
 | resource fork entry の metadata | **無関係** | 同上（KaitoKit の展開器を使わない） |
 
 依存の pin: `Package.swift:12-20` は隣に `../KaitoKit` があれば path 依存、無ければ `.upToNextMinor(from: "0.16.0")`
-（= 0.17.0 未満）。したがって **CI と下流には 0.17.0 は見えない**。0.17.0 の型や既定値に依存する回帰テストは、
+（= 0.17.0 未満）。したがって **CI と下流には 0.17.0 は見えない**（**検査時点の事実**。0.17.0 の公開後、
+GyoshukuKit 0.14.0 で範囲を `.upToNextMinor(from: "0.17.0")` に上げた）。0.17.0 の型や既定値に依存する回帰テストは、
 0.17.0 が tag 公開され `Package.swift` の範囲を上げるまでローカルでしか検証できない。
 CI の gate は KaitoKit の tag 一覧の sha256 を取り込むので、**0.17.0 の公開は skip を無効化する**（CI-04 で確認）。
 
@@ -163,3 +164,24 @@ CI の gate は KaitoKit の tag 一覧の sha256 を取り込むので、**0.17
   clean-room 規則により source を読めないため黒箱でも確認できていない。
 - `ZipReencryption` の鍵素材の実ピーク（100 万 entry で約 82 MB）は計算値で未実測。
 - 4.3 の `replaceItemAt` が新 inode の gid を原本の gid に戻すかは未実測（JXA から呼べないため）。
+
+## 7. 検証（0.14.0）
+
+本記録の修正 3 件は GyoshukuKit 0.14.0 として公開した。
+
+- ローカル: `swift test` 全 suite **921 tests / 49 skipped / 0 failures**（KaitoKit 0.17.0 を解決した状態）。
+  修正後に path 成分 1,024 個は書けて読め、1,025 個と 2,000 個は書込み時に `WriterError.invalidPath` で
+  拒否されることを Mac mini で実測した（第 2.1 節の修正前の出力と対になる）。
+- CI: PR #21（監査修正）と #23（KaitoKit 0.17.0 追従）で全 check pass。
+  build-and-test 2 shard が約 1 時間、macos-26-runtime 2 shard も約 1 時間。
+- タグ前レビュー: 4 観点（修正の正しさと回帰 / 公開挙動と SemVer / 文書と版の整合 / CI と依存の pin）に
+  1 エージェントずつ、所見ごとに敵対的反証 2 観点で計 26 エージェント。**コードの blocker は 0 件**で、
+  3 件の修正はいずれも正しいと確認された（guard の境界がちょうど 1,024 で reader 4 形式と一致すること、
+  `headerMetadataLimit` が拡張 header 5 型すべてに効くこと、`fchmod` 後に identity を取り直すことで
+  `ArchiveOwnedFile`（fd を保持しない struct）と `ArchiveFileSource(duplicating:)` の fd 寿命が壊れないこと）。
+  生存した所見は文書とリリース体裁で、0.14.0 の release commit で反映した:
+  path 成分の上限を `### 修正` から `### 変更`（動作変更）へ移し、`Documentation/formats.md` の名前の拒否一覧に
+  成分数の規則を追記し、README / `design.md` / `installation.md` の版の記述を揃えた。
+- 残した follow-up（0.14.0 では直さない）: `ArchiveSourceSnapshot` の clone 直後から `fchmod` までの窓では
+  複製が原本の mode のまま存在する。完全に閉じるなら `ArchiveRewriter` と同じく 0700 の directory 内に
+  clone する形に寄せる。
