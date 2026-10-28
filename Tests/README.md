@@ -110,8 +110,9 @@ ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7
   `ReferenceToolPolicyTests` が両方の経路を固定する。
 - 7zz や GNU tar があるときだけ照合を足す: `LHAUpdaterLargeOffsetTests`・`SevenZipUpdaterLargeOffsetTests`・
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
-- CI（`.github/workflows/ci.yml`）は `brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake` と
-  固定commitの LHa for UNIX の一時ビルドで必須ツールを入れる。製品の依存には加えない。
+- CI（`.github/workflows/ci.yml`）は必須ツールを `command -v` で確認し、不足時は hosted だけで `brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake` する。自前では不足を失敗にする。
+  固定commitの LHa for UNIX は毎回一時ビルドする。製品の依存には加えない。
+  Xcode 27 job は自前の `[self-hosted, shunnag-arm64]`、fork PR だけは hosted の `xcode-27` を使う（[CI の運用](../Documentation/testing.md#toolchain-と-ci)）。
   build は Xcode 27 / Swift 6.4 のみ。macOS 27 では既定の debug suite と、release の
   `GYOSHUKU_LARGE_ENCODER_TESTS=1` / `--filter FullSize` による大入力16件（BZip2追加後）を実行する。
   macOS 26 には別の Xcode 27 job で build した test bundle・resource・依存 dylib と FullSize の識別子を運び、

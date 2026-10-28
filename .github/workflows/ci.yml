@@ -1,6 +1,7 @@
 name: CI
 
 # 利用側と同じ tag 参照（隣に KaitoKit の checkout がない）で build と試験を行う。
+# Xcode 27 job は自前の Apple Silicon へ送る。fork PR だけは hosted runner で実行する。
 # build は Xcode 27 / Swift 6.4 のみ。成果物を macOS 26 にも運び、OS の差を検出する。
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。2026-10-08 の probe で確認）。
@@ -138,7 +139,7 @@ jobs:
 
   build-and-test:
     name: build-and-test (${{ matrix.shard }}/2)
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     needs: gate
     if: needs.gate.outputs.full == 'true'
     strategy:
@@ -149,13 +150,32 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Prepare dependency resolution
+        # 永続 workspace の隣接 checkout や manifest cache で tag 参照が変わらないようにする。
+        run: |
+          set -euo pipefail
+          rm -rf ../KaitoKit "$RUNNER_TEMP/swiftpm-cache" "$RUNNER_TEMP/shard" "$RUNNER_TEMP/large.log"
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
-        run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in 7zz zstd xz lzip lz4 brotli lha gtar autoconf autoreconf autoheader automake aclocal; do
+            command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+              printf 'error: self-hosted runner に必要なツールがありません: %s\n' "${missing[*]}" >&2
+              exit 1
+            fi
+            brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+          fi
       - name: Install LHa for UNIX oracle
         # Lhasa は展開専用。逆方向の -o6 / -o7 試験には別の実行ファイルを置く。
         # source は runner の一時領域でビルドするだけで、製品・fixture へ取り込まない。
         run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/lha-unix-source" "$RUNNER_TEMP/lha-unix-install"
           git clone https://github.com/jca02266/lha.git "$RUNNER_TEMP/lha-unix-source"
           git -C "$RUNNER_TEMP/lha-unix-source" checkout 16619b066b189ef289bb8b07b37d1c38d550da99
           cd "$RUNNER_TEMP/lha-unix-source"
@@ -164,21 +184,21 @@ jobs:
           make -j2
           make install
           mkdir -p "$HOME/.local/bin"
-          ln -sf "$RUNNER_TEMP/lha-unix-install/bin/lha" "$HOME/.local/bin/lha-unix"
+          ln -sfn "$RUNNER_TEMP/lha-unix-install/bin/lha" "$HOME/.local/bin/lha-unix"
       - name: Show toolchain versions
         run: |
           sw_vers
           xcodebuild -version
           swift --version
       - name: Build
-        run: swift build --build-tests
+        run: swift build --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local --build-tests
       - name: List debug tests
         env:
           SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/shard"
-          swift test list --skip-build | LC_ALL=C sort > "$RUNNER_TEMP/shard/enumerated.txt"
+          swift test --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local list --skip-build | LC_ALL=C sort > "$RUNNER_TEMP/shard/enumerated.txt"
           python3 <<'PY'
           import os
           import re
@@ -216,7 +236,7 @@ jobs:
           set -o pipefail
           set -e
           if [ "${{ matrix.shard }}" = 1 ]; then sel=(--filter "$SHARD1_REGEX"); else sel=(--skip "$SHARD1_REGEX"); fi
-          swift test --skip-build "${sel[@]}" 2>&1 | tee "$RUNNER_TEMP/shard/debug.log" || exit 1
+          swift test --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local --skip-build "${sel[@]}" 2>&1 | tee "$RUNNER_TEMP/shard/debug.log" || exit 1
           python3 <<'PY'
           import os
           import re
@@ -241,7 +261,7 @@ jobs:
           grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/shard/debug.log" || exit 1
       - name: Build release tests
         if: matrix.shard == 1
-        run: swift build -c release --build-tests -Xswiftc -enable-testing
+        run: swift build --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local -c release --build-tests -Xswiftc -enable-testing
       - name: Large encoder tests (release)
         if: matrix.shard == 1
         # FullSize 16 件（BZip2追加後）は debug suite では opt-in。
@@ -251,10 +271,10 @@ jobs:
         run: |
           set -o pipefail
           set -e
-          swift test -c release --skip-build -Xswiftc -enable-testing --filter FullSize 2>&1 | tee "$RUNNER_TEMP/large.log"
+          swift test --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local -c release --skip-build -Xswiftc -enable-testing --filter FullSize 2>&1 | tee "$RUNNER_TEMP/large.log"
           grep -Eq "Executed [1-9][0-9]* tests?, with 0 failures" "$RUNNER_TEMP/large.log" || exit 1
           export FULLSIZE_COUNT
-          FULLSIZE_COUNT="$(swift test list -c release --skip-build -Xswiftc -enable-testing | grep -c FullSize)" || exit 1
+          FULLSIZE_COUNT="$(swift test --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local list -c release --skip-build -Xswiftc -enable-testing | grep -c FullSize)" || exit 1
           python3 <<'PY'
           import os
           import re
@@ -270,6 +290,13 @@ jobs:
               raise RuntimeError(f"FullSize count mismatch: executed {len(cases)}, expected {expected}")
           print(f"Verified {len(cases)} executed FullSize tests")
           PY
+      - name: Clean up LHa for UNIX oracle
+        if: always()
+        run: |
+          if [ -L "$HOME/.local/bin/lha-unix" ] && \
+             [ "$(readlink "$HOME/.local/bin/lha-unix")" = "$RUNNER_TEMP/lha-unix-install/bin/lha" ]; then
+            rm "$HOME/.local/bin/lha-unix"
+          fi
       - name: Collect release log
         if: always() && matrix.shard == 1
         run: |
@@ -287,34 +314,40 @@ jobs:
           retention-days: 7
 
   build-for-macos-26:
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
     needs: gate
     if: needs.gate.outputs.full == 'true'
     timeout-minutes: 25
     steps:
-      # 全 job で同じ checkout path。fixture と Bundle.module の絶対 path を保つ。
+      # build 時の checkout path を artifact に記録し、hosted 実行時に別名で復元する。
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Prepare dependency resolution
+        # 永続 workspace の隣接 checkout や manifest cache で tag 参照が変わらないようにする。
+        run: |
+          set -euo pipefail
+          rm -rf ../KaitoKit "$RUNNER_TEMP/swiftpm-cache"
       - name: Show toolchain versions
         run: |
           sw_vers
           xcodebuild -version
           swift --version
       - name: Build debug tests
-        run: swift build --build-tests
+        run: swift build --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local --build-tests
       - name: Build release tests
-        run: swift build -c release --build-tests -Xswiftc -enable-testing
+        run: swift build --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local -c release --build-tests -Xswiftc -enable-testing
       - name: Package runtime tests and Xcode 27 dependencies
         run: |
           set -euo pipefail
-          swift test list --skip-build | LC_ALL=C sort > "$RUNNER_TEMP/debug-test-list.txt"
+          swift test --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local list --skip-build | LC_ALL=C sort > "$RUNNER_TEMP/debug-test-list.txt"
           test -s "$RUNNER_TEMP/debug-test-list.txt"
-          swift test list -c release --skip-build -Xswiftc -enable-testing > "$RUNNER_TEMP/release-test-list.txt"
+          swift test --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local list -c release --skip-build -Xswiftc -enable-testing > "$RUNNER_TEMP/release-test-list.txt"
           grep FullSize "$RUNNER_TEMP/release-test-list.txt" | LC_ALL=C sort -u > "$RUNNER_TEMP/fullsize-tests.txt"
           test -s "$RUNNER_TEMP/fullsize-tests.txt"
           export DEBUG_BIN RELEASE_BIN PACKAGE_STAGE FULLSIZE_LIST DEBUG_LIST
-          DEBUG_BIN="$(swift build --show-bin-path)"
-          RELEASE_BIN="$(swift build -c release --show-bin-path -Xswiftc -enable-testing)"
+          DEBUG_BIN="$(swift build --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local --show-bin-path)"
+          RELEASE_BIN="$(swift build --cache-path "$RUNNER_TEMP/swiftpm-cache" --manifest-cache local -c release --show-bin-path -Xswiftc -enable-testing)"
           PACKAGE_STAGE="$RUNNER_TEMP/macos-26-tests"
+          rm -rf "$PACKAGE_STAGE"
           FULLSIZE_LIST="$RUNNER_TEMP/fullsize-tests.txt"
           DEBUG_LIST="$RUNNER_TEMP/debug-test-list.txt"
           python3 <<'PY'
@@ -345,7 +378,12 @@ jobs:
           (runtime / "fullsize-tests.txt").write_text("\n".join(identifiers) + "\n")
           print("FullSize selectors:\n" + "\n".join(identifiers), flush=True)
 
-          developer = Path(subprocess.check_output(["xcode-select", "-p"], text=True).strip())
+          # xcrun と同じ Xcode を探す。自前 runner の DEVELOPER_DIR を優先する。
+          developer = Path(os.environ.get("DEVELOPER_DIR") or subprocess.check_output(
+              ["xcode-select", "-p"], text=True
+          ).strip()).resolve()
+          if developer.suffix == ".app":
+              developer /= "Contents/Developer"
           macos = developer / "Platforms/MacOSX.platform/Developer"
           runner = Path(subprocess.check_output(["xcrun", "-f", "xctest"], text=True).strip()).resolve()
           shutil.copy2(runner, runtime / "bin/xctest")
@@ -478,11 +516,25 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
-        run: brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+        run: |
+          set -euo pipefail
+          missing=()
+          for tool in 7zz zstd xz lzip lz4 brotli lha gtar autoconf autoreconf autoheader automake aclocal; do
+            command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+              printf 'error: self-hosted runner に必要なツールがありません: %s\n' "${missing[*]}" >&2
+              exit 1
+            fi
+            brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake
+          fi
       - name: Install LHa for UNIX oracle
         # Lhasa は展開専用。逆方向の -o6 / -o7 試験には別の実行ファイルを置く。
         # source は runner の一時領域でビルドするだけで、製品・fixture へ取り込まない。
         run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/lha-unix-source" "$RUNNER_TEMP/lha-unix-install"
           git clone https://github.com/jca02266/lha.git "$RUNNER_TEMP/lha-unix-source"
           git -C "$RUNNER_TEMP/lha-unix-source" checkout 16619b066b189ef289bb8b07b37d1c38d550da99
           cd "$RUNNER_TEMP/lha-unix-source"
@@ -491,7 +543,7 @@ jobs:
           make -j2
           make install
           mkdir -p "$HOME/.local/bin"
-          ln -sf "$RUNNER_TEMP/lha-unix-install/bin/lha" "$HOME/.local/bin/lha-unix"
+          ln -sfn "$RUNNER_TEMP/lha-unix-install/bin/lha" "$HOME/.local/bin/lha-unix"
       - name: Show runtime versions
         run: |
           sw_vers
@@ -502,9 +554,26 @@ jobs:
           path: ${{ runner.temp }}/macos-26-artifact
       - name: Extract test bundles
         run: |
+          set -euo pipefail
           tar -xzf "$RUNNER_TEMP/macos-26-artifact/macos-26-tests.tar.gz" -C "$GITHUB_WORKSPACE"
-          # #filePath / Bundle.module の build 時 path と一致することも検査する。
-          test "$(cat .build/ci-runtime/checkout-path.txt)" = "$(pwd -P)"
+          # #filePath / Bundle.module の絶対 path を保つ。sudo は hosted runtime job だけで使う。
+          python3 <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          workspace = Path.cwd().resolve()
+          checkout = Path(".build/ci-runtime/checkout-path.txt").read_text().strip()
+          source = Path(checkout)
+          if not source.is_absolute() or source.name != workspace.name or ".." in source.parts:
+              raise RuntimeError(f"Invalid build checkout path: {checkout}")
+          if source.resolve() != workspace:
+              if source.exists() or source.is_symlink():
+                  raise RuntimeError(f"Build checkout alias already exists: {source}")
+              subprocess.run(["sudo", "mkdir", "-p", str(source.parent)], check=True)
+              subprocess.run(["sudo", "ln", "-s", str(workspace), str(source)], check=True)
+          if source.resolve() != workspace:
+              raise RuntimeError(f"Build checkout alias does not resolve to {workspace}")
+          PY
       - name: Run debug suite and release FullSize without compiling
         env:
           SHARD: ${{ matrix.shard }}
@@ -601,6 +670,24 @@ jobs:
           print(f"Verified {len(cases)} executed FullSize tests")
           PY
           fi
+      - name: Clean up runtime aliases
+        if: always()
+        run: |
+          if [ -L "$HOME/.local/bin/lha-unix" ] && \
+             [ "$(readlink "$HOME/.local/bin/lha-unix")" = "$RUNNER_TEMP/lha-unix-install/bin/lha" ]; then
+            rm "$HOME/.local/bin/lha-unix"
+          fi
+          python3 <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          recorded = Path(".build/ci-runtime/checkout-path.txt")
+          if recorded.is_file():
+              workspace = Path.cwd().resolve()
+              source = Path(recorded.read_text().strip())
+              if source.is_absolute() and source != workspace and source.is_symlink() and source.resolve() == workspace:
+                  subprocess.run(["sudo", "unlink", str(source)], check=True)
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
