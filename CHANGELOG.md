@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 変更
+
+- WinZip AES の書き込みを速くする。entry ごとの PBKDF2 を並列の worker で先に計算し(salt は投入順に生成するので出力は変わらない)、CTR の鍵流を UInt64 の counter と 8 byte 単位の XOR で作る。小さな AES entry の多い書庫で 1.38 → 0.18 秒(7.5 倍)、512 MiB の stored AES で 2.2 倍。単独の大きな AES entry は従来どおり finish 時に全 thread で圧縮する。
+
 ## [0.14.0] - 2026-10-27
 
 2026-10-26 の監査検査（36 agent と所見ごとの敵対的反証2観点）で確認された3件を直し、KaitoKit 0.17.x へ追従する release。既定出力の byte、ビルド要件（Xcode 27 / Swift 6.4以上）、実行環境（macOS 26以上・Apple Silicon）は 0.13.0 と同じ。**受理する出力名が狭まった**（`/` 区切りの成分が1,024個以内）。
