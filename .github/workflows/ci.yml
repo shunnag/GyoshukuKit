@@ -1,7 +1,8 @@
 name: CI
 
 # 利用側と同じ tag 参照（隣に KaitoKit の checkout がない）で build と試験を行う。
-# Xcode 27 job は自前の Apple Silicon へ送る。fork PR だけは hosted runner で実行する。
+# build-and-test は自前の Apple Silicon へ送る。fork PR だけは hosted runner で実行する。
+# macOS 26 向けの build は全 event で hosted の xcode-27 を使い、実行先と checkout path を揃える。
 # build は Xcode 27 / Swift 6.4 のみ。成果物を macOS 26 にも運び、OS の差を検出する。
 # Swift 6.3.3 の -O は TaskLocal<function?> の withValue を誤コンパイルする
 # （valueType metadata が nil、EXC_BAD_ACCESS。2026-10-08 の probe で確認）。
@@ -314,12 +315,12 @@ jobs:
           retention-days: 7
 
   build-for-macos-26:
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '["xcode-27"]' || '["self-hosted", "shunnag-arm64"]') }}
+    runs-on: xcode-27
     needs: gate
     if: needs.gate.outputs.full == 'true'
     timeout-minutes: 25
     steps:
-      # build 時の checkout path を artifact に記録し、hosted 実行時に別名で復元する。
+      # hosted の macos-26-runtime と checkout path を揃え、#filePath / Bundle.module の絶対 path を保つ。
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Prepare dependency resolution
         # 永続 workspace の隣接 checkout や manifest cache で tag 参照が変わらないようにする。
@@ -365,7 +366,6 @@ jobs:
           runtime = stage / ".build/ci-runtime"
           for directory in (runtime / "bin", runtime / "lib", runtime / "Frameworks"):
               directory.mkdir(parents=True, exist_ok=True)
-          (runtime / "checkout-path.txt").write_text(str(root) + "\n")
           debug_identifiers = Path(os.environ["DEBUG_LIST"]).read_text().splitlines()
           if not debug_identifiers or any(not re.fullmatch(r"GyoshukuKitTests\.\w+/\w+", name) for name in debug_identifiers):
               raise RuntimeError("Invalid or empty debug test identifiers")
@@ -378,7 +378,7 @@ jobs:
           (runtime / "fullsize-tests.txt").write_text("\n".join(identifiers) + "\n")
           print("FullSize selectors:\n" + "\n".join(identifiers), flush=True)
 
-          # xcrun と同じ Xcode を探す。自前 runner の DEVELOPER_DIR を優先する。
+          # xcrun と同じ Xcode を探す。DEVELOPER_DIR があれば優先する。
           developer = Path(os.environ.get("DEVELOPER_DIR") or subprocess.check_output(
               ["xcode-select", "-p"], text=True
           ).strip()).resolve()
@@ -556,24 +556,6 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf "$RUNNER_TEMP/macos-26-artifact/macos-26-tests.tar.gz" -C "$GITHUB_WORKSPACE"
-          # #filePath / Bundle.module の絶対 path を保つ。sudo は hosted runtime job だけで使う。
-          python3 <<'PY'
-          import subprocess
-          from pathlib import Path
-
-          workspace = Path.cwd().resolve()
-          checkout = Path(".build/ci-runtime/checkout-path.txt").read_text().strip()
-          source = Path(checkout)
-          if not source.is_absolute() or source.name != workspace.name or ".." in source.parts:
-              raise RuntimeError(f"Invalid build checkout path: {checkout}")
-          if source.resolve() != workspace:
-              if source.exists() or source.is_symlink():
-                  raise RuntimeError(f"Build checkout alias already exists: {source}")
-              subprocess.run(["sudo", "mkdir", "-p", str(source.parent)], check=True)
-              subprocess.run(["sudo", "ln", "-s", str(workspace), str(source)], check=True)
-          if source.resolve() != workspace:
-              raise RuntimeError(f"Build checkout alias does not resolve to {workspace}")
-          PY
       - name: Run debug suite and release FullSize without compiling
         env:
           SHARD: ${{ matrix.shard }}
@@ -670,24 +652,13 @@ jobs:
           print(f"Verified {len(cases)} executed FullSize tests")
           PY
           fi
-      - name: Clean up runtime aliases
+      - name: Clean up LHa for UNIX oracle
         if: always()
         run: |
           if [ -L "$HOME/.local/bin/lha-unix" ] && \
              [ "$(readlink "$HOME/.local/bin/lha-unix")" = "$RUNNER_TEMP/lha-unix-install/bin/lha" ]; then
             rm "$HOME/.local/bin/lha-unix"
           fi
-          python3 <<'PY'
-          import subprocess
-          from pathlib import Path
-
-          recorded = Path(".build/ci-runtime/checkout-path.txt")
-          if recorded.is_file():
-              workspace = Path.cwd().resolve()
-              source = Path(recorded.read_text().strip())
-              if source.is_absolute() and source != workspace and source.is_symlink() and source.resolve() == workspace:
-                  subprocess.run(["sudo", "unlink", str(source)], check=True)
-          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

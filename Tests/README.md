@@ -112,10 +112,11 @@ ZIP の7zz一覧は `PPMd` のみのため parameter word を直接検査し、7
   `TarUpdaterInteropTests`・`SevenZipUpdaterDifferentialTests`。`XZPackingLayoutTests` は xz が無ければ失敗する。
 - CI（`.github/workflows/ci.yml`）は必須ツールを `command -v` で確認し、不足時は hosted だけで `brew install sevenzip zstd xz lzip lz4 brotli lhasa gnu-tar autoconf automake` する。自前では不足を失敗にする。
   固定commitの LHa for UNIX は毎回一時ビルドする。製品の依存には加えない。
-  Xcode 27 job は自前の `[self-hosted, shunnag-arm64]`、fork PR だけは hosted の `xcode-27` を使う（[CI の運用](../Documentation/testing.md#toolchain-と-ci)）。
+  `build-and-test` の2 shard は push・同一 repo の PR・定時・手動では自前の `[self-hosted, shunnag-arm64]`、fork PR では hosted の `xcode-27` を使う（[CI の運用](../Documentation/testing.md#toolchain-と-ci)）。
   build は Xcode 27 / Swift 6.4 のみ。macOS 27 では既定の debug suite と、release の
   `GYOSHUKU_LARGE_ENCODER_TESTS=1` / `--filter FullSize` による大入力16件（BZip2追加後）を実行する。
-  macOS 26 には別の Xcode 27 job で build した test bundle・resource・依存 dylib と FullSize の識別子を運び、
+  macOS 26 向けの `build-for-macos-26` は全 event で hosted の `xcode-27` を使い、hosted の `macos-26-runtime` と絶対 checkout path を揃える。
+  そこで build した test bundle・resource・依存 dylib と FullSize の識別子を macOS 26 に運び、
   コンパイルせず artifact に同梱した Xcode 27 の xctest runner と framework / dylib で同じ試験を行う。
   Xcode 26 の system xctest は XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。
   製品コードは macOS 26 の OS Swift runtime 上で動かし、OS の差を検査する。
