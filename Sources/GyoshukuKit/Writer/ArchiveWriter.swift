@@ -767,7 +767,7 @@ extension ArchiveWriter {
             if let job, entry.size > zipWriter.singleBlockLimit(name: entry.name, mode: entry.mode, size: entry.size) {
                 try zipWriter.submitLarge(entry.zip!, file: job, attribution: entry.attribution, emit: emit)
             } else {
-                try zipWriter.submit(job, method: entry.zip!.method, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
+                try zipWriter.submit(job, entry: entry.zip!, attribution: entry.attribution, weight: entry.inputBytes, emit: emit)
             }
         } else if let sevenZipWriter {
             if let job, sevenZipWriter.supportsStreamEntry(size: entry.size) || sevenZipWriter.hasEarlyEntry(index: entry.index) {
@@ -811,9 +811,9 @@ extension ArchiveWriter {
                 let data = result?.data ?? entry.inline
                 if let zip = entry.zip, let zipWriter {
                     if let spool = result?.spool {
-                        try zipWriter.emitComplete(zip, spool: spool, crc: result!.crc, attribution: entry.attribution)
+                        try zipWriter.emitComplete(zip, spool: spool, crc: result!.crc, attribution: entry.attribution, aes: result?.zipAES)
                     } else {
-                        try zipWriter.emitComplete(zip, data: data, crc: result?.crc ?? updateCRC(0, data), attribution: entry.attribution)
+                        try zipWriter.emitComplete(zip, data: data, crc: result?.crc ?? updateCRC(0, data), attribution: entry.attribution, aes: result?.zipAES)
                     }
                     appendedPaths.append((entry.name, entry.mode.isDirectoryMode))
                 } else if let sevenZipWriter {

@@ -47,9 +47,11 @@ struct Prefetched: Sendable {
     let data: Data
     let crc: UInt32
     let spool: OrderedEntrySpool?
+    let zipAES: ZipAESEncryptor.KeyMaterial?
 
-    init(data: Data, crc: UInt32, spool: OrderedEntrySpool? = nil) {
+    init(data: Data, crc: UInt32, spool: OrderedEntrySpool? = nil, zipAES: ZipAESEncryptor.KeyMaterial? = nil) {
         self.data = data; self.crc = crc; self.spool = spool
+        self.zipAES = zipAES
     }
 }
 

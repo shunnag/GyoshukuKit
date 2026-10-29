@@ -3,11 +3,30 @@ private import CommonCrypto
 
 /// WinZip AES-256: 圧縮 chunk ごとに CTR 暗号化し、暗号文だけを HMAC へ加える。
 final class ZipAESEncryptor {
+    // salt は投入側で確保し、PBKDF2 だけを圧縮 worker へ渡す。
+    struct KeyInput: Sendable {
+        let password: Data
+        let salt: Data
+
+        func derive() throws -> KeyMaterial {
+            KeyMaterial(bytes: try EncryptionPrimitives.zipKeyMaterial(passwordBytes: password, salt: salt), salt: salt)
+        }
+    }
+
+    struct KeyMaterial: Sendable {
+        let bytes: Data
+        let salt: Data
+
+        func encryptor() throws -> ZipAESEncryptor { try ZipAESEncryptor(material: bytes, salt: salt) }
+    }
+
     let prefix: Data
     private let key: Data
     private var hmac = CCHmacContext()
-    private var counter = [UInt8](repeating: 0, count: 16)
-    private var pending = Data()
+    private var counterLow: UInt64 = 0
+    private var counterHigh: UInt64 = 0
+    private var pending = [UInt8](repeating: 0, count: 16)
+    private var pendingOffset = 16
     private var finished = false
 
     convenience init(password: String, salt: Data? = nil) throws {
@@ -31,40 +50,67 @@ final class ZipAESEncryptor {
         guard !input.isEmpty else { return Data() }
         var result = input
         var offset = 0
-        if !pending.isEmpty {
-            let count = min(input.count, pending.count)
+        if pendingOffset < 16 {
+            let count = min(input.count, 16 - pendingOffset)
             result.withUnsafeMutableBytes { (output: UnsafeMutableRawBufferPointer) in
-                for index in 0..<count { output[index] ^= pending[pending.startIndex + index] }
+                pending.withUnsafeBytes { bytes in
+                    Self.xor(output, offset: 0, bytes, start: pendingOffset, count: count)
+                }
             }
-            pending = Data(pending.dropFirst(count))
+            pendingOffset += count
             offset = count
         }
         while offset < input.count {
             try Task.checkCancellation()
             let count = min(IOChunk.size, input.count - offset)
             let blocks = (count + 15) / 16
-            var counters = Data()
-            counters.reserveCapacity(blocks * 16)
-            for _ in 0..<blocks {
-                // WinZip は 128 bit little-endian、最初の counter は 1。
-                for index in counter.indices {
-                    counter[index] &+= 1
-                    if counter[index] != 0 { break }
-                    if index == 15 { throw WriterError.sizeOverflow }
+            var counters = Data(count: blocks * 16)
+            try counters.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
+                for block in 0..<blocks {
+                    // WinZip は 128 bit little-endian、最初の counter は 1。
+                    counterLow &+= 1
+                    if counterLow == 0 {
+                        counterHigh &+= 1
+                        if counterHigh == 0 { throw WriterError.sizeOverflow }
+                    }
+                    bytes.storeBytes(of: counterLow.littleEndian, toByteOffset: block * 16, as: UInt64.self)
+                    bytes.storeBytes(of: counterHigh.littleEndian, toByteOffset: block * 16 + 8, as: UInt64.self)
                 }
-                counters.append(contentsOf: counter)
             }
             let stream = try EncryptionPrimitives.ecb(counters, key: key)
             result.withUnsafeMutableBytes { (output: UnsafeMutableRawBufferPointer) in
                 stream.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-                    for index in 0..<count { output[offset + index] ^= bytes[index] }
+                    Self.xor(output, offset: offset, bytes, start: 0, count: count)
                 }
             }
-            pending = Data(stream.dropFirst(count))
+            pendingOffset = count % 16
+            if pendingOffset == 0 { pendingOffset = 16 }
+            else {
+                pending.withUnsafeMutableBytes { destination in
+                    stream.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                        destination.copyMemory(from: UnsafeRawBufferPointer(rebasing: bytes[(bytes.count - 16)...]))
+                    }
+                }
+            }
             offset += count
         }
         result.withUnsafeBytes { CCHmacUpdate(&hmac, $0.baseAddress, Int($0.count)) }
         return result
+    }
+
+    private static func xor(_ output: UnsafeMutableRawBufferPointer, offset: Int,
+                            _ stream: UnsafeRawBufferPointer, start: Int, count: Int) {
+        var index = 0
+        while index + 8 <= count {
+            let word = output.loadUnaligned(fromByteOffset: offset + index, as: UInt64.self)
+                ^ stream.loadUnaligned(fromByteOffset: start + index, as: UInt64.self)
+            output.storeBytes(of: word, toByteOffset: offset + index, as: UInt64.self)
+            index += 8
+        }
+        while index < count {
+            output[offset + index] ^= stream[start + index]
+            index += 1
+        }
     }
 
     func finish() throws -> Data {

@@ -160,7 +160,9 @@ final class ReviewFixAttributionTests: XCTestCase {
                                     limiter: SourcePrefetchLimiter(threads: 8))
                             }
                             let first = AdditionAttribution(index: 0, addition: items[0])
-                            try writer.submit(failedJobs[0], method: method, attribution: first,
+                            let firstEntry = try writer.makeEntry(name: items[0].path, mode: FileMode.regular | 0o644,
+                                size: UInt64(failedJobs[0].size), date: TestSupport.date, atime: nil, owners: nil)
+                            try writer.submit(failedJobs[0], entry: firstEntry, attribution: first,
                                 weight: UInt64(failedJobs[0].size), emit: writer.emitDeflate)
                             let entry = try writer.makeEntry(name: items[1].path, mode: FileMode.regular | 0o644,
                                 size: UInt64(failedJobs[1].size), date: TestSupport.date, atime: nil, owners: nil)
