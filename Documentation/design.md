@@ -45,10 +45,11 @@ Swift 6.3.3 の `-O` は Optional な関数型の `TaskLocal.withValue` を誤�
 Swift 6.4 で build した release binary は macOS 26 で動くため、Xcode 26 / Swift 6.3 での
 コンパイル差の検査は廃止し、古い compiler に合わせた source の回避策は加えない。
 
-CI の `build-and-test` は `xcode-27` で debug 全 suite と release FullSize 16件（BZip2追加後）を実行する。
-並行する `build-for-macos-26` も `xcode-27` で debug / release test を build し、test bundle と
+CI の `build-and-test` は Xcode 27 で debug 全 suite と release FullSize 16件（BZip2追加後）を実行する。
+その2 shard は push・同一 repo の PR・定時・手動では自前の `[self-hosted, shunnag-arm64]`、fork PR では hosted の `xcode-27` を使う（[CI の運用](testing.md#toolchain-と-ci)）。
+並行する `build-for-macos-26` は全 event で hosted の `xcode-27` を使い、debug / release test を build し、test bundle と
 隣接 resource bundle、`otool` で調べた非 system の依存 dylib / framework、Xcode 27 の xctest を tar で運ぶ。
-`macos-26-runtime` は同じ checkout path に展開し、`#filePath` の fixture と `Bundle.module` の path を保つ。
+`macos-26-runtime` は hosted の `macos-26` の同じ checkout path に展開し、`#filePath` の fixture と `Bundle.module` の path を保つ。両 job の絶対 path を一致させ、path 文字列の比較にも対応する。
 `macos-26` 上で Swift の build / test は行わず、artifact に同梱した Xcode 27 の xctest runner と
 framework / dylib で debug 全 suite と release FullSize を実行する。Xcode 26 の system xctest は
 XCTestCore の interop symbol が不足し、Xcode 27 の test bundle を load できない。

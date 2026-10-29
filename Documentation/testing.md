@@ -14,7 +14,12 @@ swift test
 ## Toolchain と CI
 
 GitHub Actions はコミット SHA で固定し、Dependabot で月 1 回、更新を 1 つの PR にまとめて追跡します。
-`brew install` は従来どおりバージョンを固定しない方針です。
+必要な外部ツールを `command -v` で確認し、不足時は hosted runner だけで `brew install` します（バージョンは固定しません）。自前 runner の不足は明示的に失敗させます。
+
+`build-and-test` の2 shard は push・同一 repo の PR・定時・手動では `[self-hosted, shunnag-arm64]` を使い、fork PR では hosted の `xcode-27` に送ります。
+自前の Mac mini M4（常時稼働）と MacBook Pro M1 Max（停止時あり）は macOS 27.2 / Xcode 27.1（`/Applications/Xcode.app`、`DEVELOPER_DIR` 指定）を使います。
+隣接する KaitoKit は除去し、SwiftPM の共有 cache は `$RUNNER_TEMP`、manifest cache は checkout 内に限定して tag 参照を保ちます。LHa for UNIX は一時ビルドし、home の symlink は終了時に削除します。
+`build-for-macos-26` は全 event で hosted の `xcode-27`、`macos-26-runtime` は hosted の `macos-26` を使います。両 job の絶対 checkout path を一致させ、`#filePath` / fixture / `Bundle.module` の参照と path 文字列の比較を保ちます。
 
 Swift 6.3.3 の `-O` は `TaskLocal<function?>.withValue` を誤コンパイルし、valueType metadata が nil になって EXC_BAD_ACCESS となることを2026-10-08に確認しました。Xcode 26 / Swift 6.3 でのビルドはサポートしません。Swift 6.4 でビルドした製品は macOS 26 の OS Swift runtime で動作します。
 
