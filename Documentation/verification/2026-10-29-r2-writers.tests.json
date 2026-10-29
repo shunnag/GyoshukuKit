@@ -1,0 +1,3779 @@
+{
+  "summary": {
+    "completed_before_resume": 821,
+    "failures": 0,
+    "passed": 875,
+    "resource_skips": [
+      "GyoshukuKitTests.ParallelZIP64BoundaryTests/testIncompressibleMemberCrossesCompressedZIP64Threshold",
+      "GyoshukuKitTests.Zip64WriterTests/testZIP64UncompressedSizeAbove4GiBRoundTrips",
+      "GyoshukuKitTests.ZipRebuildBoundaryTests/testLocalOffsetCrosses4GiBThenDropsAfterDeletion",
+      "GyoshukuKitTests.ZipRebuildEquivalenceTests/testSparse4GiBUpAndDownMixedMatchesLegacyInChunks"
+    ],
+    "resume_peak_scratch_bytes": 1379004416,
+    "resumed": 119,
+    "skipped": 65,
+    "total": 940
+  },
+  "tests": {
+    "GyoshukuKitTests.AdditionProgressTests/testCallbackErrorsFailAndCleanUpEveryEditor": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AdditionProgressTests/testDefaultImplementationsPreserveOwnerDispatch": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AdditionProgressTests/testNilProgressDoesNotPrewalkAndLHASymlinkDoesNotFinish": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AdditionProgressTests/testRecursiveTotalsAndGrowthAfterPrewalk": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AdditionProgressTests/testWriterAndEditorSessionsAndBytesInEveryFormat": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AdditionProgressTests/testWriterCallbackAndTaskCancellationUseExistingCleanup": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AppleDoubleSidecarEditingTests/testFinderZIPUpdaterPreservesSidecarsAcrossRemoveAndAdd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AppleDoubleSidecarEditingTests/testFinderZIPUpdaterPreservesSidecarsWhenRemovingAndAddingTogether": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AppleDoubleSidecarEditingTests/testMacTARRewriterPreservesSidecarNamesAndPayloadHashes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.AppleDoubleSidecarEditingTests/testRewriterProbeRefusesMergedResourceForkEntries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveFormatPathTests/testProbeAcceptsColonAndBackslashOnlyForTarFormats": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveFormatPathTests/testTarRewriteDeletionPreservesNameBytesAndPayloads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveFormatPathTests/testTarRewriterRenamesAndAddsColonAndBackslashNames": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveFormatPathTests/testTarWriterAddsDiskNamesAndRemembersHardLinkTargets": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnedFileTests/testAssignedInodeRange": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnedFileTests/testReplacedCloneIsNotAdoptedForCleanup": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnedFileTests/testSourceSnapshotNarrowsModeAndRemainsUnchanged": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnerIDsTests/testCarryAndDiskOwnersAreIndependentAcrossTarFormats": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnerIDsTests/testExplicitOwnersThroughAllEditorExistentialsAndRecursiveDiskAddition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnerIDsTests/testTarUpdaterKeepsCarriedOwnersRegardlessOfDiskPolicy": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveOwnerIDsTests/testUnsupportedOwnersAndProtocolDefaults": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchivePathValidationTests/testAllFormatsKeepCommonPathRestrictionsAndUTF8ByteLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchivePathValidationTests/testCombiningMarkChildConflictsWithAFileParentInEitherOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchivePathValidationTests/testCombiningMarksDoNotHideInvalidPathBytesOrComponents": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchivePathValidationTests/testWriterPathComponentLimitMatchesDefaultReader": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterCollisionTests/testCanonicallyEquivalentCarriedNamesAreRefusedAtOpen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterCollisionTests/testCarriedFileAndChildCollisionsAreRefusedInEitherOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterCollisionTests/testDirectorySlashNormalizationCollisionsAreRefusedAtOpen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterCollisionTests/testDuplicateCarriedNamesAreRefusedAtOpen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterCollisionTests/testExplicitDirectoryAfterChildAndOmittedRootsRemainRepresentable": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterNewTarFormatTests/testDeleteRenameAddOnTarLZ4AndLzip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterNewTarFormatTests/testZIPFixtureIntoEveryNewFormatAndBack": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterPlacementTests/testBothPlacementsInAllFormatsAndDeferredOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterPlacementTests/testQueuedSourceIdentityAndImmediateReservationFailures": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterProbeTests/testProbeMatchesOpenForCollisionsAndAcceptedShapes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterProbeTests/testProbeRefusesSymlinkForLHAAndOtherKindsWithoutOpeningAnything": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterSourceProbeTests/testEntriesOnlyStillRefusesMacLHANameCollisions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterSourceProbeTests/testMacBinaryEnvelopeRefusedWithAndWithoutResourceFork": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterSourceProbeTests/testPlainMacLHAAndUnfilteredEnvelopesRemainEditable": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterSourceProbeTests/testUnsupportedLHAMethodsRefusedFromPublicMetadata": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterSourceProbeTests/testUnsupportedSevenZipCoderRefusedIncludingCoderChains": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testArchiveEditingProtocolAndSuccessfulCommitAreIdempotent": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testCancellationOnSecondCarryRemovesOutputAndInvalidatesInstance": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testCarryCallbackCannotMutateOrRecursivelyCommit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testCollisionsUsePostEditAndAppendedPathsInEveryFormat": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testColonNameIsUnrepresentableInZIPAtOpen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testConversionPreservesSourceSHA256": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testCorruptArchiveAndPayloadMapToInvalidArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testDeinitWithoutCommitRemovesQueuedOutputAndWorkDirectory": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testDotPrefixedTarOmitsRootAndCarriesNormalizedNames": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testEncryptedSevenZipHeadersRequirePasswordAtOpen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testEncryptedZIPCorrectPasswordWritesUnencryptedContents": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testEncryptedZIPWithoutPasswordCleansUp": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testEncryptedZIPWrongPasswordCleansUp": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testExistingConversionOutputIsNeverOverwrittenOrRemoved": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testHardLinkExpandsRemovedTargetInsteadOfAnAddedReplacement": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testHardLinkExpandsTargetContentsForNonTarOutputs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testHardLinkKeepsRenamedTargetInTarOutputs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testInPlaceRewriteRestoresModeAndQuarantine": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testInvalidIndicesAndRemovedEntryRenamesInvalidateTheRewriter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testLHAOutputPassesLhasaWhenAvailable": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testOpenInsideCancelledTaskThrowsCancellationError": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testOwnerIDsAreDroppedUnlessRequestedForTar": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testRemoveRenameAndAddCarryOnlySurvivorsInIndexOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testRemovingDirectoryDoesNotRemoveOrSynthesizeChildren": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testRootDirectoryIndexCanBeRemovedOrRenamedWithoutChangingChildren": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testSolidSevenZipConvertsAllEntriesInIndexOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testSourceModifiedBeforeCommitIsPreservedInBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testSourceModifiedDuringCarryIsCheckedAgainBeforePublishInBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testTarSymlinkIsUnrepresentableInLHAAtOpen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testUnknownSizeSourceStreamsThroughTemporaryFile": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testUnrepresentableNamesKindsHardLinksAndDatesAreRejectedBeforeOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToLHA": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToSevenZip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToTAR": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToTarBzip2": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToTarGzip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToTarXZ": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterTests/testZIPFixtureRewritesToZIP": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterVolumeSetTests/testVolumeSetIsNilForSingleFile": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveRewriterVolumeSetTests/testVolumeSetMatchesOpenedSplitVolumes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNameAtIndexMatchesCommittedRemoval": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNamesAreEmptyForEmptyArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNamesExcludeAppendedEntries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNamesKeepCountAndContentAfterQueuedRemoval": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNamesKeepOriginalNameAfterQueuedRename": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNamesPreserveCP932Characters": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterEntryNamesTests/testEntryNamesPreserveOpenTimeOrderAndDirectorySlash": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterOptionsTests/testAppendHonorsCompressionHeuristic": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterOptionsTests/testAppendHonorsDeflateLevels": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterOptionsTests/testAppendUsesStoredCompression": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterOptionsTests/testOpenRejectsInvalidDeflateLevelWithoutChangingArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterOptionsTests/testOpenRejectsUnsupportedMetadataWithoutChangingArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ArchiveUpdaterOptionsTests/testOpenValidatesOptionsBeforeAccessingArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEquivalenceTests/testLiveNameBudgetsPromoteWithQueuedNamesAndMatchSingles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEquivalenceTests/testRecursiveFallbackAndOwnersAndLHASymlink": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEquivalenceTests/testUpdaterAndRewriterBothPlacementsCommitBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEquivalenceTests/testWriterBytesAllFormatsThreadsEncryptionAndThresholds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEventsTests/testCallerThreadOrderSessionsAndBoundedWindow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEventsTests/testCancellationAt300JoinsDescriptorsBeforeReturning": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEventsTests/testDefaultImplementationPreservesOwnerDispatchAndCallbackIdentity": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEventsTests/testEveryCallbackFailureIsUnwrappedAndWillStartFailureNeverOpensItem": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionEventsTests/testFinishAdditionsRejectsBatchWithoutPoisoningInstance": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testAliasesAndRecursiveDirectoriesKeepEncoderStartAfterWillStart": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testBytesAndEventsMatchItemAndPreviousBatchAllPositionsAndThreadCounts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testCallbackFailureBeforeEarlyIndexIsUnwrappedAndJoinsEncoder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testCancellationJoinsEarlyEncoderAndClosesSourceAndSpoolDescriptors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testEarlyFailureWaitsForEarlierWorkerOrPreparationFailure": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testLargestEncoderStartsBeforeFirstMediumEmissionAndOnlyOneStartsEarly": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testPreviousItemReservationPreventsAnotherEarlySevenZipJob": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionLongPoleTests/testSourceReplacedAfterEarlyCompletionIsChangedAtItsIndex": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionSafetyTests/testDeferredExpectedSignatureAndCallbackCleanupInEveryEditor": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionSafetyTests/testFallbackKeepsFirstSignatureWhileDrainingEarlierEvents": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionSafetyTests/testMinimumIndexReadErrorBeatsLaterDuplicateAndDeflateErrorHasIndex": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionSafetyTests/testOutputIdentityAndRecursiveDescendantAttribution": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionSafetyTests/testPrewalkFailureReportsDescendantAndLargeDeflateFailureReportsItem": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchAdditionSafetyTests/testWorkerReplacementAndReadMutationNeverPublish": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testBatchXZFourIncompressiblePiecesMatchItemAPIWithFullMediumWindow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testBatchXZLongPoleEncodesBlocksConcurrentlyWithoutDrainingMediumItems": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testBatchXZPieceFailuresKeepIndexAndRecheckSourceAfterEarlierCallback": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testBatchXZPiecesMatchItemFramingWithAESAndExplicitLevel": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testCancellationDuringLargeReadAndProgressClosesDescriptors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testCancellationDuringLargeStreamWorkerClosesDescriptors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeBlocksKeepEarlierWorkWindowEventsAndMeter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeCallbackFailuresAreUnwrapped": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeMutationIsSourceChanged": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeSourceFailurePrefersEarlierWorkerFailure": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeStoredHeuristicMatchesItemAcrossEntryWindows": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeStreamsAndXZBlocksKeepEntryWindowEventsAndMemoryBound": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testLargeWorkerFailureHasItsIndex": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testMixedSizesMatchItemBytesAllZIPMethodsAndThreads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchLargeFileTests/testParallelPieceByteIdentityAgainstBranchAndItemAPI": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchOutputTests/testBatchFlushesBeforeReturningAndBeforeCallbacksAndKeepsPartialZIP": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchOutputTests/testBufferedWriteFailureBelongsToFirstUnwrittenItem": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchOutputTests/testSevenZipVerifiedDataKeepsConfiguredChunkBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BatchOutputTests/testUnobservedBatchBytesAcrossBufferFlushesAndHeaderPatches": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BrotliStreamEncoderTests/testBytewiseWritesAndFinalizeWithInput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BrotliStreamEncoderTests/testSingleStreamingBrotliWithCLIAndKaitoKit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.BrotliStreamEncoderTests/testSinkFailureIsTerminal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testAllEightEOSPaddingCandidates": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testBulkPayloadAtEveryBitOffsetMatchesBitByBitReference": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testEmptyOneByteAndEOSCandidateValidation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testFixedMemoryReservations": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testForcedCutsDecodeAsExactlyOneStream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testKnownSizeIdentityAcrossTheRealInputCap": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testKnownSizeSeparateFinishMatchesWholeInputAtExactBlockTail": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testManyThreadsKeepSizeBasedChunkCountAndIdentity": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testOddReadsAndMultiBlockChunksKeepIdentity": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testRandomTextAndExactBlockIdentityAtLevels1And5And9": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testRunsAtAllLevelsAndOffsetsFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testRunsNearEveryPredictedBoundary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testScannerCarriesPendingRunAndCountsFinalBlock": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testSizeBasedChunkWidthsAndEstimatedCounts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceTests/testUnknownSizeStreamingIdentityAcrossThreadsAndReadSizes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testAbandonDiscardsLateResultsAndInvalidatesEncoder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testCancellationOfZIPAndSevenZipDoesNotWaitForBzip2Codec": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testEntryWindowThresholdKeepsBytesAcrossThreadsAndBatchAddition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testFilteredSolidFoldersShareThreadReservations": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testSevenZipMultiBlockSolidAndNonSolidWithFiltersAndAES": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testSingleFilteredSolidFolderUsesAllFourCodecs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testSingleSixteenMiBEntriesUseTwelveCodecsFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testSolidFolderCancellationReleasesSourceWithoutWaitingForCodecs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testZIPBatchDiskAdditionUsesInnerBzip2Parallelism": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Bzip2SpliceWriterTests/testZIPMultiBlockRoundTripsWithAESAndZipCrypto": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarCompatibilityTests/testNewAndOldLayoutsThroughIndependentTools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarLargeOffsetTests/testLargeCRCAndImageOffsets": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testCancellationAndProgressFailureRemoveOnlyOwnedOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testExFAT": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testFAT32": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testHostVolume": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testSourceChangesPathReplacementDiscardAndSpace": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testTaskCancellationDuringEncodingAndCopy": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarLifecycleTests/testUnchangedCopyStageWithoutChunkMap": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testNewFormatEmptyArchivesAndInvalidOptions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testSpliceRoutesRequireRewriteWithoutCreatingFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testTarBrotli": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testTarCompress": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testTarLZ4": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testTarLZMA": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarNewFormatTests/testTarLzipLevelsAndMultipleMembers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarPackingEditTests/testBridgeStartingInsideLargeBodyUsesRemainingMemberLength": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarPackingEditTests/testMediumRenameDeleteAndPackedDeletePreserveBodies": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarPackingEditTests/testOldFolderRenameFullEncodeSeparatesEveryHeaderAndBody": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarPackingEditTests/testOldPackingEditsRepartitionEncodedBridges": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarRepeatEditTests/testFiftySeededEditsUsingAdoptedAndReopenedSnapshots": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarScaleProbeTests/testMixedNewAndOldLayouts": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.CompressedTarScaleProbeTests/testXZPackingArchives": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.CompressedTarSelfCheckFaultTests/testSelfCheckFaultsAndK5Separation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSelfCheckFaultTests/testV4SeesSameInodeSameSizeRestoredMtimeChanges": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSnapshotTests/testMapsSurviveShortReadsStagingAndReopen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSpecialMembersTests/testHardLinksGlobalSparseAndNameTransitions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSpecialMembersTests/testLegacyTerminatorStraddlesTwoChunks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSpecialMembersTests/testPythonPaxGNUAndBSDArchives": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSpliceBzip2Tests/testDeterminismAndFullEncodeBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSpliceGzipTests/testDeterminismAndFullEncodeBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarSpliceXZTests/testDeterminismAndFullEncodeBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarThirdPartyTests/testThirdPartyFramingAndMixedBzip2Levels": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarUpdaterTests/testMissingIdentityRecoveryAndLegacyNamesRequireRewrite": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarUpdaterTests/testOpenGatesCreateNothingAndAssessmentIsReadOnly": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarUpdaterTests/testOperationsMatchP2AndK5ForAllCodecs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarUpdaterTests/testOwnerDateAndReservationsUseAppendFactory": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarWriterTests/testBzip2LevelsAndInvalidOptionsBeforeCreatingOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarWriterTests/testCancellationDuringCompressedPayloadRemovesOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarWriterTests/testEmptyAndTarBlockBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarWriterTests/testEntryLargerThanFourGiBThroughPublicWriterAndIndependentReaders": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.CompressedTarWriterTests/testMultipleMembersPreserveExactTarBytesAndExternalExtraction": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarWriterTests/testTinyWritesAndLargeFinalInputDrainAllOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarZstdTests/testLevelsOneThreeAndNineteenWithRealTools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarZstdTests/testRewriterAddDeleteRenameAndUpdaterRefusal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressedTarZstdTests/testTwentyMiBAndMemberBoundariesWithFourThreads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionHeuristicTests/testMixedArchivesSurviveUpdaterAndRewriterWithHeuristicOnAndOff": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionHeuristicTests/testSevenZipMixedSolidCopyFoldersAndExplicitOptions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionHeuristicTests/testTarXZLargeStoredMemberAndEmptyCompressedNames": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionHeuristicTests/testTarXZMixedMembersRespectLevelAndOptOut": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionHeuristicTests/testZIPNewCompressedExtensionsAndOptOut": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionThreadByteIdentityTests/testBzip2ArchivesKeepIdentityAcrossTheRealForcedCut": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.CompressionThreadByteIdentityTests/testRepresentativeArchivesAtOneEightThirtySixAndSixtyFourThreads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ConcurrentWriterStarvationTests/testConcurrentSevenZipLZMA2Writers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ConcurrentWriterStarvationTests/testConcurrentZIPDeflateWriters": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.DeflateBlockTests/testDictionaryIsUsedAcrossBlocks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.DeflateBlockTests/testGzipEmptyAndExactBlockBoundariesIgnoreWriteSizes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.DeflateBlockTests/testRandomBlocksFitBoundAtEveryLevelAndDictionarySize": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.DeflateBlockTests/testRandomSmallBlocksReserveZIP64AtCompressedSizeThreshold": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.DeflateBlockTests/testReusedStreamMatchesFreshWithEveryLevelAndDictionaryTransition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EditPathReservationScaleProbeTests/testBulkRenameReservationTiming": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.EditPathReservationsTests/testBulkRenamesAfterAddingPreserveEveryPayloadAndReleaseOldPaths": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EditPathReservationsTests/testCountedReservationsAgreeWithPairwiseScanIncludingDuplicateNames": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EditPathReservationsTests/testDeepPathsReleaseTheirBranchesWithoutRecursiveDestruction": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyArchiveTests/testEveryRewriterCanRemoveAllMembersAndAddAgain": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyArchiveTests/testEveryWriterCanFinishWithoutMembersAndReopen": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testArchiveRewriterBothPlacementsKeepBytesWithoutPreparingOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testArchiveUpdaterRenameKeepsInPlacePatchAndBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testArchiveWriterDoesNotDrainPendingInputOrChangeFinishAndBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testCancelledEmptyBatchDoesNotPrepareWritersOrEditors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testCompressedTarUpdaterKeepsStrategyAndBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testDefaultImplementationIsEmptyEvenWhenCancelled": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testFailedWritersAndEditorsStayFailedWithoutEvents": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testLHAUpdaterRenameKeepsInPlacePatchAndBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testSevenZipUpdaterRenameKeepsHeaderOnlyAndBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EmptyBatchTests/testTarUpdaterRenameKeepsInPlacePatchAndBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncoderTestCorpusTests/testBulkRandomRetainsOriginalBytesAndMasks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncoderTestCorpusTests/testTableCRCRetainsIndependentBitwiseOracle": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncoderWriterOverheadProbeTests/testCopyControlsOnOriginalWriterCorpora": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.EncryptionTests/test300MiBStreamingEncryptionAndScratchCleanup": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testFortyMiBSevenZipRoundTripAndCompressionRatio": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testOptionsAreValidatedBeforeCreatingOrAccessingFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testRewriterUsesSeparateInputAndOutputPasswords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testSevenZipAESWithAndWithoutEncryptedHeaders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testSevenZipEncryptedHeaderWithOnlyEmptyStreams": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testSevenZipFolderGraphMatches7zzReference": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testSevenZipUpToSixteenMiBMatchesWholeBufferDespiteShortReads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testUnicodePasswordsAndFreshSaltOrIV": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testUpdaterEncryptsAdditionsAndPreservesOriginalRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testXattrChangesDuringDiskReadAndBeforeUpdateCommitAreAllowed": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipAESBoundaryFilesHeadersAndOracles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipAESOddChunkBoundariesAndAuthentication": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipCryptoBoundaryFilesHeadersAndOracles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipCryptoCompressedWindowAndInlineFallbackAreThreadIndependent": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipCryptoSpoolCreationFailureIsWriterIOError": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipCryptoSpoolIsAbsentDuringAddAndBeforeFinish": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipCryptoSpoolIsAnonymousWhileAliveAndStillCopiesBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EncryptionTests/testZipCryptoSpoolRemovedAfterSourceChangesAndCancellation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EntryCompressionConfigurationTests/testAutomaticThreadsUseAllActiveCoresAndGiBClamp": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EntryCompressionConfigurationTests/testBzip2LongPoleSharesMemoryLimitedCodecsInsteadOfSingleStreamReservation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EntryCompressionConfigurationTests/testLZMAFinderReservesCoresAndMemoryWithinRequestedBudget": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EntryCompressionConfigurationTests/testLongPoleReservationFallsBackAtMemoryBoundary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EntryCompressionConfigurationTests/testPieceCeilingThreadCapAndMemoryPeak": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.EntryCompressionConfigurationTests/testSolidAndFilterWindowsReserveOnlyPossibleCodecs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FATVolumeTests/testExFAT": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.FATVolumeTests/testFAT32": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.FATVolumeTests/testHFSPlus": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.FATVolumeTests/testHostVolume": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FileReadTests/testInvalidDescriptorThrowsWriterIOError": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FileReadTests/testShortReadReturnsAvailableBytesAndThenEOF": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedDifferentialTests/testBCJARM64DenseBLADRPAndOddStartOffsets": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedDifferentialTests/testBCJX86DenseBranchesAndOddStartOffsets": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedDifferentialTests/testDeltaEveryDistanceAndRandomTinyPushes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedDifferentialTests/testLH5BitsAppendEveryRemainderAndWordBoundary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedDifferentialTests/testLHACRC16RandomLengthsAlignmentsAndInitialValues": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedDifferentialTests/testLZWMaxbits12Through16TextRandomAndClearWithPushSplits": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FilterSpeedProbeTests/testDeltaCRC16AndLZWThroughputWhenEnabled": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testBytesAndBoundsForLargeAndSmallInputsWithEncryption": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testClosedZIPDoesNotSpendLiveNameCheckBudget": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testDrainCallbackFailureCleansEveryUpdater": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testEmptyFinishAndFinishBeforeAnyAddition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testEmptyWriterMatchesWithoutDrain": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testEveryUpdaterPreservesBytesStrategyAndRemainsEditableAfterClosing": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testLargeLZMA2SessionReportsPendingInputImmediatelyAfterAdd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.FinishAdditionsTests/testP14BoundAndDrainAccountsForLightBlocksAndBufferedMember": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.GzipWriterTests/testEmptyGzipArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.GzipWriterTests/testGzipHeaderTrailerLevelsAndExternalRoundTrip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.GzipWriterTests/testGzipPaxAndSlicedData": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.GzipWriterTests/testInvalidOptionsAndDateLeaveNoArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.GzipWriterTests/testTarRecordLayoutMatchesBsdtarByteForByte": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testCommandLengthZeroRunBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testConstantLiteralAndConstantCodeLengthTrees": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testLengthLimitedCanonicalHuffmanWithSkewedFrequencies": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testMaximumLengthAndFullWindowDistance": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testMultipleBlocksWithoutBitAlignmentOrDictionaryReset": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testRepeatedByteCreatesConstantTreesAfterBlockBoundary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LH5EncoderTests/testTenMiBCompressionTimeAndRoundTrip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHABoundedWriterTests/testCancellationAfterFirstSpoolChunkRemovesPartialArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHABoundedWriterTests/testChunkBoundariesAndStoredFallbackPreserveFollowingMembers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHABoundedWriterTests/testMidstreamSourceFailuresEraseOutputAndHardlinkWithoutSpoolLeaks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHABoundedWriterTests/testShortReadsStillProduceOneContinuousBitstream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACRCTests/testARCCheckVectorAndIncrementalCRC": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACRCTests/testDataCRCCorruptionReportsDamagedMemberInBothTools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACRCTests/testHeaderCRCValueAndCorruptionRejectedByKaito": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testEffortChangesChainSearchAndLazyMatchSelection": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testEmptyArchivesAtAllMethodsAndLevels": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testForcedStoreNeverInvokesEncoder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testFullDictionaryDistancesAndMaximumMatchAtEachLevel": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testLHaForUNIXProducesLH6AndLH7ReadableByKaitoKit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testMethodsLevelsAndParallelHistoriesRoundTripWithIndependentTools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testOptionValidationAndPendingInputBounds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHACompressionMethodTests/testUpdaterCarriesExistingBytesAndRewriterUsesSelectedMethodAndLevel": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHADefaultOutputTests/testDefaultAndExplicitLH5LevelSixMatchFrozenExistingFixtures": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAEditPlanTests/testMergingOffsetsBoundariesAndFreshTerminator": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAHeaderReemitTests/testEveryAcceptedFixturePreservesPayloadAndReemitsExactHeader": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALayoutTests/testBuilderLevelsNamesCRCsAndPayloadSkipping": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALayoutTests/testIndependentWalkMatchesFrozenFixtures": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALayoutTests/testLargeHeadersLevelOneCRCAndLevelThreeBuilder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testCancellationBeforeCreateAndFinish": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testFailurePreservesReplacementAndInvalidatesOldInode": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testInvalidMetadataIsRejectedBeforeInputCallbackOrHeaderWrite": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testOptionsExclusiveCreateAndFinishedState": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testPublicCancellationMidWriteInvalidatesCompletedMembersAndAliases": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testShortOversizedAndGrowingInputFailBeforeHeaderWrite": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testSymlinksAreRefusedWithoutFollowingThem": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHALifecycleTests/testUnfinishedWriterAndOutputAsSourceAreRemoved": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAStreamSpliceTests/testBitSplicingAtEveryStartingAndEndingBitPosition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAStreamSpliceTests/testLargeMembersMatchS15SerialStreamAtEveryThreadCount": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterDifferentialTests/testFixedSeedModelAndRewriter300Sequences": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterInteropTests/testBSDTar": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterInteropTests/testLhasa": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterInteropTests/testSevenZip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterLargeOffsetTests/testSparseOffsetsPastFourGiB": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testCancellationDuringCopyAndV3Decode": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testExFAT": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testFAT32": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testHFSPlus": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testHostVolume": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testProgressThrowAndReentrancyInvalidateCommit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testReservationsOwnersEncoderFailureAndDescriptorDuplication": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterOutputModeTests/testSourceChangesFlagsAndCloneErrors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterRefusalTests/testMacBinaryEnvelopeIsStillUnrepresentable": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterRefusalTests/testSettingsSplitMismatchTrailingAndOtherFormats": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterRefusalTests/testStructuralRefusalsPreserveSourceAndLeaveNoFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterRefusalTests/testUnrepresentableMethodsAndSymlinks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterScaleProbeTests/testReleaseScale": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LHAUpdaterTests/testCloneIO500Members": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterTests/testEmptyRootDirectoriesSizesAndReservationOrders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterTests/testFrozenFixtureDeletesAppendAndFirstHeaderDetection": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterTests/testOperationsBytesStrategiesAndProgressInBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterTests/testRootCarryDirectoryLevelsNoopAndDiskAdd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAUpdaterVerificationFaultTests/testV1ThroughV5RejectFaultsAndCleanUp": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterParallelTests/testCapacityWaitPrecedesInputReadAndCancellationAbandonsPendingMembers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterParallelTests/testDirectoriesDoNotRunEncoderAndWorkerCancellationRemovesOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterParallelTests/testEncoderFailureIsDeferredToAddFinishLargeDrainAndEndMembers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterParallelTests/testEndMembersRecordsAbsoluteOffsetsWithoutTerminatorOrClose": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterParallelTests/testInputIsConsumedBeforeDeferredAddReturns": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterParallelTests/testThreeHundredMembersMatchIndependentSerialReferenceAtEveryThreadCount": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterStreamedMemberIdentityTests/testStreamedMemberBytesAreFrozenAtEveryThreadCount": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testDiskRecursionAndExecutableMode": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testEmptyOneByteDictionarySizedAndLongRunFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testHeaderSizePaddingAndLimits": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testJapaneseNamesAreCP932": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testRandomDataFallsBackToStoredWithoutPayloadGrowth": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testRepetitiveMiBReallyCompresses": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testSharedPathValidationAndConflictsRemovePartialOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testSimpleArchiveExternalDecodersAndKaito": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testTimestampBoundsAndSubseconds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LHAWriterTests/testUnrepresentableNamesAreRefusedBeforeReadingOrWriting": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZ4FrameEncoderTests/testAllInputsSizeFlagsBlockChecksumsAndParallelBlocksWithRealDecoders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZ4FrameEncoderTests/testDeclaredSizeValidationAndSinkFailureAreTerminal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZ4FrameEncoderTests/testParallelismAndInputBoundariesDoNotChangeTheFrame": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZ4XXH32Tests/testKnownVectorsAtStripeAndWriteBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMA2ChunkPipelineTests/testAbandonAndDeinitDoNotWaitForRunningWork": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMA2ChunkPipelineTests/testCompletedJobsRemainBoundedAndMarkersKeepSubmissionOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMA2ChunkPipelineTests/testErrorWaitsForItsTurnAndAbandonsLaterResults": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMA2ChunkPipelineTests/testLightWeightsAreForwardedWithChecksumsAndOrderedMarkers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderBenchmarkTests/testSingleThreadBenchmark": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testCachedPricesEqualBitTreePrices": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testExpandedBitPricesKeepOriginalQuantization": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testFinderPositionNormalizationPreservesStream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testIndependentXZAndAloneOracles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testIndependentXZAndAloneOraclesFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testLargeCorporaAndChunkBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testLargeCorporaAndChunkBoundariesFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testOddPiecesProduceIdenticalStreams": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testOddPiecesProduceIdenticalStreamsFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testPropertiesLimitsAndCustomContexts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testRangeOutputGrowthRetainsCarryAndHonorsBudget": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testRawWindowSlackPreservesBytesAcrossCompactions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testRawWindowSlackPreservesBytesWithLargeDictionaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testSmallInputsAndEndMarker": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testTwoMiBChunkBoundaryWithOddPieces": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testUnknownSizeAndExtremeStreams": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testWindowSlackCapacityAndMemoryAccounting": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAEncoderTests/testWordMatchLengthAtUnalignedBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMatchFinderProbeTests/testFinderFraction": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedBenchmarkTests/testSequentialVersusMultithreadedBenchmark": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedFinderTests/testAllPresetsCorporaAndPushWidthsKeepByteIdentity": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedFinderTests/testBT4AndHC4RecordAndSkipHaveIdenticalState": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedFinderTests/testCancellationDuringFindingJoinsWithinTwoSeconds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedFinderTests/testErrorsAbandonAndMemoryLimitReleaseWorkers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedFinderTests/testEveryPresetCompactsBeyondTwoWindows": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedFinderTests/testLookaheadFinishAndCompactionAtSmallAndLargeDictionaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedWriterTests/testNormalItemWindowsKeepFinderSequential": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedWriterTests/testRawLZMAWritersKeepIdentityAtOneTwoSixteenThirtySixThreads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAMultithreadedWriterTests/testReadAndSinkErrorsJoinFinderBeforeReturning": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAPairedFinderTests/testHashChainPresetsNeverPair": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAPairedFinderTests/testLZMA2ChunkBoundaryWithPairedWalk": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAPairedFinderTests/testPairedTreeWalkMatchesSequentialCandidatesAndTables": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAPairedFinderTests/testPairedWalkCacheKeepsStreamsIdenticalAcrossPushWidths": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMARawWindowSlackTests/testLegacyAndExpandedSlackHaveIdenticalBytesAcrossCompaction": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMARawWindowSlackTests/testLegacyMemoryBudgetsRemainAcceptedForAllPresets": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMARawWindowSlackTests/testTightRawBudgetCreatesZIPSevenZipAndSingleStreamsWithIdenticalBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAWriterConfigurationTests/testFinderBufferMemoryAndSingleStreamEnablement": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAWriterConfigurationTests/testInvalidLevelAndInsufficientMemoryFailBeforeCreatingOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAWriterConfigurationTests/testPieceSizesMemoryBudgetAndPendingInputBounds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAWriterConfigurationTests/testRawSlackMemoryAndDerivedPendingBounds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZMAWriterDefaultOutputTests/testNilLevelMatchesFrozenArchives": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZWStreamEncoderTests/testEndOfFilePartialGroupsAndBytewiseWrites": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZWStreamEncoderTests/testInvalidMaxbitsAndTerminalStates": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZWStreamEncoderTests/testVariableWidthsClearAndRealCompressCompatibility": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LZWStreamEncoderTests/testVariableWidthsClearAndRealCompressCompatibilityFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testDefaultMinimumEntryBoundary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testEmptyComponentsCanonicalEquivalenceAndErrorPriority": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testFourAdditionsScanAndFifthBuildsWriterTable": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testFourRenamesScanAndFifthBuildsReservations": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testMixedReservationsReleaseNamesAndShareOneBudget": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testReservationsAgreeWithRealTableForTenThousandCandidates": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testShiftJISFirstScanWhenEnabled": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testTenScriptsHaveIdenticalCommittedBytesAndCollisionFailures": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LiveNameCheckTests/testWriterAgreesWithRealWriterForTenThousandCandidates": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LzipCompressorTests/testDictionaryCodeIncludesFractionAndRejectsOutOfRange": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LzipCompressorTests/testParallelMembersAreByteIdenticalAndInputIsBounded": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.LzipCompressorTests/testRawMemoryBudgetLimitsThreadsAndKeepsDictionary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreBenchmarkTests/testWriterMatrix": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testEntryMemoryReservationsKeepSequentialFallback": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testLHAMediumMembersKeepIdentityProgressAndStoredFallback": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testLHAMixedTinyMembersKeepMemorySpoolsAndEncoderFailure": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testMediumEntryWindowBoundsAfterEveryAddition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testNearLimitEntryWindowBoundsAfterEveryAddition": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testQueuedEntriesCancelAndReleaseSpools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testSevenZipFoldersSolidFiltersAndAESAreThreadIndependent": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testSmallBudgetEntryWindowBoundsIncludingWaitingAndSolidBlock": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testZIPBatchDirectoryURLAndLargeStoredKeepIdentityAndEvents": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testZIPBatchHeuristicAndProgressOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testZIPInlineItemsKeepEntryWindowAndIdentity": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testZIPOnlyEntryFinishesWithoutDiskSpool": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.MulticoreWriterTests/testZIPOrderedEntriesAndEncryptionAreThreadIndependent": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineInlineTests/testAbandonReleasesUnstartedNormalAndBorrowedInputsWithoutDispatching": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineInlineTests/testBorrowedEarlyJobRunsBeforeBlockedNormalJobAndDefersItsFailure": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineInlineTests/testCancellationBeforeTakeDoesNotClaimQueuedWork": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineInlineTests/testSuspendedQueueEncodesOnceOnCallerAndReleasesInputBeforeLateBlocks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineWindowTests/testAllLightItemsAreBoundedAndZeroWeightRemainsHeavy": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineWindowTests/testAlternatingWeightsUseHeavyWindowAndPreserveOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineWindowTests/testCancellationAndFailureAbandonExpandedWindow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineWindowTests/testDirectEmitFailureAbandonsWindowAndCannotEmitTwice": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedChunkPipelineWindowTests/testSingleThreadEncodesOnCallerAndPreservesDeferredError": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedEntrySpoolTests/testEmptyDirectoryAndStoredZIPCreateNoSpools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedEntrySpoolTests/testMemoryThenSpillPreservesBytesAndClosesDescriptor": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedEntrySpoolTests/testSpillFailureKeepsMemoryAndReleasesScratch": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedEntrySpoolTests/testStoredBatchKeepsLegacyPrefetchLimitAndIdenticalBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.OrderedEntrySpoolTests/testWorkerSpillPreservesScratchFaultInjection": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdEncoderBenchmarkTests/testSingleThreadBenchmark": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testEnglishLikeTextIsSmallerThanXZSix": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testLargeTextAndRandom": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testLargeTextAndRandomFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testPropertiesAndPresets": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testSmallInputsAndOrderBounds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testSmallMemoryRestorationOnTwentyMiBText": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testSmallMemoryRestorationOnTwentyMiBTextFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.PPMdEncoderTests/testStreamingIsDeterministicAndFailureIsTerminal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.PPMdWriterOptionsTests/testOptionsValidateBeforeOutputCreationAndPendingBounds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelCompressionLifecycleTests/testBoundedInputIncludesAssemblyWhileLaterResultsWait": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelCompressionLifecycleTests/testCancellationDuringAddAndFinishDoesNotWaitForCodec": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelCompressionLifecycleTests/testDeferredEncoderErrorsInvalidateWriterAndRemoveTarOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelCompressionLifecycleTests/testSeparateZIPAddsEncodeConcurrently": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelCompressionLifecycleTests/testZipCryptoKeepsSerialEncoder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testBSDTarExtractionForEveryFormat": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testBzip2IntegrityAndConcatenatedStreamSizes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testDittoExtraction": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testGzipIntegrityAndSingleMemberTrailer": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testManySeparateDiskAddsStayInOrderAcrossThreadCounts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testSevenZipIntegrityAndAESExtraction": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testShortReadsDoNotChangeDeflateBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testTarThreadCountsAreByteIdentical": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testUnzipIntegrityAndPayload": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testUpdaterAndRewriterZIPOutputUsesParallelFormat": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelDeflateBzip2WriterTests/testZIPThreadCountsAndAESAreByteIdenticalAtLevels6And9": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testCancellationDuringSevenZipMultiChunkAdd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testCancellationDuringTarXZFinish": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testCompressionThreadsValidationAndAutomaticLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testDeferredFailureFromLaterAddOrFinishInvalidatesWriter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testSeparateAddsActuallyEncodeConcurrently": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testSevenZipAESMultiChunkAndConsecutiveEntriesWithEightThreads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testSevenZipConsecutiveDiskEntriesAndEmptyMarkersAreByteIdentical": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testSevenZipMultiChunkBytesMatchSerialEncodingForEveryThreadCount": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testSingleThreadXZKeepsHeaderAndBodyEncodingSerial": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testTarXZBlockCountAndChecksWithXZ": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testTarXZChecksWithSevenZip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testTarXZMembersWithBSDTar": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testTarXZMultipleBlocksRoundTripAndDeterministicOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelLZMA2WriterTests/testXZWithoutInputHasZeroRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ParallelZIP64BoundaryTests/testIncompressibleMemberCrossesCompressedZIP64Threshold": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ReferenceToolPolicyTests/testOptionalMissingToolThrowsSkip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReferenceToolPolicyTests/testRequireMissingToolFailsAndThrows": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixAttributionTests/testEarlierBatchReadFailureBeatsLargeReadFailureBehindPerItemHead": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixAttributionTests/testEarlyZIPSetupFailureRetainsIndexAndEarlierFailureWins": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixAttributionTests/testPreviousPerItemFailureIsDrainedBeforeOpeningBatchSource": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixAttributionTests/testSevenZipOpenSolidScratchDoesNotRetainBatchAttribution": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixAttributionTests/testSevenZipWorkerFailureIsRawAfterBatchReturn": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixSourceLifetimeTests/testBatchReadsLargeSourcesBeforeReturning": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixSourceLifetimeTests/testPerItemReadsLargeSourcesBeforeReturning": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixSourceLifetimeTests/testUpdaterAndRecursiveAddsOwnLargeSourceBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ReviewFixZstdBudgetTests/testSpeedPriorityFallsBackToSingleFrameForItemAndBatch": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.RewriterCommitProgressTests/testBothPlacementsUseFixedBudgetAndPreserveBytesAndDidCarry": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.RewriterCommitProgressTests/testCarryAndDrainErrorsPrecedePublicationAndPreserveOriginal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.RewriterCommitProgressTests/testHardLinkMaterializationAndBufferReadsAreIncluded": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.RewriterCommitProgressTests/testUnknownSizeGzipDoesNotCountReads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testFinalPatchAfterFirstSyncAndGeneratedCopy": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testGeneratedLengthMismatchCleansEverything": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testGeneratedPrefixRemainsConservative": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testInvalidScratchRangeFailsAndCleansUp": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testMeterIsMonotonicCappedAndFinishesOnceIncludingZero": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testRelocationInBothModesAndChangedSameLengthPrefix": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testScratchChunkReadsAndAppendsKeepExistingBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testScratchCleanupPreservesReplacementInode": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testScratchPrefixIdentityAndRange": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SegmentedArchiveOutputTests/testUnshiftedCloneAndSequentialPrefix": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionMethodTests/testLevelsThreadsShortReadsAndDrainKeepOneStream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionMethodTests/testOptionsValidateBeforeCreatingOutputAndReportPendingBounds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionMethodTests/testReferenceArchivesAreReadByteIdentically": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionMethodTests/testWriterMethodsAndEncryptionRoundTrip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionRewriterTests/testRewriterHonoursSolidFilterAndAESOptions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionRewriterTests/testRewriterToSevenZipUsesSelectedMethodForCarriedAndAddedFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionUpdaterTests/testAESAttachChangeDetachKeepsOriginalCompressionAndPackedPlaintext": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionUpdaterTests/testAddSelectedMethodKeepsLZMA2FoldersByteIdentical": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionUpdaterTests/testSolidDeletionUsesSelectedMethodAndKeepsOtherFolders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipCompressionUpdaterTests/testSolidReencodingDuringPasswordChangeUsesSelectedMethod": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipEditPlanTests/testAddedAttributesUseOriginalVectorIncludingAfterAllEntriesAreReplaced": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipEditPlanTests/testHeaderSizeLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipEditPlanTests/testNFDNoOpRenameKeepsRawBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipEditPlanTests/testPurePlanAndStableOrdering": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testARM64ReducesRealBinaryCorpus": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testAutoSplitsByDetectedClassAndRejectsUniversal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testDeltaExtremeDistancesAndSmallChunks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testFiltersEveryMethodAndSolidAES": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testForwardBytesMatchSevenZip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testOwnLZMA2SolidFiltersAndAES": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipFilterWriterTests/testReverseSevenZipSolidFilters": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipHeaderSerializerTests/testFrozenHeaders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipHeaderSerializerTests/testNumberDigestAndPropertyOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLZMALevelTests/testLZMA2AndLZMAPresetsWithEncryptionAndHeaderEncryption": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLZMALevelTests/testLZMANilLevelIsSixAndIgnoresExtreme": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLZMALevelTests/testOwnLZMA2PiecesResetDictionaryAndKeepDeclaredSize": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLZMALevelTests/testRewriterUsesSelectedLZMAWithHeaderEncryption": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLZMALevelTests/testUpdaterAdditionAndSolidReencodeUseSelectedCoder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testBatchWorkerFileInputMatchesOldDrainAndClosesSpools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testCancellationDuringLongPoleReturnsPromptlyAndClosesSpools": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testDidEmitReportsReservationsInFolderOrderAndLoneFinalFolderSkipsOutputSpool": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testDiskSpoolHasInputBasedLimitWithoutFreeSpaceProbe": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testFailuresKeepLongPoleIndexAndPreferEarlierMediumIndex": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testLargeBzip2UsesRealPieceReservationAndMatchesOldDrain": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testLongPoleStartsWithEarlierFoldersPendingIncludingSaturatedSingleStreamWindow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testNonSolidBatchBzip2LongPoleRunsSpliceChunksConcurrentlyAfterFullMediumWindow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testNonSolidSingleStreamStartsWhenAllMediumSlotsArePending": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testOldDrainByteIdentityAllMethodsFiltersAESAndThreadCounts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testRealSixteenMiBBatchWindowStreamsLZMAAndPPMdFromFile": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipLongPoleTests/testTwoCoreLZMALongPoleDrainsNormalReservationsAndUsesBothCores": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testDefaultPresetAndReverseSevenZipToolArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testPresetsWithAESAndHeaderEncryption": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testSolidFiltersAndEncryption": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testSolidFiltersAndEncryptionFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testTwentyMiBTextWithSmallMemoryKeepsOneStream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testTwentyMiBTextWithSmallMemoryKeepsOneStreamFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipPPMdWriterTests/testUpdaterSolidReencodeAndAdditionsAndRewriter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipReencryptionTests/testFixedIVAttachmentMatchesWriter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipReencryptionTests/testFixtureSetChangeRemoveAndCarryBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipReencryptionTests/testLargeAESCopyWrongPasswordLimitAndSolidCurrentPassword": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipReencryptionTests/testPartialEncryptionAndOperationsAfterAdd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipReencryptionTests/testPasswordFailuresAndMixedPasswords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipScratchResourceTests/testHundredsOfReencodingsUseBoundedScratchDescriptors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSelfCheckFaultTests/testEveryFaultIsDetectedAndCleaned": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSharedOutputGateTests/testIdenticalScratchPrefixIsNotWrittenTwice": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidFilterUpdaterTests/testCarrySolidFoldersAndAppendAccordingToOptions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidFilterUpdaterTests/testDeletionKeepsOriginalFilterIncludingStartOffset": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testBlockSizeFileCountAndOff": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testEveryMethodAppleOwnLZMA2AndEncryption": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testFolderBytesStayIdenticalAcrossThreadsAndMemoryWindows": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testInnerWorkerBudgetAndAbortJoin": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testInvalidOptionsAreRejectedBeforeCreation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testLargeFileStreamsAcrossLZMA2ResetsAndExceedsBlockLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testShortReadsDrainAndBoundedInput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testTenThousandSmallFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipSolidWriterTests/testThrowingBlockEmitCannotReturnThreadsTwice": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterCancellationTests/testCancellationDuringScratchConversionVerificationAndRelocation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterDifferentialTests/testSeededEditsAgainstIndependentModelAndRewriter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterHeaderTests/testAllHeaderPolicies": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterHeaderTests/testAttributeLessSourceAddsExecutableAndDirectoryWithoutAttributes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterHeaderTests/testEmptyAndAttributeBearingSourcesKeepAddedMode": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterHeaderTests/testFrozenEmptySevenZipAdditionHeaderModel": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterHeaderTests/testNeverSilentlyDecryptHeaders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterHeaderTests/testOversizedMetadataFailsAndCleansExistingAppend": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterInteropTests/testExternalReadersAndExtractionHashes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterInteropTests/testStartPosBaselineAndPreservation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterLargeOffsetTests/testSparseOffsetsPastFourGiB": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testCloneWritesOnlyChangedBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testExFAT": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testFAT32": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testHFSPlus": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testHostLifecycle": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testSourceChangeReentryAndForeignOutputAreSafe": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testSourceFlagsAndCloneErrors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterOutputModeTests/testTenThousandDirectoriesAndLongerNameProgress": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterRefusalTests/testSettingsNamesMismatchAndNon7z": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterRefusalTests/testStructuralRoutesAndAssessAgree": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterScaleProbeTests/testReleaseScale": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterSolidTests/testFollowingPackMovesUpAndDownWithRelocatedAppend": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterSolidTests/testS200SizeAgainstSevenZipDelete": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterSolidTests/testSolidReencodingAndAppendInBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterTests/testAllDeletedThenDiskTreeAddedAndLateReservations": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterTests/testBasicOperationsBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipUpdaterTests/testFrozenFixturesRenameAndMetadata": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterByteIdentityTests/testEmptyWriterBytesRemainUnchanged": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterByteIdentityTests/testFrozenWriterBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/test7zNumberEncodingBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testCancellationBeforeFinishInvalidatesHardLinksAndBeforeCreateLeavesNothing": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testDiskTreeAndLinksUseSharedTraversal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testDuplicateNamesAndFileDirectoryConflicts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testEmptyArchiveAndOnlyEmptyStreams": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testEmptyFilesDirectoriesAndMixedBitVectors": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testFailurePreservesReplacementAndInvalidatesOldInode": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testJapaneseNamesAreUTF16LEAndByteExact": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testLargeRepetitiveFileCompressesAndRoundTrips": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testMtimeAndExecutablePermissionsSurviveExtraction": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testNextHeaderCRCCorruptionIsRefusedIndependently": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testOptionsNoOverwriteAndUnfinishedLifetime": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testPayloadCorruptionReportsSpecificFileCRC": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testPublicTaskCancellationAfterPayloadStartsRemovesOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testSharedPathValidationAndFailedOutputCleanup": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testSimpleArchiveExternalToolsAndKaitoRoundTrip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testStartHeaderCRCCorruptionIsRefused": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SevenZipWriterTests/testTimestampKnownValuesTruncationAndRange": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testBzip2UsesSizeBasedSingleStreamAcrossThreads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testCancellationDuringReadingCleansTemporaryFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testEveryFormatOnEmptyOneByteTextAndRandomFiles": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testEveryFormatOnEmptyOneByteTextAndRandomFilesFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testFailureAndChangedSourceRemoveTemporaryOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testGzipHeaderIsDeterministicAndLZMALevelsAndMemoryCap": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testProgressCancellationAndRacingOutputCreation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SingleStreamCompressorTests/testRefusesDirectoriesSymlinksAndExistingOutputs": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityDefaultOutputTests/testCompressedContentDefaultAndOptOutGoldenBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityDefaultOutputTests/testDefaultMatchesBaseCommit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityRatioProbeTests/testRatioAndSpeedOutputSizes": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SpeedPriorityRatioProbeTests/testSavedProbeRoundTrips": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testArchivesAcrossThreadsAndPowerPolicies": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testMediumBatchXZActuallyUsesFourPieceWorkers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testPieceSizeTablesAndEnvironmentIndependence": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testSingleFilesAcrossThreadsAndPowerPolicies": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testSpeedZstdZIP64ReservesEachFrameHeader": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testZipDiskBatchAndEncryptionUseTheSamePieces": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.SpeedPriorityTests/testZstdFrameThresholdAndLargeWindow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarAppendWriterTests/testEndMembersAtNonzeroOffsetKeepsTailAndDescriptor": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testBzip2HeaderGroupLargerThanChunkLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testEmptyArchiveHasOneFinalChunkEvenWithSmallLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testExactUnpaddedHintLengthsAndRollingGzipDictionary": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testMemberBoundariesEOFThreadCountsAndShortReads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testRewriterUsesMemberLayoutForAllCompressedTarFormats": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testTarWriterRecordsOptionalMemberLayouts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testUnhintedOutputMatchesOriginalFixedWidthFraming": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarChunkCutterTests/testXZHeaderGroupLargerThanPieceLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarEditPlanTests/testContiguousSourcesMergeAndHeaderOnlyPatches": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarHeaderRewriteTests/testGNUAndV7KeepNonPOSIXPrefixFieldsAndLongExtensions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarHeaderRewriteTests/testMaterializationInsertsSizeAfterPathAndClearsLink": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarHeaderRewriteTests/testOrderedRepeatedPaxAndSparseAllVersions": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarHeaderRewriteTests/testWriterGroupsMatchExactlyAcrossPaxFieldsAndNameBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarLayoutTests/testGenericByteSourceUnitsAndBoundedHeaderReads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarLayoutTests/testOversizedExtensionIsRejectedBeforeReadingPayload": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarLayoutTests/testSignedChecksumAndNumericFields": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterCancellationTests/testCancellationDuringCommitAndSequentialFirstAdd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterCancellationTests/testProgressThrowsAndAllReentrantOperationsInvalidateCommit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterDifferentialTests/testSeededArchivesAndOperationOrdersAgainstIndependentModelAndRewriter": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterHardLinkTests/testRetargetMaterializeRenameAndMetadata": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterInteropTests/testBSDAndPythonArchivesPreserveMetadataAcrossEdits": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterInteropTests/testRealGitArchiveCommentIsPreserved": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.TarUpdaterLargeMemberTests/testSparseNineGiBOffsetsAndHardLinkMaterialization": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.TarUpdaterOracleTests/testPrototypeIntendedImages": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.TarUpdaterOutputModeTests/testSourceChangeAbandonAndReplacementInodesInBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterOutputModeTests/testSourceSnapshotFlagsCloneErrorsAndOutputValidation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterRefusalTests/testHardLinkRawNameGuardAndLegacyEncodingFallback": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterRefusalTests/testMismatchEncodingAndKaitoErrorsStayDistinct": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterRefusalTests/testSettingsNamesAndStructuralRefusalsLeaveNothing": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterScaleProbeTests/testReleaseScaleTimingsAndIO": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.TarUpdaterTests/testOperationOrderBytesStrategiesAndOwnersInBothModes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterTests/testRawNamesRootCommentTrailingBytesAndEmptyArchives": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterTests/testWrittenAndCopiedBytes500Members": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarUpdaterVerificationFaultTests/testV1ThroughV5RejectCorruptionAndCleanUp": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterBufferTests/testBatchFlushesAtCallbacksAndReturnWithIdenticalBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterBufferTests/testDelayedWriteFailureBelongsToFirstUnwrittenAddition": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testActualXattrIsNotArchivedOrRestored": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testCancellationBeforeFinishRemovesPreviouslyWrittenMembers": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testChangedHardLinkSourceFailsInsteadOfReferencingOldPayload": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testCleanupDoesNotDeleteReplacedDestination": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testDecomposedInputUsesSharedNFCNormalization": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testDirectoriesSymlinksAndHardLinksRestoreTheirTypes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testDuplicateNamesAndFileDirectoryConflicts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testEmptyArchiveAndBlockingFactorBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testExactly100ByteNameAnd101BytePaxPath": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testJapanesePaxKeepsExactUTF8Bytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testLifecycleExistingDestinationAndOutputAsSource": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testLongSymlinkAndHardLinkTargetsUsePaxLinkpath": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testMtimeTruncationNegativeAndOctalOverflow": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testOctalSizeOverflowUsesPaxAndBase256Header": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testOwnerNumericOverflowAndOwnerOptIn": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testPublicTaskCancellationDuringPayloadRemovesOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testSharedPathValidationAndFailedOutputCleanup": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testSimpleArchiveExternalToolsAndKaitoRoundTrip": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarWriterTests/testUstarPrefixBoundaryAvoidsUnnecessaryPax": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarXZLZMALevelTests/testLevelNineConcurrencyCapOn128MiBInput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarXZLZMALevelTests/testLevelNineConcurrencyCapOn128MiBInputFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.TarXZLZMALevelTests/testPresetsWithXZTarAndKaitoKitAndTextRatio": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.TarXZLZMALevelTests/testUpdaterUsesOwnEncoderForChangedBlocks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.UpdaterRouteErrorTests/testAliasEqualityAndBothCatchPatterns": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testEveryPolicyPowerAndThermalCombination": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testPoolSafetyScalesAndMemoryClampsRemain": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testPublicRangeAndExplicitThreadsIgnorePowerPolicy": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testSevenZipEveryMethodSharesSnapshotWithPieceAndFolderPipelines": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testSingleStreamSnapshotDoesNotReadPowerStateAgain": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testSnapshotIsSharedByWritersAndUpdaters": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOptionsTopologyTests/testSysctlFallbackAndOrdinalLevels": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.WriterOutputBaselineTests/testCommittedG1ByteCompatibility": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.XZLZMA2Tests/testAppleXZRetainsLZMA2TerminatorAndDecodes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.XZLZMA2Tests/testMalformedFramingTruncationAndUnsupportedFiltersAreRejected": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.XZLZMA2Tests/testNoneCRC32CRC64AndSHA256ChecksDoNotLeakIntoPayload": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.XZLZMA2Tests/testOptionalSizeFieldsAndHeaderPaddingMovePayloadDynamically": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.XZPackingLayoutTests/testPublicWriterPackingAndPieceBoundariesMatchXZAndKaitoKit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Zip64WriterTests/testZIP64MoreThan65535EntriesRoundTrips": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Zip64WriterTests/testZIP64PerFieldSentinelsAtExactBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.Zip64WriterTests/testZIP64UncompressedSizeAbove4GiBRoundTrips": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipAESEncryptorTests/testCiphertextAndAuthenticationMatchOriginalAtBlockAndCallBoundaries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESPipelineRegressionTests/testLargeHeuristicStoredAESInterleavesInsideDirectAndBatchFolderAdds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESPipelineRegressionTests/testLargeHeuristicStoredAESInterleavesWithDataAddsAtBothFinishPaths": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESPipelineRegressionTests/testLoneAESLZMAEntryKeepsParallelFinderAtFinish": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESPipelineRegressionTests/testUpdaterPreservesAESOrderForDataAndBatchFolderAdds": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESWriterTests/testAESAppendPreservesPlainRegularEntries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESWriterTests/testBatchAndIndividualArchivesUseSameOrderedSalts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESWriterTests/testManySmallEntriesMatchSerialBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESWriterTests/testMixedEntriesMatchSerialBytesWithOrderedTaskLocalSalts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESWriterTests/testPlainEntriesDoNotGenerateSalts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAESWritingBenchmarkTests/testSmallEntriesAndLargeStoredEntry": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionEditingTests/testArchiveRewriterToZIPUsesSelectedMethodForCarriedAndAddedEntries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionEditingTests/testUpdaterAddsBothAESMethodsAndPreservesCarriedRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionEditingTests/testUpdaterAddsBothMethodsAndPreservesCarriedRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionEditingTests/testUpdaterAddsBothZipCryptoMethodsAndPreservesCarriedRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testAES256RoundTripsAndSevenZipOracle": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testBatchDiskInputsAndHeuristicOptOut": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testBzip2LevelAndExactlyOneStream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testEmptyArchives": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testPendingInputBoundsValidationAndZIP64Reservation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testPlainRoundTripsAndSevenZipOracle": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testSevenZipCreatedArchivesReadByKaitoKit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testXZMultipleBlocksRemainOneStreamAcrossThreadCounts": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipAdditionalCompressionWriterTests/testZipCryptoRoundTripsAndSevenZipOracle": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipCentralFastPathTests/testCanonicalClassificationAndFastBytes": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipCentralFastPathTests/testValidateReadsCentralOnceAndEnforcesLimit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipCommitCancellationTests/testChunkCancellationCleansBothModesAndPreservesSource": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipCommitCancellationTests/testPlanningCancellationAtIndexTwoWritesNothing": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipCommitProgressTests/testAllSixStrategiesCountExactlyWrittenBytesWithBoundedNotifications": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipCommitProgressTests/testThrowAtInitialIntermediateAndFinalProgressRemovesOutput": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipConcatenatedZstdProbeTests/testIndependentReaders": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipConcatenatedZstdProbeTests/testLargeMemberFrameResetSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testCP932DeletionKeepsEverySurvivingNameByte": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testCP932RenameInvalidatesUnicodePathExtraWithoutMovingEqualLengthPayload": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testConcurrentReplacementRejectsQueuedRebuild": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testDeleteFirstMiddleLastAndSeveralPreservesRawRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testDeleteRenameAndAppendShareOneAtomicCommitInEitherOrder": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testDittoDescriptorsSurviveNeighborDeletionAndRename": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testFailureAndAbandonmentAfterPartialWorkPreserveOriginal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testFolderRenamesAreExplicitAndPreserveSymlinks": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testInvalidIndicesAndUnsafeOrCollidingRenamesLeaveOriginalUntouched": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testNilRawRecordRefusesOnlySurvivingEntries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testRebuildPreservesArchiveModeQuarantineXattrsCreationDateAndComment": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testRemovingAllEntriesMatchesPythonEmptyZIP": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testRenameShorterEqualLongerAndJapanesePatchesBothHeaders": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testShiftedDifferentLengthRenameCopiesPayloadsByteExactly": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testShiftedFirstDeletionCopiesOnlySurvivor": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testTaskCancellationDuringRebuildPreservesOriginal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testUnshiftedRenameAfterAddPreservesAppendedZIPByteExactly": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testUnshiftedSameLengthRenamePreservesAPFSCloneFreeSpace": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testUnshiftedSameLengthRenameReadsLessThanOneMiB": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipDeleteRenameTests/testUnshiftedTailDeletionReadsLessThanOneMiB": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipInPlaceRenameTests/testNoncanonicalEndsGapsAndCentralNameLengthUseGeneralPath": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipInPlaceRenameTests/testOneAndThousandRenamesOnlyWriteHeaderPatches": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipLZMALevelTests/testLZMAAndXZPresetsWithAESAndZipCrypto": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipLZMALevelTests/testLZMANilLevelMeansSixAndReverseSevenZipArchive": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipLZMALevelTests/testLZMAZIP64ReservationAndEOSFlags": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipLZMALevelTests/testOwnXZMultiplePiecesFormOneStreamAndIgnoreThreadCount": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipLZMALevelTests/testUpdaterAddsAndRewriterUsesLZMAAndXZLevels": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipMixedCommitTests/testAppOrderDoesNotRereadOriginalCentralOrUnmovedPayload": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipMixedCommitTests/testCorruptionFailsBothGKAndIndependentKaitoCheck": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipMixedCommitTests/testDeleteDefersReservationsAndLaterMutationsKeepCollisionRules": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipMixedCommitTests/testFourOrdersShrinkGrowAndWrittenOverlapMatchLegacy": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipMixedCommitTests/testMixedReadBoundAndNoGapReadWithSmallBuffer": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipModernMethodEditingTests/testAppendPreservesXZAndLegacyZstandardLocalRecords": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipModernMethodEditingTests/testRenameAndRemovePreserveCompressedAndEncryptedPayloads": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipPPMdWriterTests/testDefaultPresetHeuristicAndSpecialEntries": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipPPMdWriterTests/testPresetsWithAESAndZipCrypto": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipPPMdWriterTests/testReverseSevenZipToolArchiveAndZIP64Reservation": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipPPMdWriterTests/testTwentyMiBTextWithRestartsAndThreadIndependentStream": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipPPMdWriterTests/testTwentyMiBTextWithRestartsAndThreadIndependentStreamFullSize": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipPPMdWriterTests/testUpdaterAndRewriterSelectPPMd": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildBoundaryTests/testLocalOffsetCrosses4GiBThenDropsAfterDeletion": {
+      "run": "completed-prefix",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipRebuildBoundaryTests/testRebuiltCentralDirectoryAddsAndDropsEachZIP64FieldIndependently": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildBoundaryTests/testSignedZIP32AndZIP64DescriptorsSurviveRebuild": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildBoundaryTests/testZIP32DescriptorCrossingZIP64OffsetIsRefusedWithoutChangingOriginal": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildBoundaryTests/testZIP64CountDropsBelowLimitAndReturnsAfterMixedCommit": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildEquivalenceTests/testMixedStoredDeflateAESZipCryptoAndFixedDirectory": {
+      "run": "completed-prefix",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildEquivalenceTests/testSmallCorpusMatrixMatchesLegacyBytes": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRebuildEquivalenceTests/testSparse4GiBUpAndDownMixedMatchesLegacyInChunks": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipRebuildEquivalenceTests/testZIP64CountCorpusMatchesLegacy": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testConversionAndRenameNeutralizeUnicodePathExtra": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testDescriptorsZIP64ExtrasReorderedRecordsAndMetadata": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testEncryptedDirectoriesAndSymlinksBecomePlainWithoutChangingPayload": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testExtraFieldLengthLimitAndRenamePrivacy": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testLarge300MiBPayloadReadsAtMostOneMiB": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testLargeAESSizeCrossingAndRemoval": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testLargeConvertedDescriptorCrossesButCarriedDescriptorRefuses": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testSaltsAreUniqueAcrossEntriesAndRunsAndSamplingIsBounded": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testUnknownMethodOnlyRequiresDecompressionForPassAOrV2": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionBoundaryTests/testZIP64EntryCounts65535And65536": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionInteropTests/testMixedPlainAndAESRetainsOnlyMatchingRecords": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionInteropTests/testModernFixturesAndSamePasswordMethodChanges": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionInteropTests/testSevenZipStrengthsMethodsAndAllTargetModes": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionInteropTests/testUTF8AndCanonicallyEquivalentPasswordsWithReferenceTools": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionInteropTests/testWriterCorpusInfoZIPAndDitto": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testAllWriterTransitionsPreserveStoredBytesAndSelectPasses": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testCancellationAtEveryConversionStageAndStateRules": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testGoldenMatchesWriterForAESAndStoredZipCryptoHeaders": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testInputSaltChangedAfterDerivationIsWrapped": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testMaterialSaltMismatchAndV3EncryptionKeyMixup": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testMixedEditsAndReservationOrderUseStagedRebuild": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testNoOpReservationAndPasswordComparisonUsesUTF8": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testOriginalChangeIsRejectedAndDeletedEncryptedEntriesNeedNoPassword": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testOutputTamperingAlwaysUsesReencryptionFailedAndCleansOutput": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testParallelDerivationMatchesSerialAndObserverUsesCommitThread": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testProgressIncludesConversionAndIsMonotone": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testSameSizeConversionAndAppendUseRebuildThenAppend": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testUnshiftedDirectoriesAreNotReadDuringCommit": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testWrongPasswordsMissingPasswordAndHMACTampering": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testZeroConversionsPreserveP1GBytesAndStrategiesWithEdits": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipReencryptionTests/testZipCryptoVerifierCollisionIsRejectedByV2": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRenamePrivacyTests/testOldNamesAbsentAfterRenameRemovalAndStagedAddThroughBothEditors": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRenamePrivacyTests/testOtherNameBearingExtrasRefuseRenameWithoutChangingOriginal": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipRenamePrivacyTests/testUnparsedCentralExtraTailCannotRetainOldNameOnRename": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeAcceptsCanonicalEmptyZIPWithMaximumComment": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeAcceptsNormalZIP": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeAcceptsZIP64AndCanonicalEmptyZIP64": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeLeavesEntryValidationToCallersReader": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeReadsOnlyBoundedTailWithMultiMiBCentralDirectory": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesBadCentralDirectoryOffsetLikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesMalformedEndRecordsLikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesNativeSplitZIPFinalVolumeLikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesSFXPrefixLikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesSplitZIPAndZIP64LikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesSplitZIPBeforeTrailingDataLikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdateProbeTests/testProbeRefusesTrailingDataLikeOpen": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testCentralWalkRejectsPlantedPayloadSignature": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testCentralWalkRejectsReaderLocalOffsetDisagreement": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testCentralWalkRequiresExactDeclaredEnd": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testCentralWalkResolvesZIP64OffsetAfterBothSizeFields": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testEmbeddedCoherentEOCDIsRefusedBeforeAppendCanLoseEntries": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testEnclosingEarlierCommentIsAmbiguousEvenWithTrailingData": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testFinishAcceptsCentralRecordsAcrossArbitraryChunkBoundaries": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testFinishRejectsMalformedOrMiscountedCopiedCentralRecords": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testIncoherentEOCDBytesInLegitimateCommentRemainEditable": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterIntegrityTests/testOpenRejectsLocalPayloadOverlappingCentralDirectoryBeforeAdd": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterOutputModeTests/testImmutableSourceIsRefusedBeforeCreatingAnything": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterOutputModeTests/testOnlyENOTSUPAndEXDEVFallBackAndStillMatchBytes": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterOutputModeTests/testOutputMatchesReplaceAndPreservesSourceAttributesWithSnapshotReads": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterOutputModeTests/testSnapshotHelperAcceptsNonZIPBytesAndTarExtension": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterOutputModeTests/testSourceChangeInvalidPathsAbandonmentAndReplacementInodes": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterOutputModeTests/testUnchangedEmptyAndEmptyAppendMatchReplace": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterScaleProbeTests/testScale": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testAppendCP932PreservesRawNamesAndFlags": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testAppendCrossesZIP64CountAndUpdatesZIP64Again": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testAppendDiskTreeAndDirectory": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testAppendDittoDataDescriptorsAndInfoZIP": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testAppendWriterArchiveSharesExactRecordBytes": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testCommitPreservesModeQuarantineXattrsAndCreationDate": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testEmptyArchiveAndCommentSurviveAppend": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testFailureAbandonmentAndConcurrentChangePreserveOriginal": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testGatekeeperSFXPrefixLeavesOriginalUntouched": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testGatekeeperTrailingDataLeavesOriginalUntouched": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipUpdaterTests/testGatekeeperTruncatedCDOffsetLeavesOriginalUntouched": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testCompressionLevelsHeuristicAndOwnerOptIn": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testDOSDateAndTimestampBounds": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testDanglingSymlinkAndSlicedDataRoundTrip": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testDirectoryTreePermissionsAndSymlink": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testEmptyArchive": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testInvalidInputsAndWriterLifecycle": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testJapaneseUTF8NFCAndTimestampExtraLengths": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testRejectsFileDirectoryConflictsAndOutputAsSource": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testReusedDeflateMatchesFreshWriterForEveryMemberAndLevel": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testSingleSmallFileStoredAndDeflated": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipWriterTests/testZeroByteFileUsesStoredWithoutPayload": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipZstdWriterTests/testLargeEntryStaysOneFrameAndThreadIndependent": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipZstdWriterTests/testLevelsAESAndZipCryptoWithSevenZipAndRawFrameOracle": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipZstdWriterTests/testUpdaterBatchAdditionsAndRewriterWithEncryption": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZipZstdWriterTests/testZIP64ReservationIncludesFrameOverheadAndVersion": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderBenchmarkTests/testSingleThreadBenchmark": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testBitAccumulatorBoundariesAndReservedOutput": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testCancellationMakesEncoderTerminal": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testConcatenatedIndependentFramesAndInputPartitionDeterminism": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testEveryLevelAndShortPeriodicInputs": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testFastPairTailsAndSkippedRuns": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testFastWriterThreadIdentity": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testHeadersContentSizeAndTerminalErrors": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testHuffmanOneAndFourStreamsWithDirectAndFSEWeights": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testMatchRowsAndTreePreserveCandidatesAfterRebase": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testOptimalTreeBlockTailWithLongText": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testOptimalTreeBlockTailWithLongTextFullSize": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testReusedLiteralHistogramTransitions": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testSequenceCountOneTwoThreeByteHeadersAndRLETables": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testSequenceLengthCodesRepeatRulesAndFSETables": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testSequenceReservationWithWideOffsetAndExtraBits": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testSmallAndRLEAtAllRequestedLevels": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testTextAndRandomWithOddPiecesAtAllRequestedLevels": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testTextAndRandomWithOddPiecesAtAllRequestedLevelsFullSize": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testTwentyMiBMixedCrossesWindowAndRawRLECompressedTransitions": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testTwentyMiBMixedCrossesWindowAndRawRLECompressedTransitionsFullSize": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZstdEncoderTests/testUniformLiteralHistogramUsesRaw": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdParallelBenchmarkTests/testWritersAtOneFourEightTwelveThreads": {
+      "run": "resume",
+      "status": "skipped"
+    },
+    "GyoshukuKitTests.ZstdWriterConfigurationTests/testFixedChunksAreBoundedAndThreadIndependent": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdWriterConfigurationTests/testMemoryBudgetReducesThreadsAndRejectsBeforeCreatingOutput": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdXXH64Tests/testKnownVectors": {
+      "run": "resume",
+      "status": "passed"
+    },
+    "GyoshukuKitTests.ZstdXXH64Tests/testStreamingStripesSlicesAndSeeds": {
+      "run": "resume",
+      "status": "passed"
+    }
+  }
+}

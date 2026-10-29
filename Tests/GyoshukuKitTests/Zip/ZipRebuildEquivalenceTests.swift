@@ -84,6 +84,7 @@ final class ZipRebuildEquivalenceTests: XCTestCase {
     }
 
     func testSparse4GiBUpAndDownMixedMatchesLegacyInChunks() throws {
+        try TestSupport.requireScratchBytes(16 << 30)
         let directory = try TestSupport.directory("p1-equivalence-offset64")
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = try ZipP1Corpus.sparse(directory)

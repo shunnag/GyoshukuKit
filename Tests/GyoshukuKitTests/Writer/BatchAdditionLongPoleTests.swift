@@ -120,7 +120,8 @@ final class BatchAdditionLongPoleTests: XCTestCase {
                             try writer.finish()
                             let bytes = try Data(contentsOf: output)
                             let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-                            XCTAssertEqual(hash, Self.branchHashes[c.name]![largeIndex]!, "\(c.name), t=\(threads), \(mode)")
+                            let golden = try XCTUnwrap(Self.branchHashes[c.name]?[largeIndex], "missing golden: \(c.name), large=\(largeIndex)")
+                            XCTAssertEqual(hash, golden, "\(c.name), t=\(threads), \(mode)")
                             if let expected { XCTAssertEqual(bytes, expected, "\(c.name), large=\(largeIndex), t=\(threads), \(mode)") }
                             else { expected = bytes }
                             if mode == "previous" { previousEvents = events }

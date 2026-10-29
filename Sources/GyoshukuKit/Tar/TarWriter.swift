@@ -3,10 +3,12 @@ private import Darwin
 
 // 名前の検証・衝突検査・ディスク探索は ArchiveWriter と共有し、ここでは tar だけを扱う。
 final class TarWriter {
+    @TaskLocal static var additionAttribution: AdditionAttribution?
     private typealias TypeFlag = TarRecords.TypeFlag
     private let output: FileHandle
     private let url: URL
     private let compressor: (any TarCompressor)?
+    private let usesCompressionHeuristic: Bool
     private var position: UInt64 = 0
     // 追加した member の区切りを memberLayouts に残す。圧縮 tar の更新が splice の計画に使う。
     private let recordsMemberLayout: Bool
@@ -17,15 +19,21 @@ final class TarWriter {
     private(set) var memberLayouts: [(groupStart: UInt64, dataStart: UInt64, end: UInt64)] = []
     private var finished = false
     private var aborted = false
+    private var outputBuffer = Data()
+    private var bufferedAttribution: AdditionAttribution?
+    private var buffersOutput: Bool {
+        compressor == nil && !recordsMemberLayout && !observesWrites && willWrite == nil
+    }
     private struct FileID: Hashable { let device: Int64; let inode: UInt64 }
     private var hardLinks: [FileID: (path: String, signature: [Int64])] = [:]
 
     init(output: FileHandle, url: URL, compressor: (any TarCompressor)?,
          startPosition: UInt64 = 0, recordsMemberLayout: Bool = false, observesWrites: Bool = false,
-         willWrite: ((Int) throws -> Void)? = nil) {
+         willWrite: ((Int) throws -> Void)? = nil, usesCompressionHeuristic: Bool = false) {
         self.output = output
         self.url = url
         self.compressor = compressor
+        self.usesCompressionHeuristic = usesCompressionHeuristic
         self.position = startPosition
         self.recordsMemberLayout = recordsMemberLayout
         self.observesWrites = observesWrites
@@ -38,6 +46,7 @@ final class TarWriter {
 
     func finishAdditions(didEmit: ((UInt64) throws -> Void)?) throws {
         try compressor?.finishAdditions(didEmit: didEmit, emit: emit)
+        try flushOutput()
     }
 
     func hardLinkTarget(device: Int64, inode: UInt64, signature: [Int64]) throws -> String? {
@@ -79,6 +88,8 @@ final class TarWriter {
         let groupStart = position
         let dataStart = try checkedAdd(position, UInt64(headers.count))
         _ = try checkedAdd(dataStart, bodyLength)
+        compressor?.setStoresCompressedContent(usesCompressionHeuristic && entry.type == TypeFlag.regular
+            && size > 0 && CompressedContent.contains(name))
         compressor?.beginMember(headerLength: UInt64(headers.count), bodyLength: bodyLength)
         try write(headers)
         if entry.type == TypeFlag.regular {
@@ -100,6 +111,7 @@ final class TarWriter {
     func endMembers() throws -> UInt64 {
         guard compressor == nil, !finished, !aborted else { throw WriterError.invalidState }
         try Task.checkCancellation()
+        try flushOutput()
         finished = true
         return position
     }
@@ -112,6 +124,7 @@ final class TarWriter {
         let padding = (UInt64(TarRecords.recordSize) - position % UInt64(TarRecords.recordSize)) % UInt64(TarRecords.recordSize)
         try write(Data(count: Int(padding)))
         if let compressor { try compressor.write(Data(), finish: true, emit: emit) }
+        try flushOutput()
         try Task.checkCancellation()
         try output.synchronize()
         try Task.checkCancellation()
@@ -122,6 +135,8 @@ final class TarWriter {
     func abort() {
         guard !finished, !aborted else { return }
         aborted = true
+        outputBuffer = Data()
+        bufferedAttribution = nil
         compressor?.abandon()
         // tar は途中まででも読めるため、失敗時には終端を省くだけでは不十分。
         // 別名の hard link も無効化し、出力先が置換されていれば別人のファイルは消さない。
@@ -138,8 +153,36 @@ final class TarWriter {
 
     private func emit(_ data: Data) throws {
         try Task.checkCancellation()
+        if buffersOutput {
+            if data.count >= IOChunk.size {
+                try flushOutput()
+                try output.write(contentsOf: data)
+            } else {
+                if outputBuffer.count + data.count > IOChunk.size { try flushOutput() }
+                if bufferedAttribution == nil { bufferedAttribution = Self.additionAttribution }
+                outputBuffer.append(data)
+            }
+            return
+        }
         try willWrite?(data.count)
         try output.write(contentsOf: data)
         if observesWrites { ZipCopyEngine.writeObserver?(position, data.count) }
+    }
+
+    func flushOutput() throws {
+        guard !outputBuffer.isEmpty else { return }
+        try Task.checkCancellation()
+        do { try output.write(contentsOf: outputBuffer) }
+        catch {
+            if let entry = bufferedAttribution { throw additionFailure(error, index: entry.index, addition: entry.addition) }
+            throw error
+        }
+        outputBuffer.removeAll(keepingCapacity: true)
+        bufferedAttribution = nil
+    }
+
+    func flushOutput(ifBufferedBefore index: Int) throws {
+        guard let bufferedAttribution, bufferedAttribution.index < index else { return }
+        try flushOutput()
     }
 }

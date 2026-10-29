@@ -5,6 +5,7 @@ import XCTest
 
 final class ParallelZIP64BoundaryTests: XCTestCase {
     func testIncompressibleMemberCrossesCompressedZIP64Threshold() throws {
+        try TestSupport.requireScratchBytes(5 << 30)
         let directory = try TestSupport.directory("m8-zip64-compressed-boundary")
         let url = directory.appendingPathComponent("archive.zip")
         defer { try? FileManager.default.removeItem(at: url) }

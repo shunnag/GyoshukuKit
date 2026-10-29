@@ -63,9 +63,6 @@ final class ZipWriter {
     private var appendStart: UInt64 = 0
     private var recordBase: UInt64 = 0
     private(set) var entries: [ZipRecords.Entry] = []
-    private static let compressedExtensions: Set<String> = [
-        "zip", "gz", "bz2", "xz", "7z", "rar", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "mov", "pdf"
-    ]
 
     init(output: FileHandle, url: URL, options: WriterOptions, deflateBlockSize: Int,
          deflateEncoder: @escaping DeflateBlock.Encoder, salt: @escaping () throws -> Data) {
@@ -619,8 +616,16 @@ final class ZipWriter {
     private func patchLocalHeader(_ entry: ZipRecords.Entry, expectedSize: Int) throws {
         let patched = entry.local()
         guard patched.count == expectedSize else { throw WriterError.sizeOverflow }
+        let headerPosition = try checkedAdd(appendStart, entry.offset - recordBase)
+        let bufferedStart = position - UInt64(outputBuffer.count)
+        if headerPosition >= bufferedStart, headerPosition <= position,
+           UInt64(patched.count) <= position - headerPosition {
+            let offset = outputBuffer.startIndex + Int(headerPosition - bufferedStart)
+            outputBuffer.replaceSubrange(offset..<(offset + patched.count), with: patched)
+            return
+        }
         try flushOutput()
-        try output.seek(toOffset: checkedAdd(appendStart, entry.offset - recordBase))
+        try output.seek(toOffset: headerPosition)
         try output.write(contentsOf: patched)
         try output.seek(toOffset: position)
     }
@@ -628,7 +633,7 @@ final class ZipWriter {
     private func compression(name: String, mode: UInt16, size: UInt64) -> CompressionMethod {
         guard size > 0, mode.isRegularFileMode else { return .stored }
         if options.useCompressionHeuristic {
-            if Self.compressedExtensions.contains((name as NSString).pathExtension.lowercased()) { return .stored }
+            if CompressedContent.contains(name) { return .stored }
         }
         return options.compressionMethod
     }

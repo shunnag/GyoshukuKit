@@ -5,6 +5,16 @@
 ビルド要件・CI・大容量検証の入口は[開発と検証](../Documentation/testing.md)を参照する。
 説明はこの file に置く（target の directory の中の `.md` は SwiftPM が未処理の file として警告する）。
 
+容量制限下の直列実行では `GYOSHUKU_TEST_EPHEMERAL_OUTPUT=1` で成功caseの生成物をcase終了時に削除できます。
+`GYOSHUKU_TEST_OUTPUT_ROOT` で生成物のrootを指定できます（既定は `.build/verification`）。
+`.build`をsymlinkにした実行では、このrootを実pathで指定するとURL比較もsymlink展開に影響されません。
+失敗caseの生成物は残します。`GYOSHUKU_TEST_SCRATCH_LIMIT_BYTES` を指定すると、4 GiBを実書込する
+ZIP64サイズ往復・圧縮サイズ境界（必要各5 GiB）、ZIP64 offset再構築・descriptor拒否（必要各12 GiB）、
+4 GiB sparse書庫のlegacy比較（必要16 GiB）は、上限未満なら理由付きでskipします。
+未指定の通常suiteと既存のopt-in条件は変えません。実行記録ではこの追加skipを明示してください。
+ephemeral設定では50回の圧縮tar編集試験も、検証済みの古い非圧縮oracleを各stepで削除します。
+adopted snapshotの検査に使う圧縮書庫は保持し、50回の操作と比較は全て実行します。
+
 ## 配置
 
 - `Zip/`・`Tar/`・`CompressedTar/`・`SevenZip/`・`LHA/`・`Compression/`・`Editing/`・`Writer/` は、試験する型のある

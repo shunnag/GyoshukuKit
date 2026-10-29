@@ -14,7 +14,8 @@ enum TestPaths {
     static let fixtures = package.appendingPathComponent("Tests/Fixtures")
     /// 検証の出力を置く root。Xcode が再帰的に同期する package の group の外に置く。
     static let verification: URL = {
-        let base = package.appendingPathComponent(".build/verification")
+        let base = OptInGate.value("GYOSHUKU_TEST_OUTPUT_ROOT").map { URL(fileURLWithPath: $0) }
+            ?? package.appendingPathComponent(".build/verification")
         // SwiftPMの並列試験は別processで動く。共有labelのfixtureを互いに消さない。
         if OptInGate.isOn("GYOSHUKU_TEST_PROCESS_DIRECTORY") {
             return base.appendingPathComponent("parallel").appendingPathComponent(String(ProcessInfo.processInfo.processIdentifier))

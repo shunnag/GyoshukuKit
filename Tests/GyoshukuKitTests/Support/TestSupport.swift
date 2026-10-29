@@ -1,6 +1,7 @@
 import Foundation
 import KaitoKit
 import XCTest
+import Synchronization
 
 /// 形式に依らない test の共通部分：固定の更新日時、検証出力の directory、stderr への記録、外部ツールの検査付きの起動。
 /// 形式ごとの照合（`verify`）と byte 検査器は `ZipTestSupport`・`TarTestSupport` などに置く。
@@ -25,8 +26,18 @@ enum TestSupport {
         let directory = TestPaths.verification.appendingPathComponent(label)
         if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if OptInGate.isOn("GYOSHUKU_TEST_EPHEMERAL_OUTPUT") { ephemeralOutput.track(directory) }
         return directory
     }
+
+    /// 容量制限を明示した実行だけ、大きな実書込を始める前にskipする。既定suiteは従来どおり実行する。
+    static func requireScratchBytes(_ bytes: UInt64) throws {
+        if let text = OptInGate.value("GYOSHUKU_TEST_SCRATCH_LIMIT_BYTES"), let limit = UInt64(text), bytes > limit {
+            throw XCTSkip("Needs \(bytes) scratch bytes; GYOSHUKU_TEST_SCRATCH_LIMIT_BYTES=\(limit)")
+        }
+    }
+
+    private static let ephemeralOutput = EphemeralTestOutput()
 
     /// `root` の下に一度だけ使う作業 directory を作る。同じ試験の中で何度も独立に編集するときに使う。
     static func work(in root: URL) throws -> URL {
@@ -72,6 +83,28 @@ enum TestSupport {
             try extra(entry, item)
         }
         return reader
+    }
+}
+
+/// 直列suite用。成功したcaseだけを掃除し、失敗時の検証出力は調査用に残す。
+private final class EphemeralTestOutput: NSObject, XCTestObservation, @unchecked Sendable {
+    private let directories = Mutex<[URL]>([])
+
+    override init() {
+        super.init()
+        XCTestObservationCenter.shared.addTestObserver(self)
+    }
+
+    func track(_ url: URL) { directories.withLock { $0.append(url) } }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        let paths = directories.withLock { paths in
+            let result = paths
+            paths.removeAll()
+            return result
+        }
+        guard testCase.testRun?.hasSucceeded == true else { return }
+        for path in paths { try? FileManager.default.removeItem(at: path) }
     }
 }
 

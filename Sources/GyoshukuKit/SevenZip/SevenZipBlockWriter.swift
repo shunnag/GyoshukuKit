@@ -10,6 +10,7 @@ final class SevenZipBlockWriter {
     private var scratch: ScratchFile?
     private var indices: [Int] = []
     private var currentFilter: SevenZipWriteFilter = .none
+    private var currentMethod: SevenZipCompressionMethod = .lzma2
     private var records: [SevenZipRecords.Entry] = []
     private struct Block {
         let files: [Int]
@@ -32,6 +33,7 @@ final class SevenZipBlockWriter {
         let output: OrderedEntrySpool
         let aes: SevenZipAESEncryptor?
         let filter: SevenZipWriteFilter
+        let method: SevenZipCompressionMethod
         let files: Int
         let threads: Int
         let name: String
@@ -69,6 +71,7 @@ final class SevenZipBlockWriter {
             do {
                 var workerOptions = options
                 workerOptions.compressionThreads = job.threads
+                workerOptions.sevenZipMethod = job.method
                 var crc: UInt32 = 0
                 func encode(read: (Int) throws -> Data) throws -> SevenZipFolderEncoder {
                     try ParallelBzip2StreamEncoder.$testingEncoder.withValue(bzip2Encoder) {
@@ -129,7 +132,7 @@ final class SevenZipBlockWriter {
             Job(input: .file(file), size: size,
                 output: try OrderedEntrySpool(directory: directory, tag: "7z-folder", diskBacked: true,
                     maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: size)),
-                aes: nil, filter: .none, files: 1, threads: longPoleThreads,
+                aes: nil, filter: .none, method: options.sevenZipMethod, files: 1, threads: longPoleThreads,
                 name: file.addition.path)
         }
         earlyEntry = (file.index, ticket)
@@ -170,11 +173,13 @@ final class SevenZipBlockWriter {
             }
         }
         let filter = SevenZipWriteFilter.select(options.sevenZipFilter, prefix: prefix)
+        let method: SevenZipCompressionMethod = options.storesSevenZipContent(name: name, mode: mode, size: size)
+            ? .copy : options.sevenZipMethod
         let limit = options.resolvedSevenZipBlockSize
         let filesLimit: Int
         if case let .on(_, count) = options.sevenZipSolid { filesLimit = count ?? 1_000_000 }
         else { filesLimit = 1 }
-        if let scratch, currentFilter != filter || indices.count >= filesLimit || size > limit - min(limit, scratch.length) {
+        if let scratch, currentFilter != filter || currentMethod != method || indices.count >= filesLimit || size > limit - min(limit, scratch.length) {
             try submitBlock(position: position, write: write)
         }
         if scratch == nil {
@@ -183,6 +188,7 @@ final class SevenZipBlockWriter {
             }
             scratch = try ScratchFile(directory: directory, tag: "7z-solid", pathExtension: "spool")
             currentFilter = filter
+            currentMethod = method
             attribution = SevenZipWriter.additionAttribution
         }
         func append(_ bytes: Data) throws {
@@ -201,7 +207,7 @@ final class SevenZipBlockWriter {
         guard try read(1).isEmpty else { throw WriterError.sourceChanged(name) }
         indices.append(records.count); records.append(record)
         // BZip2 solidは次の入力まで確定folderを保持する。単一folderならflushで全coreを使う。
-        if options.sevenZipSolid == .off || (options.sevenZipMethod != .bzip2 && (scratch!.length >= limit || indices.count >= filesLimit)) {
+        if options.sevenZipSolid == .off || (currentMethod != .bzip2 && (scratch!.length >= limit || indices.count >= filesLimit)) {
             try submitBlock(position: position, write: write)
         }
     }
@@ -245,7 +251,7 @@ final class SevenZipBlockWriter {
             let finderThreads = oversized && options.sevenZipMethod == .lzma ? min(2, normalCodecs) : 1
             // 単一 stream の codec は一枠、片並列は実際の片数まで予約する。
             let pieces: Int
-            switch options.sevenZipMethod {
+            switch currentMethod {
             case .lzma2:
                 let width = try chunkSize ?? LZMAWriterConfiguration(options: options, size: size).pieceSize
                 pieces = Int(min(UInt64(options.resolvedCompressionThreads), (size - 1) / UInt64(width) + 1))
@@ -272,7 +278,7 @@ final class SevenZipBlockWriter {
             }
             let output = try OrderedEntrySpool(directory: directory, tag: "7z-folder", diskBacked: oversized,
                 maximumLength: OrderedEntrySpool.sevenZipMaximumLength(size: size))
-            let job = Job(input: .scratch(scratch), size: size, output: output, aes: try makeEncryptor(), filter: currentFilter, files: indices.count,
+            let job = Job(input: .scratch(scratch), size: size, output: output, aes: try makeEncryptor(), filter: currentFilter, method: currentMethod, files: indices.count,
                 threads: innerThreads, name: records[indices[0]].name)
             SevenZipWriter.testingWillSubmit?(job.name, pipeline.pendingCount, oversized, innerThreads)
             // 専用codecは通常窓の予約に混ぜず、専用pipeline枠の返却で再利用する。
@@ -289,7 +295,9 @@ final class SevenZipBlockWriter {
         let start = position()
         try scratch.handle.seek(toOffset: 0)
         var reported: UInt64 = 0
-        let encoder = try SevenZipFolderEncoder.encode(size: size, options: options, chunkSize: chunkSize,
+        var blockOptions = options
+        blockOptions.sevenZipMethod = currentMethod
+        let encoder = try SevenZipFolderEncoder.encode(size: size, options: blockOptions, chunkSize: chunkSize,
             aes: makeEncryptor(), filter: currentFilter,
             read: { count in
                 let bytes = try FileRead.readChunk(scratch.handle.fileDescriptor, upTo: count)

@@ -68,7 +68,8 @@ final class SevenZipWriter {
                 lzma: options.sevenZipMethod == .lzma || options.sevenZipMethod == .lzma2
                     ? try LZMAWriterConfiguration(options: options, raw: options.sevenZipMethod == .lzma, parallelFinder: true, size: record.size) : nil,
                 ppmd: options.sevenZipMethod == .ppmd ? try options.ppmd7Properties() : nil,
-                bzip2Threads: ParallelBzip2StreamEncoder.resolvedThreads(options: options), size: record.size)
+                bzip2Threads: options.sevenZipMethod == .bzip2
+                    ? ParallelBzip2StreamEncoder.resolvedThreads(options: options) : 1, size: record.size)
             self.record.method = options.sevenZipMethod
             self.record.lzmaProperties = encoder.lzmaProperties
             self.record.ppmdProperties = encoder.ppmdProperties
@@ -171,6 +172,10 @@ final class SevenZipWriter {
         var record = SevenZipRecords.Entry(name: name, mode: mode, size: size,
                                            mtime: try SevenZipRecords.timestamp(date))
         try reserveSignature()
+        if options.storesSevenZipContent(name: name, mode: mode, size: size) {
+            try addStored(record: record, read: read)
+            return
+        }
         let streamed = isStreamedEntry(size: size)
         if let entryPipeline, !streamed || (entryPipeline.pendingCount > 0 && !Self.testingOldDrain) {
             try entryPipeline.waitForCapacity(reserved: streamed, emit: emitEntry)
@@ -228,6 +233,28 @@ final class SevenZipWriter {
     private func isStreamedEntry(size: UInt64) -> Bool {
         size > UInt64(EntryCompressionConfiguration.inputLimit)
             || (options.sevenZipMethod == .bzip2 && size > UInt64(ParallelBzip2StreamEncoder.entryWindowLimit(level: options.bzip2Level)))
+    }
+
+    private func addStored(record: SevenZipRecords.Entry, read: (Int) throws -> Data) throws {
+        // 先行する LZMA2 folder を確定してから Copy を同期出力し、項目順と AES の IV 順を保つ。
+        try entryPipeline?.drain(emit: emitEntry)
+        try pipeline.drain(emit: emit)
+        var storedOptions = options
+        storedOptions.sevenZipMethod = .copy
+        let entry = try PendingEntry(record: record, aes: try encryptors.make(), options: storedOptions)
+        var remaining = record.size
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let count = Int(min(UInt64(IOChunk.size), remaining))
+            let bytes = try read(count)
+            guard !bytes.isEmpty, bytes.count <= count else { throw WriterError.sourceChanged(record.name) }
+            entry.record.crc = updateCRC(entry.record.crc, bytes)
+            remaining -= UInt64(bytes.count)
+            if remaining == 0 {
+                guard try read(1).isEmpty else { throw WriterError.sourceChanged(record.name) }
+            }
+            try emit(ChunkTag(entry: entry, isLast: remaining == 0), .input(bytes))
+        }
     }
 
     func supportsStreamEntry(size: UInt64) -> Bool {
@@ -344,7 +371,8 @@ final class SevenZipWriter {
     // 検証済みの単一 chunk は、読み直し・コピー・CRC の再計算をせず既存の encoder へ渡す。
     func add(name: String, mode: UInt16, date: Date, prefetched: Prefetched) throws {
         let data = prefetched.data
-        guard blocks == nil, entryPipeline == nil, data.count <= pipeline.chunkSize else {
+        guard blocks == nil, entryPipeline == nil, data.count <= pipeline.chunkSize,
+              !options.storesSevenZipContent(name: name, mode: mode, size: UInt64(data.count)) else {
             var offset = data.startIndex
             try add(name: name, mode: mode, size: UInt64(data.count), date: date) { count in
                 let end = min(offset + count, data.endIndex)

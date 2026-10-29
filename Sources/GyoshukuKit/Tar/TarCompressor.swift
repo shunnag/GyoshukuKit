@@ -6,6 +6,7 @@ protocol TarCompressor: AnyObject {
     func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws
     func beginMember(headerLength: UInt64, bodyLength: UInt64)
     func beginEndOfArchive()
+    func setStoresCompressedContent(_ stores: Bool)
     func write(_ input: Data, finish: Bool, emit: (Data) throws -> Void) throws
     func abandon()
 }
@@ -13,5 +14,6 @@ protocol TarCompressor: AnyObject {
 extension TarCompressor {
     func beginMember(headerLength: UInt64, bodyLength: UInt64) {}
     func beginEndOfArchive() {}
+    func setStoresCompressedContent(_ stores: Bool) {}
     func abandon() {}
 }
