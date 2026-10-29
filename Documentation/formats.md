@@ -24,12 +24,20 @@ ZIP の空ファイル・ディレクトリ・symlink は常に stored です。
 256 KiB 単位で読み書きし、作業メモリをファイルサイズに比例させません。central directory 用の
 メタデータは entry 数と名前長に比例します。
 
+既定の `useCompressionHeuristic: true` は、既知の圧縮済み拡張子を Stored にします。
+JPEG / PNG / WebP などに加え、AVIF / JXL / HEIF / JP2、CBZ / CBR / CB7 / EPUB、
+zst / lz4 / lzma / tgz / txz、m4a / aac / flac / ogg / opus / webm / mkv / m4v、
+docx / xlsx / pptx も対象です。大文字小文字は区別せず、内容の sampling は行いません。
+追加した拡張子の既定出力 byte は従来の Deflate 等から変わります。
+指定方式を全通常ファイルに適用する場合は `useCompressionHeuristic: false` にします。
+
 ZIP の名前は UTF-8 で書き、bit 11 を常に立てます。
 ZIP の mtime / atime は秒単位で、extended timestamp の符号付き 32 bit Unix 秒の範囲外は
 `invalidDate` です。DOS 日付にはローカル時刻を使い、表現範囲へ丸めます。
 
 UNIX host、POSIX mode、symlink、local / central で長さの違う timestamp extra、
-ZIP64 に対応します。local header を seek で patch し、data descriptor は書きません。
+ZIP64 に対応します。local header は256 KiBの出力 buffer 内に残っていればそこで patch し、
+出力済みなら seek で patch します。data descriptor は書きません。
 ZIP64 の central / EOCD はフィールドごとに sentinel を選びます。local の例外では
 両サイズを 0x0001 に載せ、両サイズ欄を sentinel にします。
 
@@ -48,9 +56,18 @@ Zstandard の method / version と互換検証は [Zstandard](#zstandard)、圧�
 | `.ppmd` | `03 04 01` | 自前の単一 PPMd var.H stream。order byte + model memory LE32 の5 byte properties |
 | `.copy` | `00` | 無圧縮。入力 byte をそのまま保存 |
 
-Copy / Deflate / BZip2 の coder に properties は置きません。7z は ZIP の拡張子 heuristic を使わず、
-指定方式を全ての非空 stream に適用します。updater の追加と solid folder の再圧縮、7z への rewriter も
-`sevenZipMethod` を使います。運ぶ既存 folder の coder と packed byte は保持し、AES の設定・変更・解除も再圧縮しません。
+Copy / Deflate / BZip2 の coder に properties は置きません。
+`sevenZipMethod` を省略し、`useCompressionHeuristic: true`、`lzmaLevel: nil`、`lzmaExtreme: false`、
+`sevenZipFilter: .none` の場合、上の圧縮済み拡張子の通常ファイルを Copy にします。
+non-solid は項目ごとの Copy folder、solid は連続する同方式の項目を一つの folder にまとめ、
+LZMA2 と Copy の切替で folder を区切ります。入力順、明示した solid 上限、AES は維持します。
+`WriterOptions(sevenZipMethod: .lzma2)` と作成後の `options.sevenZipMethod = .lzma2` は、
+どちらも明示指定として heuristic より優先します。明示 level / extreme / filter も優先します。
+この既定値変更により、対象拡張子を含む書庫の byte と folder 構成は変わります。
+従来の全項目 LZMA2 出力には `useCompressionHeuristic: false` を指定してください。
+updater の新規追加と rewriter も同じ規則です。updater が再圧縮する既存 solid folder は
+その folder 全体に選択方式を適用します。運ぶ既存 folder の coder と packed byte は保持し、
+AES の設定・変更・解除も再圧縮しません。
 Deflate は最大1 MiBの block を直前の末尾32 KiBの辞書で圧縮し、一つの raw deflate stream に連結します。
 LZMA / PPMd は folder ごとに一つの stream を保ち、複数 folder を並列圧縮します。Copy は filterなしなら同期出力です。
 BZip2 は小 folder を項目間、大 folder は内部 block を並列圧縮して単一 streamへspliceします。
@@ -139,6 +156,12 @@ methodの対応と検査・抽出コマンドは [Lhasa 利用者文書](https:/
 ## 圧縮 tar
 
 tar.xz はレベル未指定時に Apple Compression、tar.bz2 は macOS の libbz2 をプロセス内で使います。
+ただし、既定の `useCompressionHeuristic: true`、`lzmaLevel: nil`、`lzmaExtreme: false` では、
+圧縮済み拡張子の通常 member を header・padding ごと raw LZMA2 chunk（control 1 / 2）で包みます。
+圧縮する member との切替で XZ block を区切り、stream / index / CRC は通常の XZ と同じです。
+ファイル順は変えません。対象memberを含むtar.xzの既定byte・block境界は従来から変わります。
+`useCompressionHeuristic: false` または明示level/extremeで従来の圧縮経路を使います。
+単独XZと圧縮tar updaterの既存区間の再圧縮はこの名前判定を行いません。
 TarWriter の 256 KiB の入力をストリーム圧縮し、書庫全体をメモリへ保持しません。
 XZ は `lzmaLevel: 0...9` の自前経路、bzip2 は `bzip2Level: 1...9` を選択できます。
 所有者・リンク・タイムスタンプ・取消し・失敗時の cleanup は通常の tar と共通です。

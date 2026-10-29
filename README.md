@@ -123,6 +123,7 @@ ZIP の既定は互換性を重視した Deflate です。BZip2 / LZMA / Zstanda
 | `password` / `zipEncryption` | `nil` / `.aes256` | ZIP・7z の暗号化 |
 | `sevenZipSolid` / `sevenZipFilter` | `.off` / `.none` | 7z のまとめ方と前処理 |
 | `prefersSpeed` | `false` | 速さ優先。既知サイズの圧縮片・7z solid folderを増やす。[分割規則と比率のトレードオフ](Documentation/options.md#速さ優先) |
+| `useCompressionHeuristic` | `true` | 圧縮済み拡張子を ZIP Stored・既定7z Copy・既定tar.xz raw LZMA2 にする。明示した7z方式・LZMA設定を優先。[詳細と出力変更](Documentation/formats.md) |
 | `compressionThreads` / `memoryLimit` | `nil` / `nil` | 並列数 `1...1024` の自動解決、対応 codec のメモリ予算 |
 | `powerPolicy` | `.reduceInLowPowerMode` | 自動並列数の省電力・温度方針 |
 

@@ -7,7 +7,7 @@ internal import KaitoKit
 /// thread-safe ではない。同じ instance の操作は呼出側が直列化する。
 /// finish() が成功して初めて書庫が完成する。deinit は自動 finish しない。
 /// add / finish が失敗した instance は再利用できない（追加を閉じた後の誤った add を除く）。
-/// ZIP / 圧縮tar / 7z / LHA の add は出力完了前に戻ることがあり、圧縮失敗は後続の add / finish で通知する。
+/// ZIP / tar（圧縮tar含む）/ 7z / LHA の add は出力完了前に戻ることがあり、失敗は後続の add / finish で通知する。
 /// add(contentsOf:) / 一括追加は、通常ファイルの読取と署名検査を済ませてから戻る。
 /// ZIP の部分出力は呼出側で削除する。tar（圧縮tarを含む）/ 7z / LHA は失敗・未完了の破棄時に削除する。
 ///
@@ -126,7 +126,8 @@ public final class ArchiveWriter {
         guard fd >= 0 else { throw WriterError.io(operation: "create", code: errno) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         let tar = format.isTar
-            ? TarWriter(output: handle, url: url, compressor: compressor) : nil
+            ? TarWriter(output: handle, url: url, compressor: compressor,
+                        usesCompressionHeuristic: format == .tarXZ && options.usesDefaultLZMAHeuristic) : nil
         let sevenZip = format == .sevenZip
             ? try SevenZipWriter(output: handle, url: url, options: options,
                              chunkSize: lzmaChunkSize, encoder: lzmaEncoder) : nil
@@ -448,7 +449,11 @@ public final class ArchiveWriter {
         // 名前は一度だけ取得し、ソート中の Foundation 呼出しを避ける。
         let children = try autoreleasepool {
             try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-                .map { child in autoreleasepool { (url: child, name: child.lastPathComponent) } }
+                .map { child in autoreleasepool {
+                    var name = child.lastPathComponent
+                    name.makeContiguousUTF8()
+                    return (url: child, name: name)
+                } }
                 .sorted(by: { $0.name < $1.name })
         }
         for child in children {
@@ -757,7 +762,7 @@ extension ArchiveWriter {
         return .entry(entry, job)
     }
 
-    // ZIP は deflate の pipeline、7z はその場で、tar / LHA は先読みの pipeline に渡す。どれも投入順に receive へ届く。
+    // ZIP は圧縮窓、7z Copy・小項目と tar / LHA は有界の先読み窓へ渡す。
     private func submitBatchEntry(_ entry: BatchEntry, job: FileJob?,
                                   prefetch: OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>?,
                                   emit: (ZipWriter.Tag, Prefetched?) throws -> Void,
@@ -771,11 +776,17 @@ extension ArchiveWriter {
             }
         } else if let sevenZipWriter {
             if let job, sevenZipWriter.supportsStreamEntry(size: entry.size) || sevenZipWriter.hasEarlyEntry(index: entry.index) {
+                try prefetch!.drain(emit: receive)
                 try receiveStream(entry, job)
                 return
             }
-            // LZMA2 の窓と I/O は重なる。追加の reader queue は小ファイルで encoder と競合する。
-            try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
+            if options.sevenZipMethod == .copy || (options.sevenZipSolid == .off && entry.size <= 64 << 10) {
+                try prefetch!.submit(job, tag: entry, weight: entry.inputBytes, emit: receive)
+            } else {
+                // 大きい LZMA2 入力は追加の reader と encoder の競合を避ける。
+                try prefetch!.drain(emit: receive)
+                try receive(entry, job.map { try $0.run { _ in throw WriterError.invalidState } })
+            }
         } else {
             try prefetch!.submit(job, tag: entry, weight: entry.inputBytes, emit: receive)
         }
@@ -798,7 +809,7 @@ extension ArchiveWriter {
         precondition(expected == nil || expected!.count == additions.count)
         defer { sevenZipWriter?.clearBatchAttributions() }
         let limiter = SourcePrefetchLimiter(threads: options.resolvedCompressionThreads)
-        let prefetch = format == .zip || format == .sevenZip ? nil : OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>(
+        let prefetch = format == .zip ? nil : OrderedChunkPipeline<FileJob, Prefetched, BatchEntry>(
             threads: options.resolvedCompressionThreads) { try $0.run { _ in throw WriterError.invalidState } }
         var blockProgress: CommitProgressMeter?
         var earlyFile: FileJob?
@@ -824,17 +835,20 @@ extension ArchiveWriter {
                     appendedPaths.append((entry.name, entry.mode.isDirectoryMode))
                 } else {
                     var offset = 0
-                    try addReservedEntry(name: entry.name, mode: entry.mode, size: entry.size, date: entry.date,
-                                         atime: entry.atime, owners: entry.owners, hardLink: entry.hardLink) { requested in
-                        let count = min(requested, data.count - offset)
-                        defer { offset += count }
-                        if offset == 0, count == data.count { return data }
-                        return data.subdata(in: offset..<(offset + count))
+                    try TarWriter.$additionAttribution.withValue(entry.attribution) {
+                        try addReservedEntry(name: entry.name, mode: entry.mode, size: entry.size, date: entry.date,
+                                             atime: entry.atime, owners: entry.owners, hardLink: entry.hardLink) { requested in
+                            let count = min(requested, data.count - offset)
+                            defer { offset += count }
+                            if offset == 0, count == data.count { return data }
+                            return data.subdata(in: offset..<(offset + count))
+                        }
                     }
                 }
                 // 通知の時点と add の戻りでは実際の出力が揃っている。
                 if events != nil || entry.index == additions.count - 1 {
                     try zipWriter?.flushOutput()
+                    try tarWriter?.flushOutput()
                 }
                 pendingBatch.removeFirst()
                 do { try meter?.advance(entry.hardLink == nil ? entry.inputBytes : 0) }
@@ -946,16 +960,19 @@ extension ArchiveWriter {
                                     try drain()
                                     var failedSource: URL?
                                     do {
-                                        try SevenZipWriter.$additionAttribution.withValue(.init(index: index, addition: addition)) {
-                                            try addDisk(url, as: addition.path, ownerIDs: addition.ownerIDs, expected: signature,
-                                                        progress: events.map { events in { try additionEvent(.progress(index: index, $0), events) } },
-                                                        meter: meter, sourceFailure: { if failedSource == nil { failedSource = $0 } }) {
-                                                try FileRead.readChunk($0.fileDescriptor, upTo: $1)
+                                        try TarWriter.$additionAttribution.withValue(.init(index: index, addition: addition)) {
+                                            try SevenZipWriter.$additionAttribution.withValue(.init(index: index, addition: addition)) {
+                                                try addDisk(url, as: addition.path, ownerIDs: addition.ownerIDs, expected: signature,
+                                                            progress: events.map { events in { try additionEvent(.progress(index: index, $0), events) } },
+                                                            meter: meter, sourceFailure: { if failedSource == nil { failedSource = $0 } }) {
+                                                    try FileRead.readChunk($0.fileDescriptor, upTo: $1)
+                                                }
                                             }
                                         }
                                         // ZIP の遅延 block の失敗も、この fallback 項目へ帰属させる。
                                         try zipWriter?.drain(emit: emit)
                                         try zipWriter?.flushOutput()
+                                        try tarWriter?.flushOutput()
                                     } catch {
                                         if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {
                                             try sevenZipWriter?.drainPending()
@@ -968,13 +985,13 @@ extension ArchiveWriter {
                                     try submitBatchEntry(entry, job: job, prefetch: prefetch, emit: emit, receiveStream: receiveStream, receive: receive)
                                 }
                             } catch {
-                                if !(error is CancellationError || error is AdditionEventFailure) {
-                                    // 7zのsource失敗も、先行folderの失敗を確認してから帰属させる。
-                                    try sevenZipWriter?.drainPending()
-                                }
                                 if !(error is CancellationError || error is AdditionEventFailure || error is ArchiveAdditionError) {
                                     // 準備の失敗より前の worker の失敗を優先する。
                                     try drain()
+                                }
+                                if !(error is CancellationError || error is AdditionEventFailure) {
+                                    // prefetch を受け取った先行folderの失敗も確認してから帰属させる。
+                                    try sevenZipWriter?.drainPending()
                                 }
                                 throw additionFailure(error, index: index, addition: addition)
                             }
@@ -983,13 +1000,19 @@ extension ArchiveWriter {
                     try drain()
                     try Task.checkCancellation()
                 } catch {
+                    var failure = error
+                    if !(error is CancellationError || error is AdditionEventFailure) {
+                        do { try sevenZipWriter?.drainPending() }
+                        catch { failure = error }
+                    }
                     limiter.cancel()
                     zipWriter?.abandonAndWait()
                     prefetch?.abandonAndWait()
                     pendingBatch.removeAll()
                     // 検証済みの前方の項目の write 失敗も、後方の source 失敗より優先する。
-                    if let failed = error as? ArchiveAdditionError { try zipWriter?.flushOutput(ifBufferedBefore: failed.index) }
-                    throw error
+                    if let failed = failure as? ArchiveAdditionError { try zipWriter?.flushOutput(ifBufferedBefore: failed.index) }
+                    if let failed = failure as? ArchiveAdditionError { try tarWriter?.flushOutput(ifBufferedBefore: failed.index) }
+                    throw failure
                 }
             }
         } catch let error as AdditionEventFailure { throw error.underlying }

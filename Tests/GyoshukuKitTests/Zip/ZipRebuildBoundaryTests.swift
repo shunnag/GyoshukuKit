@@ -144,6 +144,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
     }
 
     func testZIP32DescriptorCrossingZIP64OffsetIsRefusedWithoutChangingOriginal() throws {
+        try TestSupport.requireScratchBytes(12 << 30)
         let directory = try TestSupport.directory("rebuild-zip64-descriptor-refusal")
         let url = directory.appendingPathComponent("archive.zip")
         try makeOffsetFixture(url, descriptor: true)
@@ -219,6 +220,7 @@ final class ZipRebuildBoundaryTests: XCTestCase {
     }
 
     func testLocalOffsetCrosses4GiBThenDropsAfterDeletion() throws {
+        try TestSupport.requireScratchBytes(12 << 30)
         let directory = try TestSupport.directory("rebuild-zip64-offset-up")
         let url = directory.appendingPathComponent("archive.zip")
         // 大きい stored payload の入力だけ sparse で作る。updater は穴を特別扱いせず全 byte を運ぶ。

@@ -7,6 +7,12 @@
 
 ### 変更
 
+- **動作変更(既定の出力 byte)**: `useCompressionHeuristic`(既定 `true`)を 7z と tar.xz にも広げる。`sevenZipMethod` を省略し `lzmaLevel` / `lzmaExtreme` / `sevenZipFilter` も既定のとき、JPEG などの圧縮済み拡張子の通常ファイルを 7z では Copy、tar.xz では無圧縮の LZMA2 chunk にする。solid 7z は連続する同方式の項目を一つの folder にまとめ、LZMA2 と Copy の切替で folder を区切る(入力順・solid 上限・AES は維持)。圧縮済みページの多い書庫で 7z 3.35 → 0.065 秒、solid 7z 7.48 → 0.14 秒、tar.xz 3.57 → 0.073 秒。書庫の大きさは solid 7z で +0.32%、tar.xz で +0.03%。明示した `sevenZipMethod`(作成後の代入も含む)・level・extreme・filter は従来どおり優先し、従来の全項目 LZMA2 の出力は `useCompressionHeuristic: false` で得られる。
+- **動作変更(既定の出力 byte)**: ZIP の圧縮済み拡張子の判定に 24 種(AVIF / JXL / HEIF / JP2、CBZ / CBR / CB7 / EPUB、zst / lz4 / lzma / tgz / txz、m4a / aac / flac / ogg / opus / webm / mkv / m4v、docx / xlsx / pptx)を足し、Stored にする。該当ファイルの多い書庫で 59 → 11 ms。
+- 通常の tar の出力に 256 KiB の buffer を置く(batch 追加 0.66 → 0.36 秒)。書き込みの失敗は最初の未出力の追加に帰属させる。
+- 7z の batch 追加で、Copy と非 solid の 64 KiB 以下のファイルを有界の先読み窓で並列に読む(Copy 0.64 → 0.39 秒、LZMA2 0.85 → 0.77 秒。CPU 時間は増える)。BZip2 以外では項目ごとの BZip2 の thread 解決を省く。
+- ZIP の逐次 entry の local header が出力 buffer 内に残っていれば、seek せずその場で書き換える(Stored 1.03 → 0.78 秒)。
+- フォルダの再帰追加で、子の名前を連続 UTF-8 にしてから従来と同じ順序で並べる(0.71 → 0.57 秒)。
 - WinZip AES の書き込みを速くする。entry ごとの PBKDF2 を並列の worker で先に計算し(salt は投入順に生成するので出力は変わらない)、CTR の鍵流を UInt64 の counter と 8 byte 単位の XOR で作る。小さな AES entry の多い書庫で 1.38 → 0.18 秒(7.5 倍)、512 MiB の stored AES で 2.2 倍。単独の大きな AES entry は従来どおり finish 時に全 thread で圧縮する。
 
 ## [0.14.0] - 2026-10-27

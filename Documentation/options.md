@@ -22,7 +22,7 @@
 | `lzmaExtreme` | `false` | 自前 LZMA の探索量を増やす。tar.lzma / tar.lz / 単独 LZMA・lzip は nil でも使い、他はレベル指定時だけ |
 | `prefersSpeed` | `false` | 速さ優先。既知サイズの XZ / LZMA2・lzip の片を小さくし、7z solid の既定上限を16 MiB、ZIP Zstandard の大項目を独立 frame 連結にする。[分割規則](#速さ優先) |
 | `memoryLimit` | `nil` | 自前 LZMA / Zstandard と ZIP / 7z BZip2 の圧縮予約の予算（byte）。物理メモリの50%との小さい方を使い、nil は50%。自前 LZMA / Zstandard は一つも入らなければ `invalidOption("memoryLimit")`。BZip2 は逐次へ戻す。新しい LZMA / XZ 項目・folder窓は Apple codec の見積りも含めるが、2枠未満なら従来経路へ戻す。Apple の既存 block 経路と他の codec には適用しない |
-| `useCompressionHeuristic` | `true` | jpg/png/zip 等、既知の圧縮済み拡張子を stored にする |
+| `useCompressionHeuristic` | `true` | 圧縮済み拡張子を ZIP Stored、既定7z Copy、既定tar.xz raw LZMA2 にする。7zの明示method/filterと7z/tar.xzの明示level/extremeは優先。[詳細](formats.md) |
 | `preserveOwnerIDs` | `false` | ディスク由来の uid/gid を保存。ZIP は 0x7875、tar は数値欄（既定0、uname/gname は常に空）。7z / LHA は true を拒否 |
 | `preserveMacOSMetadata` | `false` | true はこの段階では `unsupportedOption` |
 | `password` | `nil` | ZIP / 7z の暗号化出力。空文字列は `invalidOption("password")` |
@@ -36,6 +36,10 @@
 `memoryLimit` は byte 単位の正の値、`compressionThreads` は公開定数 `WriterOptions.compressionThreadsRange`（`1...1024`）です。範囲外は `WriterError.invalidOption`。solid の明示的な `blockSize` / `filesPerBlock` は正の値に限ります。設定は出力・作業ファイルを作る前に検証します。各 level は、その codec を選んでいない場合も範囲検査します。
 
 ## 並列処理と出力の待機
+
+通常tarも256 KiBの出力bufferを使い、項目別の `add` は書込前に戻る場合があります。
+`finishAdditions()` / `finish()` でflushします。一括追加はcallbackの前と戻る前にもflushし、
+bufferのwrite失敗は最初の未出力項目へ帰属します。updaterのlayout/observer付き書込は直接行います。
 
 通常の自動並列数は `max(1, min(有効 logical CPU 数, 物理メモリ GiB))` です。固定のコア数上限はありません。
 既定の `.reduceInLowPowerMode` と `.reduceInLowPowerModeOrThermalPressure` は Low Power Mode で減らし、後者は thermal state が serious / critical のときも減らします。

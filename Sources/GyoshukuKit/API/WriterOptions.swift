@@ -118,7 +118,10 @@ public struct WriterOptions: Sendable {
     public var compressionMethod: CompressionMethod
     /// 7z の新規 folder と updater が再圧縮する folder の方式。既定は LZMA2。
     /// rewriter の 7z 出力にも適用する。updater が運ぶ既存 folder の coder は保持する。
-    public var sevenZipMethod: SevenZipCompressionMethod
+    public var sevenZipMethod: SevenZipCompressionMethod {
+        didSet { hasExplicitSevenZipMethod = true }
+    }
+    private(set) var hasExplicitSevenZipMethod: Bool
     /// 7z の新規作成・追加・rewriter の solid 設定。既定は従来と同じ .off。
     public var sevenZipSolid: SevenZipSolidMode
     /// 新規 folder の filter。既存 folder の一部削除では元の filter を保持する。
@@ -162,8 +165,10 @@ public struct WriterOptions: Sendable {
     /// Zstandard は encoder の見積りと入出力 buffer を数え、ZIP の逐次 frame も予算を検証する。
     /// ZIP / 7z BZip2はcodec・8 MiB capの入出力を予約して並列数を絞る。一枠未満は既存の逐次経路。
     public var memoryLimit: UInt64?
-    /// ZIP で既知の圧縮済み拡張子は stored にする。false なら指定方式を使う。
-    /// 空ファイル、ディレクトリ、symlink は常に stored。
+    /// 既知の圧縮済み拡張子を ZIP では Stored、既定の 7z では Copy、既定の tar.xz では raw LZMA2 にする。
+    /// 7z の明示 method / filter、7z と tar.xz の明示 lzmaLevel / lzmaExtreme は優先する。
+    /// false なら指定方式を使う。判定は拡張子だけで内容や並列数に依存しない。
+    /// ZIP の空ファイル、ディレクトリ、symlink は常に stored。
     public var useCompressionHeuristic: Bool
     /// ディスク由来の uid/gid を保存する。ZIP は Info-ZIP 0x7875、tar は数値欄を使う。
     /// 既定の ZIP は省略、tar は 0。tar の uname / gname は常に空。7z / LHA は true を拒否する。
@@ -211,9 +216,49 @@ public struct WriterOptions: Sendable {
     /// 運ぶ tar の uid/gid。ディスクからの追加には preserveOwnerIDs を使う。
     public var carriedTarOwnerIDs: CarriedOwnerIDs
 
+    /// 7z の方式を省略した既定値。明示方式の initializer と分け、引数の非optional型を保つ。
     public init(
         compressionMethod: CompressionMethod = .deflate,
-        sevenZipMethod: SevenZipCompressionMethod = .lzma2,
+        sevenZipSolid: SevenZipSolidMode = .off,
+        sevenZipFilter: SevenZipFilterMode = .none,
+        lhaMethod: LHACompressionMethod = .lh5,
+        lhaLevel: Int = 6,
+        deflateLevel: Int = 6,
+        bzip2Level: Int = 9,
+        zstdLevel: Int = 3,
+        ppmdLevel: Int = 6,
+        ppmdOrder: Int? = nil,
+        ppmdMemoryMiB: Int? = nil,
+        lzmaLevel: Int? = nil,
+        lzmaExtreme: Bool = false,
+        prefersSpeed: Bool = false,
+        memoryLimit: UInt64? = nil,
+        useCompressionHeuristic: Bool = true,
+        preserveOwnerIDs: Bool = false,
+        preserveMacOSMetadata: Bool = false,
+        password: String? = nil,
+        zipEncryption: ZipEncryption = .aes256,
+        encryptsSevenZipHeaders: Bool = false,
+        compressionThreads: Int? = nil,
+        powerPolicy: CompressionPowerPolicy = .reduceInLowPowerMode,
+        additionPlacement: AdditionPlacement = .end,
+        carriedTarOwnerIDs: CarriedOwnerIDs = .keep
+    ) {
+        self.init(compressionMethod: compressionMethod, sevenZipMethod: .lzma2,
+            sevenZipSolid: sevenZipSolid, sevenZipFilter: sevenZipFilter,
+            lhaMethod: lhaMethod, lhaLevel: lhaLevel, deflateLevel: deflateLevel, bzip2Level: bzip2Level,
+            zstdLevel: zstdLevel, ppmdLevel: ppmdLevel, ppmdOrder: ppmdOrder, ppmdMemoryMiB: ppmdMemoryMiB,
+            lzmaLevel: lzmaLevel, lzmaExtreme: lzmaExtreme, prefersSpeed: prefersSpeed, memoryLimit: memoryLimit,
+            useCompressionHeuristic: useCompressionHeuristic, preserveOwnerIDs: preserveOwnerIDs,
+            preserveMacOSMetadata: preserveMacOSMetadata, password: password, zipEncryption: zipEncryption,
+            encryptsSevenZipHeaders: encryptsSevenZipHeaders, compressionThreads: compressionThreads,
+            powerPolicy: powerPolicy, additionPlacement: additionPlacement, carriedTarOwnerIDs: carriedTarOwnerIDs)
+        hasExplicitSevenZipMethod = false
+    }
+
+    public init(
+        compressionMethod: CompressionMethod = .deflate,
+        sevenZipMethod: SevenZipCompressionMethod,
         sevenZipSolid: SevenZipSolidMode = .off,
         sevenZipFilter: SevenZipFilterMode = .none,
         lhaMethod: LHACompressionMethod = .lh5,
@@ -241,6 +286,7 @@ public struct WriterOptions: Sendable {
     ) {
         self.compressionMethod = compressionMethod
         self.sevenZipMethod = sevenZipMethod
+        self.hasExplicitSevenZipMethod = true
         self.sevenZipSolid = sevenZipSolid
         self.sevenZipFilter = sevenZipFilter
         self.lhaMethod = lhaMethod

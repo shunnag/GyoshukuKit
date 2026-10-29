@@ -5,6 +5,7 @@ import XCTest
 
 final class Zip64WriterTests: XCTestCase {
     func testZIP64UncompressedSizeAbove4GiBRoundTrips() throws {
+        try TestSupport.requireScratchBytes(5 << 30)
         let directory = try TestSupport.directory("zip64-size")
         let source = directory.appendingPathComponent("zeros.bin")
         let size: UInt64 = (1 << 32) + (1 << 20)

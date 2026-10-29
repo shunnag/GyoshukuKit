@@ -12,6 +12,8 @@ final class ParallelXZCompressor: TarCompressor {
     private var blockCount: UInt64 = 0
     private var started = false
     private var finished = false
+    private var storesContent = false
+    private var nextStoresContent = false
     var pendingInputBytes: UInt64 { UInt64(input.count) + pipeline.pendingInputBytes }
 
     func finishAdditions(didEmit: ((UInt64) throws -> Void)?, emit: (Data) throws -> Void) throws {
@@ -39,10 +41,16 @@ final class ParallelXZCompressor: TarCompressor {
     deinit { abandon() }
 
     func beginMember(headerLength: UInt64, bodyLength: UInt64) {
-        layout.beginMember(headerLength: headerLength, bodyLength: bodyLength, bufferedCount: input.count)
+        layout.beginMember(headerLength: headerLength, bodyLength: bodyLength,
+                           bufferedCount: storesContent == nextStoresContent ? input.count : 0)
     }
 
-    func beginEndOfArchive() { layout.beginEndOfArchive(bufferedCount: input.count) }
+    func setStoresCompressedContent(_ stores: Bool) { nextStoresContent = stores }
+
+    func beginEndOfArchive() {
+        nextStoresContent = false
+        layout.beginEndOfArchive(bufferedCount: input.count)
+    }
 
     func write(_ data: Data, finish: Bool, emit: (Data) throws -> Void) throws {
         guard !finished else { throw WriterError.invalidState }
@@ -53,7 +61,10 @@ final class ParallelXZCompressor: TarCompressor {
                 try emit(XZFraming.streamHeader)
                 started = true
             }
-            if layout.takePendingCut() { try submit(emit: emit) }
+            if layout.takePendingCut() || storesContent != nextStoresContent {
+                if !input.isEmpty { try submit(emit: emit) }
+                storesContent = nextStoresContent
+            }
             var offset = data.startIndex
             while offset < data.endIndex {
                 try Task.checkCancellation()
@@ -87,7 +98,8 @@ final class ParallelXZCompressor: TarCompressor {
     private func submit(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Data) throws -> Void) throws {
         let block = input
         input = Data()
-        try pipeline.submit(block, tag: (), weight: UInt64(block.count), didEmit: didEmit) { _, result in try self.emitBlock(result!, emit: emit) }
+        try pipeline.submit(block, tag: (), weight: UInt64(block.count), stored: storesContent,
+                            didEmit: didEmit) { _, result in try self.emitBlock(result!, emit: emit) }
     }
 
     private func emitBlock(_ result: LZMA2ChunkPipeline<Void>.Output, emit: (Data) throws -> Void) throws {

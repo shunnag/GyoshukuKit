@@ -49,7 +49,12 @@ final class CompressedTarRepeatEditTests: XCTestCase {
                     XCTAssertLessThanOrEqual(Double(result.output.size), Double(forced.output.size) * 1.01)
                     TestSupport.report("TAR-REPEAT \(format)\tseed=17\tedits=50\tsplice=\(result.output.size)\tfull=\(forced.output.size)\tsmall_max=\(largestSmallCount)")
                 }
+                let previousPlain = plainURL
                 current = output; plainURL = plainOutput
+                // 次の比較は直前のoracleだけを使う。adopted snapshot用の圧縮書庫は全て保持する。
+                if OptInGate.isOn("GYOSHUKU_TEST_EPHEMERAL_OUTPUT") {
+                    try FileManager.default.removeItem(at: previousPlain)
+                }
             }
         }
     }

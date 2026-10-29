@@ -76,6 +76,9 @@ enum SingleStreamTestSupport {
         let tar = try ReferenceTool.run(ReferenceTool.bsdtar, arguments, in: directory, log: label,
                                        expect: .unchecked, stdin: pipe.fileHandleForReading,
                                        environment: ["LC_ALL": "en_US.UTF-8", "COPYFILE_DISABLE": "1"])
+        // bsdtar は終端headerで止まり、record paddingを読み切らないことがある。
+        // 親がEOFまで捨て読みし、decoderのtrailer検証と正常終了を待つ（SIGPIPEを成功扱いしない）。
+        while let tail = try pipe.fileHandleForReading.read(upToCount: 256 << 10), !tail.isEmpty {}
         try pipe.fileHandleForReading.close()
         decoder.waitUntilExit()
         let diagnostic = try String(contentsOf: errorURL, encoding: .utf8)

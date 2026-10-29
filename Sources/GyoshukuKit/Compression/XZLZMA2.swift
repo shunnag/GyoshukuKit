@@ -8,6 +8,22 @@ struct XZLZMA2: Sendable {
     let uncompressedSize: UInt64
     let payloadOffset: Int
 
+    // LZMA2 の無圧縮 chunk は制御 byte 1 で辞書を初期化し、2 で継続する。長さは big endian で 1 を引いた値。
+    static func storing(_ input: Data) throws -> Self {
+        var payload = Data()
+        payload.reserveCapacity(input.count + ((input.count + 65_535) / 65_536) * 3 + 1)
+        for offset in stride(from: input.startIndex, to: input.endIndex, by: 65_536) {
+            try Task.checkCancellation()
+            let end = min(offset + 65_536, input.endIndex)
+            let length = end - offset - 1
+            payload.append(offset == input.startIndex ? 1 : 2)
+            payload.append(contentsOf: [UInt8(length >> 8), UInt8(length & 255)])
+            payload.append(input[offset..<end])
+        }
+        payload.append(0)
+        return Self(payload: payload, properties: 0, uncompressedSize: UInt64(input.count), payloadOffset: 0)
+    }
+
     static func extract(_ container: Data) throws -> XZLZMA2 {
         try container.withUnsafeBytes { try extract($0) }
     }

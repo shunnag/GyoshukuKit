@@ -9,7 +9,8 @@ final class LZMA2ChunkPipeline<Tag> {
         let crc: UInt32
     }
 
-    private let pipeline: OrderedChunkPipeline<Data, Output, Tag>
+    private struct Input: Sendable { let bytes: Data; let stored: Bool }
+    private let pipeline: OrderedChunkPipeline<Input, Output, Tag>
     private let pieceSize: Int
     var pendingInputBytes: UInt64 { pipeline.pendingInputBytes }
 
@@ -18,14 +19,15 @@ final class LZMA2ChunkPipeline<Tag> {
         precondition(pieceSize > 0)
         self.pieceSize = pieceSize
         pipeline = OrderedChunkPipeline(threads: threads, lightWeightLimit: lightWeightLimit, inlineSingleThread: inlineSingleThread) { input in
-            Output(compressed: try encoder(input), crc: checksum ? updateCRC(0, input) : 0)
+            Output(compressed: try input.stored ? XZLZMA2.storing(input.bytes) : encoder(input.bytes),
+                   crc: checksum ? updateCRC(0, input.bytes) : 0)
         }
     }
 
-    func submit(_ input: Data?, tag: Tag, weight: UInt64 = 0,
+    func submit(_ input: Data?, tag: Tag, weight: UInt64 = 0, stored: Bool = false,
                 didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {
         if let input { precondition(!input.isEmpty && input.count <= pieceSize) }
-        try pipeline.submit(input, tag: tag, weight: weight, didEmit: didEmit, emit: emit)
+        try pipeline.submit(input.map { Input(bytes: $0, stored: stored) }, tag: tag, weight: weight, didEmit: didEmit, emit: emit)
     }
 
     func drain(didEmit: ((UInt64) throws -> Void)? = nil, emit: (Tag, Output?) throws -> Void) throws {

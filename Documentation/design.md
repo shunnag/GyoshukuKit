@@ -828,7 +828,22 @@ compressed size は spool + 12 byte。deinit による失敗時の削除と、�
 ### 7z の圧縮方式・AES-256 と header
 
 既定は非空 stream ごとに non-solid folder を作る。`WriterOptions.sevenZipMethod` は `SevenZipCompressionMethod` の
-LZMA2（既定）/ LZMA / Deflate / BZip2 / PPMd / Copy を選ぶ。ZIP の `compressionMethod` と拡張子 heuristic から独立させる。
+LZMA2（既定）/ LZMA / Deflate / BZip2 / PPMd / Copy を選ぶ。ZIP の `compressionMethod` から独立させる。
+2026-10-29から省略時の7z LZMA2も `useCompressionHeuristic` を使う。
+明示methodと省略を区別し、圧縮済み拡張子だけをCopyにする。明示level/extreme/filterは従来方式を保つ。
+`sevenZipMethod` を省略するinitializerと、非optionalの明示methodを取るinitializerを分ける。
+引数をoptionalにするとmap closureの型推論までoptionalへ広がるため、引数と公開propertyの非optional型を保つ。
+solidは入力順を保った連続runをmethodごとに区切り、tar.xzはmemberのmethod切替でblockを区切る。
+tar.xzの保存経路は独立したraw LZMA2 chunkと通常のXZ CRC/indexを作り、codecの探索を省く。
+
+同日のwriter I/O最適化では、通常tarに256 KiBの出力bufferを加えた。
+layout記録・write observer・willWriteを使うupdater経路は従来の直接書込を保つ。
+batchのcallbackと戻り、finishAdditions、endMembers、finishでflushし、失敗はbuffer先頭の追加へ帰属する。
+7z Copyと非solidの64 KiB以下のbatch入力は有界の先読み窓を使い、stream/early項目の前で窓をdrainする。
+大きいLZMA2入力は従来のinline読取を保ち、BZip2以外では項目ごとのBZip2並列数解決を省く。
+ZIPのlocal headerは、appendStart/recordBaseを実位置に直してbuffer内に全体が残る場合だけその場でpatchする。
+再帰探索はchild名をmakeContiguousUTF8してから従来どおりStringの `<` でsortする。
+測定・byte比較・既定値の意図的な変更は[round 2 writer検証](verification/2026-10-29-r2-writers.md)を参照。
 
 | 方式 | method ID | properties | level と stream |
 |---|---|---|---|
