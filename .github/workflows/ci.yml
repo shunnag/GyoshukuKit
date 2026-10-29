@@ -52,7 +52,7 @@ jobs:
       tree: ${{ steps.lookup.outputs.tree }}
       kaitokit_tags: ${{ steps.lookup.outputs.kaitokit_tags }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
       - name: Look up a fully tested PR tree
@@ -150,7 +150,7 @@ jobs:
     # 2026-10-14 の計測で最遅 shard は約74分。上限はその約2倍とする。
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Prepare dependency resolution
         # 永続 workspace の隣接 checkout や manifest cache で tag 参照が変わらないようにする。
         run: |
@@ -305,7 +305,7 @@ jobs:
             mkdir -p "$RUNNER_TEMP/shard"
             cp "$RUNNER_TEMP/large.log" "$RUNNER_TEMP/shard/large.log"
           fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: shard-report-xcode-27-${{ matrix.shard }}
@@ -321,7 +321,7 @@ jobs:
     timeout-minutes: 25
     steps:
       # hosted の macos-26-runtime と checkout path を揃え、#filePath / Bundle.module の絶対 path を保つ。
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Prepare dependency resolution
         # 永続 workspace の隣接 checkout や manifest cache で tag 参照が変わらないようにする。
         run: |
@@ -496,7 +496,7 @@ jobs:
           PY
           # tar で bundle 内の symlink と実行権限を保つ。object / checkout は含めない。
           tar -czf "$RUNNER_TEMP/macos-26-tests.tar.gz" -C "$PACKAGE_STAGE" .build
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-26-tests
           path: ${{ runner.temp }}/macos-26-tests.tar.gz
@@ -513,7 +513,7 @@ jobs:
         shard: [1, 2]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install differential-test oracles
         # gnu-tar は image にあっても明示する（無いと GNU tar との互換の検査が黙って 0 件になる）。
         run: |
@@ -548,7 +548,7 @@ jobs:
         run: |
           sw_vers
           xcodebuild -version
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: macos-26-tests
           path: ${{ runner.temp }}/macos-26-artifact
@@ -659,7 +659,7 @@ jobs:
              [ "$(readlink "$HOME/.local/bin/lha-unix")" = "$RUNNER_TEMP/lha-unix-install/bin/lha" ]; then
             rm "$HOME/.local/bin/lha-unix"
           fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: shard-report-macos-26-${{ matrix.shard }}
@@ -673,7 +673,7 @@ jobs:
     needs: [gate, build-and-test, macos-26-runtime]
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: shard-report-*
           path: reports
@@ -721,7 +721,7 @@ jobs:
         run: |
           printf 'tree=%s\nkaitokit_tags=%s\nrun_id=%s\nsha=%s\n' \
             "$TESTED_TREE" "$KAITOKIT_TAGS" "$TESTED_RUN_ID" "$TESTED_SHA" > tested-tree.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: github.event_name == 'pull_request'
         with:
           name: tested-tree
