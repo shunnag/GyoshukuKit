@@ -17,7 +17,7 @@ let kaitoKit: Package.Dependency =
     !isDependencyCheckout
         && FileManager.default.fileExists(atPath: siblingKaitoKit.appendingPathComponent("Package.swift").path)
         ? .package(path: "../KaitoKit")
-        : .package(url: "https://github.com/shunnag/KaitoKit.git", .upToNextMinor(from: "0.17.0"))
+        : .package(url: "https://github.com/shunnag/KaitoKit.git", .upToNextMinor(from: "0.18.0"))
 
 let package = Package(
     name: "GyoshukuKit",

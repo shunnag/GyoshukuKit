@@ -23,7 +23,7 @@ try writer.finish()
 出力先は新規ファイルに限り、既存ファイルを上書きしません。ディスク上の
 ディレクトリは再帰的に追加します。symlink は辿らず、target path を保存します（LHA は symlink を拒否します）。
 ディスク上の mode は set-ID / sticky を含めてそのまま書庫へ保存し、symlink target も内容を検査せず保存します。
-展開時の扱いは reader の方針に従います（KaitoKit 0.17.0 は既定で通常ファイルの set-ID を落とします）。
+展開時の扱いは reader の方針に従います（KaitoKit 0.17.0 以降は既定で通常ファイルの set-ID を落とします）。
 同じ writer は呼出側が直列化してください。thread-safe / Sendable ではありません。
 設定値の `WriterOptions` は `Sendable` です。
 
