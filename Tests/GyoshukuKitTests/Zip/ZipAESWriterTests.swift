@@ -1,13 +1,34 @@
 import Foundation
 import CryptoKit
+import Darwin
 import KaitoKit
 import XCTest
 @testable import GyoshukuKit
 
 final class ZipAESWriterTests: XCTestCase {
     private let sizes = [0, 1, 15, 16, 17, 4095, 65537]
+    private var originalTimeZone: String?
+
+    override func setUp() {
+        super.setUp()
+        // ZIP の DOS timestamp はローカル時刻なので、固定 hash を生成した JST に揃える。
+        originalTimeZone = getenv("TZ").map { String(cString: $0) }
+        XCTAssertEqual(setenv("TZ", "Asia/Tokyo", 1), 0)
+        NSTimeZone.resetSystemTimeZone()
+    }
+
+    override func tearDown() {
+        if let originalTimeZone { XCTAssertEqual(setenv("TZ", originalTimeZone, 1), 0) }
+        else { XCTAssertEqual(unsetenv("TZ"), 0) }
+        NSTimeZone.resetSystemTimeZone()
+        super.tearDown()
+    }
 
     func testMixedEntriesMatchSerialBytesWithOrderedTaskLocalSalts() throws {
+        XCTAssertEqual(TimeZone.current.identifier, "Asia/Tokyo")
+        let dos = ZipRecords.dosDate(TestSupport.date)
+        XCTAssertEqual(dos.time, UInt16((7 << 11) | (13 << 5) | 10))
+        XCTAssertEqual(dos.date, UInt16((43 << 9) | (11 << 5) | 15))
         let root = try TestSupport.directory("zip-aes-ordered-salts")
         let items = boundaryItems
         // worker / CTR 最適化前の逐次 writer（Swift 6.4）で固定した書庫全体の SHA-256。
