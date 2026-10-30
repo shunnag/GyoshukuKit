@@ -5,8 +5,13 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-30
+
+書き込みの高速化と KaitoKit 0.18.x への追従。**既定の出力 byte が変わる**(下の 2 件の動作変更)。明示した方式・level・`useCompressionHeuristic: false` を指定した出力は変わらない。ビルド要件(Xcode 27 / Swift 6.4 以上)と実行環境(macOS 26 以上・Apple Silicon)は 0.14.0 と同じ。
+
 ### 変更
 
+- KaitoKit 依存を 0.18.x に上げた(0.18.0 以上、0.19.0 未満)。KaitoKit を自分でも固定している下流は範囲を同時に上げる。
 - **動作変更(既定の出力 byte)**: `useCompressionHeuristic`(既定 `true`)を 7z と tar.xz にも広げる。`sevenZipMethod` を省略し `lzmaLevel` / `lzmaExtreme` / `sevenZipFilter` も既定のとき、JPEG などの圧縮済み拡張子の通常ファイルを 7z では Copy、tar.xz では無圧縮の LZMA2 chunk にする。solid 7z は連続する同方式の項目を一つの folder にまとめ、LZMA2 と Copy の切替で folder を区切る(入力順・solid 上限・AES は維持)。圧縮済みページの多い書庫で 7z 3.35 → 0.065 秒、solid 7z 7.48 → 0.14 秒、tar.xz 3.57 → 0.073 秒。書庫の大きさは solid 7z で +0.32%、tar.xz で +0.03%。明示した `sevenZipMethod`(作成後の代入も含む)・level・extreme・filter は従来どおり優先し、従来の全項目 LZMA2 の出力は `useCompressionHeuristic: false` で得られる。
 - **動作変更(既定の出力 byte)**: ZIP の圧縮済み拡張子の判定に 24 種(AVIF / JXL / HEIF / JP2、CBZ / CBR / CB7 / EPUB、zst / lz4 / lzma / tgz / txz、m4a / aac / flac / ogg / opus / webm / mkv / m4v、docx / xlsx / pptx)を足し、Stored にする。該当ファイルの多い書庫で 59 → 11 ms。
 - 通常の tar の出力に 256 KiB の buffer を置く(batch 追加 0.66 → 0.36 秒)。書き込みの失敗は最初の未出力の追加に帰属させる。
