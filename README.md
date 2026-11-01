@@ -159,7 +159,7 @@ writer / updater は開始時に一度解決し、codec・項目サイズ・メ�
 GyoshukuKit is a pure-Swift archive writer for ZIP, 7z, tar variants and LHA, with ZIP / 7z encryption and single-file compression. It depends on KaitoKit for reading: use KaitoKit alone to read, and add GyoshukuKit to write.
 
 Requirements: macOS 26+ on Apple Silicon at runtime; Xcode 27 / Swift 6.4+ to build. Xcode 26 / Swift 6.3 release builds are unsupported; the manifest does not enforce this requirement.
-KaitoKit 0.17.x (>= 0.17.0, < 0.18.0) is resolved automatically as a dependency.
+KaitoKit 0.18.x (>= 0.18.0, < 0.19.0) is resolved automatically as a dependency.
 
 ```swift
 // Package.swift dependencies
