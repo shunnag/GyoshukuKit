@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-02
+
+### 変更
+
+- KaitoKit 依存を 0.19.x に上げた（0.19.0 以上、0.20.0 未満）。KaitoKit を自分でも固定している下流は範囲を同時に上げる。KaitoKit 0.19.0 は RAR5 compression version 1、7z / XZ の RISC-V filter、RAR4 / RAR5 の分割 SFX に対応する。書き込みの出力 byte とビルド要件は 0.15.0 と同じ。
+
 ## [0.15.0] - 2026-10-30
 
 書き込みの高速化と KaitoKit 0.18.x への追従。**既定の出力 byte が変わる**(下の 2 件の動作変更)。明示した方式・level・`useCompressionHeuristic: false` を指定した出力は変わらない。ビルド要件(Xcode 27 / Swift 6.4 以上)と実行環境(macOS 26 以上・Apple Silicon)は 0.14.0 と同じ。
