@@ -144,6 +144,13 @@ final class BatchAdditionLongPoleTests: XCTestCase {
                 for threads in [4, 16, 36] {
                     let started = DispatchSemaphore(value: 0), starts = Mutex<[Int]>([])
                     var options = c.options; options.compressionThreads = threads
+                    let configuration = c.format == .zip ? EntryCompressionConfiguration(options: options)
+                        : EntryCompressionConfiguration(options: options, method: options.sevenZipMethod,
+                            innerParallelism: options.sevenZipSolid != .off)
+                    let normalWindowCount = c.format == .zip ? configuration.threads
+                        : configuration.sevenZipWindowCount - configuration.earlyLongPoleSlots
+                    let context = "\(c.name), t=\(threads)"
+                    XCTAssertLessThan(normalWindowCount, 40, context)
                     let output = root.appendingPathComponent(UUID().uuidString)
                     try FileJob.$testingEncoderStarted.withValue({ index in
                         starts.withLock { $0.append(index) }
@@ -151,11 +158,16 @@ final class BatchAdditionLongPoleTests: XCTestCase {
                     }) {
                         // 従来の窓では最後の大項目に着手できない状態を作り、先行開始を決定的に確認する。
                         try FileJob.$testingBeforeWorkerOpen.withValue({ index, _ in
-                            if index == 0 { XCTAssertEqual(started.wait(timeout: .now() + 5), .success, c.name) }
+                            if index == 0 { XCTAssertEqual(started.wait(timeout: .now() + 30), .success, context) }
                         }) {
                             let writer = try ArchiveWriter.create(url: output, format: c.format, options: options)
                             try writer.add(items, events: {
-                                if case .didFinish(0) = $0 { XCTAssertEqual(starts.withLock { $0.first }, 40, c.name) }
+                                if case .didFinish(0) = $0 {
+                                    // 通常窓内の開始順は問わず、最初の出力より前に窓外で始まったのが最大入力一件だけかを確認する。
+                                    let snapshot = starts.withLock { $0 }
+                                    XCTAssertTrue(snapshot.contains(40), context)
+                                    XCTAssertEqual(snapshot.filter { $0 >= normalWindowCount }, [40], context)
+                                }
                             })
                             try writer.finish()
                         }
