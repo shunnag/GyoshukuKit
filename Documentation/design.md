@@ -32,8 +32,8 @@ GyoshukuKit ──依存──> KaitoKit
 書庫の**更新**(追加・削除・改名)は、生き残る entry を再圧縮せずに運ぶために
 既存書庫を読む必要がある。その堅い parser は KaitoKit が既に持っているので、
 二つ目の ZIP parser は書かない。開発中は `.package(path: "../KaitoKit")`、
-release では `.upToNextMinor(from: "0.21.0")` の tag 参照を使う。
-GyoshukuKit 0.17.0 は KaitoKit 0.21.x に依存する。`@_spi` は SemVer の保証外で、
+release では `.upToNextMinor(from: "0.22.0")` の tag 参照を使う。
+GyoshukuKit 0.18.0 は KaitoKit 0.22.x に依存する。`@_spi` は SemVer の保証外で、
 `public import KaitoKit` により公開 API にも KaitoKit の型を含むため、次の minor は再検証が必要。
 隣接 checkout の自動選択と、SwiftPM / Xcode の `checkouts/` 内では tag を使う規則は維持する。
 
@@ -2595,3 +2595,20 @@ lzipだけは最小片で入り得るcodec数も従来幅との積で覆い、Zs
 `SpeedPriorityTests` は実際の分割境界を越える入力を1 / 4 / 16 / 36 threadと3電力方針で
 符号化し、KaitoKit・xz / 7zz / lzip / zstdの復号、ZIP一括追加・暗号化も検査する。
 外部scratch corpusのサイズ比較は `SpeedPriorityRatioProbeTests` のopt-inで行う。
+
+## LH5・LZW・bzip2 の CPU 最適化（2026-11-05）
+
+LH5 の `heads` / `previous` は `write` 全体で有効な raw pointer とする。一致の延長は scalar から始め、
+長さ8以上の一致が2回見つかった後だけ、未整列 UInt64 の XOR と trailing-zero count を使う。読み出しは
+入力 limit を越えず、hash・chain・lazy matching・候補の採用順は変えない。無条件の wide compare は
+短い一致の多い入力を遅くするため使わない。
+
+LZW の dictionary entry は下位32 bitの key、上位16 bitの code とする。hash・線形探索・code 割当の順を
+保ち、probe の key 比較だけを下位32 bitにする。
+
+`Bzip2BlockScanner` は、各 scan の先頭最大64 byteに16 byte以上の run があるときだけ専用経路を選ぶ。
+専用経路でも length 255・block 境界・pending run・途中で返す位置は scalar と同じで、通常入力は元の
+scalar 経路を維持する。圧縮結果は逐次 libbz2 と全 byte を照合する。
+
+いずれも Metal / Core ML の本番依存を追加しない。両機の測定、外部 decoder、大規模境界、ASan、全948 testsは
+[encoder の性能・安定性検証](verification/2026-11-05-encoder-performance.md) と KaitoAccelLab に記録する。

@@ -10,7 +10,7 @@ final class LZWStreamEncoder {
     private let maxbits: Int
     private let dictionaryLimit: Int
     // key = (prefix code << 8) | suffix byte。占有率は1/2未満の線形探索表。
-    // 上位に key、下位16 bitに code を詰める。code >= 257 なのでゼロを空き欄にできる。
+    // 下位32 bitに key、上位16 bitに code を詰める。code >= 257 なのでゼロを空き欄にできる。
     private var dictionary: UnsafeMutablePointer<UInt64>?
     private let tableCount: Int
     private let tableMask: Int
@@ -76,18 +76,18 @@ final class LZWStreamEncoder {
                     let key = UInt32(prefix) << 8 | UInt32(byte)
                     var slot = Int((key &* 0x9E37_79B1) >> hashShift)
                     var entry = dictionary[slot]
-                    while entry != 0, entry >> 16 != UInt64(key) {
+                    while entry != 0, UInt32(truncatingIfNeeded: entry) != key {
                         slot = (slot + 1) & tableMask
                         entry = dictionary[slot]
                     }
                     if entry != 0 {
-                        prefix = Int(entry & 0xFFFF)
+                        prefix = Int(entry >> 48)
                         continue
                     }
                     try put(prefix, nextCode: nextCode, emit: emit)
                     prefix = Int(byte)
                     if nextCode < dictionaryLimit {
-                        dictionary[slot] = UInt64(key) << 16 | UInt64(nextCode)
+                        dictionary[slot] = UInt64(nextCode) << 48 | UInt64(key)
                         nextCode += 1
                     } else if inputCount >= checkpoint {
                         // 満杯の辞書だけを定期評価する。累積圧縮率が悪化したら block を再学習する。

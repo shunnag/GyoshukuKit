@@ -78,7 +78,7 @@ KaitoKit と生バイトで名前を検証します。Archive Utility / Windows 
 2026-09-24 の [並列 LZMA2](verification/2026-09-24-parallel-lzma2.md) と
 [並列 deflate / bzip2](verification/2026-09-24-parallel-deflate-bzip2.md) の検証記録も参照してください。
 
-writer の複数 core 化は[横断検証](verification/2026-10-07-writer-multicore.md)、最新の小規模 A/B は[統合記録](verification/2026-10-08-integrated-mini-ab.md)を参照してください。
+writer の複数 core 化は[横断検証](verification/2026-10-07-writer-multicore.md)、2026-10-08 の小規模 A/B は[統合記録](verification/2026-10-08-integrated-mini-ab.md)を参照してください。2026-11-05 の LH5・LZW・bzip2 codec 単体の計測と再現手順は [encoder の性能・安定性検証](verification/2026-11-05-encoder-performance.md) にあります。
 
 ## 圧縮 tar の大容量検証
 

@@ -55,8 +55,11 @@ enum LH5Encoder {
         guard initialOffset < input.count else { return }
         try input.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             let bytes = raw.bindMemory(to: UInt8.self)
-            var heads = [Int](repeating: -1, count: 65_536)
-            var previous = [Int](repeating: -1, count: windowSize)
+            let heads = UnsafeMutablePointer<Int>.allocate(capacity: 65_536)
+            let previous = UnsafeMutablePointer<Int>.allocate(capacity: windowSize)
+            heads.initialize(repeating: -1, count: 65_536)
+            previous.initialize(repeating: -1, count: windowSize)
+            defer { heads.deallocate(); previous.deallocate() }
             var commands: [Command] = []
             commands.reserveCapacity(blockCommands)
             var offset = initialOffset
@@ -65,13 +68,14 @@ enum LH5Encoder {
                 previous[index & (windowSize - 1)] = heads[bucket]
                 heads[bucket] = index
             }
-            var checkpoint = initialOffset
+            var checkpoint = initialOffset, wideMatches = false, longMatches = 0
             while offset < bytes.count {
                 if offset >= checkpoint {
                     try Task.checkCancellation()
                     checkpoint = offset + 4096
                 }
-                var match = findMatch(bytes, at: offset, heads: heads, previous: previous, configuration: configuration)
+                var match = findMatch(bytes, at: offset, heads: heads, previous: previous,
+                                      configuration: configuration, wide: wideMatches)
                 var registered = false
                 if configuration.lazyMatching, match.distance > 0, match.length < 256,
                    offset + 3 < bytes.count {
@@ -80,8 +84,13 @@ enum LH5Encoder {
                     previous[offset & (windowSize - 1)] = heads[bucket]
                     heads[bucket] = offset
                     registered = true
-                    let next = findMatch(bytes, at: offset + 1, heads: heads, previous: previous, configuration: configuration)
+                    let next = findMatch(bytes, at: offset + 1, heads: heads, previous: previous,
+                                         configuration: configuration, wide: wideMatches)
                     if next.length > match.length { match = (2, 0) }
+                }
+                if match.length >= 8 && longMatches < 2 {
+                    longMatches += 1
+                    if longMatches == 2 { wideMatches = true }
                 }
                 let consumed: Int
                 if match.distance > 0 {
@@ -109,7 +118,8 @@ enum LH5Encoder {
     }
 
     private static func findMatch(_ bytes: UnsafeBufferPointer<UInt8>, at offset: Int,
-                                  heads: [Int], previous: [Int], configuration: Configuration) -> (length: Int, distance: Int) {
+                                  heads: UnsafePointer<Int>, previous: UnsafePointer<Int>,
+                                  configuration: Configuration, wide: Bool) -> (length: Int, distance: Int) {
         let maximum = min(256, bytes.count - offset)
         var length = 2, distance = 0
         guard maximum >= 3 else { return (length, distance) }
@@ -121,9 +131,8 @@ enum LH5Encoder {
         while candidate >= oldest, probes < configuration.probeCount {
             if bytes[candidate] == bytes[offset], bytes[candidate + 1] == bytes[offset + 1],
                bytes[candidate + length] == bytes[offset + length] {
-                var count = 2
                 // distance より長い一致も許す。decoder の前向きコピーで同じ byte が再生される。
-                while count < maximum, bytes[candidate + count] == bytes[offset + count] { count += 1 }
+                let count = matchLength(bytes, candidate: candidate, offset: offset, maximum: maximum, wide: wide)
                 if count > length {
                     length = count
                     distance = offset - candidate
@@ -134,6 +143,24 @@ enum LH5Encoder {
             probes += 1
         }
         return (length, distance)
+    }
+
+    @inline(__always) private static func matchLength(_ bytes: UnsafeBufferPointer<UInt8>, candidate: Int,
+                                                      offset: Int, maximum: Int, wide: Bool) -> Int {
+        var count = 2
+        if !wide {
+            while count < maximum, bytes[candidate + count] == bytes[offset + count] { count += 1 }
+            return count
+        }
+        let base = bytes.baseAddress!
+        while count + 8 <= maximum {
+            let difference = UInt64(littleEndian: UnsafeRawPointer(base + candidate + count).loadUnaligned(as: UInt64.self))
+                ^ UInt64(littleEndian: UnsafeRawPointer(base + offset + count).loadUnaligned(as: UInt64.self))
+            if difference != 0 { return count + difference.trailingZeroBitCount / 8 }
+            count += 8
+        }
+        while count < maximum, bytes[candidate + count] == bytes[offset + count] { count += 1 }
+        return count
     }
 
     private static func hash(_ bytes: UnsafeBufferPointer<UInt8>, _ offset: Int) -> Int {
