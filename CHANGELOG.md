@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-05
+
+LH5・LZW・bzip2 の圧縮を高速化し、KaitoKit 0.22.x に追従する release。各 encoder の出力は変更前と byte 一致を確認した。公開 API、ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon）は 0.17.0 と同じ。GPU / NPU の研究は KaitoAccelLab に限定し、両機で検証した CPU 最適化だけを採用した。
+
+### 変更
+
+- KaitoKit 依存を 0.22.x に上げた（0.22.0 以上、0.23.0 未満）。KaitoKit を自分でも固定している下流は範囲を同時に上げる。0.22.0 の復号高速化は自己検査や updater にも適用される。
+- LH5 の辞書を raw pointer にし、長い一致が見つかった入力だけ未整列 UInt64 比較で一致を延長する。hash・chain・lazy matching・候補の順は変えない。pointer 化は Mac mini の text / binary を約 5〜19% 改善し、適応型の 8 byte 比較でさらに 5〜15% 改善した。
+- LZW の dictionary entry を下位 32 bit の key と上位 16 bit の code にし、probe の shift を省く。Mac mini の 6 条件で約 0.4〜4.5% 改善。M4 Max は ±1% 前後で、一律の改善は主張しない。
+- bzip2 の block scanner は、先頭 64 byte 以内に 16 byte 以上の run があるときだけ 8 byte 比較を使う。通常入力は scalar を維持し、run の多い圧縮は両機で約 3〜5% 短縮した。出力は逐次 libbz2 と全 byte 一致。
+- codec 単体の LH5 / LZW / LZ4 / bzip2 benchmark を opt-in test として追加した。全 948 tests、55 skipped、0 failures、外部 decoder、大規模境界、ASan を確認した。測定条件と不採用案は [encoder の性能・安定性検証](Documentation/verification/2026-11-05-encoder-performance.md) と KaitoAccelLab に記録する。
+
 ## [0.17.0] - 2026-11-04
 
 KaitoKit 0.21.x への追従。既定出力の byte、ビルド要件(Xcode 27 / Swift 6.4 以上)と実行環境(macOS 26 以上・Apple Silicon)は 0.16.0 と同じ。

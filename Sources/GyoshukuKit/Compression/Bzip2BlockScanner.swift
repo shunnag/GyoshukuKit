@@ -17,25 +17,83 @@ struct Bzip2BlockScanner {
     mutating func scan(_ input: Data, target: Int) -> Int? {
         input.withUnsafeBytes { raw in
             let bytes = raw.bindMemory(to: UInt8.self)
-            var index = position, count = nblock, ch = character, length = runLength, start = runStart
-            defer {
-                position = index; nblock = count; character = ch; runLength = length; runStart = start
+            if hasLongRun(bytes) {
+                return scanWideRuns(bytes, target: target)
             }
-            while index < bytes.count {
-                if count >= limit {
-                    count = 0
-                    blocks += 1
-                    if start >= target { return start }
-                }
-                let next = Int(bytes[index])
-                if next != ch || length == 255 {
-                    count += length < 4 ? length : 5
-                    ch = next; length = 1; start = index
-                } else { length += 1 }
-                index += 1
-            }
-            return nil
+            return scanScalar(bytes, target: target)
         }
+    }
+
+    @inline(never)
+    private func hasLongRun(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+        guard bytes.count - position >= 16 else { return false }
+        let end = position + min(64, bytes.count - position)
+        var index = position
+        while index < end {
+            let byte = bytes[index]
+            var next = index + 1
+            while next < end && bytes[next] == byte { next += 1 }
+            if next - index >= 16 { return true }
+            index = next
+        }
+        return false
+    }
+
+    @inline(never)
+    private mutating func scanScalar(
+        _ bytes: UnsafeBufferPointer<UInt8>, target: Int
+    ) -> Int? {
+        var index = position, count = nblock, ch = character, length = runLength, start = runStart
+        defer {
+            position = index; nblock = count; character = ch; runLength = length; runStart = start
+        }
+        while index < bytes.count {
+            if count >= limit {
+                count = 0
+                blocks += 1
+                if start >= target { return start }
+            }
+            let next = Int(bytes[index])
+            if next != ch || length == 255 {
+                count += length < 4 ? length : 5
+                ch = next; length = 1; start = index
+            } else { length += 1 }
+            index += 1
+        }
+        return nil
+    }
+
+    @inline(never)
+    private mutating func scanWideRuns(
+        _ bytes: UnsafeBufferPointer<UInt8>, target: Int
+    ) -> Int? {
+        var index = position, count = nblock, ch = character, length = runLength, start = runStart
+        defer {
+            position = index; nblock = count; character = ch; runLength = length; runStart = start
+        }
+        while index < bytes.count {
+            if count >= limit {
+                count = 0
+                blocks += 1
+                if start >= target { return start }
+            }
+            let next = Int(bytes[index])
+            if next != ch || length == 255 {
+                count += length < 4 ? length : 5
+                ch = next; length = 1; start = index
+            } else {
+                length += 1
+                index += 1
+                if length >= 8 {
+                    (index, length) = skipBzip2RepeatedBytes(
+                        bytes, index: index, length: length, character: ch
+                    )
+                }
+                continue
+            }
+            index += 1
+        }
+        return nil
     }
 
     /// BZ_FINISH は残り入力が0なら full 判定より先に run をflushし、最後の block に含める。
