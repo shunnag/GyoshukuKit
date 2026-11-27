@@ -12,7 +12,7 @@ enum LHASelfCheck {
     /// source は原本の snapshot、descriptor は書き終えた出力。
     static func verify(plan: LHAEditPlan, records: [LHAWriter.MemberRecord], additionLength: UInt64, finalLength: UInt64,
                        descriptor: Int32, source: ArchiveFileSource, layout: LHALayout, appendStart: UInt64?,
-                       advance: (UInt64) throws -> Void) throws -> Timings {
+                       readLimits: ReadLimits? = nil, advance: (UInt64) throws -> Void) throws -> Timings {
         let started = ProcessInfo.processInfo.systemUptime
         var timings: Timings = (v2: 0, v3: 0, total: 0)
         var progressError: Error?
@@ -53,7 +53,7 @@ enum LHASelfCheck {
                 let v3Start = ProcessInfo.processInfo.systemUptime
                 do {
                     try verifyAppended(descriptor: descriptor, at: plan.membersEnd, originalStart: appendStart!,
-                                       length: additionLength, records: records, advance: advancing)
+                                       length: additionLength, records: records, readLimits: readLimits, advance: advancing)
                 } catch {
                     if error is CancellationError { throw error }
                     throw failure("V3: \(error)")
@@ -75,7 +75,8 @@ enum LHASelfCheck {
     /// V3。追加 block を独立に walk して writer の MemberRecord と照合し、その範囲だけを見せた KaitoKit で
     /// 全 member を復号して元サイズを確かめる。理由は "V3 …" で返す。
     static func verifyAppended(descriptor: Int32, at outputStart: UInt64, originalStart: UInt64,
-                               length: UInt64, records: [LHAWriter.MemberRecord], advance: (UInt64) throws -> Void) throws {
+                               length: UInt64, records: [LHAWriter.MemberRecord], readLimits: ReadLimits? = nil,
+                               advance: (UInt64) throws -> Void) throws {
         let source = try ArchiveFileSource(duplicating: descriptor)
         let end = try checkedAdd(outputStart, length)
         var originalSizes: [UInt64] = []
@@ -90,8 +91,9 @@ enum LHASelfCheck {
         }
         guard walked.count == records.count, walked.end == end, !walked.terminated else { throw appendedFailure("walk end") }
         let view = AppendedView(source: source, range: outputStart..<end)
-        let reader = try ArchiveReader.open(source: view, options: ReaderOptions(
-            limits: ReadLimits(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
+        let reader = try ArchiveReader.open(
+            source: view, options: EditingReaderOptions.make(limits: readLimits)
+        )
         guard reader.format == .lha, reader.entries.count == records.count,
               let raw = try reader.lhaRawLayout(), raw.memberCount == records.count,
               raw.unpublishedMemberCount == 0 else { throw appendedFailure("reader count") }

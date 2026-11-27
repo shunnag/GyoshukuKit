@@ -32,6 +32,11 @@
 | `powerPolicy` | `.reduceInLowPowerMode` | 自動時だけ適用。Low Power Mode で削減、`.reduceInLowPowerModeOrThermalPressure` は serious / critical でも削減、`.alwaysUseAllCores` は削減なし |
 | `additionPlacement` | `.end` | rewriter の追加位置。`.beginning` で従来の先頭追加 |
 | `carriedTarOwnerIDs` | `.keep` | rewriter で運ぶ tar の uid/gid を維持。`.reset` で 0 にする。ディスクからの追加には `preserveOwnerIDs` を使用 |
+| `editingReadLimits` | `nil` | updater / rewriter が入力書庫を読む際の KaitoKit `ReadLimits`。nil は従来どおり entry・総展開サイズを無制限にする。信頼できない書庫には有限値を指定。追加するファイルの上限ではない |
+
+完全な書庫を開く時の展開倍率は、`WriterOptions.editingExpansionLimit` で指定できます（既定は `nil`）。全体を再び開く検査にも適用します。ZIP と LHA で新規追加分だけを切り出して照合する場合は、元の書庫と入力長が異なるため絶対上限を使います。
+
+複数の編集readerでdecode予算を共有する場合は、KaitoKitの `ParallelDecodeMemoryBudget` を一つ作り、`ParallelDecodeMemoryBudget.$active.withValue(budget)` の範囲内でupdater / rewriterを作成・使用します。taskと子taskのdecoderが同じbudgetを共有し、既存の `ReadLimits` のlayoutは変わりません。decoderごとの上限は `parallelDecodeMemory` で指定し、不足時は直列化します。並列度を保つ場合は、この値も同時実行数に応じて配分してください。`editingReadLimits` に渡した値は入力・自己検査のreaderにも継承されます。この予算は圧縮側の `memoryLimit` とは別で、metadata・直列decode・process全体のRSSを制限しません。
 
 `memoryLimit` は byte 単位の正の値、`compressionThreads` は公開定数 `WriterOptions.compressionThreadsRange`（`1...1024`）です。範囲外は `WriterError.invalidOption`。solid の明示的な `blockSize` / `filesPerBlock` は正の値に限ります。設定は出力・作業ファイルを作る前に検証します。各 level は、その codec を選んでいない場合も範囲検査します。
 

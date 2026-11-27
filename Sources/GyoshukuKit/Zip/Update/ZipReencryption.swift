@@ -442,7 +442,7 @@ final class ZipReencryption {
         try Self.observe(.v0, -1)
         let source = try ArchiveFileSource(url: url)
         let layout = try ZipUpdateLayout(source: source)
-        var settings = ArchiveUpdater.readerOptions
+        var settings = ArchiveUpdater.readerOptions(limits: options.editingReadLimits, expansion: options.editingExpansionLimit)
         settings.password = options.password
         settings.lazyLocalHeaders = false
         let output = try ArchiveReader.open(source: source, options: settings)

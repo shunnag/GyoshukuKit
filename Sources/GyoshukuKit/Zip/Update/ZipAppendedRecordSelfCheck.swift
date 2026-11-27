@@ -45,7 +45,8 @@ enum ZipAppendedRecordSelfCheck {
     @TaskLocal static var testingSkipHeaderEquality = false
 
     static func check(descriptor: Int32, entries: [ZipRecords.Entry], start: UInt64,
-                      recordBase: UInt64, blockLength: UInt64, centralOffset: UInt64) throws {
+                      recordBase: UInt64, blockLength: UInt64, centralOffset: UInt64,
+                      readLimits: ReadLimits? = nil) throws {
         do {
             var end = start
             for entry in entries {
@@ -63,7 +64,9 @@ enum ZipAppendedRecordSelfCheck {
             }
             let view = try ZipAppendedRecordView(descriptor: descriptor, base: start, blockLength: blockLength,
                                                 entries: entries, recordBase: recordBase)
-            let reader = try ArchiveReader.open(source: view, options: ArchiveUpdater.readerOptions)
+            let reader = try ArchiveReader.open(
+                source: view, options: ArchiveUpdater.readerOptions(limits: readLimits)
+            )
             guard reader.format == .zip, reader.entries.count == entries.count else {
                 throw UpdaterError.invalidArchive("追加 record の件数が一致しません")
             }

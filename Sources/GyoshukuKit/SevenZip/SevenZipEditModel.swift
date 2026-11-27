@@ -105,9 +105,8 @@ struct SevenZipEditModel: Sendable, Equatable {
     // 空の書庫は writer の既定に従い、一部だけ定義された元はその形のまま保つ。
     var storesAttributesForAdditions: Bool { files.isEmpty || files.contains { $0.attributes != nil } }
 
-    static func readerOptions(password: String?) -> ReaderOptions {
-        var options = ReaderOptions(limits: ReadLimits(maxEntrySize: .max, maxTotalUncompressedSize: .max),
-                                    password: password, appleDoublePolicy: .expose)
+    static func readerOptions(password: String?, readLimits: ReadLimits? = nil, expansion: ArchiveExpansionLimit? = nil) -> ReaderOptions {
+        var options = EditingReaderOptions.make(limits: readLimits, expansion: expansion, password: password)
         options.recordsSevenZipEditLayout = true
         return options
     }

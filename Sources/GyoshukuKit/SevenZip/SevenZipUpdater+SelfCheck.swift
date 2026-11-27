@@ -46,7 +46,9 @@ extension SevenZipUpdater {
             }) {
                 let v1 = ProcessInfo.processInfo.systemUptime
                 let outputReader = try ArchiveReader.open(source: source, sourceURL: output,
-                    options: SevenZipEditModel.readerOptions(password: options.password))
+                    options: SevenZipEditModel.readerOptions(
+                        password: options.password, readLimits: options.editingReadLimits, expansion: options.editingExpansionLimit
+                    ))
                 guard let actual = SevenZipEditModel.read(outputReader) else { throw failure("V1 snapshot") }
                 let expected = assembly.model
                 guard actual.baseOffset == 0, actual.versionMajor == 0, actual.versionMinor == 4,

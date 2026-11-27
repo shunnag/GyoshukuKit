@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-28
+
+- `WriterOptions.editingReadLimits` と `editingExpansionLimit` を追加した。編集・再構築のために既存書庫を開くとき、呼び出し元で項目サイズ、展開総量、入力サイズに対する倍率を指定できる。ZIP と LHA の追記部分の自己検査には絶対上限を適用する。
+- 読み取り依存を KaitoKit 0.23.x に更新した。アプリ側でも KaitoKit の版を指定している場合は 0.23.0 以上、0.24.0 未満に合わせる。
+
 ## [0.18.0] - 2026-11-05
 
 LH5・LZW・bzip2 の圧縮を高速化し、KaitoKit 0.22.x に追従する release。各 encoder の出力は変更前と byte 一致を確認した。公開 API、ビルド要件（Xcode 27 / Swift 6.4 以上）と実行環境（macOS 26 以上・Apple Silicon）は 0.17.0 と同じ。GPU / NPU の研究は KaitoAccelLab に限定し、両機で検証した CPU 最適化だけを採用した。
