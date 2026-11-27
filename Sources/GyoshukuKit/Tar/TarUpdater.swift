@@ -64,8 +64,10 @@ public final class TarUpdater: ArchiveEditing {
         try Task.checkCancellation()
         let snapshot = try ArchiveSourceSnapshot(url: url, directory: output.deletingLastPathComponent(),
                                                  pathExtension: "tar", disablesClone: testingDisablesClone)
-        let reader = try ArchiveReader.open(source: snapshot.source, sourceURL: url, options: ReaderOptions(
-            limits: ReadLimits(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
+        let reader = try ArchiveReader.open(
+            source: snapshot.source, sourceURL: url,
+            options: EditingReaderOptions.make(limits: options.editingReadLimits, expansion: options.editingExpansionLimit)
+        )
         guard reader.format == .tar else { throw UpdaterError.invalidArchive("非圧縮 tar ではありません") }
         let representable = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .tar, reader: reader)
         let layout = try TarLayout.scan(source: snapshot.source, length: snapshot.source.length, entries: reader.entries,

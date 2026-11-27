@@ -14,6 +14,8 @@ final class WriterOptionsTopologyTests: XCTestCase {
             (36, [12, 24], 96, 36, 18), (36, [12, 24], 512, 36, 18),
             (64, [8, 24, 32], 1024, 64, 32), (128, [8, 24, 32, 64], 1024, 128, 64),
             (1, [1], 1, 1, 1), (18, [], 36, 18, 9),
+            (8, [4, 4], 8, 8, 4), (30, [10, 20], 96, 30, 15),
+            (56, [], 64, 56, 28), (80, [8, 16, 24, 32], 128, 80, 32),
             (17, [], 128, 17, 9), (18, [6, 12], 4, 4, 4), (1, [], 0, 1, 1)
         ]
         let policies: [CompressionPowerPolicy] = [.reduceInLowPowerMode, .reduceInLowPowerModeOrThermalPressure, .alwaysUseAllCores]

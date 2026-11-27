@@ -102,10 +102,10 @@ public final class ArchiveRewriter: ArchiveEditing {
         do {
             source = try ArchiveFileSource(url: url)
             // sidecar を保持し、index の詰め直しと resource fork の擬似 entry を編集に持ち込まない。
-            reader = try ArchiveReader.open(url: url, options: ReaderOptions(
-                limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
-                password: password,
-                appleDoublePolicy: .expose))
+            reader = try ArchiveReader.open(
+                url: url,
+                options: EditingReaderOptions.make(limits: options.editingReadLimits, expansion: options.editingExpansionLimit, password: password)
+            )
             try source.checkUnchanged(at: url)
         } catch let error as KaitoError {
             throw ArchiveRepresentability.map(error, entry: nil)

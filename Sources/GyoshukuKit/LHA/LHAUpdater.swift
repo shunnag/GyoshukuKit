@@ -64,8 +64,10 @@ public final class LHAUpdater: ArchiveEditing {
         try Task.checkCancellation()
         let snapshot = try ArchiveSourceSnapshot(url: url, directory: output.deletingLastPathComponent(),
                                                  pathExtension: "lzh", disablesClone: testingDisablesClone)
-        let reader = try ArchiveReader.open(source: snapshot.source, sourceURL: url, options: ReaderOptions(
-            limits: ReadLimits(maxEntrySize: .max, maxTotalUncompressedSize: .max), appleDoublePolicy: .expose))
+        let reader = try ArchiveReader.open(
+            source: snapshot.source, sourceURL: url,
+            options: EditingReaderOptions.make(limits: options.editingReadLimits, expansion: options.editingExpansionLimit)
+        )
         guard reader.format == .lha else { throw UpdaterError.invalidArchive("LHA ではありません") }
         let representable = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .lha, reader: reader)
         let layout = try LHALayout.scan(source: snapshot.source, reader: reader)
@@ -177,7 +179,7 @@ public final class LHAUpdater: ArchiveEditing {
                 try destination.commit(outputPlan, meter: meter) { fd, advance in
                     self.verificationSeconds = try LHASelfCheck.verify(plan: plan, records: records, additionLength: additionLength,
                         finalLength: finalLength, descriptor: fd, source: self.snapshot.source, layout: self.layout,
-                        appendStart: self.appendStart, advance: advance)
+                        appendStart: self.appendStart, readLimits: self.options.editingReadLimits, advance: advance)
                 }
             }
             try meter.finish()

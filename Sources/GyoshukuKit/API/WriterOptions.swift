@@ -1,5 +1,5 @@
 import Foundation
-@_spi(Parallelism) internal import KaitoKit
+@_spi(Parallelism) public import KaitoKit
 
 /// ZIP の圧縮方式。
 public enum CompressionMethod: UInt16, Sendable {
@@ -215,6 +215,11 @@ public struct WriterOptions: Sendable {
     public var additionPlacement: AdditionPlacement
     /// 運ぶ tar の uid/gid。ディスクからの追加には preserveOwnerIDs を使う。
     public var carriedTarOwnerIDs: CarriedOwnerIDs
+    /// updater / rewriter が入力書庫を読む際の上限。nil は従来どおり entry・総展開サイズを無制限にする。
+    /// 信頼できない書庫を編集する場合は、用途に応じた有限値を指定する。追加する入力の上限ではない。
+    public var editingReadLimits: ReadLimits?
+    /// 完全な入力書庫を開くときに、実際の入力サイズから総展開量を制限する。
+    public var editingExpansionLimit: ArchiveExpansionLimit? = nil
 
     /// 7z の方式を省略した既定値。明示方式の initializer と分け、引数の非optional型を保つ。
     public init(
@@ -242,7 +247,8 @@ public struct WriterOptions: Sendable {
         compressionThreads: Int? = nil,
         powerPolicy: CompressionPowerPolicy = .reduceInLowPowerMode,
         additionPlacement: AdditionPlacement = .end,
-        carriedTarOwnerIDs: CarriedOwnerIDs = .keep
+        carriedTarOwnerIDs: CarriedOwnerIDs = .keep,
+        editingReadLimits: ReadLimits? = nil
     ) {
         self.init(compressionMethod: compressionMethod, sevenZipMethod: .lzma2,
             sevenZipSolid: sevenZipSolid, sevenZipFilter: sevenZipFilter,
@@ -252,7 +258,8 @@ public struct WriterOptions: Sendable {
             useCompressionHeuristic: useCompressionHeuristic, preserveOwnerIDs: preserveOwnerIDs,
             preserveMacOSMetadata: preserveMacOSMetadata, password: password, zipEncryption: zipEncryption,
             encryptsSevenZipHeaders: encryptsSevenZipHeaders, compressionThreads: compressionThreads,
-            powerPolicy: powerPolicy, additionPlacement: additionPlacement, carriedTarOwnerIDs: carriedTarOwnerIDs)
+            powerPolicy: powerPolicy, additionPlacement: additionPlacement, carriedTarOwnerIDs: carriedTarOwnerIDs,
+            editingReadLimits: editingReadLimits)
         hasExplicitSevenZipMethod = false
     }
 
@@ -282,7 +289,8 @@ public struct WriterOptions: Sendable {
         compressionThreads: Int? = nil,
         powerPolicy: CompressionPowerPolicy = .reduceInLowPowerMode,
         additionPlacement: AdditionPlacement = .end,
-        carriedTarOwnerIDs: CarriedOwnerIDs = .keep
+        carriedTarOwnerIDs: CarriedOwnerIDs = .keep,
+        editingReadLimits: ReadLimits? = nil
     ) {
         self.compressionMethod = compressionMethod
         self.sevenZipMethod = sevenZipMethod
@@ -311,6 +319,7 @@ public struct WriterOptions: Sendable {
         self.powerPolicy = powerPolicy
         self.additionPlacement = additionPlacement
         self.carriedTarOwnerIDs = carriedTarOwnerIDs
+        self.editingReadLimits = editingReadLimits
     }
 
     /// 現在の自動要求並列数。codec のメモリ制限と項目 / folder 窓の制限を適用する前の値。

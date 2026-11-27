@@ -67,10 +67,10 @@ public final class ArchiveUpdater: ArchiveEditing {
     }
 
     // ZIP の open と自己検査（追加 record・再暗号化の出力）が共有する reader の設定。
-    // 読取制限を外し、AppleDouble を entry として見せる。試験も同じ設定で照合する。
-    static var readerOptions: ReaderOptions {
-        ReaderOptions(limits: ReadLimits(maxEntrySize: UInt64.max, maxTotalUncompressedSize: UInt64.max),
-                      appleDoublePolicy: .expose)
+    // AppleDouble を entry として見せ、呼び出し元の読取制限を引き継ぐ。
+    static var readerOptions: ReaderOptions { readerOptions(limits: nil) }
+    static func readerOptions(limits: ReadLimits?, expansion: ArchiveExpansionLimit? = nil) -> ReaderOptions {
+        EditingReaderOptions.make(limits: limits, expansion: expansion)
     }
     private var writer: ArchiveWriter?
     private var replacementDirectory: URL?
@@ -144,7 +144,9 @@ public final class ArchiveUpdater: ArchiveEditing {
             reader = nil
             directory = ZipValidatedDirectory(bytes: Data(), records: [])
         } else {
-            let parsed = try ArchiveReader.open(source: source, options: readerOptions)
+            let parsed = try ArchiveReader.open(
+                source: source, options: readerOptions(limits: options.editingReadLimits, expansion: options.editingExpansionLimit)
+            )
             guard parsed.format == .zip, UInt64(parsed.entries.count) == layout.count else {
                 throw UpdaterError.invalidArchive("KaitoKit の entry 数と EOCD が一致しません")
             }
@@ -396,7 +398,8 @@ public final class ArchiveUpdater: ArchiveEditing {
             }
             try ZipAppendedRecordSelfCheck.check(descriptor: outputHandle!.fileDescriptor, entries: appended.entries,
                 start: plan.end, recordBase: layout.centralOffset,
-                blockLength: written.byteLength, centralOffset: plan.centralOffset)
+                blockLength: written.byteLength, centralOffset: plan.centralOffset,
+                readLimits: options.editingReadLimits)
         }
         try Task.checkCancellation()
         if !plan.inPlace { try outputHandle!.truncate(atOffset: plan.finalEnd) }

@@ -68,7 +68,9 @@ public final class SevenZipUpdater: ArchiveReencrypting {
         let snapshot = try ArchiveSourceSnapshot(url: url, directory: output.deletingLastPathComponent(),
                                                  pathExtension: "7z", disablesClone: testingDisablesClone)
         let reader = try ArchiveReader.open(source: snapshot.source, sourceURL: url,
-                                           options: SevenZipEditModel.readerOptions(password: password))
+                                           options: SevenZipEditModel.readerOptions(
+                                            password: password, readLimits: options.editingReadLimits, expansion: options.editingExpansionLimit
+                                           ))
         guard reader.format == .sevenZip else { throw UpdaterError.invalidArchive("7z ではありません") }
         let representable = try ArchiveRepresentability.validateRepresentability(entries: reader.entries, format: .sevenZip, reader: reader)
         guard let model = SevenZipEditModel.read(reader) else { throw UpdaterRouteError.requiresRewrite(reason: "no 7z editing snapshot") }
